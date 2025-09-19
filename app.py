@@ -8,12 +8,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 from flask import (
-    Flask, request, redirect, url_for, abort, render_template_string, session, flash
+    Flask, request, redirect, url_for, abort, render_template_string, session
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-# --- Backblaze B2 / S3 ---
+# ---- Backblaze B2 / S3 (boto3) ----
 import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
@@ -22,17 +22,14 @@ from botocore.exceptions import ClientError
 BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "files.db"
 
-# Uploadlimiet voor directe browser → B2 (geen streaming via server nodig)
-MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5 GB
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5 GB per upload (browser -> B2)
 
-# Eenvoudige login
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Richtprijs (alleen UI, niet in e-mail)
-CUSTOMER_PRICE_PER_TB_EUR = 12.0
+CUSTOMER_PRICE_PER_TB_EUR = 12.0  # alleen voor UI
 
-# SMTP (Brevo/Gmail/Outlook) via environment
+# SMTP via env
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -42,17 +39,17 @@ SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() == "true"
 SMTP_FROM = os.environ.get("SMTP_FROM")
 MAIL_TO = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
-# Backblaze B2 (S3-compatibel) via environment
+# B2 (S3-compatible) via env
 S3_BUCKET = os.environ.get("S3_BUCKET")             # bv. MiniTransfer
 S3_REGION = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL") # bv. https://s3.eu-central-003.backblazeb2.com
 
-# Boto3 client
+# ---- Belangrijk: path-style addressing voor B2 (werkt met hoofdletters in bucketnaam) ----
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
     endpoint_url=S3_ENDPOINT_URL,
-    config=BotoConfig(s3={"addressing_style": "virtual"})
+    config=BotoConfig(s3={"addressing_style": "path"})   # <— i.p.v. "virtual"
 )
 
 app = Flask(__name__)
@@ -77,7 +74,7 @@ def init_db():
             stored_path TEXT NOT NULL,      -- B2 object key
             original_name TEXT NOT NULL,
             password_hash TEXT,
-            expires_at TEXT NOT NULL,       -- ISO8601 in UTC
+            expires_at TEXT NOT NULL,       -- ISO8601 (UTC)
             size_bytes INTEGER NOT NULL,
             created_at TEXT NOT NULL
         )
@@ -94,6 +91,22 @@ def require_login() -> bool:
 def is_smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
+def send_email(to_addr: str, subject: str, body: str):
+    if not is_smtp_configured():
+        raise RuntimeError("SMTP niet geconfigureerd")
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM or SMTP_USER
+    msg["To"] = to_addr
+    msg.set_content(body)
+    if SMTP_USE_SSL:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
+            s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            if SMTP_USE_TLS: s.starttls()
+            s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+
 def safe_days(value: str, default_days: float = 24.0) -> timedelta:
     try:
         d = float(value)
@@ -109,25 +122,7 @@ def human_size(n: int) -> str:
         n /= 1024.0
     return f"{n:.1f} PB"
 
-def send_email(to_addr: str, subject: str, body: str):
-    if not is_smtp_configured():
-        raise RuntimeError("SMTP niet geconfigureerd")
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM or SMTP_USER
-    msg["To"] = to_addr
-    msg.set_content(body)
-    if SMTP_USE_SSL:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
-            s.login(SMTP_USER, SMTP_PASS)
-            s.send_message(msg)
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            if SMTP_USE_TLS: s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.send_message(msg)
-
-# ---------------------- UI templates ----------------------
+# ---------------------- TEMPLATES ----------------------
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -212,7 +207,6 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
 .note{font-size:.95rem;color:#334155;margin-top:.5rem}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.flash{background:#dcfce7;color:#166534;padding:.6rem .9rem;border-radius:10px;display:inline-block}
 .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.9rem;background:#2563eb;border:none;border-radius:10px;color:#fff;cursor:pointer}
 .footer{color:#334155;margin-top:1rem;text-align:center}
 </style></head><body>
@@ -222,10 +216,6 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
     <h1>Bestanden delen met Olde Hanter</h1>
     <div class="logout">Ingelogd als {{ user_email }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
-
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
-  {% endwith %}
 
   <form id="uploadForm" class="card" autocomplete="off">
     <label for="file">Bestand</label>
@@ -246,38 +236,21 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
     <p class="note">Max {{ max_mb }} MB per upload.</p>
   </form>
 
-  {% if link %}
-  <div class="card" style="margin-top:1rem">
-    <strong>Deelbare link</strong>
-    <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-      <input type="text" id="shareLink" value="{{ link }}" readonly>
-      <button class="copy-btn" onclick="copyLink()">Kopieer</button>
-    </div>
-  </div>
-  {% endif %}
-
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
 <script>
-  function copyLink(){
-    const el = document.getElementById('shareLink');
-    if(!el) return;
-    (navigator.clipboard?.writeText(el.value)||Promise.reject())
-      .then(()=>alert('Link gekopieerd'))
-      .catch(()=>{ el.select(); document.execCommand('copy'); alert('Link gekopieerd'); });
-  }
-
   const form = document.getElementById('uploadForm');
   const fileInput = document.getElementById('file');
+
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const file = fileInput.files[0];
     if(!file){ alert("Kies een bestand"); return; }
     const expiryDays = document.getElementById('expiry')?.value || '24';
-    const password = document.getElementById('pw')?.value || '';
+    const password   = document.getElementById('pw')?.value || '';
 
-    // 1) presigned POST opvragen
+    // 1) Vraag presigned PUT-URL
     const signRes = await fetch("{{ url_for('sign_upload') }}", {
       method: "POST",
       headers: {"Content-Type":"application/x-www-form-urlencoded"},
@@ -286,27 +259,32 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
     if(!signRes.ok){ alert("Kon upload niet voorbereiden"); return; }
     const sign = await signRes.json();
 
-    // 2) uploaden naar B2 (S3) via form POST
-    const fd = new FormData();
-    Object.entries(sign.fields).forEach(([k,v])=>fd.append(k,v));
-    fd.append("key", sign.key);
-    fd.append("file", file);
-    const s3Res = await fetch(sign.url, { method:"POST", body: fd });
-    if(!s3Res.ok){ alert("Upload naar opslag mislukt"); return; }
+    // 2) Upload direct naar B2 met PUT
+    const putRes = await fetch(sign.url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" }, // safest
+      body: file
+    });
+    if(!putRes.ok){ alert("Upload naar opslag mislukt"); return; }
 
-    // 3) finalize → metadata opslaan + link tonen
+    // 3) finalize → metadata opslaan + link terug
     const finRes = await fetch("{{ url_for('finalize') }}", {
       method: "POST",
       headers: {"Content-Type":"application/x-www-form-urlencoded"},
-      body: new URLSearchParams({ token: sign.token, key: sign.key, name: file.name, expiry_days: expiryDays, password: password })
+      body: new URLSearchParams({
+        token: sign.token, key: sign.key, name: file.name,
+        expiry_days: expiryDays, password: password
+      })
     });
     const fin = await finRes.json();
     if(fin.ok){
       const box = document.createElement('div');
-      box.className = 'card'; box.style.marginTop='1rem';
-      box.innerHTML = `<strong>Deelbare link</strong>
+      box.className = 'card';
+      box.style.margin = '1rem auto 0';
+      box.innerHTML = `
+        <strong>Deelbare link</strong>
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-          <input type="text" id="shareLink" value="${fin.link}" readonly>
+          <input type="text" id="shareLink" value="${fin.link}" readonly />
           <button class="copy-btn" onclick="(navigator.clipboard?.writeText('${fin.link}')||Promise.reject()).then(()=>alert('Link gekopieerd')).catch(()=>{ const el=document.getElementById('shareLink'); el.select(); document.execCommand('copy'); alert('Link gekopieerd'); })">Kopieer</button>
         </div>`;
       document.querySelector('.wrap').appendChild(box);
@@ -456,13 +434,12 @@ CONTACT_MAIL_HTML = """
 </head><body><div class="wrap"><div class="card"><h1>Aanvraag gereed</h1><p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p><a class="btn" href="{{ mailto_link }}">Open e-mail</a><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div></body></html>
 """
 
-# ---------------------- Routes ----------------------
+# ---------------------- ROUTES ----------------------
 @app.route("/", methods=["GET"])
 def home():
     if not require_login(): return redirect(url_for("login"))
     return render_template_string(
         INDEX_HTML,
-        link=None,
         max_mb=app.config["MAX_CONTENT_LENGTH"] // (1024*1024),
         user_email=session.get("user_email", AUTH_EMAIL),
     )
@@ -473,8 +450,7 @@ def login():
         email = (request.form.get("email") or "").strip()
         pw = request.form.get("password") or ""
         if email.lower() == AUTH_EMAIL.lower() and pw == AUTH_PASSWORD:
-            session["authed"] = True
-            session["user_email"] = email
+            session["authed"] = True; session["user_email"] = email
             return redirect(url_for("home"))
         return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.")
     return render_template_string(LOGIN_HTML, error=None)
@@ -483,40 +459,30 @@ def login():
 def logout():
     session.clear(); return redirect(url_for("login"))
 
-# ---------- Direct-to-B2 flow ----------
+# ------ Direct-to-B2: presigned PUT ------
 @app.route("/sign-upload", methods=["POST"])
 def sign_upload():
-    if not require_login():
-        return abort(401)
+    if not require_login(): return abort(401)
+
     filename = secure_filename(request.form.get("filename") or "upload.bin")
     size = int(request.form.get("size") or 0)
+    if size > MAX_CONTENT_LENGTH:
+        return {"error": "File too large"}, 400
 
-    app.logger.info(f"Sign upload request: filename={filename}, size={size}")
+    token = uuid.uuid4().hex[:10]
+    object_key = f"uploads/{token}__{filename}"
 
     try:
-        token = uuid.uuid4().hex[:10]
-        object_key = f"uploads/{token}__{filename}"
-
-        conditions = [
-            {"bucket": S3_BUCKET},
-            ["starts-with", "$key", "uploads/"],
-            ["content-length-range", 0, MAX_CONTENT_LENGTH],
-        ]
-        fields = {"acl": "private"}
-
-        post = s3.generate_presigned_post(
-            Bucket=S3_BUCKET,
-            Key=object_key,
-            Fields=fields,
-            Conditions=conditions,
-            ExpiresIn=900,
+        url = s3.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": S3_BUCKET, "Key": object_key},
+            ExpiresIn=3600  # 1 uur
         )
-
-        return {"token": token, "key": object_key, "url": post["url"], "fields": post["fields"]}
+        return {"token": token, "key": object_key, "url": url, "maxBytes": MAX_CONTENT_LENGTH}
     except Exception as e:
-        app.logger.error(f"Error in sign_upload: {e}")
+        app.logger.error(f"sign_upload error: {e}")
         return {"error": str(e)}, 500
-        
+
 @app.route("/finalize", methods=["POST"])
 def finalize():
     if not require_login(): return abort(401)
@@ -529,7 +495,8 @@ def finalize():
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=object_key)
         size_bytes = int(head["ContentLength"])
-    except ClientError:
+    except ClientError as e:
+        app.logger.error(f"finalize head_object error: {e}")
         return {"ok": False, "error": "Object niet gevonden"}, 400
 
     expires_at = (datetime.now(timezone.utc) + safe_days(expiry_days)).isoformat()
@@ -546,6 +513,7 @@ def finalize():
     link = url_for("download", token=token, _external=True)
     return {"ok": True, "link": link}
 
+# ------ Download ------
 @app.route("/d/<token>", methods=["GET","POST"])
 def download(token: str):
     con = get_db()
@@ -553,7 +521,7 @@ def download(token: str):
     con.close()
     if not row: abort(404)
 
-    # verlopen? → opruimen
+    # verlopen -> opruimen
     if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
         try: s3.delete_object(Bucket=S3_BUCKET, Key=row["stored_path"])
         except Exception: pass
@@ -604,7 +572,7 @@ def download_file(token: str):
     )
     return redirect(url)
 
-# ---------- Contact ----------
+# ------ Contact ------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
@@ -651,16 +619,25 @@ def contact():
         f"- Telefoonnummer: {phone}\n"
     )
 
-    if is_smtp_configured():
-        try:
+    try:
+        if is_smtp_configured():
             send_email(MAIL_TO, subject, body)
             return render_template_string(CONTACT_DONE_HTML)
-        except Exception:
-            mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
-            return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
-    else:
-        mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
-        return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
+    except Exception:
+        pass
+
+    # Fallback: open mail client
+    mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
+    return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
+
+# ------ Health check voor B2/S3 ------
+@app.route("/health-s3")
+def health_s3():
+    try:
+        s3.head_bucket(Bucket=S3_BUCKET)
+        return {"ok": True, "bucket": S3_BUCKET}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
 
 # ---------------------- Main ----------------------
 if __name__ == "__main__":
