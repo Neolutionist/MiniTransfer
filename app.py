@@ -4,22 +4,27 @@ Olde Hanter - MiniTransfer (Flask)
 - Login vereist voor uploaden (1 account)
   * E-mail: info@oldehanter.nl
   * Wachtwoord: Hulsmaat
-- Upload (tot 5 GB) met optioneel wachtwoord en verloop (in dagen, default 3)
+- Upload (tot 5 GB/request) met optioneel wachtwoord en verloop (in dagen, default 24)
+- Ondersteunt 'Map uploaden' (directory select) -> server-side ZIP met behoud van structuur
 - Deelbare link /d/<token> (branded downloadpagina)
 - Directe download via /dl/<token>
-- Verlooptijd op downloadpagina afgerond op minuten
+- Contactformulier (/contact) met login e-mail, opslag (TB) + prijs (2x kostprijs), bedrijfsnaam en telefoonnummer
 - SQLite metadata, lokale bestandsopslag
-- Simpele cleanup van verlopen bestanden op iedere request
+- Cleanup van verlopen bestanden op iedere request
 """
 
 import os
 import sqlite3
 import uuid
+import zipfile
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import (
-    Flask, request, redirect, url_for, send_file, abort, flash, render_template_string, session
+    Flask, request, redirect, url_for, send_file, abort, flash,
+    render_template_string, session
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -29,12 +34,15 @@ BASE_DIR = Path(__file__).parent.resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 DB_PATH = BASE_DIR / "files.db"
 
-MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5 GB per bestand
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5 GB per request
 ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 
-# Enig login-account (plaintext check voor eenvoud van POC)
+# Login voor upload (POC)
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
+
+# Kostprijs per TB/maand in euro (voor berekening offerte)
+STORAGE_COST_PER_TB_EUR = 6.0
 
 app = Flask(__name__)
 app.config.update(
@@ -98,12 +106,13 @@ def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def days_to_timedelta(days_str: str) -> timedelta:
+    # Default 24 dagen
     try:
         d = float(days_str)
         if d <= 0:
-            d = 3.0
+            d = 24.0
     except Exception:
-        d = 3.0
+        d = 24.0
     return timedelta(days=d)
 
 def human_size(n: int) -> str:
@@ -114,9 +123,23 @@ def human_size(n: int) -> str:
     return f"{n:.1f} PB"
 
 def require_login():
-    if not session.get("authed"):
-        return False
-    return True
+    return bool(session.get("authed"))
+
+def _safe_relpath(p: str) -> str:
+    """
+    Maak een veilige relatieve padnaam (voor in ZIP).
+    Strip eventuele leidende './' of 'C:\\' etc. en voorkom '..'.
+    """
+    p = p.replace("\\", "/")
+    parts = []
+    for seg in p.split("/"):
+        if not seg or seg in (".",):
+            continue
+        if seg == "..":
+            # negeer bovenliggende referenties
+            continue
+        parts.append(seg)
+    return "/".join(parts)
 
 # ---------------------- Templates ----------------------
 LOGIN_HTML = """
@@ -165,13 +188,13 @@ INDEX_HTML = """
   <style>
     *,*::before,*::after{box-sizing:border-box}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
-    .wrap{max-width:820px;margin:3rem auto;padding:0 1rem}
+    .wrap{max-width:900px;margin:3rem auto;padding:0 1rem}
     .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
     h1{margin:.25rem 0 1rem;color:#003366;font-size:2.1rem}
     label{display:block;margin:.55rem 0 .25rem;font-weight:600}
     input[type=file], input[type=text], input[type=password], input[type=number]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-    @media (max-width:720px){.grid{grid-template-columns:1fr}}
+    @media (max-width:900px){.grid{grid-template-columns:1fr}}
     .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
     .note{font-size:.95rem;color:#6b7280;margin-top:.5rem}
     .flash{background:#dcfce7;color:#166534;padding:.5rem 1rem;border-radius:8px;display:inline-block}
@@ -180,6 +203,8 @@ INDEX_HTML = """
     .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem}
     .logout{font-size:.95rem}
     .logout a{color:#003366;text-decoration:none;font-weight:700}
+    .row{display:flex;align-items:center;gap:.6rem}
+    .hint{font-size:.9rem;color:#6b7280}
   </style>
 </head>
 <body>
@@ -194,13 +219,18 @@ INDEX_HTML = """
     {% endwith %}
 
     <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card">
-      <label for="file">Bestand</label>
-      <input id="file" type="file" name="file" required />
+      <label for="file">Bestanden of map</label>
+      <input id="file" type="file" name="file" multiple required />
+      <div class="row">
+        <input type="checkbox" id="folderMode" name="folder_mode" value="1" />
+        <label for="folderMode" style="margin:0">Map uploaden</label>
+        <span class="hint">(zet de kiezer in map-modus; we maken er automatisch één .zip van)</span>
+      </div>
 
       <div class="grid" style="margin-top:.6rem">
         <div>
           <label for="expiry">Verloopt over (dagen)</label>
-          <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="3" />
+          <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="24" />
         </div>
         <div>
           <label for="pw">Wachtwoord (optioneel)</label>
@@ -209,7 +239,7 @@ INDEX_HTML = """
       </div>
 
       <button class="btn" type="submit">Uploaden</button>
-      <p class="note">Max {{ max_mb }} MB per bestand.</p>
+      <p class="note">Max {{ max_mb }} MB per request (bij map-upload telt alles samen).</p>
     </form>
 
     {% if link %}
@@ -226,6 +256,21 @@ INDEX_HTML = """
     <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
   <script>
+    // Zet file input in directory-modus als "Map uploaden" is aangevinkt
+    const folderCb = document.getElementById('folderMode');
+    const fileInput = document.getElementById('file');
+    function applyFolderMode(){
+      if(folderCb.checked){
+        fileInput.setAttribute('webkitdirectory','');
+        fileInput.setAttribute('directory','');
+      }else{
+        fileInput.removeAttribute('webkitdirectory');
+        fileInput.removeAttribute('directory');
+      }
+    }
+    folderCb.addEventListener('change', applyFolderMode);
+    applyFolderMode();
+
     function copyLink(){
       const el = document.getElementById('shareLink');
       navigator.clipboard?.writeText(el.value).then(()=>{alert('Link gekopieerd');}).catch(()=>{
@@ -312,9 +357,7 @@ DOWNLOAD_HTML = """
 
       <div class="contact">
         <div>Interesse in een eigen transfer-oplossing?</div>
-        <a href="mailto:Patrick@oldehanter.nl?subject=Eigen%20transfer%20oplossing&body=wil%20je%20zelf%20ook%20een%20eigen%20transfer%20oplossing%20voor%2030%20euro%20per%20maand%20en%201tb%20opslag%2C%20stuur%20een%20mailtje">
-          Neem contact op
-        </a>
+        <a href="{{ url_for('contact') }}">Vraag offerte / stel samen</a>
       </div>
 
       <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
@@ -332,10 +375,121 @@ DOWNLOAD_HTML = """
 </html>
 """
 
+CONTACT_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Eigen transfer-oplossing - Olde Hanter</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:720px;margin:3rem auto;padding:0 1rem}
+    .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    h1{margin:.25rem 0 1rem;color:#003366}
+    label{display:block;margin:.55rem 0 .25rem;font-weight:600}
+    input, select, textarea{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    @media (max-width:720px){.grid{grid-template-columns:1fr}}
+    .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
+    .note{font-size:.95rem;color:#6b7280;margin-top:.5rem}
+    .price{font-weight:800}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Eigen transfer-oplossing aanvragen</h1>
+      <form method="post" action="{{ url_for('contact') }}">
+        <div class="grid">
+          <div>
+            <label for="login_email">Gewenste inlog-e-mail</label>
+            <input id="login_email" name="login_email" type="email" placeholder="naam@bedrijf.nl" required />
+          </div>
+          <div>
+            <label for="storage_tb">Gewenste opslaggrootte</label>
+            <select id="storage_tb" name="storage_tb" required onchange="updatePrice()">
+              <option value="0.5">0,5 TB</option>
+              <option value="1" selected>1 TB</option>
+              <option value="2">2 TB</option>
+              <option value="5">5 TB</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top:1rem">
+          <div>
+            <label for="company">Bedrijfsnaam</label>
+            <input id="company" name="company" type="text" placeholder="Bedrijfsnaam BV" />
+          </div>
+          <div>
+            <label for="phone">Telefoonnummer</label>
+            <input id="phone" name="phone" type="tel" placeholder="+31 6 12345678" />
+          </div>
+        </div>
+
+        <p class="note">
+          Jouw kostprijs (inschatting opslag): €<span id="cost_host">{{ host_cost_eur }}</span>/maand —
+          Onze prijs: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
+        </p>
+
+        <button class="btn" type="submit">Maak e-mail met aanvraag</button>
+      </form>
+      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    </div>
+  </div>
+  <script>
+    const base = {{ base_cost }};
+    const storageSel = document.getElementById('storage_tb');
+    const hostEl = document.getElementById('cost_host');
+    const offerEl = document.getElementById('cost_offer');
+    function updatePrice(){
+      const tb = parseFloat(storageSel.value || "1");
+      const host = tb * base;
+      const offer = host * 2;
+      hostEl.textContent = host.toFixed(2).replace('.', ',');
+      offerEl.textContent = offer.toFixed(2).replace('.', ',');
+    }
+    updatePrice();
+  </script>
+</body>
+</html>
+"""
+
+CONTACT_MAIL_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aanvraag klaarzetten</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:680px;margin:3rem auto;padding:0 1rem}
+    .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    .btn{display:inline-block;margin-top:1rem;padding:.95rem 1.2rem;border-radius:10px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Aanvraag gereed</h1>
+      <p>Klik op de knop hieronder om de e-mail te openen aan Patrick met je aanvraag.</p>
+      <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
+      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
 # ---------------------- Routes ----------------------
 @app.route("/", methods=["GET"])
 def home():
-    # Alleen geauthenticeerde gebruikers naar uploadscherm
     if not require_login():
         return redirect(url_for("login"))
     return render_template_string(
@@ -368,34 +522,71 @@ def upload():
     if not require_login():
         return redirect(url_for("login"))
 
-    f = request.files.get("file")
-    if not f or f.filename == "":
+    # Meerdere files mogelijk (ook directory-mode)
+    files = request.files.getlist("file")
+    if not files or all(f.filename == "" for f in files):
         flash("Geen bestand geselecteerd")
         return redirect(url_for("home"))
 
-    filename = secure_filename(f.filename)
-    if not allowed_file(filename):
-        flash("Bestandstype niet toegestaan")
-        return redirect(url_for("home"))
-
-    token = uuid.uuid4().hex[:10]
-    stored_name = f"{token}__{filename}"
-    stored_path = str((UPLOAD_DIR / stored_name).resolve())
-    f.save(stored_path)
-
-    size_bytes = Path(stored_path).stat().st_size
-
-    # DAGEN i.p.v. uren (default 3)
-    expiry_td = days_to_timedelta(request.form.get("expiry_days", "3"))
+    folder_mode = request.form.get("folder_mode") == "1"
+    expiry_td = days_to_timedelta(request.form.get("expiry_days", "24"))
     expires_at = (datetime.now(timezone.utc) + expiry_td).isoformat()
-
     pw = request.form.get("password") or ""
     pw_hash = generate_password_hash(pw) if pw else None
+
+    token = uuid.uuid4().hex[:10]
+
+    # Als er meerdere bestanden zijn of folder_mode aan staat -> ZIP maken
+    if len(files) > 1 or folder_mode:
+        # Bepaal zip-naam
+        # Neem mapnaam van eerste file als beschikbaar, anders 'map'
+        first_name = files[0].filename or "map"
+        first_name = _safe_relpath(first_name)
+        top = first_name.split("/", 1)[0] if "/" in first_name else (first_name or "map")
+        top = secure_filename(top) or "map"
+
+        zip_name = f"{token}__{top}.zip"
+        zip_path = (UPLOAD_DIR / zip_name).resolve()
+
+        # Tijdelijke directory om bestanden te schrijven (optioneel)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for f in files:
+                if f and f.filename:
+                    rel = _safe_relpath(f.filename)
+                    if not rel:
+                        # fallback naar originele naam
+                        rel = secure_filename(f.filename)
+                    # Schrijf direct stream naar zip (tussenstap via temp is stabieler bij sommige servers)
+                    with tempfile.NamedTemporaryFile(delete=True) as tmp:
+                        f.save(tmp.name)
+                        # Zorg dat pad in zip altijd relative is
+                        zf.write(tmp.name, arcname=rel)
+
+        stored_path = str(zip_path)
+        original_name = zip_path.name
+        size_bytes = zip_path.stat().st_size
+    else:
+        # Eén bestand
+        f = files[0]
+        if f.filename == "":
+            flash("Ongeldig bestand")
+            return redirect(url_for("home"))
+
+        filename = secure_filename(f.filename)
+        if not allowed_file(filename):
+            flash("Bestandstype niet toegestaan")
+            return redirect(url_for("home"))
+
+        stored_name = f"{token}__{filename}"
+        stored_path = str((UPLOAD_DIR / stored_name).resolve())
+        f.save(stored_path)
+        original_name = filename
+        size_bytes = Path(stored_path).stat().st_size
 
     con = get_db()
     con.execute(
         "INSERT INTO files(token, stored_path, original_name, password_hash, expires_at, size_bytes, created_at) VALUES(?,?,?,?,?,?,?)",
-        (token, stored_path, filename, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()),
+        (token, stored_path, original_name, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()),
     )
     con.commit()
     con.close()
@@ -466,6 +657,47 @@ def download_file(token: str):
     if not path.exists():
         abort(404)
     return send_file(path, as_attachment=True, download_name=row["original_name"])
+
+# Contact / offerte
+@app.route("/contact", methods=["GET", "POST"])
+def contact():
+    if request.method == "GET":
+        # default: 1 TB
+        host_cost = 1.0 * STORAGE_COST_PER_TB_EUR
+        offer_cost = host_cost * 2
+        return render_template_string(
+            CONTACT_HTML,
+            base_cost=STORAGE_COST_PER_TB_EUR,
+            host_cost_eur=f"{host_cost:.2f}".replace('.', ','),
+            offer_cost_eur=f"{offer_cost:.2f}".replace('.', ','),
+        )
+
+    # POST: maak mailto-link met ingevulde gegevens
+    login_email = (request.form.get("login_email") or "").strip()
+    try:
+        storage_tb = float(request.form.get("storage_tb") or "1")
+    except Exception:
+        storage_tb = 1.0
+    company = (request.form.get("company") or "").strip()
+    phone = (request.form.get("phone") or "").strip()
+
+    host_cost = storage_tb * STORAGE_COST_PER_TB_EUR
+    offer_cost = host_cost * 2
+
+    subject = "Aanvraag eigen transfer oplossing"
+    body = (
+        "wil je zelf ook een eigen transfer oplossing voor 30 euro per maand en 1tb opslag, stuur een mailtje\n\n"
+        "— Gegevens aanvraag —\n"
+        f"Gewenste inlog-e-mail: {login_email}\n"
+        f"Gewenste opslag: {storage_tb} TB\n"
+        f"Bedrijfsnaam: {company}\n"
+        f"Telefoonnummer: {phone}\n"
+        f"Jouw kostprijs (inschatting opslag): €{host_cost:.2f}/maand\n"
+        f"Onze prijs (2x kostprijs): €{offer_cost:.2f}/maand\n"
+    )
+
+    mailto = f"mailto:Patrick@oldehanter.nl?subject={quote(subject)}&body={quote(body)}"
+    return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
 
 # ---------------------- Main ----------------------
 if __name__ == "__main__":
