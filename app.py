@@ -243,31 +243,56 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
   const form = document.getElementById('uploadForm');
   const fileInput = document.getElementById('file');
 
+  function showErr(where, res, text) {
+    const extra = text ? `\n\n${text}` : '';
+    alert(`${where} mislukt (status ${res.status} ${res.statusText}).${extra}`);
+  }
+
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const file = fileInput.files[0];
     if(!file){ alert("Kies een bestand"); return; }
+
     const expiryDays = document.getElementById('expiry')?.value || '24';
     const password   = document.getElementById('pw')?.value || '';
 
-    // 1) Vraag presigned PUT-URL
-    const signRes = await fetch("{{ url_for('sign_upload') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/x-www-form-urlencoded"},
-      body: new URLSearchParams({ filename: file.name, size: file.size })
-    });
-    if(!signRes.ok){ alert("Kon upload niet voorbereiden"); return; }
+    // 1) presigned PUT ophalen
+    let signRes;
+    try {
+      signRes = await fetch("{{ url_for('sign_upload') }}", {
+        method: "POST",
+        headers: {"Content-Type":"application/x-www-form-urlencoded"},
+        body: new URLSearchParams({ filename: file.name, size: file.size })
+      });
+    } catch (e) {
+      alert("Kan geen verbinding maken met de server (/sign-upload).");
+      return;
+    }
+    if(!signRes.ok){
+      const t = await signRes.text().catch(()=>null);
+      showErr("Voorbereiden upload", signRes, t);
+      return;
+    }
     const sign = await signRes.json();
 
-    // 2) Upload direct naar B2 met PUT
-    const putRes = await fetch(sign.url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/octet-stream" }, // safest
-      body: file
-    });
-    if(!putRes.ok){ alert("Upload naar opslag mislukt"); return; }
+    // 2) direct PUT naar B2 — GEEN extra headers zetten (bepaalde headers breken de signature)
+    let putRes;
+    try {
+      putRes = await fetch(sign.url, {
+        method: "PUT",
+        body: file
+      });
+    } catch (e) {
+      alert("Upload naar opslag kon niet gestart worden (netwerkfout).");
+      return;
+    }
+    if(!putRes.ok){
+      const t = await putRes.text().catch(()=>null);
+      showErr("Upload naar opslag", putRes, t);
+      return;
+    }
 
-    // 3) finalize → metadata opslaan + link terug
+    // 3) finalize
     const finRes = await fetch("{{ url_for('finalize') }}", {
       method: "POST",
       headers: {"Content-Type":"application/x-www-form-urlencoded"},
@@ -276,7 +301,13 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
         expiry_days: expiryDays, password: password
       })
     });
+    if(!finRes.ok){
+      const t = await finRes.text().catch(()=>null);
+      showErr("Opslaan metadata", finRes, t);
+      return;
+    }
     const fin = await finRes.json();
+
     if(fin.ok){
       const box = document.createElement('div');
       box.className = 'card';
@@ -285,11 +316,16 @@ input[type=file],input[type=text],input[type=password],input[type=number]{width:
         <strong>Deelbare link</strong>
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
           <input type="text" id="shareLink" value="${fin.link}" readonly />
-          <button class="copy-btn" onclick="(navigator.clipboard?.writeText('${fin.link}')||Promise.reject()).then(()=>alert('Link gekopieerd')).catch(()=>{ const el=document.getElementById('shareLink'); el.select(); document.execCommand('copy'); alert('Link gekopieerd'); })">Kopieer</button>
+          <button class="copy-btn"
+            onclick="(navigator.clipboard?.writeText('${fin.link}')||Promise.reject())
+                     .then(()=>alert('Link gekopieerd'))
+                     .catch(()=>{ const el=document.getElementById('shareLink'); el.select(); document.execCommand('copy'); alert('Link gekopieerd'); })">
+            Kopieer
+          </button>
         </div>`;
       document.querySelector('.wrap').appendChild(box);
     }else{
-      alert('Opslaan mislukt');
+      alert('Opslaan mislukt: ' + (fin.error || 'onbekende fout'));
     }
   });
 </script>
