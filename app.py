@@ -367,22 +367,99 @@ DOWNLOAD_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Download bestand - Olde Hanter</title>
   <style>
+    /* Basis */
     *,*::before,*::after{box-sizing:border-box}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef2f7;color:#111827;margin:0}
+    :root{
+      --bg1:#0ea5e9; /* cyan-500 */
+      --bg2:#6366f1; /* indigo-500 */
+      --bg3:#22c55e; /* green-500 */
+      --panel-bg: rgba(255,255,255,.75);
+      --panel-border: rgba(255,255,255,.35);
+    }
+    html,body{height:100%}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      color:#111827;
+      margin:0;
+      min-height:100%;
+      position:relative;
+      overflow-x:hidden;
+    }
+
+    /* Dynamische achtergrond (zuinig en modern) */
+    .bg-anim{
+      position:fixed;
+      inset:0;
+      z-index:-2;
+      background:
+        radial-gradient(60vmax 60vmax at 20% 20%, var(--bg1) 0%, transparent 60%),
+        radial-gradient(50vmax 50vmax at 80% 30%, var(--bg2) 0%, transparent 60%),
+        radial-gradient(55vmax 55vmax at 40% 80%, var(--bg3) 0%, transparent 60%),
+        linear-gradient(180deg, #eef2f7 0%, #eaeef5 100%);
+      filter:saturate(1.05) contrast(1.02);
+    }
+    .bg-anim::before{
+      content:"";
+      position:absolute; inset:-10%;
+      background:
+        radial-gradient(40% 60% at 20% 30%, rgba(255,255,255,.35), transparent),
+        radial-gradient(50% 70% at 80% 20%, rgba(255,255,255,.25), transparent);
+      animation:bgFloat 16s linear infinite;
+      will-change: transform;
+    }
+    .bg-anim::after{
+      content:"";
+      position:absolute; inset:-10%;
+      background:
+        radial-gradient(35% 50% at 60% 70%, rgba(255,255,255,.25), transparent),
+        radial-gradient(45% 55% at 30% 80%, rgba(255,255,255,.2), transparent);
+      animation:bgFloat2 24s linear infinite;
+      will-change: transform;
+    }
+
+    @keyframes bgFloat{
+      0%   { transform: translate3d(0,0,0) rotate(0deg) }
+      50%  { transform: translate3d(1.5%, -1.5%, 0) rotate(180deg) }
+      100% { transform: translate3d(0,0,0) rotate(360deg) }
+    }
+    @keyframes bgFloat2{
+      0%   { transform: translate3d(0,0,0) rotate(0deg) }
+      50%  { transform: translate3d(-1.25%, 1.25%, 0) rotate(-180deg) }
+      100% { transform: translate3d(0,0,0) rotate(-360deg) }
+    }
+
+    /* Respecteer reduced motion */
+    @media (prefers-reduced-motion: reduce){
+      .bg-anim::before,
+      .bg-anim::after{ animation: none }
+    }
+
+    /* Layout */
     .wrap{max-width:820px;margin:3.5rem auto;padding:0 1rem}
-    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06);padding:1.5rem}
+    .panel{
+      background:var(--panel-bg);
+      border:1px solid var(--panel-border);
+      border-radius:16px;
+      box-shadow:0 12px 30px rgba(0,0,0,.08);
+      padding:1.5rem;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
     .meta{margin:.5rem 0 1rem;color:#374151}
     .btn{display:inline-block;padding:.95rem 1.25rem;background:#003366;color:#fff;border-radius:10px;text-decoration:none;font-weight:700}
     .muted{color:#6b7280;font-size:.95rem}
-    .linkbox{margin-top:1rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:.75rem}
-    input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db}
+    .linkbox{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:10px;padding:.75rem;backdrop-filter: blur(6px)}
+    input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
     .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.85rem;background:#2563eb;border:none;border-radius:8px;color:#fff;cursor:pointer}
-    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+    .footer{color:#334155;margin-top:1rem;text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.5)}
     .contact{margin-top:1rem;text-align:center}
     .contact a{display:inline-block;margin-top:.5rem;padding:.7rem 1rem;border-radius:10px;background:#e5e7eb;color:#111827;text-decoration:none;font-weight:700}
   </style>
 </head>
 <body>
+  <!-- Dynamische, zuinige achtergrond -->
+  <div class="bg-anim" aria-hidden="true"></div>
+
   <div class="wrap">
     <div class="panel">
       <h1>Download bestand</h1>
@@ -410,10 +487,11 @@ DOWNLOAD_HTML = """
       <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
+
   <script>
     function copyLink(){
       const el = document.getElementById('shareLink');
-      navigator.clipboard?.writeText(el.value).then(()=>{alert('Link gekopieerd');}).catch(()=>{
+      (navigator.clipboard?.writeText(el.value) || Promise.reject()).then(()=>{alert('Link gekopieerd');}).catch(()=>{
         el.select(); el.setSelectionRange(0, 99999); document.execCommand('copy'); alert('Link gekopieerd');
       });
     }
