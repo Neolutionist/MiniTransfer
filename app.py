@@ -186,34 +186,113 @@ LOGIN_HTML = """
   <title>Inloggen - Olde Hanter Transfer</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
-    .wrap{max-width:480px;margin:4rem auto;padding:2rem;background:#fff;border-radius:16px;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    h1{margin-top:0;color:#003366}
-    label{display:block;margin:.6rem 0 .25rem;font-weight:600}
-    input{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db}
-    button{margin-top:1rem;padding:.9rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
-    .flash{background:#fee2e2;color:#991b1b;padding:.5rem 1rem;border-radius:8px;margin-bottom:1rem}
-    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+    :root{
+      --bg1:#60a5fa; /* blue-400 */
+      --bg2:#a78bfa; /* violet-400 */
+      --bg3:#34d399; /* emerald-400 */
+      --panel-bg: rgba(255,255,255,.8);
+      --panel-border: rgba(255,255,255,.45);
+      --text:#0f172a;
+      --brand:#003366;
+    }
+    html,body{height:100%}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      color:var(--text);
+      margin:0;
+      min-height:100%;
+      position:relative;
+      overflow-x:hidden;
+    }
+
+    /* Dynamische, efficiënte achtergrond */
+    .bg-anim{
+      position:fixed; inset:0; z-index:-2;
+      background:
+        radial-gradient(60vmax 60vmax at 15% 25%, var(--bg1) 0%, transparent 60%),
+        radial-gradient(55vmax 55vmax at 85% 20%, var(--bg2) 0%, transparent 60%),
+        radial-gradient(60vmax 60vmax at 50% 90%, var(--bg3) 0%, transparent 60%),
+        linear-gradient(180deg, #eef2f7 0%, #e9eef6 100%);
+      filter:saturate(1.05) contrast(1.02);
+    }
+    .bg-anim::before,
+    .bg-anim::after{
+      content:""; position:absolute; inset:-8%;
+      will-change:transform;
+    }
+    .bg-anim::before{
+      background:
+        radial-gradient(40% 60% at 20% 30%, rgba(255,255,255,.35), transparent),
+        radial-gradient(50% 60% at 80% 25%, rgba(255,255,255,.25), transparent);
+      animation:bgFloat 16s linear infinite;
+    }
+    .bg-anim::after{
+      background:
+        radial-gradient(35% 50% at 60% 70%, rgba(255,255,255,.22), transparent),
+        radial-gradient(45% 55% at 30% 80%, rgba(255,255,255,.18), transparent);
+      animation:bgFloat2 22s linear infinite;
+    }
+    @keyframes bgFloat{
+      0%{transform:translate3d(0,0,0) rotate(0)}
+      50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}
+      100%{transform:translate3d(0,0,0) rotate(360deg)}
+    }
+    @keyframes bgFloat2{
+      0%{transform:translate3d(0,0,0) rotate(0)}
+      50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}
+      100%{transform:translate3d(0,0,0) rotate(-360deg)}
+    }
+    @media (prefers-reduced-motion: reduce){
+      .bg-anim::before,.bg-anim::after{animation:none}
+    }
+
+    /* Login card (glass) */
+    .wrap{
+      max-width:520px; margin:6vh auto; padding:0 1rem;
+    }
+    .card{
+      padding:2rem; background:var(--panel-bg);
+      border:1px solid var(--panel-border); border-radius:18px;
+      box-shadow:0 18px 40px rgba(0,0,0,.12);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    h1{margin:0 0 1rem; color:var(--brand)}
+    label{display:block; margin:.6rem 0 .25rem; font-weight:600}
+    input{
+      width:100%; padding:.9rem 1rem; border-radius:12px;
+      border:1px solid #d1d5db; background:#fff;
+    }
+    button{
+      margin-top:1rem; padding:.95rem 1.2rem; border:0; border-radius:12px;
+      background:var(--brand); color:#fff; font-weight:700; cursor:pointer;
+      box-shadow:0 4px 14px rgba(0,51,102,.25);
+    }
+    .flash{background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem}
+    .footer{color:#334155;margin-top:1rem;text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.5)}
   </style>
 </head>
 <body>
+  <div class="bg-anim" aria-hidden="true"></div>
+
   <div class="wrap">
-    <h1>Inloggen</h1>
-    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
-    <form method="post" autocomplete="on">
-      <label for="email">E-mail</label>
-      <input id="email"
-             name="email"
-             type="email"
-             placeholder="info@oldehanter.nl"
-             value="info@oldehanter.nl"
-             autocomplete="username"
-             required />
-      <label for="pw">Wachtwoord</label>
-      <input id="pw" name="password" type="password" placeholder="Wachtwoord" required />
-      <button type="submit">Inloggen</button>
-    </form>
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    <div class="card">
+      <h1>Inloggen</h1>
+      {% if error %}<div class="flash">{{ error }}</div>{% endif %}
+      <form method="post" autocomplete="on">
+        <label for="email">E-mail</label>
+        <input id="email"
+               name="email"
+               type="email"
+               placeholder="info@oldehanter.nl"
+               value="info@oldehanter.nl"
+               autocomplete="username"
+               required />
+        <label for="pw">Wachtwoord</label>
+        <input id="pw" name="password" type="password" placeholder="Wachtwoord" required />
+        <button type="submit">Inloggen</button>
+      </form>
+      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    </div>
   </div>
 </body>
 </html>
