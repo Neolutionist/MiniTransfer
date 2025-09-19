@@ -464,10 +464,10 @@ CONTACT_HTML = """
           </div>
         </div>
 
-        <p class="note">
-          Richtprijs voor de klant: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
-          (op basis van <span id="tb_val">1</span> TB).
-        </p>
+<p class="note">
+  Richtprijs: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
+  (op basis van <span id="tb_val">1</span> TB).
+</p>
 
         <button class="btn" type="submit">Verstuur aanvraag</button>
       </form>
