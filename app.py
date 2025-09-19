@@ -4,10 +4,10 @@
 import os, sqlite3, uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
 
 from flask import (
-    Flask, request, redirect, url_for, abort, render_template_string, session, jsonify
+    Flask, request, redirect, url_for, abort, render_template_string,
+    session, jsonify
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -20,17 +20,20 @@ from botocore.exceptions import ClientError
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files.db"
 
+# Login (één account zoals afgesproken)
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
+# Relay upload limiet (via server, om CORS te vermijden)
 MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "200"))
 MAX_RELAY_BYTES = MAX_RELAY_MB * 1024 * 1024
 
-S3_BUCKET       = os.environ["S3_BUCKET"]
+# Backblaze B2 S3-compatibele settings (Render env vars)
+S3_BUCKET       = os.environ["S3_BUCKET"]                # bv. MiniTransfer
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
-S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
+S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]          # bv. https://s3.eu-central-003.backblazeb2.com
 
-# Path-style addressing (werkt ook als je bucket hoofdletters heeft)
+# Path-style addressing → werkt ook met hoofdletters in bucketnaam
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
@@ -64,61 +67,86 @@ def init_db():
 
 init_db()
 
-# -------------- TEMPLATES --------------
-INDEX_HTML = """
+# -------------- TEMPLATES: gedeelde stijl (glassy + dynamische bg) --------------
+BASE_CSS = """
+*,*:before,*:after{box-sizing:border-box}
+:root{
+  --bg1:#60a5fa; --bg2:#a78bfa; --bg3:#34d399;
+  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  --brand:#003366; --text:#0f172a;
+}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
+.bg{position:fixed;inset:0;z-index:-2;background:
+  radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
+  radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
+  radial-gradient(60vmax 60vmax at 50% 90%,var(--bg3) 0%,transparent 60%),
+  linear-gradient(180deg,#eef2f7 0%,#e9eef6 100%)}
+.bg:before,.bg:after{content:"";position:absolute;inset:-8%;will-change:transform}
+.bg:before{background:
+  radial-gradient(40% 60% at 20% 30%,rgba(255,255,255,.35),transparent),
+  radial-gradient(50% 60% at 80% 25%,rgba(255,255,255,.25),transparent);
+  animation:f1 16s linear infinite}
+.bg:after{background:
+  radial-gradient(35% 50% at 60% 70%,rgba(255,255,255,.22),transparent),
+  radial-gradient(45% 55% at 30% 80%,rgba(255,255,255,.18),transparent);
+  animation:f2 22s linear infinite}
+@keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
+@keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
+@media (prefers-reduced-motion:reduce){.bg:before,.bg:after{animation:none}}
+.wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
+.card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
+      border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
+.btn{padding:.95rem 1.2rem;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,51,102,.25)}
+.footer{color:#334155;margin-top:1.2rem;text-align:center}
+"""
+
+LOGIN_HTML = f"""
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inloggen – Olde Hanter</title>
+<style>
+{BASE_CSS}
+h1{{color:var(--brand);margin:0 0 1rem}}
+label{{display:block;margin:.55rem 0 .25rem;font-weight:600}}
+input{{width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}}
+.wrap{{max-width:520px}}
+</style></head><body>
+<div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card">
+  <h1>Inloggen</h1>
+  {{% if error %}}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{{{ error }}}}</div>{{% endif %}}
+  <form method="post" autocomplete="on">
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" value="info@oldehanter.nl" autocomplete="username" required>
+    <label for="pw">Wachtwoord</label>
+    <input id="pw" name="password" type="password" placeholder="Wachtwoord" autocomplete="current-password" required>
+    <button class="btn" type="submit" style="margin-top:1rem">Inloggen</button>
+  </form>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
+"""
+
+INDEX_HTML = f"""
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Olde Hanter – Upload</title>
 <style>
-  *,*:before,*:after{box-sizing:border-box}
-  :root{
-    --bg1:#60a5fa; --bg2:#a78bfa; --bg3:#34d399;
-    --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
-    --brand:#003366; --text:#0f172a;
-  }
-  html,body{height:100%}
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-
-  /* Dynamische achtergrond */
-  .bg{position:fixed;inset:0;z-index:-2;background:
-      radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
-      radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
-      radial-gradient(60vmax 60vmax at 50% 90%,var(--bg3) 0%,transparent 60%),
-      linear-gradient(180deg,#eef2f7 0%,#e9eef6 100%);}
-  .bg:before,.bg:after{content:"";position:absolute;inset:-8%;will-change:transform}
-  .bg:before{background:
-      radial-gradient(40% 60% at 20% 30%,rgba(255,255,255,.35),transparent),
-      radial-gradient(50% 60% at 80% 25%,rgba(255,255,255,.25),transparent);
-      animation:f1 16s linear infinite}
-  .bg:after{background:
-      radial-gradient(35% 50% at 60% 70%,rgba(255,255,255,.22),transparent),
-      radial-gradient(45% 55% at 30% 80%,rgba(255,255,255,.18),transparent);
-      animation:f2 22s linear infinite}
-  @keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
-  @keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
-  @media (prefers-reduced-motion:reduce){.bg:before,.bg:after{animation:none}}
-
-  .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-  h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
-  .logout a{color:var(--brand);text-decoration:none;font-weight:700}
-
-  /* Glassy kaart */
-  .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
-        border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
-  label{display:block;margin:.55rem 0 .25rem;font-weight:600}
-  input[type=file],input[type=number],input[type=password]{
-      width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
-  .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,51,102,.25)}
-  .note{font-size:.95rem;color:#334155;margin-top:.5rem}
-  .footer{color:#334155;margin-top:1.2rem;text-align:center}
+{BASE_CSS}
+.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}}
+h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
+.logout a{{color:var(--brand);text-decoration:none;font-weight:700}}
+label{{display:block;margin:.55rem 0 .25rem;font-weight:600}}
+input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}}
+.note{{font-size:.95rem;color:#334155;margin-top:.5rem}}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    <div class="logout">Ingelogd als {{{{ user }}}} • <a href="{{{{ url_for('logout') }}}}">Uitloggen</a></div>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
@@ -136,8 +164,8 @@ INDEX_HTML = """
       </div>
     </div>
 
-    <button class="btn" type="submit">Uploaden</button>
-    <p class="note">Max {{ max_mb }} MB via server-relay.</p>
+    <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
+    <p class="note">Max {{{{ max_mb }}}} MB via server-relay.</p>
   </form>
 
   <div id="result"></div>
@@ -151,27 +179,24 @@ INDEX_HTML = """
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    if(!file.files[0]){ return alert("Kies een bestand"); }
+    if(!file.files[0]){{ return alert("Kies een bestand"); }}
     const fd = new FormData(form);
 
     let res;
-    try{
-      res = await fetch("{{ url_for('upload_relay') }}", { method:"POST", body: fd });
-    }catch(e){
-      return alert("Verbinding met server mislukt.");
-    }
-    const data = await res.json().catch(()=>({ok:false,error:"Onbekende fout"}));
-    if(!res.ok || !data.ok){ return alert(data.error || ("Fout: "+res.status)); }
+    try{{ res = await fetch("{{{{ url_for('upload_relay') }}}}", {{ method:"POST", body: fd }}); }}
+    catch(e){{ return alert("Verbinding met server mislukt."); }}
+
+    const data = await res.json().catch(()=>({{ok:false,error:"Onbekende fout"}}));
+    if(!res.ok || !data.ok){{ return alert(data.error || ("Fout: "+res.status)); }}
 
     resBox.innerHTML = `
       <div class="card" style="margin-top:1rem">
         <strong>Deelbare link</strong>
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
+          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${{data.link}}" readonly>
           <button class="btn" type="button"
-            onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject())
-                     .then(()=>alert('Link gekopieerd'))
-                     .catch(()=>{ /* fallback */ })">
+            onclick="(navigator.clipboard?.writeText('${{data.link}}')||Promise.reject())
+                     .then(()=>alert('Link gekopieerd'))">
             Kopieer
           </button>
         </div>
@@ -181,62 +206,61 @@ INDEX_HTML = """
 </body></html>
 """
 
-LOGIN_HTML = """
-<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen</title>
+DOWNLOAD_HTML = f"""
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Download – Olde Hanter</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef2f7;margin:0}
-  .wrap{max-width:480px;margin:10vh auto;padding:0 16px}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
-  label{display:block;margin:.5rem 0 .25rem;font-weight:600}
-  input{width:100%;padding:.9rem 1rem;border:1px solid #d1d5db;border-radius:12px}
-  button{margin-top:1rem;padding:.9rem 1.1rem;border:0;border-radius:10px;background:#003366;color:#fff}
+{BASE_CSS}
+h1{{margin:.2rem 0 1rem;color:var(--brand)}}
+.meta{{margin:.4rem 0 1rem;color:#374151}}
+.btn{{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}}
+.linkbox{{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}}
+input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}}
 </style></head><body>
-<div class="wrap"><div class="card">
-  <h2>Inloggen</h2>
-  {% if error %}<div style="color:#b91c1c">{{ error }}</div>{% endif %}
-  <form method="post" autocomplete="on">
-    <label>E-mail</label>
-    <input name="email" type="email" value="info@oldehanter.nl" autocomplete="username" required>
-    <label>Wachtwoord</label>
-    <input name="password" type="password" required>
-    <button>Inloggen</button>
-  </form>
-</div></div></body></html>
-"""
+<div class="bg" aria-hidden="true"></div>
 
-DOWNLOAD_HTML = """
-<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Download</title>
-<style>
- body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;margin:0}
- .wrap{max-width:760px;margin:6vh auto;padding:0 16px}
- .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
- .btn{display:inline-block;padding:.9rem 1.1rem;border-radius:10px;background:#003366;color:#fff;text-decoration:none}
-</style></head><body>
 <div class="wrap"><div class="card">
-  <h2>Download bestand</h2>
-  <p><strong>Bestandsnaam:</strong> {{ name }}</p>
-  <p><strong>Grootte:</strong> {{ size }}</p>
-  <p><strong>Verloopt:</strong> {{ exp }}</p>
-  <a class="btn" href="{{ url_for('download_file', token=token) }}">Download</a>
-</div></div></body></html>
+  <h1>Download bestand</h1>
+  <div class="meta">
+    <div><strong>Bestandsnaam:</strong> {{{{ name }}}}</div>
+    <div><strong>Grootte:</strong> {{{{ size_human }}}}</div>
+    <div><strong>Verloopt:</strong> {{{{ expires_human }}}}</div>
+  </div>
+  <a class="btn" href="{{{{ url_for('download_file', token=token) }}}}">Download</a>
+
+  <div class="linkbox">
+    <div><strong>Deelbare link</strong></div>
+    <div style="display:flex;gap:.5rem;align-items:center;">
+      <input type="text" id="shareLink" value="{{{{ share_link }}}}" readonly>
+      <button class="btn" type="button"
+        onclick="(navigator.clipboard?.writeText('{{{{ share_link }}}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+        Kopieer
+      </button>
+    </div>
+  </div>
+
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
 """
 
 # -------------- Helpers --------------
-def logged_in(): return session.get("authed", False)
+def logged_in() -> bool:
+    return session.get("authed", False)
 
-def human(n:int):
+def human(n: int) -> str:
     x = float(n)
     for u in ["B","KB","MB","GB","TB"]:
         if x < 1024 or u == "TB":
             return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
-        x/=1024
+        x /= 1024
 
 # -------------- Routes --------------
 @app.route("/")
 def index():
-    if not logged_in(): return redirect(url_for("login"))
+    if not logged_in():
+        return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), max_mb=MAX_RELAY_MB)
 
 @app.route("/login", methods=["GET","POST"])
@@ -251,18 +275,20 @@ def login():
 
 @app.route("/logout")
 def logout():
-    session.clear(); return redirect(url_for("login"))
+    session.clear()
+    return redirect(url_for("login"))
 
-# Browser → server → B2
+# Browser → server → B2 (geen CORS nodig)
+@app.route("/upload-retry", methods=["POST"])   # alias
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
-    if not logged_in(): return abort(401)
+    if not logged_in():
+        return abort(401)
 
     f = request.files.get("file")
     if not f or f.filename == "":
         return jsonify(ok=False, error="Geen bestand"), 400
 
-    # rudimentaire grootte-check
     if request.content_length and request.content_length > MAX_RELAY_BYTES:
         return jsonify(ok=False, error=f"Bestand groter dan {MAX_RELAY_MB} MB"), 413
 
@@ -275,7 +301,6 @@ def upload_relay():
     pw_hash = generate_password_hash(password) if password else None
 
     try:
-        # stream direct naar B2
         s3.upload_fileobj(f.stream, S3_BUCKET, object_key)
         head = s3.head_object(Bucket=S3_BUCKET, Key=object_key)
         size_bytes = int(head["ContentLength"])
@@ -286,7 +311,8 @@ def upload_relay():
     expires_at = (datetime.now(timezone.utc) + timedelta(days=float(expiry_days or 24))).isoformat()
 
     c = db()
-    c.execute("INSERT INTO files(token,stored_path,original_name,password_hash,expires_at,size_bytes,created_at) VALUES(?,?,?,?,?,?,?)",
+    c.execute("""INSERT INTO files(token,stored_path,original_name,password_hash,expires_at,size_bytes,created_at)
+                 VALUES(?,?,?,?,?,?,?)""",
               (token, object_key, filename, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()))
     c.commit(); c.close()
 
@@ -296,16 +322,17 @@ def upload_relay():
 @app.route("/d/<token>", methods=["GET","POST"])
 def download(token):
     c = db(); row = c.execute("SELECT * FROM files WHERE token=?", (token,)).fetchone(); c.close()
-    if not row: abort(404)
+    if not row:
+        abort(404)
 
-    # verlopen?
+    # verlopen? → opruimen
     if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
         try: s3.delete_object(Bucket=S3_BUCKET, Key=row["stored_path"])
         except: pass
         c = db(); c.execute("DELETE FROM files WHERE token=?", (token,)); c.commit(); c.close()
         abort(410)
 
-    # wachtwoord
+    # wachtwoordcheck
     if row["password_hash"]:
         if request.method == "GET":
             return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
@@ -320,20 +347,31 @@ def download(token):
                         <button style="margin-top:.6rem;padding:.6rem 1rem;border:0;border-radius:8px;background:#003366;color:#fff">Opnieuw</button>
                       </form>"""
 
-    exp = datetime.fromisoformat(row["expires_at"]).replace(second=0, microsecond=0).strftime("%d-%m-%Y %H:%M")
+    share_link = url_for("download", token=token, _external=True)
+    size_h = human(int(row["size_bytes"]))
+    dt = datetime.fromisoformat(row["expires_at"]).replace(second=0, microsecond=0)
+    expires_h = dt.strftime("%d-%m-%Y %H:%M")
+
     return render_template_string(
         DOWNLOAD_HTML,
-        name=row["original_name"], size=human(int(row["size_bytes"])), exp=exp, token=token
+        name=row["original_name"],
+        size_human=size_h,
+        expires_human=expires_h,
+        token=token,
+        share_link=share_link,
     )
 
 @app.route("/dl/<token>")
 def download_file(token):
     c = db(); row = c.execute("SELECT * FROM files WHERE token=?", (token,)).fetchone(); c.close()
-    if not row: abort(404)
-    url = s3.generate_presigned_url("get_object", Params={"Bucket": S3_BUCKET, "Key": row["stored_path"]}, ExpiresIn=3600)
+    if not row:
+        abort(404)
+    url = s3.generate_presigned_url(
+        "get_object", Params={"Bucket": S3_BUCKET, "Key": row["stored_path"]}, ExpiresIn=3600
+    )
     return redirect(url)
 
-# eenvoudige check
+# eenvoudige S3 healthcheck
 @app.route("/health-s3")
 def health():
     try:
