@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Mini WeTransfer-like service (Flask app)
-Features:
-- Upload large files with optional password and expiry
-- Share a short download link (/d/<token>)
-- Passwords stored as hashes
-- Auto-cleans expired files on each request
-- SQLite metadata DB
-- Styled for Olde Hanter with copy-to-clipboard button, favicon, and branded download page
+Olde Hanter - MiniTransfer (Flask)
+- Upload (tot MAX_CONTENT_LENGTH) met optioneel wachtwoord
+- Deelbare link /d/<token> (toont branded downloadpagina)
+- Directe download via /dl/<token>
+- Verlooptijd in DAGEN (default 3)
+- Verlooptijd op downloadpagina afgerond op MINUTEN
+- SQLite metadata, lokale bestandsopslag
+- Simpele cleanup van verlopen bestanden op iedere request
 """
+
 import os
 import sqlite3
 import uuid
@@ -16,23 +17,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import (
-    Flask,
-    request,
-    redirect,
-    url_for,
-    send_file,
-    abort,
-    flash,
-    render_template_string,
+    Flask, request, redirect, url_for, send_file, abort, flash, render_template_string
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
+# ---------------------- Config ----------------------
 BASE_DIR = Path(__file__).parent.resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 DB_PATH = BASE_DIR / "files.db"
-MAX_CONTENT_LENGTH = 512 * 1024 * 1024  # 512 MB
-ALLOWED_EXTENSIONS = None
+
+MAX_CONTENT_LENGTH = 512 * 1024 * 1024  # 512 MB per bestand (pas aan naar wens)
+ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 
 app = Flask(__name__)
 app.config.update(
@@ -42,12 +38,10 @@ app.config.update(
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ---------------------- Database ----------------------
-
 def get_db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
-
 
 def init_db():
     con = get_db()
@@ -67,7 +61,7 @@ def init_db():
     con.commit()
     con.close()
 
-
+# ---------------------- Cleanup ----------------------
 @app.before_request
 def cleanup_expired():
     now = datetime.now(timezone.utc)
@@ -91,31 +85,28 @@ def cleanup_expired():
     con.close()
 
 # ---------------------- Helpers ----------------------
-
 def allowed_file(filename: str) -> bool:
     if not ALLOWED_EXTENSIONS:
         return True
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-def hours_to_timedelta(hours_str: str) -> timedelta:
+def days_to_timedelta(days_str: str) -> timedelta:
     try:
-        h = float(hours_str)
-        if h <= 0:
-            h = 24.0
+        d = float(days_str)
+        if d <= 0:
+            d = 3.0
     except Exception:
-        h = 24.0
-    return timedelta(hours=h)
+        d = 3.0
+    return timedelta(days=d)
 
 def human_size(n: int) -> str:
-    for unit in ['B','KB','MB','GB','TB']:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
         if n < 1024.0:
-            return f"{n:.1f} {unit}" if unit != 'B' else f"{n} {unit}"
+            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} {unit}"
         n /= 1024.0
     return f"{n:.1f} PB"
 
 # ---------------------- Templates ----------------------
-
 INDEX_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -123,51 +114,52 @@ INDEX_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Olde Hanter Transfer</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E" />
+  <!-- Inline favicon (geen externe file nodig) -->
+  <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    :root{ --oh-blue:#003366; --oh-accent:#0b3a77; --oh-surface:#ffffff; --oh-muted:#f3f4f6; --oh-border:#e5e7eb; }
+    :root{ --oh-blue:#003366; --oh-border:#e5e7eb; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#f2f5f9; color:#111827; margin:0;}
-    .wrap{max-width:980px; margin:2.5rem auto; padding:0 1rem;}
-    .card{padding:1.25rem; background:var(--oh-surface); border:1px solid var(--oh-border); border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.06);}
-    h1{margin:0 0 1rem; color:var(--oh-blue); font-size:2.2rem;}
-    .brand{display:flex; align-items:center; gap:.75rem; margin-bottom:.25rem}
+    .wrap{max-width:820px; margin:3rem auto; padding:0 1rem;}
+    .card{padding:1.25rem; background:#fff; border:1px solid var(--oh-border); border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.06);}
+    h1{margin:.25rem 0 1rem; color:var(--oh-blue); font-size:2.2rem;}
+    .brand{display:flex; align-items:center; gap:.6rem}
     .brand svg{height:36px; width:36px}
-    label{display:block; margin:.5rem 0 .25rem; font-weight:600;}
-    input[type=file], input[type=text], input[type=password], input[type=number]{width:100%; padding:.8rem .9rem; border-radius:10px; border:1px solid #d1d5db; background:#fff;}
-    .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
-    @media (max-width:720px){ .form-grid{grid-template-columns:1fr;} }
-    .btn{margin-top:1rem; padding:.9rem 1.2rem; border:0; border-radius:10px; background:var(--oh-blue); color:#fff; font-weight:700; cursor:pointer;}
+    label{display:block; margin:.55rem 0 .25rem; font-weight:600;}
+    input[type=file], input[type=text], input[type=password], input[type=number]{
+      width:100%; padding:.8rem .9rem; border-radius:10px; border:1px solid #d1d5db; background:#fff;
+    }
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
+    @media (max-width:720px){ .grid{grid-template-columns:1fr;} }
+    .btn{margin-top:1rem; padding:.95rem 1.2rem; border:0; border-radius:10px; background:var(--oh-blue); color:#fff; font-weight:700; cursor:pointer;}
     .note{font-size:.95rem; color:#6b7280; margin-top:.5rem}
     .flash{background:#dcfce7; color:#166534; padding:.5rem 1rem; border-radius:8px; display:inline-block}
-    a{color:var(--oh-blue); font-weight:600;}
     .copy-btn{margin-left:.5rem; padding:.55rem .8rem; font-size:.85rem; background:#2563eb; border:none; border-radius:8px; color:#fff; cursor:pointer;}
-    .footer{color:#6b7280; margin-top:1rem}
+    .footer{color:#6b7280; margin-top:1rem; text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="brand">
-      <!-- Inline logo zodat externe host niet nodig is -->
+      <!-- Inline logo -->
       <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
-      <strong style="font-size:1.15rem">Olde Hanter</strong>
+      <strong>Olde Hanter</strong>
     </div>
-    <h1>Bestanden delen met Olde Hanter</h1>
+    <h1>Postduif van Olde Hanter</h1>
 
     {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <div class="flash">{{ messages[0] }}</div>
-      {% endif %}
+      {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
     {% endwith %}
 
-    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card" style="margin-top:1rem">
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card">
       <label for="file">Bestand</label>
       <input id="file" type="file" name="file" required />
 
-      <div class="form-grid" style="margin-top:.75rem">
+      <div class="grid" style="margin-top:.6rem">
         <div>
-          <label for="expiry">Verloopt over (uren)</label>
-          <input id="expiry" type="number" name="expiry_hours" step="1" min="1" placeholder="24" />
+          <label for="expiry">Verloopt over (dagen)</label>
+          <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="3" />
         </div>
         <div>
           <label for="pw">Wachtwoord (optioneel)</label>
@@ -204,7 +196,6 @@ INDEX_HTML = """
 </html>
 """
 
-
 PASSWORD_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -212,31 +203,36 @@ PASSWORD_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Beveiligd bestand - Olde Hanter</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#f2f5f9; color:#111827; margin:0;}
     .wrap{max-width:520px; margin:4rem auto; padding:2rem; background:#fff; border-radius:16px; border:1px solid #e5e7eb; box-shadow:0 8px 24px rgba(0,0,0,.06);}
-    .brand{display:flex; align-items:center; gap:.75rem; margin-bottom:1rem}
-    .brand svg{height:32px;width:32px}
+    .brand{display:flex; align-items:center; gap:.6rem; margin-bottom:1rem}
+    .brand svg{height:32px; width:32px}
     input{width:100%; padding:.85rem .95rem; border-radius:10px; border:1px solid #d1d5db;}
-    button{margin-top:1rem; padding:.8rem 1rem; border:0; border-radius:10px; background:#003366; color:#fff; font-weight:700}
+    button{margin-top:1rem; padding:.85rem 1rem; border:0; border-radius:10px; background:#003366; color:#fff; font-weight:700}
+    .footer{color:#6b7280; margin-top:1rem; text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="brand"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg><strong>Olde Hanter</strong></div>
+    <div class="brand">
+      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
+      <strong>Olde Hanter</strong>
+    </div>
     <h2>Voer wachtwoord in</h2>
     {% if error %}<p style="color:#b91c1c">Onjuist wachtwoord</p>{% endif %}
     <form method="post">
       <input type="password" name="password" placeholder="Wachtwoord" required />
       <button type="submit">Ontgrendel</button>
     </form>
+    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 </body>
 </html>
 """
-
 
 DOWNLOAD_HTML = """
 <!doctype html>
@@ -245,26 +241,28 @@ DOWNLOAD_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Download bestand - Olde Hanter</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#eef2f7; color:#111827; margin:0;}
     .wrap{max-width:820px; margin:3.5rem auto; padding:0 1rem;}
     .panel{background:#fff; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.06); padding:1.5rem}
-    .header{display:flex; align-items:center; gap:12px; margin-bottom:1rem}
-    .header svg{height:40px;width:40px}
+    .brand{display:flex; align-items:center; gap:.6rem; margin-bottom:1rem}
+    .brand svg{height:40px; width:40px}
     .meta{margin:.5rem 0 1rem; color:#374151}
-    .btn{display:inline-block; padding:.95rem 1.25rem; background:#003366; color:#fff; border-radius:10px; text-decoration:none; font-weight:700}
+    .btn{display:inline-block; padding:.95rem 1.25rem; background:#003666; color:#fff; border-radius:10px; text-decoration:none; font-weight:700}
     .muted{color:#6b7280; font-size:.95rem}
     .linkbox{margin-top:1rem; background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem}
     input[type=text]{width:100%; padding:.8rem .9rem; border-radius:10px; border:1px solid #d1d5db;}
     .copy-btn{margin-left:.5rem; padding:.55rem .8rem; font-size:.85rem; background:#2563eb; border:none; border-radius:8px; color:#fff; cursor:pointer;}
+    .footer{color:#6b7280; margin-top:1rem; text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <div class="header">
+      <div class="brand">
         <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
         <h1 style="margin:0">Download bestand</h1>
       </div>
@@ -285,6 +283,8 @@ DOWNLOAD_HTML = """
         </div>
         <div class="muted">De link blijft geldig tot de verloopdatum.</div>
       </div>
+
+      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
   <script>
@@ -299,13 +299,12 @@ DOWNLOAD_HTML = """
 </html>
 """
 
-
 # ---------------------- Routes ----------------------
-
 @app.route("/", methods=["GET"])
 def index():
-    return render_template_string(INDEX_HTML, link=None, pw_set=False, max_mb=MAX_CONTENT_LENGTH // (1024*1024))
-
+    return render_template_string(
+        INDEX_HTML, link=None, pw_set=False, max_mb=MAX_CONTENT_LENGTH // (1024*1024)
+    )
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -326,7 +325,8 @@ def upload():
 
     size_bytes = Path(stored_path).stat().st_size
 
-    expiry_td = hours_to_timedelta(request.form.get("expiry_hours", "24"))
+    # DAGEN i.p.v. uren (default 3)
+    expiry_td = days_to_timedelta(request.form.get("expiry_days", "3"))
     expires_at = (datetime.now(timezone.utc) + expiry_td).isoformat()
 
     pw = request.form.get("password") or ""
@@ -335,23 +335,17 @@ def upload():
     con = get_db()
     con.execute(
         "INSERT INTO files(token, stored_path, original_name, password_hash, expires_at, size_bytes, created_at) VALUES(?,?,?,?,?,?,?)",
-        (
-            token,
-            stored_path,
-            filename,
-            pw_hash,
-            expires_at,
-            size_bytes,
-            datetime.now(timezone.utc).isoformat(),
-        ),
+        (token, stored_path, filename, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()),
     )
     con.commit()
     con.close()
 
     link = url_for("download", token=token, _external=True)
-    return render_template_string(INDEX_HTML, link=link, pw_set=bool(pw), max_mb=MAX_CONTENT_LENGTH // (1024*1024))
+    return render_template_string(
+        INDEX_HTML, link=link, pw_set=bool(pw), max_mb=MAX_CONTENT_LENGTH // (1024*1024)
+    )
 
-
+# Branded downloadpagina (met optioneel wachtwoord)
 @app.route("/d/<token>", methods=["GET", "POST"])
 def download(token: str):
     con = get_db()
@@ -378,10 +372,14 @@ def download(token: str):
         if not check_password_hash(row["password_hash"], pw):
             return render_template_string(PASSWORD_HTML, error=True)
 
-    # Show branded download page instead of direct download
+    # Toon branded downloadpagina
     share_link = url_for("download", token=token, _external=True)
     size_h = human_size(int(row["size_bytes"]))
-    expires_h = row["expires_at"].replace("T", " ")
+
+    # Verlooptijd afronden op minuten
+    dt = datetime.fromisoformat(row["expires_at"]).replace(second=0, microsecond=0)
+    expires_h = dt.strftime("%d-%m-%Y %H:%M")
+
     return render_template_string(
         DOWNLOAD_HTML,
         name=row["original_name"],
@@ -391,7 +389,7 @@ def download(token: str):
         share_link=share_link,
     )
 
-# Separate endpoint that sends the file (used by the button on the page)
+# Directe file-download
 @app.route("/dl/<token>")
 def download_file(token: str):
     con = get_db()
@@ -402,9 +400,9 @@ def download_file(token: str):
     path = Path(row["stored_path"]).resolve()
     if not path.exists():
         abort(404)
-    return send_file(path, as_attachment=True, download_name=row["original_name"]) 
+    return send_file(path, as_attachment=True, download_name=row["original_name"])
 
-
+# ---------------------- Main ----------------------
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
