@@ -307,27 +307,90 @@ INDEX_HTML = """
   <title>Olde Hanter Transfer</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
-    .wrap{max-width:900px;margin:3rem auto;padding:0 1rem}
-    .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    h1{margin:.25rem 0 1rem;color:#003366;font-size:2.1rem}
-    label{display:block;margin:.55rem 0 .25rem;font-weight:600}
-    input[type=file], input[type=text], input[type=password], input[type=number]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    :root{
+      --bg1:#60a5fa; /* blue-400 */
+      --bg2:#a78bfa; /* violet-400 */
+      --bg3:#34d399; /* emerald-400 */
+      --panel-bg: rgba(255,255,255,.8);
+      --panel-border: rgba(255,255,255,.45);
+      --text:#0f172a;
+      --brand:#003366;
+    }
+    html,body{height:100%}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      color:var(--text); margin:0; min-height:100%;
+      position:relative; overflow-x:hidden;
+    }
+    /* dynamische, efficiënte achtergrond */
+    .bg-anim{
+      position:fixed; inset:0; z-index:-2;
+      background:
+        radial-gradient(60vmax 60vmax at 15% 25%, var(--bg1) 0%, transparent 60%),
+        radial-gradient(55vmax 55vmax at 85% 20%, var(--bg2) 0%, transparent 60%),
+        radial-gradient(60vmax 60vmax at 50% 90%, var(--bg3) 0%, transparent 60%),
+        linear-gradient(180deg, #eef2f7 0%, #e9eef6 100%);
+      filter:saturate(1.05) contrast(1.02);
+    }
+    .bg-anim::before,.bg-anim::after{content:""; position:absolute; inset:-8%; will-change:transform}
+    .bg-anim::before{
+      background:
+        radial-gradient(40% 60% at 20% 30%, rgba(255,255,255,.35), transparent),
+        radial-gradient(50% 60% at 80% 25%, rgba(255,255,255,.25), transparent);
+      animation:bgFloat 16s linear infinite;
+    }
+    .bg-anim::after{
+      background:
+        radial-gradient(35% 50% at 60% 70%, rgba(255,255,255,.22), transparent),
+        radial-gradient(45% 55% at 30% 80%, rgba(255,255,255,.18), transparent);
+      animation:bgFloat2 22s linear infinite;
+    }
+    @keyframes bgFloat{
+      0%{transform:translate3d(0,0,0) rotate(0)}
+      50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}
+      100%{transform:translate3d(0,0,0) rotate(360deg)}
+    }
+    @keyframes bgFloat2{
+      0%{transform:translate3d(0,0,0) rotate(0)}
+      50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}
+      100%{transform:translate3d(0,0,0) rotate(-360deg)}
+    }
+    @media (prefers-reduced-motion: reduce){
+      .bg-anim::before,.bg-anim::after{animation:none}
+    }
+
+    /* layout / glass card */
+    .wrap{max-width:980px; margin:6vh auto; padding:0 1rem}
+    .card{
+      padding:1.5rem; background:var(--panel-bg);
+      border:1px solid var(--panel-border); border-radius:18px;
+      box-shadow:0 18px 40px rgba(0,0,0,.12);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    h1{margin:.25rem 0 1rem; color:var(--brand); font-size:2rem}
+    label{display:block; margin:.55rem 0 .25rem; font-weight:600}
+    input[type=file],input[type=text],input[type=password],input[type=number]{
+      width:100%; padding:.9rem 1rem; border-radius:12px; border:1px solid #d1d5db; background:#fff
+    }
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:1rem}
     @media (max-width:900px){.grid{grid-template-columns:1fr}}
-    .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
-    .note{font-size:.95rem;color:#6b7280;margin-top:.5rem}
-    .flash{background:#dcfce7;color:#166534;padding:.5rem 1rem;border-radius:8px;display:inline-block}
-    .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.85rem;background:#2563eb;border:none;border-radius:8px;color:#fff;cursor:pointer}
-    .footer{color:#6b7280;margin-top:1rem;text-align:center}
-    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem}
-    .logout{font-size:.95rem}
-    .logout a{color:#003366;text-decoration:none;font-weight:700}
+    .btn{margin-top:1rem; padding:.95rem 1.2rem; border:0; border-radius:12px;
+      background:var(--brand); color:#fff; font-weight:700; cursor:pointer;
+      box-shadow:0 4px 14px rgba(0,51,102,.25);
+    }
+    .note{font-size:.95rem; color:#334155; margin-top:.5rem; text-shadow:0 1px 0 rgba(255,255,255,.5)}
+    .flash{background:#dcfce7;color:#166534;padding:.6rem .9rem;border-radius:10px;display:inline-block}
+    .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.9rem;background:#2563eb;border:none;border-radius:10px;color:#fff;cursor:pointer}
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+    .logout a{color:var(--brand);text-decoration:none;font-weight:700}
     .row{display:flex;align-items:center;gap:.6rem}
-    .hint{font-size:.9rem;color:#6b7280}
+    .hint{font-size:.9rem;color:#334155;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+    .footer{color:#334155;margin-top:1rem;text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.5)}
   </style>
 </head>
 <body>
+  <div class="bg-anim" aria-hidden="true"></div>
+
   <div class="wrap">
     <div class="topbar">
       <h1>Bestanden delen met Olde Hanter</h1>
@@ -341,10 +404,11 @@ INDEX_HTML = """
     <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card" autocomplete="off">
       <label for="file">Bestanden of map</label>
       <input id="file" type="file" name="file" multiple required />
-      <div class="row">
+
+      <div class="row" style="margin-top:.5rem">
         <input type="checkbox" id="folderMode" name="folder_mode" value="1" />
         <label for="folderMode" style="margin:0">Map uploaden</label>
-        <span class="hint">(zet de kiezer in map-modus; we maken er automatisch één .zip van)</span>
+        <span class="hint">(we maken automatisch één .zip van de inhoud)</span>
       </div>
 
       <div class="grid" style="margin-top:.6rem">
@@ -354,13 +418,9 @@ INDEX_HTML = """
         </div>
         <div>
           <label for="pw">Wachtwoord (optioneel)</label>
-          <input id="pw"
-                 type="password"
-                 name="password"
+          <input id="pw" type="password" name="password"
                  placeholder="Laat leeg voor geen wachtwoord"
-                 autocomplete="new-password"
-                 autocapitalize="off"
-                 spellcheck="false" />
+                 autocomplete="new-password" autocapitalize="off" spellcheck="false" />
         </div>
       </div>
 
@@ -370,7 +430,7 @@ INDEX_HTML = """
 
     {% if link %}
     <div class="card" style="margin-top:1rem">
-      <strong>Deelbare link:</strong>
+      <strong>Deelbare link</strong>
       <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
         <input type="text" id="shareLink" value="{{ link }}" readonly />
         <button class="copy-btn" onclick="copyLink()">Kopieer</button>
@@ -381,27 +441,23 @@ INDEX_HTML = """
 
     <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
+
   <script>
-    // Zet file input in directory-modus als "Map uploaden" is aangevinkt
+    // Folder-modus aan/uit
     const folderCb = document.getElementById('folderMode');
     const fileInput = document.getElementById('file');
     function applyFolderMode(){
-      if(folderCb.checked){
-        fileInput.setAttribute('webkitdirectory','');
-        fileInput.setAttribute('directory','');
-      }else{
-        fileInput.removeAttribute('webkitdirectory');
-        fileInput.removeAttribute('directory');
-      }
+      if(folderCb.checked){ fileInput.setAttribute('webkitdirectory',''); fileInput.setAttribute('directory',''); }
+      else { fileInput.removeAttribute('webkitdirectory'); fileInput.removeAttribute('directory'); }
     }
-    folderCb.addEventListener('change', applyFolderMode);
-    applyFolderMode();
+    folderCb.addEventListener('change', applyFolderMode); applyFolderMode();
 
+    // Kopieer-knop
     function copyLink(){
       const el = document.getElementById('shareLink');
-      navigator.clipboard?.writeText(el.value).then(()=>{alert('Link gekopieerd');}).catch(()=>{
-        el.select(); el.setSelectionRange(0, 99999); document.execCommand('copy'); alert('Link gekopieerd');
-      });
+      (navigator.clipboard?.writeText(el.value) || Promise.reject())
+        .then(()=>alert('Link gekopieerd'))
+        .catch(()=>{ el.select(); el.setSelectionRange(0, 99999); document.execCommand('copy'); alert('Link gekopieerd'); });
     }
   </script>
 </body>
