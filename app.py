@@ -20,20 +20,16 @@ from botocore.config import Config as BotoConfig
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files.db"
 
-# Login (één account zoals afgesproken)
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Relay upload limiet (via server, om CORS te vermijden)
 MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "200"))
 MAX_RELAY_BYTES = MAX_RELAY_MB * 1024 * 1024
 
-# Backblaze B2 S3-compatibele settings (Render env vars)
-S3_BUCKET       = os.environ["S3_BUCKET"]                # bv. MiniTransfer
+S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
-S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]          # bv. https://s3.eu-central-003.backblazeb2.com
+S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
-# SMTP (optioneel; anders mailto fallback)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -44,7 +40,6 @@ MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
-# Path-style addressing → werkt ook met hoofdletters in bucketnaam
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
@@ -162,7 +157,6 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label for="files">Bestand of map</label>
-    <!-- Map-ondersteuning -->
     <input id="files" type="file" name="files" multiple webkitdirectory directory>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
@@ -196,11 +190,9 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
     if(!files || files.length===0){ return alert("Kies een bestand of map"); }
 
     const fd = new FormData();
-    // voeg formvelden toe
     fd.append('expiry_days', document.getElementById('exp').value || '24');
     fd.append('password', document.getElementById('pw').value || '');
 
-    // alle bestanden + hun (mogelijke) relativePath meesturen
     for(const f of files){
       fd.append('files', f, f.name);
       fd.append('paths', f.webkitRelativePath || f.name);
@@ -274,7 +266,6 @@ input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px s
 </body></html>
 """
 
-# Contact (aanvraag) – alleen klantprijs tonen
 CONTACT_HTML = f"""
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -389,19 +380,17 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# Browser → server → B2 (geen CORS nodig)
+# Browser → server → B2 (geen CORS nodig) + map→ZIP bundeling
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
     if not logged_in():
         return abort(401)
 
-    # Verzamel bestanden en paden (paths is parallelle lijst met webkitRelativePath/name)
     files = request.files.getlist("files")
     paths = request.form.getlist("paths")
     if not files:
         return jsonify(ok=False, error="Geen bestand"), 400
 
-    # grootte-check (globaal)
     if request.content_length and request.content_length > MAX_RELAY_BYTES:
         return jsonify(ok=False, error=f"Upload groter dan {MAX_RELAY_MB} MB"), 413
 
@@ -409,13 +398,10 @@ def upload_relay():
     password = request.form.get("password") or ""
     pw_hash = generate_password_hash(password) if password else None
 
-    # Bepaal of we moeten bundelen tot ZIP
     must_zip = len(files) > 1 or any("/" in (p or "") for p in paths)
-
     token = uuid.uuid4().hex[:10]
+
     if must_zip:
-        # ZIP-naam op basis van map of tijd
-        # probeer een root-folder uit de paths te halen
         root = None
         for p in paths:
             if "/" in p:
@@ -424,20 +410,17 @@ def upload_relay():
         zip_name = f"{root or 'map-upload'}_{token}.zip"
         object_key = f"uploads/{token}__{zip_name}"
 
-        # Maak tijdelijke ZIP en stream daarna naar B2
         tmp_path = Path(tempfile.gettempdir()) / f"bundle_{token}.zip"
         try:
             with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=7) as z:
                 for f, p in zip(files, paths):
                     arc = p or f.filename
-                    # schrijf in chunks
                     with z.open(arc, "w") as dest:
                         while True:
                             chunk = f.stream.read(1024 * 1024)
                             if not chunk: break
                             dest.write(chunk)
 
-            # upload
             s3.upload_file(str(tmp_path), S3_BUCKET, object_key)
             size_bytes = tmp_path.stat().st_size
         finally:
@@ -447,11 +430,9 @@ def upload_relay():
         original_name = zip_name
 
     else:
-        # enkele file
         f = files[0]
         filename = secure_filename(f.filename)
         object_key = f"uploads/{token}__{filename}"
-        # stream direct naar B2
         s3.upload_fileobj(f.stream, S3_BUCKET, object_key)
         head = s3.head_object(Bucket=S3_BUCKET, Key=object_key)
         size_bytes = int(head["ContentLength"])
@@ -474,14 +455,12 @@ def download(token):
     if not row:
         abort(404)
 
-    # verlopen? → opruimen
     if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
         try: s3.delete_object(Bucket=S3_BUCKET, Key=row["stored_path"])
         except: pass
         c = db(); c.execute("DELETE FROM files WHERE token=?", (token,)); c.commit(); c.close()
         abort(410)
 
-    # wachtwoordcheck
     if row["password_hash"]:
         if request.method == "GET":
             return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
@@ -572,7 +551,6 @@ def contact():
     except Exception:
         pass
 
-    # Fallback: mailto
     from urllib.parse import quote
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto)
