@@ -268,8 +268,15 @@ INDEX_HTML = """
           <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="24" />
         </div>
         <div>
-          <label for="pw">Wachtwoord (optioneel)</label>
-          <input id="pw" type="password" name="password" placeholder="Laat leeg voor geen wachtwoord" />
+<label for="pw">Wachtwoord (optioneel)</label>
+<input id="pw"
+       type="password"
+       name="password"
+       placeholder="Laat leeg voor geen wachtwoord"
+       autocomplete="new-password"
+       autocapitalize="off"
+       spellcheck="false" />
+
         </div>
       </div>
 
