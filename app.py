@@ -5,10 +5,10 @@ Olde Hanter - MiniTransfer (Flask)
   * E-mail: info@oldehanter.nl
   * Wachtwoord: Hulsmaat
 - Upload (tot 5 GB/request) met optioneel wachtwoord en verloop (in dagen, default 24)
-- Ondersteunt 'Map uploaden' (directory select) -> server-side ZIP met behoud van structuur
+- Ondersteunt 'Map uploaden' -> server-side ZIP met behoud van structuur
 - Deelbare link /d/<token> (branded downloadpagina)
 - Directe download via /dl/<token>
-- Contactformulier (/contact) met login e-mail, opslag (TB) + prijs (2x kostprijs), bedrijfsnaam en telefoonnummer
+- Contactformulier (/contact) stuurt direct een e-mail (SMTP) ZONDER kosteninfo/marketingzin
 - SQLite metadata, lokale bestandsopslag
 - Cleanup van verlopen bestanden op iedere request
 """
@@ -18,6 +18,8 @@ import sqlite3
 import uuid
 import zipfile
 import tempfile
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -41,8 +43,18 @@ ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Kostprijs per TB/maand in euro (voor berekening offerte)
+# Kostprijs per TB/maand in euro (alleen voor weergave in formulier; niet in mail)
 STORAGE_COST_PER_TB_EUR = 6.0
+
+# SMTP config via env
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASS = os.environ.get("SMTP_PASS")
+SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
+SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() == "true"
+SMTP_FROM = os.environ.get("SMTP_FROM")  # bv. "Olde Hanter Transfer <no-reply@oldehanter.nl>"
+CONTACT_TO = "Patrick@oldehanter.nl"
 
 app = Flask(__name__)
 app.config.update(
@@ -126,20 +138,40 @@ def require_login():
     return bool(session.get("authed"))
 
 def _safe_relpath(p: str) -> str:
-    """
-    Maak een veilige relatieve padnaam (voor in ZIP).
-    Strip eventuele leidende './' of 'C:\\' etc. en voorkom '..'.
-    """
     p = p.replace("\\", "/")
     parts = []
     for seg in p.split("/"):
         if not seg or seg in (".",):
             continue
         if seg == "..":
-            # negeer bovenliggende referenties
             continue
         parts.append(seg)
     return "/".join(parts)
+
+def send_email(to_addr: str, subject: str, body: str):
+    """
+    Stuur e-mail via SMTP. Werkt met TLS (587) of SSL (465).
+    Vereist: SMTP_HOST, SMTP_USER, SMTP_PASS.
+    """
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+        raise RuntimeError("SMTP is niet geconfigureerd (env vars SMTP_HOST/SMTP_USER/SMTP_PASS).")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM or SMTP_USER
+    msg["To"] = to_addr
+    msg.set_content(body)
+
+    if SMTP_USE_SSL:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            if SMTP_USE_TLS:
+                s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
 
 # ---------------------- Templates ----------------------
 LOGIN_HTML = """
@@ -389,7 +421,7 @@ CONTACT_HTML = """
     .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
     h1{margin:.25rem 0 1rem;color:#003366}
     label{display:block;margin:.55rem 0 .25rem;font-weight:600}
-    input, select, textarea{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
+    input, select{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
     @media (max-width:720px){.grid{grid-template-columns:1fr}}
     .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
@@ -431,11 +463,12 @@ CONTACT_HTML = """
         </div>
 
         <p class="note">
-          Jouw kostprijs (inschatting opslag): €<span id="cost_host">{{ host_cost_eur }}</span>/maand —
-          Onze prijs: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
+          Richtprijs (interne calculatie): €<span id="cost_host">{{ host_cost_eur }}</span>/maand kostprijs —
+          voorstel aan klant ~ €<span id="cost_offer">{{ offer_cost_eur }}</span>/maand.
+          <br>(Deze prijzen worden <u>niet</u> meegestuurd in de e-mail.)
         </p>
 
-        <button class="btn" type="submit">Maak e-mail met aanvraag</button>
+        <button class="btn" type="submit">Verstuur aanvraag</button>
       </form>
       <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
@@ -458,28 +491,26 @@ CONTACT_HTML = """
 </html>
 """
 
-CONTACT_MAIL_HTML = """
+CONTACT_DONE_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aanvraag klaarzetten</title>
+  <title>Aanvraag verstuurd</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
     .wrap{max-width:680px;margin:3rem auto;padding:0 1rem}
     .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    .btn{display:inline-block;margin-top:1rem;padding:.95rem 1.2rem;border-radius:10px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
     .footer{color:#6b7280;margin-top:1rem;text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Aanvraag gereed</h1>
-      <p>Klik op de knop hieronder om de e-mail te openen aan Patrick met je aanvraag.</p>
-      <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
+      <h1>Aanvraag is verstuurd</h1>
+      <p>Bedankt! We nemen zo snel mogelijk contact met je op.</p>
       <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
@@ -538,8 +569,6 @@ def upload():
 
     # Als er meerdere bestanden zijn of folder_mode aan staat -> ZIP maken
     if len(files) > 1 or folder_mode:
-        # Bepaal zip-naam
-        # Neem mapnaam van eerste file als beschikbaar, anders 'map'
         first_name = files[0].filename or "map"
         first_name = _safe_relpath(first_name)
         top = first_name.split("/", 1)[0] if "/" in first_name else (first_name or "map")
@@ -548,25 +577,20 @@ def upload():
         zip_name = f"{token}__{top}.zip"
         zip_path = (UPLOAD_DIR / zip_name).resolve()
 
-        # Tijdelijke directory om bestanden te schrijven (optioneel)
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for f in files:
                 if f and f.filename:
                     rel = _safe_relpath(f.filename)
                     if not rel:
-                        # fallback naar originele naam
                         rel = secure_filename(f.filename)
-                    # Schrijf direct stream naar zip (tussenstap via temp is stabieler bij sommige servers)
                     with tempfile.NamedTemporaryFile(delete=True) as tmp:
                         f.save(tmp.name)
-                        # Zorg dat pad in zip altijd relative is
                         zf.write(tmp.name, arcname=rel)
 
         stored_path = str(zip_path)
         original_name = zip_path.name
         size_bytes = zip_path.stat().st_size
     else:
-        # Eén bestand
         f = files[0]
         if f.filename == "":
             flash("Ongeldig bestand")
@@ -658,11 +682,11 @@ def download_file(token: str):
         abort(404)
     return send_file(path, as_attachment=True, download_name=row["original_name"])
 
-# Contact / offerte
+# Contact / offerte (direct mailen)
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
     if request.method == "GET":
-        # default: 1 TB
+        # default: 1 TB, alleen tonen (niet mailen)
         host_cost = 1.0 * STORAGE_COST_PER_TB_EUR
         offer_cost = host_cost * 2
         return render_template_string(
@@ -672,7 +696,7 @@ def contact():
             offer_cost_eur=f"{offer_cost:.2f}".replace('.', ','),
         )
 
-    # POST: maak mailto-link met ingevulde gegevens
+    # POST: stuur e-mail direct (zonder kosteninfo/marketingzin)
     login_email = (request.form.get("login_email") or "").strip()
     try:
         storage_tb = float(request.form.get("storage_tb") or "1")
@@ -681,23 +705,22 @@ def contact():
     company = (request.form.get("company") or "").strip()
     phone = (request.form.get("phone") or "").strip()
 
-    host_cost = storage_tb * STORAGE_COST_PER_TB_EUR
-    offer_cost = host_cost * 2
-
-    subject = "Aanvraag eigen transfer oplossing"
+    subject = "Aanvraag eigen transfer-oplossing"
     body = (
-        "wil je zelf ook een eigen transfer oplossing voor 30 euro per maand en 1tb opslag, stuur een mailtje\n\n"
-        "— Gegevens aanvraag —\n"
-        f"Gewenste inlog-e-mail: {login_email}\n"
-        f"Gewenste opslag: {storage_tb} TB\n"
-        f"Bedrijfsnaam: {company}\n"
-        f"Telefoonnummer: {phone}\n"
-        f"Jouw kostprijs (inschatting opslag): €{host_cost:.2f}/maand\n"
-        f"Onze prijs (2x kostprijs): €{offer_cost:.2f}/maand\n"
+        "Er is een nieuwe aanvraag binnengekomen voor een eigen transfer-oplossing:\n\n"
+        f"- Gewenste inlog-e-mail: {login_email}\n"
+        f"- Gewenste opslag: {storage_tb} TB\n"
+        f"- Bedrijfsnaam: {company}\n"
+        f"- Telefoonnummer: {phone}\n"
     )
 
-    mailto = f"mailto:Patrick@oldehanter.nl?subject={quote(subject)}&body={quote(body)}"
-    return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
+    try:
+        send_email(CONTACT_TO, subject, body)
+    except Exception as e:
+        # Toon duidelijke foutmelding als SMTP niet goed staat
+        return f"Versturen mislukt: {e}. Controleer SMTP_* environment variables.", 500
+
+    return render_template_string(CONTACT_DONE_HTML)
 
 # ---------------------- Main ----------------------
 if __name__ == "__main__":
