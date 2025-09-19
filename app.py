@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Olde Hanter - MiniTransfer (Flask)
-- Upload (tot MAX_CONTENT_LENGTH) met optioneel wachtwoord
-- Deelbare link /d/<token> (toont branded downloadpagina)
+- Login vereist voor uploaden (1 account)
+  * E-mail: info@oldehanter.nl
+  * Wachtwoord: Hulsmaat
+- Upload (tot 5 GB) met optioneel wachtwoord en verloop (in dagen, default 3)
+- Deelbare link /d/<token> (branded downloadpagina)
 - Directe download via /dl/<token>
-- Verlooptijd in DAGEN (default 3)
-- Verlooptijd op downloadpagina afgerond op MINUTEN
+- Verlooptijd op downloadpagina afgerond op minuten
 - SQLite metadata, lokale bestandsopslag
 - Simpele cleanup van verlopen bestanden op iedere request
 """
@@ -17,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import (
-    Flask, request, redirect, url_for, send_file, abort, flash, render_template_string
+    Flask, request, redirect, url_for, send_file, abort, flash, render_template_string, session
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -27,13 +29,18 @@ BASE_DIR = Path(__file__).parent.resolve()
 UPLOAD_DIR = BASE_DIR / "uploads"
 DB_PATH = BASE_DIR / "files.db"
 
-MAX_CONTENT_LENGTH = 512 * 1024 * 1024  # 512 MB per bestand (pas aan naar wens)
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5 GB per bestand
 ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
+
+# Enig login-account (plaintext check voor eenvoud van POC)
+AUTH_EMAIL = "info@oldehanter.nl"
+AUTH_PASSWORD = "Hulsmaat"
 
 app = Flask(__name__)
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY", os.urandom(16)),
     MAX_CONTENT_LENGTH=MAX_CONTENT_LENGTH,
+    SESSION_COOKIE_SAMESITE="Lax",
 )
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -106,7 +113,48 @@ def human_size(n: int) -> str:
         n /= 1024.0
     return f"{n:.1f} PB"
 
+def require_login():
+    if not session.get("authed"):
+        return False
+    return True
+
 # ---------------------- Templates ----------------------
+LOGIN_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inloggen - Olde Hanter Transfer</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:480px;margin:4rem auto;padding:2rem;background:#fff;border-radius:16px;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    h1{margin-top:0;color:#003366}
+    label{display:block;margin:.6rem 0 .25rem;font-weight:600}
+    input{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db}
+    button{margin-top:1rem;padding:.9rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
+    .flash{background:#fee2e2;color:#991b1b;padding:.5rem 1rem;border-radius:8px;margin-bottom:1rem}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Inloggen</h1>
+    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
+    <form method="post">
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" placeholder="info@oldehanter.nl" required />
+      <label for="pw">Wachtwoord</label>
+      <input id="pw" name="password" type="password" placeholder="Wachtwoord" required />
+      <button type="submit">Inloggen</button>
+    </form>
+    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  </div>
+</body>
+</html>
+"""
+
 INDEX_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -114,39 +162,32 @@ INDEX_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Olde Hanter Transfer</title>
-  <!-- Inline favicon (geen externe file nodig) -->
-  <link rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    :root{ --oh-blue:#003366; --oh-border:#e5e7eb; }
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#f2f5f9; color:#111827; margin:0;}
-    .wrap{max-width:820px; margin:3rem auto; padding:0 1rem;}
-    .card{padding:1.25rem; background:#fff; border:1px solid var(--oh-border); border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.06);}
-    h1{margin:.25rem 0 1rem; color:var(--oh-blue); font-size:2.2rem;}
-    .brand{display:flex; align-items:center; gap:.6rem}
-    .brand svg{height:36px; width:36px}
-    label{display:block; margin:.55rem 0 .25rem; font-weight:600;}
-    input[type=file], input[type=text], input[type=password], input[type=number]{
-      width:100%; padding:.8rem .9rem; border-radius:10px; border:1px solid #d1d5db; background:#fff;
-    }
-    .grid{display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
-    @media (max-width:720px){ .grid{grid-template-columns:1fr;} }
-    .btn{margin-top:1rem; padding:.95rem 1.2rem; border:0; border-radius:10px; background:var(--oh-blue); color:#fff; font-weight:700; cursor:pointer;}
-    .note{font-size:.95rem; color:#6b7280; margin-top:.5rem}
-    .flash{background:#dcfce7; color:#166534; padding:.5rem 1rem; border-radius:8px; display:inline-block}
-    .copy-btn{margin-left:.5rem; padding:.55rem .8rem; font-size:.85rem; background:#2563eb; border:none; border-radius:8px; color:#fff; cursor:pointer;}
-    .footer{color:#6b7280; margin-top:1rem; text-align:center}
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:820px;margin:3rem auto;padding:0 1rem}
+    .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    h1{margin:.25rem 0 1rem;color:#003366;font-size:2.1rem}
+    label{display:block;margin:.55rem 0 .25rem;font-weight:600}
+    input[type=file], input[type=text], input[type=password], input[type=number]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    @media (max-width:720px){.grid{grid-template-columns:1fr}}
+    .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
+    .note{font-size:.95rem;color:#6b7280;margin-top:.5rem}
+    .flash{background:#dcfce7;color:#166534;padding:.5rem 1rem;border-radius:8px;display:inline-block}
+    .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.85rem;background:#2563eb;border:none;border-radius:8px;color:#fff;cursor:pointer}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem}
+    .logout{font-size:.95rem}
+    .logout a{color:#003366;text-decoration:none;font-weight:700}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="brand">
-      <!-- Inline logo -->
-      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
-      <strong>Olde Hanter</strong>
+    <div class="topbar">
+      <h1>Bestanden delen met Olde Hanter</h1>
+      <div class="logout">Ingelogd als {{ user_email }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
     </div>
-    <h1>Postduif van Olde Hanter</h1>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
@@ -174,7 +215,7 @@ INDEX_HTML = """
     {% if link %}
     <div class="card" style="margin-top:1rem">
       <strong>Deelbare link:</strong>
-      <div style="display:flex; gap:.5rem; align-items:center; margin-top:.35rem">
+      <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
         <input type="text" id="shareLink" value="{{ link }}" readonly />
         <button class="copy-btn" onclick="copyLink()">Kopieer</button>
       </div>
@@ -203,25 +244,17 @@ PASSWORD_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Beveiligd bestand - Olde Hanter</title>
-  <link rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#f2f5f9; color:#111827; margin:0;}
-    .wrap{max-width:520px; margin:4rem auto; padding:2rem; background:#fff; border-radius:16px; border:1px solid #e5e7eb; box-shadow:0 8px 24px rgba(0,0,0,.06);}
-    .brand{display:flex; align-items:center; gap:.6rem; margin-bottom:1rem}
-    .brand svg{height:32px; width:32px}
-    input{width:100%; padding:.85rem .95rem; border-radius:10px; border:1px solid #d1d5db;}
-    button{margin-top:1rem; padding:.85rem 1rem; border:0; border-radius:10px; background:#003366; color:#fff; font-weight:700}
-    .footer{color:#6b7280; margin-top:1rem; text-align:center}
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:520px;margin:4rem auto;padding:2rem;background:#fff;border-radius:16px;border:1px solid #e5e7eb;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    input{width:100%;padding:.85rem .95rem;border-radius:10px;border:1px solid #d1d5db}
+    button{margin-top:1rem;padding:.85rem 1rem;border:0;border-radius:10px;background:#003366;color:#fff;font-weight:700}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="brand">
-      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
-      <strong>Olde Hanter</strong>
-    </div>
     <h2>Voer wachtwoord in</h2>
     {% if error %}<p style="color:#b91c1c">Onjuist wachtwoord</p>{% endif %}
     <form method="post">
@@ -241,47 +274,47 @@ DOWNLOAD_HTML = """
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Download bestand - Olde Hanter</title>
-  <link rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='16' fill='%23003366'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='44' font-family='Arial, Helvetica, sans-serif' fill='white'%3EOH%3C/text%3E%3C/svg%3E"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#eef2f7; color:#111827; margin:0;}
-    .wrap{max-width:820px; margin:3.5rem auto; padding:0 1rem;}
-    .panel{background:#fff; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.06); padding:1.5rem}
-    .brand{display:flex; align-items:center; gap:.6rem; margin-bottom:1rem}
-    .brand svg{height:40px; width:40px}
-    .meta{margin:.5rem 0 1rem; color:#374151}
-    .btn{display:inline-block; padding:.95rem 1.25rem; background:#003666; color:#fff; border-radius:10px; text-decoration:none; font-weight:700}
-    .muted{color:#6b7280; font-size:.95rem}
-    .linkbox{margin-top:1rem; background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem}
-    input[type=text]{width:100%; padding:.8rem .9rem; border-radius:10px; border:1px solid #d1d5db;}
-    .copy-btn{margin-left:.5rem; padding:.55rem .8rem; font-size:.85rem; background:#2563eb; border:none; border-radius:8px; color:#fff; cursor:pointer;}
-    .footer{color:#6b7280; margin-top:1rem; text-align:center}
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef2f7;color:#111827;margin:0}
+    .wrap{max-width:820px;margin:3.5rem auto;padding:0 1rem}
+    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06);padding:1.5rem}
+    .meta{margin:.5rem 0 1rem;color:#374151}
+    .btn{display:inline-block;padding:.95rem 1.25rem;background:#003366;color:#fff;border-radius:10px;text-decoration:none;font-weight:700}
+    .muted{color:#6b7280;font-size:.95rem}
+    .linkbox{margin-top:1rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:.75rem}
+    input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db}
+    .copy-btn{margin-left:.5rem;padding:.55rem .8rem;font-size:.85rem;background:#2563eb;border:none;border-radius:8px;color:#fff;cursor:pointer}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+    .contact{margin-top:1rem;text-align:center}
+    .contact a{display:inline-block;margin-top:.5rem;padding:.7rem 1rem;border-radius:10px;background:#e5e7eb;color:#111827;text-decoration:none;font-weight:700}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <div class="brand">
-        <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="120" rx="16" fill="#003366"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="44" font-family="Arial, Helvetica, sans-serif" fill="white">OH</text></svg>
-        <h1 style="margin:0">Download bestand</h1>
-      </div>
-
+      <h1>Download bestand</h1>
       <div class="meta">
         <div><strong>Bestandsnaam:</strong> {{ name }}</div>
         <div><strong>Grootte:</strong> {{ size_human }}</div>
         <div><strong>Verloopt:</strong> {{ expires_human }}</div>
       </div>
-
       <a class="btn" href="{{ url_for('download_file', token=token) }}">Download</a>
 
       <div class="linkbox">
         <div><strong>Deelbare link</strong></div>
-        <div style="display:flex; gap:.5rem; align-items:center;">
+        <div style="display:flex;gap:.5rem;align-items:center;">
           <input type="text" id="shareLink" value="{{ share_link }}" readonly />
           <button class="copy-btn" onclick="copyLink()">Kopieer</button>
         </div>
         <div class="muted">De link blijft geldig tot de verloopdatum.</div>
+      </div>
+
+      <div class="contact">
+        <div>Interesse in een eigen transfer-oplossing?</div>
+        <a href="mailto:Patrick@oldehanter.nl?subject=Eigen%20transfer%20oplossing&body=wil%20je%20zelf%20ook%20een%20eigen%20transfer%20oplossing%20voor%2030%20euro%20per%20maand%20en%201tb%20opslag%2C%20stuur%20een%20mailtje">
+          Neem contact op
+        </a>
       </div>
 
       <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
@@ -301,22 +334,49 @@ DOWNLOAD_HTML = """
 
 # ---------------------- Routes ----------------------
 @app.route("/", methods=["GET"])
-def index():
+def home():
+    # Alleen geauthenticeerde gebruikers naar uploadscherm
+    if not require_login():
+        return redirect(url_for("login"))
     return render_template_string(
-        INDEX_HTML, link=None, pw_set=False, max_mb=MAX_CONTENT_LENGTH // (1024*1024)
+        INDEX_HTML,
+        link=None,
+        pw_set=False,
+        max_mb=MAX_CONTENT_LENGTH // (1024*1024),
+        user_email=session.get("user_email", AUTH_EMAIL),
     )
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        password = request.form.get("password") or ""
+        if email.lower() == AUTH_EMAIL.lower() and password == AUTH_PASSWORD:
+            session["authed"] = True
+            session["user_email"] = email
+            return redirect(url_for("home"))
+        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.")
+    return render_template_string(LOGIN_HTML, error=None)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    if not require_login():
+        return redirect(url_for("login"))
+
     f = request.files.get("file")
     if not f or f.filename == "":
         flash("Geen bestand geselecteerd")
-        return redirect(url_for("index"))
+        return redirect(url_for("home"))
 
     filename = secure_filename(f.filename)
     if not allowed_file(filename):
         flash("Bestandstype niet toegestaan")
-        return redirect(url_for("index"))
+        return redirect(url_for("home"))
 
     token = uuid.uuid4().hex[:10]
     stored_name = f"{token}__{filename}"
@@ -342,7 +402,11 @@ def upload():
 
     link = url_for("download", token=token, _external=True)
     return render_template_string(
-        INDEX_HTML, link=link, pw_set=bool(pw), max_mb=MAX_CONTENT_LENGTH // (1024*1024)
+        INDEX_HTML,
+        link=link,
+        pw_set=bool(pw),
+        max_mb=MAX_CONTENT_LENGTH // (1024*1024),
+        user_email=session.get("user_email", AUTH_EMAIL),
     )
 
 # Branded downloadpagina (met optioneel wachtwoord)
@@ -354,8 +418,10 @@ def download(token: str):
     if not row:
         abort(404)
 
+    # expiry check
     now = datetime.now(timezone.utc)
     if datetime.fromisoformat(row["expires_at"]) <= now:
+        # record meteen opschonen
         try:
             Path(row["stored_path"]).unlink(missing_ok=True)
         except Exception:
@@ -365,6 +431,7 @@ def download(token: str):
         con.commit(); con.close()
         abort(410)
 
+    # eventueel wachtwoord
     if row["password_hash"]:
         if request.method == "GET":
             return render_template_string(PASSWORD_HTML, error=False)
@@ -375,8 +442,6 @@ def download(token: str):
     # Toon branded downloadpagina
     share_link = url_for("download", token=token, _external=True)
     size_h = human_size(int(row["size_bytes"]))
-
-    # Verlooptijd afronden op minuten
     dt = datetime.fromisoformat(row["expires_at"]).replace(second=0, microsecond=0)
     expires_h = dt.strftime("%d-%m-%Y %H:%M")
 
