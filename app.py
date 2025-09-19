@@ -5,9 +5,10 @@ Olde Hanter - MiniTransfer (Flask)
   * E-mail: info@oldehanter.nl
   * Wachtwoord: Hulsmaat
 - Upload (tot 5 GB/request) met optioneel wachtwoord en verloop (in dagen, default 24)
-- Map upload: meerdere bestanden of een hele map -> server-side ZIP
+- Map-upload: meerdere bestanden of een hele map -> server-side ZIP
 - Deelbare link /d/<token> (branded downloadpagina) + /dl/<token> directe download
-- Contactformulier (/contact) toont alléén KLANTPRIJS; verzendt via SMTP of mailto fallback
+- Contactformulier (/contact) toont alleen 'Richtprijs' en verstuurt direct via SMTP
+  (Brevo/SendGrid/Outlook/Gmail) op basis van env vars; anders duidelijke melding.
 - SQLite metadata, lokale bestandsopslag
 - Cleanup van verlopen bestanden op iedere request
 """
@@ -45,7 +46,7 @@ AUTH_PASSWORD = "Hulsmaat"
 # Alleen KLANTPRIJS tonen (géén interne kostprijs in UI/mail)
 CUSTOMER_PRICE_PER_TB_EUR = 12.0  # pas aan naar jouw verkoopprijs per TB/maand
 
-# SMTP config via env
+# SMTP config via ENV (bijv. Brevo / SendGrid / Office365 / Gmail)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -53,7 +54,7 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() == "true"
 SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() == "true"
 SMTP_FROM = os.environ.get("SMTP_FROM")  # bv. "Olde Hanter Transfer <no-reply@oldehanter.nl>"
-CONTACT_TO = "Patrick@oldehanter.nl"
+MAIL_TO = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
 app = Flask(__name__)
 app.config.update(
@@ -464,10 +465,10 @@ CONTACT_HTML = """
           </div>
         </div>
 
-<p class="note">
-  Richtprijs: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
-  (op basis van <span id="tb_val">1</span> TB).
-</p>
+        <p class="note">
+          Richtprijs: <span class="price">€<span id="cost_offer">{{ offer_cost_eur }}</span>/maand</span>
+          (op basis van <span id="tb_val">1</span> TB).
+        </p>
 
         <button class="btn" type="submit">Verstuur aanvraag</button>
       </form>
@@ -717,7 +718,7 @@ def contact():
             offer_cost_eur=f"{offer_cost:.2f}".replace('.', ','),
         )
 
-    # POST: SMTP of mailto fallback
+    # POST: SMTP direct (of nette melding als niet geconfigureerd)
     login_email = (request.form.get("login_email") or "").strip()
     try:
         storage_tb = float(request.form.get("storage_tb") or "1")
@@ -726,7 +727,7 @@ def contact():
     company = (request.form.get("company") or "").strip()
     phone = (request.form.get("phone") or "").strip()
 
-    subject = "Aanvraag eigen transfer-oplossing"
+    subject = "Nieuwe aanvraag transfer-oplossing"
     body = (
         "Er is een nieuwe aanvraag binnengekomen voor een eigen transfer-oplossing:\n\n"
         f"- Gewenste inlog-e-mail: {login_email}\n"
@@ -737,14 +738,15 @@ def contact():
 
     if is_smtp_configured():
         try:
-            send_email(CONTACT_TO, subject, body)
+            send_email(MAIL_TO, subject, body)
             return render_template_string(CONTACT_DONE_HTML)
-        except Exception:
-            mailto = f"mailto:{CONTACT_TO}?subject={quote(subject)}&body={quote(body)}"
+        except Exception as e:
+            # Toon nette fallback met mailto-link
+            mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
             return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
-
-    mailto = f"mailto:{CONTACT_TO}?subject={quote(subject)}&body={quote(body)}"
-    return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
+    else:
+        mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
+        return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
 
 # ---------------------- Main ----------------------
 if __name__ == "__main__":
