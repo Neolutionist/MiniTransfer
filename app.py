@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, sqlite3, uuid
+import os, sqlite3, uuid, tempfile, zipfile, smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,7 +15,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
 
 # ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
@@ -32,6 +32,17 @@ MAX_RELAY_BYTES = MAX_RELAY_MB * 1024 * 1024
 S3_BUCKET       = os.environ["S3_BUCKET"]                # bv. MiniTransfer
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]          # bv. https://s3.eu-central-003.backblazeb2.com
+
+# SMTP (optioneel; anders mailto fallback)
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASS = os.environ.get("SMTP_PASS")
+SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
+MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
+
+def smtp_configured():
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
 # Path-style addressing → werkt ook met hoofdletters in bucketnaam
 s3 = boto3.client(
@@ -67,7 +78,7 @@ def init_db():
 
 init_db()
 
-# -------------- TEMPLATES: gedeelde stijl (glassy + dynamische bg) --------------
+# -------------- Gedeelde stijl --------------
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -99,18 +110,20 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
 .btn{padding:.95rem 1.2rem;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,51,102,.25)}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
+label{display:block;margin:.55rem 0 .25rem;font-weight:600}
+input[type=file],input[type=number],input[type=password],input[type=text],select{
+  width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
 """
 
+# -------------- Templates --------------
 LOGIN_HTML = f"""
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title>
 <style>
 {BASE_CSS}
-h1{{color:var(--brand);margin:0 0 1rem}}
-label{{display:block;margin:.55rem 0 .25rem;font-weight:600}}
-input{{width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}}
 .wrap{{max-width:520px}}
+h1{{color:var(--brand);margin:0 0 1rem}}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
@@ -137,8 +150,6 @@ INDEX_HTML = f"""
 .topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}}
 h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
 .logout a{{color:var(--brand);text-decoration:none;font-weight:700}}
-label{{display:block;margin:.55rem 0 .25rem;font-weight:600}}
-input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}}
 .note{{font-size:.95rem;color:#334155;margin-top:.5rem}}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
@@ -150,8 +161,9 @@ input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9r
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
-    <label for="file">Bestand</label>
-    <input id="file" type="file" name="file" required>
+    <label for="files">Bestand of map</label>
+    <!-- Map-ondersteuning -->
+    <input id="files" type="file" name="files" multiple webkitdirectory directory>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
@@ -165,7 +177,8 @@ input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9r
     </div>
 
     <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
-    <p class="note">Max {{{{ max_mb }}}} MB via server-relay.</p>
+    <p class="note">Je kunt één bestand of een hele map selecteren. Mapuploads worden automatisch als ZIP gebundeld.
+      Max {{{{ max_mb }}}} MB via server-relay.</p>
   </form>
 
   <div id="result"></div>
@@ -174,20 +187,31 @@ input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9r
 
 <script>
   const form = document.getElementById('f');
-  const file = document.getElementById('file');
+  const input = document.getElementById('files');
   const resBox = document.getElementById('result');
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    if(!file.files[0]){{ return alert("Kies een bestand"); }}
-    const fd = new FormData(form);
+    const files = input.files;
+    if(!files || files.length===0){ return alert("Kies een bestand of map"); }
+
+    const fd = new FormData();
+    // voeg formvelden toe
+    fd.append('expiry_days', document.getElementById('exp').value || '24');
+    fd.append('password', document.getElementById('pw').value || '');
+
+    // alle bestanden + hun (mogelijke) relativePath meesturen
+    for(const f of files){
+      fd.append('files', f, f.name);
+      fd.append('paths', f.webkitRelativePath || f.name);
+    }
 
     let res;
-    try{{ res = await fetch("{{{{ url_for('upload_relay') }}}}", {{ method:"POST", body: fd }}); }}
-    catch(e){{ return alert("Verbinding met server mislukt."); }}
+    try{ res = await fetch("{{{{ url_for('upload_relay') }}}}", {{ method:"POST", body: fd }}); }
+    catch(e){ return alert("Verbinding met server mislukt."); }
 
     const data = await res.json().catch(()=>({{ok:false,error:"Onbekende fout"}}));
-    if(!res.ok || !data.ok){{ return alert(data.error || ("Fout: "+res.status)); }}
+    if(!res.ok || !data.ok){ return alert(data.error || ("Fout: "+res.status)); }
 
     resBox.innerHTML = `
       <div class="card" style="margin-top:1rem">
@@ -195,8 +219,7 @@ input[type=file],input[type=number],input[type=password]{{width:100%;padding:.9r
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
           <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${{data.link}}" readonly>
           <button class="btn" type="button"
-            onclick="(navigator.clipboard?.writeText('${{data.link}}')||Promise.reject())
-                     .then(()=>alert('Link gekopieerd'))">
+            onclick="(navigator.clipboard?.writeText('${{data.link}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
             Kopieer
           </button>
         </div>
@@ -217,6 +240,8 @@ h1{{margin:.2rem 0 1rem;color:var(--brand)}}
 .btn{{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}}
 .linkbox{{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}}
 input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}}
+.actions{{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}}
+.secondary{{background:#0f4c98}}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -227,7 +252,11 @@ input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px s
     <div><strong>Grootte:</strong> {{{{ size_human }}}}</div>
     <div><strong>Verloopt:</strong> {{{{ expires_human }}}}</div>
   </div>
-  <a class="btn" href="{{{{ url_for('download_file', token=token) }}}}">Download</a>
+
+  <div class="actions">
+    <a class="btn" href="{{{{ url_for('download_file', token=token) }}}}">Download</a>
+    <a class="btn secondary" href="{{{{ url_for('contact') }}}}">Eigen transfer-oplossing aanvragen</a>
+  </div>
 
   <div class="linkbox">
     <div><strong>Deelbare link</strong></div>
@@ -245,6 +274,77 @@ input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px s
 </body></html>
 """
 
+# Contact (aanvraag) – alleen klantprijs tonen
+CONTACT_HTML = f"""
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Eigen transfer-oplossing – Olde Hanter</title>
+<style>
+{BASE_CSS}
+.wrap{{max-width:720px}}
+.note{{font-size:.95rem;color:#6b7280;margin-top:.5rem}}
+.error{{background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem}}
+</style></head><body>
+<div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card">
+  <h1>Eigen transfer-oplossing aanvragen</h1>
+  {{% if error %}}<div class="error">{{{{ error }}}}</div>{{% endif %}}
+  <form method="post" action="{{{{ url_for('contact') }}}}" novalidate>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div>
+        <label for="login_email">Gewenste inlog-e-mail</label>
+        <input id="login_email" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{{{ form.login_email or '' }}}}" required>
+      </div>
+      <div>
+        <label for="storage_tb">Gewenste opslaggrootte</label>
+        <select id="storage_tb" name="storage_tb" required>
+          <option value="">Maak een keuze…</option>
+          <option value="0.5" {{% if form.storage_tb=='0.5' %}}selected{{% endif %}}>0,5 TB — €6/maand</option>
+          <option value="1"   {{% if (form.storage_tb or '1')=='1' %}}selected{{% endif %}}>1 TB — €12/maand</option>
+          <option value="2"   {{% if form.storage_tb=='2' %}}selected{{% endif %}}>2 TB — €24/maand</option>
+          <option value="5"   {{% if form.storage_tb=='5' %}}selected{{% endif %}}>5 TB — €60/maand</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+      <div>
+        <label for="company">Bedrijfsnaam</label>
+        <input id="company" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{{{ form.company or '' }}}}" minlength="2" maxlength="100" required>
+      </div>
+      <div>
+        <label for="phone">Telefoonnummer</label>
+        <input id="phone" name="phone" type="tel" placeholder="+31 6 12345678" value="{{{{ form.phone or '' }}}}" pattern="^[0-9+()\\s-]{{8,20}}$" required>
+      </div>
+    </div>
+    <p class="note">Richtprijs wordt op basis van je keuze meegestuurd in de e-mail.</p>
+    <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
+  </form>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
+"""
+
+CONTACT_DONE_HTML = f"""
+<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Aanvraag verstuurd</title>
+<style>{BASE_CSS}.wrap{{max-width:720px}}</style>
+</head><body><div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div></body></html>
+"""
+
+CONTACT_MAIL_FALLBACK_HTML = f"""
+<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Aanvraag gereed</title>
+<style>{BASE_CSS}.wrap{{max-width:720px}}</style>
+</head><body><div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card">
+  <h1>Aanvraag gereed</h1>
+  <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
+  <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div></body></html>
+"""
+
 # -------------- Helpers --------------
 def logged_in() -> bool:
     return session.get("authed", False)
@@ -255,6 +355,17 @@ def human(n: int) -> str:
         if x < 1024 or u == "TB":
             return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
         x /= 1024
+
+def send_email(to_addr: str, subject: str, body: str):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_addr
+    msg.set_content(body)
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls()
+        s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
 
 # -------------- Routes --------------
 @app.route("/")
@@ -279,41 +390,79 @@ def logout():
     return redirect(url_for("login"))
 
 # Browser → server → B2 (geen CORS nodig)
-@app.route("/upload-retry", methods=["POST"])   # alias
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
     if not logged_in():
         return abort(401)
 
-    f = request.files.get("file")
-    if not f or f.filename == "":
+    # Verzamel bestanden en paden (paths is parallelle lijst met webkitRelativePath/name)
+    files = request.files.getlist("files")
+    paths = request.form.getlist("paths")
+    if not files:
         return jsonify(ok=False, error="Geen bestand"), 400
 
+    # grootte-check (globaal)
     if request.content_length and request.content_length > MAX_RELAY_BYTES:
-        return jsonify(ok=False, error=f"Bestand groter dan {MAX_RELAY_MB} MB"), 413
+        return jsonify(ok=False, error=f"Upload groter dan {MAX_RELAY_MB} MB"), 413
 
-    filename = secure_filename(f.filename)
-    token = uuid.uuid4().hex[:10]
-    object_key = f"uploads/{token}__{filename}"
-
-    expiry_days = request.form.get("expiry_days", "24")
+    expiry_days = float(request.form.get("expiry_days") or 24)
     password = request.form.get("password") or ""
     pw_hash = generate_password_hash(password) if password else None
 
-    try:
+    # Bepaal of we moeten bundelen tot ZIP
+    must_zip = len(files) > 1 or any("/" in (p or "") for p in paths)
+
+    token = uuid.uuid4().hex[:10]
+    if must_zip:
+        # ZIP-naam op basis van map of tijd
+        # probeer een root-folder uit de paths te halen
+        root = None
+        for p in paths:
+            if "/" in p:
+                root = p.split("/", 1)[0]
+                break
+        zip_name = f"{root or 'map-upload'}_{token}.zip"
+        object_key = f"uploads/{token}__{zip_name}"
+
+        # Maak tijdelijke ZIP en stream daarna naar B2
+        tmp_path = Path(tempfile.gettempdir()) / f"bundle_{token}.zip"
+        try:
+            with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=7) as z:
+                for f, p in zip(files, paths):
+                    arc = p or f.filename
+                    # schrijf in chunks
+                    with z.open(arc, "w") as dest:
+                        while True:
+                            chunk = f.stream.read(1024 * 1024)
+                            if not chunk: break
+                            dest.write(chunk)
+
+            # upload
+            s3.upload_file(str(tmp_path), S3_BUCKET, object_key)
+            size_bytes = tmp_path.stat().st_size
+        finally:
+            try: tmp_path.unlink(missing_ok=True)
+            except: pass
+
+        original_name = zip_name
+
+    else:
+        # enkele file
+        f = files[0]
+        filename = secure_filename(f.filename)
+        object_key = f"uploads/{token}__{filename}"
+        # stream direct naar B2
         s3.upload_fileobj(f.stream, S3_BUCKET, object_key)
         head = s3.head_object(Bucket=S3_BUCKET, Key=object_key)
         size_bytes = int(head["ContentLength"])
-    except Exception as e:
-        app.logger.error(f"upload_relay error: {e}")
-        return jsonify(ok=False, error="Upload naar opslag mislukt"), 500
+        original_name = filename
 
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=float(expiry_days or 24))).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=expiry_days)).isoformat()
 
     c = db()
     c.execute("""INSERT INTO files(token,stored_path,original_name,password_hash,expires_at,size_bytes,created_at)
                  VALUES(?,?,?,?,?,?,?)""",
-              (token, object_key, filename, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()))
+              (token, object_key, original_name, pw_hash, expires_at, size_bytes, datetime.now(timezone.utc).isoformat()))
     c.commit(); c.close()
 
     link = url_for("download", token=token, _external=True)
@@ -370,6 +519,63 @@ def download_file(token):
         "get_object", Params={"Bucket": S3_BUCKET, "Key": row["stored_path"]}, ExpiresIn=3600
     )
     return redirect(url)
+
+# -------- Contact / aanvraag --------
+import re
+EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
+ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
+
+@app.route("/contact", methods=["GET","POST"])
+def contact():
+    if request.method == "GET":
+        return render_template_string(
+            CONTACT_HTML,
+            error=None,
+            form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
+        )
+
+    login_email = (request.form.get("login_email") or "").strip()
+    storage_tb_raw = (request.form.get("storage_tb") or "").strip()
+    company = (request.form.get("company") or "").strip()
+    phone = (request.form.get("phone") or "").strip()
+
+    errors = []
+    if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
+    try: storage_tb = float(storage_tb_raw.replace(",", "."))
+    except Exception: storage_tb = None
+    if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
+    if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
+    if not PHONE_RE.match(phone): errors.append("Vul een geldig telefoonnummer in (8–20 tekens).")
+
+    if errors:
+        return render_template_string(
+            CONTACT_HTML, error=" ".join(errors),
+            form={"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),"company":company,"phone":phone},
+        )
+
+    subject = "Nieuwe aanvraag transfer-oplossing"
+    price_map = {0.5:"€6/maand", 1.0:"€12/maand", 2.0:"€24/maand", 5.0:"€60/maand"}
+    price   = price_map.get(storage_tb, "op aanvraag")
+    body = (
+        "Er is een nieuwe aanvraag binnengekomen:\n\n"
+        f"- Gewenste inlog-e-mail: {login_email}\n"
+        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\n"
+        f"- Bedrijfsnaam: {company}\n"
+        f"- Telefoonnummer: {phone}\n"
+    )
+
+    try:
+        if smtp_configured():
+            send_email(MAIL_TO, subject, body)
+            return render_template_string(CONTACT_DONE_HTML)
+    except Exception:
+        pass
+
+    # Fallback: mailto
+    from urllib.parse import quote
+    mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
+    return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto)
 
 # eenvoudige S3 healthcheck
 @app.route("/health-s3")
