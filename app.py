@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, sqlite3, uuid, tempfile, zipfile, smtplib
+import os, sqlite3, uuid, tempfile, zipfile, smtplib, re
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -73,7 +73,7 @@ def init_db():
 
 init_db()
 
-# -------------- Gedeelde stijl --------------
+# -------------- gedeelde CSS --------------
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -110,20 +110,20 @@ input[type=file],input[type=number],input[type=password],input[type=text],select
   width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
 """
 
-# -------------- Templates --------------
-LOGIN_HTML = f"""
+# -------------- Templates (géén f-strings) --------------
+LOGIN_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title>
 <style>
-{BASE_CSS}
-.wrap{{max-width:520px}}
-h1{{color:var(--brand);margin:0 0 1rem}}
+{{ base_css }}
+.wrap{max-width:520px}
+h1{color:var(--brand);margin:0 0 1rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
-  {{% if error %}}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{{{ error }}}}</div>{{% endif %}}
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="on">
     <label for="email">E-mail</label>
     <input id="email" name="email" type="email" value="info@oldehanter.nl" autocomplete="username" required>
@@ -136,23 +136,23 @@ h1{{color:var(--brand);margin:0 0 1rem}}
 </body></html>
 """
 
-INDEX_HTML = f"""
+INDEX_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Olde Hanter – Upload</title>
 <style>
-{BASE_CSS}
-.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}}
-h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
-.logout a{{color:var(--brand);text-decoration:none;font-weight:700}}
-.note{{font-size:.95rem;color:#334155;margin-top:.5rem}}
+{{ base_css }}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+.logout a{color:var(--brand);text-decoration:none;font-weight:700}
+.note{font-size:.95rem;color:#334155;margin-top:.5rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{{{ user }}}} • <a href="{{{{ url_for('logout') }}}}">Uitloggen</a></div>
+    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
@@ -172,7 +172,7 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
 
     <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
     <p class="note">Je kunt één bestand of een hele map selecteren. Mapuploads worden automatisch als ZIP gebundeld.
-      Max {{{{ max_mb }}}} MB via server-relay.</p>
+      Max {{ max_mb }} MB via server-relay.</p>
   </form>
 
   <div id="result"></div>
@@ -187,7 +187,7 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const files = input.files;
-    if(!files || files.length===0){ return alert("Kies een bestand of map"); }
+    if(!files || files.length===0){ alert("Kies een bestand of map"); return; }
 
     const fd = new FormData();
     fd.append('expiry_days', document.getElementById('exp').value || '24');
@@ -199,19 +199,19 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
     }
 
     let res;
-    try{ res = await fetch("{{{{ url_for('upload_relay') }}}}", {{ method:"POST", body: fd }}); }
-    catch(e){ return alert("Verbinding met server mislukt."); }
+    try{ res = await fetch("{{ url_for('upload_relay') }}", { method:"POST", body: fd }); }
+    catch(e){ alert("Verbinding met server mislukt."); return; }
 
-    const data = await res.json().catch(()=>({{ok:false,error:"Onbekende fout"}}));
-    if(!res.ok || !data.ok){ return alert(data.error || ("Fout: "+res.status)); }
+    const data = await res.json().catch(()=>({ok:false,error:"Onbekende fout"}));
+    if(!res.ok || !data.ok){ alert(data.error || ("Fout: "+res.status)); return; }
 
     resBox.innerHTML = `
       <div class="card" style="margin-top:1rem">
         <strong>Deelbare link</strong>
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${{data.link}}" readonly>
+          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
           <button class="btn" type="button"
-            onclick="(navigator.clipboard?.writeText('${{data.link}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+            onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
             Kopieer
           </button>
         </div>
@@ -221,41 +221,41 @@ h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
 </body></html>
 """
 
-DOWNLOAD_HTML = f"""
+DOWNLOAD_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>
 <style>
-{BASE_CSS}
-h1{{margin:.2rem 0 1rem;color:var(--brand)}}
-.meta{{margin:.4rem 0 1rem;color:#374151}}
-.btn{{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}}
-.linkbox{{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}}
-input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}}
-.actions{{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}}
-.secondary{{background:#0f4c98}}
+{{ base_css }}
+h1{margin:.2rem 0 1rem;color:var(--brand)}
+.meta{margin:.4rem 0 1rem;color:#374151}
+.btn{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
+.linkbox{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}
+input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
+.actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}
+.secondary{background:#0f4c98}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
 <div class="wrap"><div class="card">
   <h1>Download bestand</h1>
   <div class="meta">
-    <div><strong>Bestandsnaam:</strong> {{{{ name }}}}</div>
-    <div><strong>Grootte:</strong> {{{{ size_human }}}}</div>
-    <div><strong>Verloopt:</strong> {{{{ expires_human }}}}</div>
+    <div><strong>Bestandsnaam:</strong> {{ name }}</div>
+    <div><strong>Grootte:</strong> {{ size_human }}</div>
+    <div><strong>Verloopt:</strong> {{ expires_human }}</div>
   </div>
 
   <div class="actions">
-    <a class="btn" href="{{{{ url_for('download_file', token=token) }}}}">Download</a>
-    <a class="btn secondary" href="{{{{ url_for('contact') }}}}">Eigen transfer-oplossing aanvragen</a>
+    <a class="btn" href="{{ url_for('download_file', token=token) }}">Download</a>
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
   </div>
 
   <div class="linkbox">
     <div><strong>Deelbare link</strong></div>
     <div style="display:flex;gap:.5rem;align-items:center;">
-      <input type="text" id="shareLink" value="{{{{ share_link }}}}" readonly>
+      <input type="text" id="shareLink" value="{{ share_link }}" readonly>
       <button class="btn" type="button"
-        onclick="(navigator.clipboard?.writeText('{{{{ share_link }}}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+        onclick="(navigator.clipboard?.writeText('{{ share_link }}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
         Kopieer
       </button>
     </div>
@@ -266,45 +266,45 @@ input[type=text]{{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px s
 </body></html>
 """
 
-CONTACT_HTML = f"""
+CONTACT_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Eigen transfer-oplossing – Olde Hanter</title>
 <style>
-{BASE_CSS}
-.wrap{{max-width:720px}}
-.note{{font-size:.95rem;color:#6b7280;margin-top:.5rem}}
-.error{{background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem}}
+{{ base_css }}
+.wrap{max-width:720px}
+.note{font-size:.95rem;color:#6b7280;margin-top:.5rem}
+.error{background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
-  {{% if error %}}<div class="error">{{{{ error }}}}</div>{{% endif %}}
-  <form method="post" action="{{{{ url_for('contact') }}}}" novalidate>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ url_for('contact') }}" novalidate>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
-        <input id="login_email" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{{{ form.login_email or '' }}}}" required>
+        <input id="login_email" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{ form.login_email or '' }}" required>
       </div>
       <div>
         <label for="storage_tb">Gewenste opslaggrootte</label>
         <select id="storage_tb" name="storage_tb" required>
           <option value="">Maak een keuze…</option>
-          <option value="0.5" {{% if form.storage_tb=='0.5' %}}selected{{% endif %}}>0,5 TB — €6/maand</option>
-          <option value="1"   {{% if (form.storage_tb or '1')=='1' %}}selected{{% endif %}}>1 TB — €12/maand</option>
-          <option value="2"   {{% if form.storage_tb=='2' %}}selected{{% endif %}}>2 TB — €24/maand</option>
-          <option value="5"   {{% if form.storage_tb=='5' %}}selected{{% endif %}}>5 TB — €60/maand</option>
+          <option value="0.5" {% if form.storage_tb=='0.5' %}selected{% endif %}>0,5 TB — €6/maand</option>
+          <option value="1"   {% if (form.storage_tb or '1')=='1' %}selected{% endif %}>1 TB — €12/maand</option>
+          <option value="2"   {% if form.storage_tb=='2' %}selected{% endif %}>2 TB — €24/maand</option>
+          <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €60/maand</option>
         </select>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
       <div>
         <label for="company">Bedrijfsnaam</label>
-        <input id="company" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{{{ form.company or '' }}}}" minlength="2" maxlength="100" required>
+        <input id="company" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{ form.company or '' }}" minlength="2" maxlength="100" required>
       </div>
       <div>
         <label for="phone">Telefoonnummer</label>
-        <input id="phone" name="phone" type="tel" placeholder="+31 6 12345678" value="{{{{ form.phone or '' }}}}" pattern="^[0-9+()\\s-]{{8,20}}$" required>
+        <input id="phone" name="phone" type="tel" placeholder="+31 6 12345678" value="{{ form.phone or '' }}" pattern="^[0-9+()\\s-]{8,20}$" required>
       </div>
     </div>
     <p class="note">Richtprijs wordt op basis van je keuze meegestuurd in de e-mail.</p>
@@ -315,18 +315,18 @@ CONTACT_HTML = f"""
 </body></html>
 """
 
-CONTACT_DONE_HTML = f"""
+CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag verstuurd</title>
-<style>{BASE_CSS}.wrap{{max-width:720px}}</style>
+<style>{{ base_css }}.wrap{max-width:720px}</style>
 </head><body><div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div></body></html>
 """
 
-CONTACT_MAIL_FALLBACK_HTML = f"""
+CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag gereed</title>
-<style>{BASE_CSS}.wrap{{max-width:720px}}</style>
+<style>{{ base_css }}.wrap{max-width:720px}</style>
 </head><body><div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
@@ -363,7 +363,7 @@ def send_email(to_addr: str, subject: str, body: str):
 def index():
     if not logged_in():
         return redirect(url_for("login"))
-    return render_template_string(INDEX_HTML, user=session.get("user"), max_mb=MAX_RELAY_MB)
+    return render_template_string(INDEX_HTML, user=session.get("user"), max_mb=MAX_RELAY_MB, base_css=BASE_CSS)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
@@ -372,15 +372,15 @@ def login():
             session["authed"] = True
             session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
-        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.")
-    return render_template_string(LOGIN_HTML, error=None)
+        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS)
+    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS)
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# Browser → server → B2 (geen CORS nodig) + map→ZIP bundeling
+# Browser → server → B2 (geen CORS) + map→ZIP bundeling
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
     if not logged_in():
@@ -487,6 +487,7 @@ def download(token):
         expires_human=expires_h,
         token=token,
         share_link=share_link,
+        base_css=BASE_CSS
     )
 
 @app.route("/dl/<token>")
@@ -500,7 +501,6 @@ def download_file(token):
     return redirect(url)
 
 # -------- Contact / aanvraag --------
-import re
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
@@ -512,6 +512,7 @@ def contact():
             CONTACT_HTML,
             error=None,
             form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
+            base_css=BASE_CSS
         )
 
     login_email = (request.form.get("login_email") or "").strip()
@@ -531,6 +532,7 @@ def contact():
         return render_template_string(
             CONTACT_HTML, error=" ".join(errors),
             form={"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),"company":company,"phone":phone},
+            base_css=BASE_CSS
         )
 
     subject = "Nieuwe aanvraag transfer-oplossing"
@@ -547,13 +549,13 @@ def contact():
     try:
         if smtp_configured():
             send_email(MAIL_TO, subject, body)
-            return render_template_string(CONTACT_DONE_HTML)
+            return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS)
     except Exception:
         pass
 
     from urllib.parse import quote
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
-    return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto)
+    return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
 # eenvoudige S3 healthcheck
 @app.route("/health-s3")
