@@ -9,6 +9,7 @@ Olde Hanter - MiniTransfer (Flask)
 - Deelbare link /d/<token> (branded downloadpagina)
 - Directe download via /dl/<token>
 - Contactformulier (/contact) stuurt direct een e-mail (SMTP) ZONDER kosteninfo/marketingzin
+  en toont in het formulier uitsluitend de KLANTPRIJS; bij ontbrekende SMTP-config: mailto-fallback
 - SQLite metadata, lokale bestandsopslag
 - Cleanup van verlopen bestanden op iedere request
 """
@@ -43,8 +44,9 @@ ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Kostprijs per TB/maand in euro (alleen voor weergave in formulier; niet in mail)
-STORAGE_COST_PER_TB_EUR = 6.0
+# Prijsmodel: alleen KLANTPRIJS tonen (geen werkelijke kosten in UI/mail)
+# Stel hier je verkoopprijs per TB/maand in:
+CUSTOMER_PRICE_PER_TB_EUR = 12.0  # voorbeeld: 2x €6; pas aan indien je andere prijs wilt tonen
 
 # SMTP config via env
 SMTP_HOST = os.environ.get("SMTP_HOST")
@@ -138,7 +140,7 @@ def require_login():
     return bool(session.get("authed"))
 
 def _safe_relpath(p: str) -> str:
-    p = p.replace("\\", "/")
+    p = p.replace("\", "/")
     parts = []
     for seg in p.split("/"):
         if not seg or seg in (".",):
@@ -148,12 +150,15 @@ def _safe_relpath(p: str) -> str:
         parts.append(seg)
     return "/".join(parts)
 
+def is_smtp_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+
 def send_email(to_addr: str, subject: str, body: str):
     """
     Stuur e-mail via SMTP. Werkt met TLS (587) of SSL (465).
-    Vereist: SMTP_HOST, SMTP_USER, SMTP_PASS.
+    Vereist: SMTP_HOST, SMTP_USER, SMTP_PASS (anders fallback).
     """
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+    if not is_smtp_configured():
         raise RuntimeError("SMTP is niet geconfigureerd (env vars SMTP_HOST/SMTP_USER/SMTP_PASS).")
 
     msg = EmailMessage()
@@ -176,10 +181,10 @@ def send_email(to_addr: str, subject: str, body: str):
 # ---------------------- Templates ----------------------
 LOGIN_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Inloggen - Olde Hanter Transfer</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -194,17 +199,17 @@ LOGIN_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <div class=\"wrap\">
     <h1>Inloggen</h1>
-    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
-    <form method="post">
-      <label for="email">E-mail</label>
-      <input id="email" name="email" type="email" placeholder="info@oldehanter.nl" required />
-      <label for="pw">Wachtwoord</label>
-      <input id="pw" name="password" type="password" placeholder="Wachtwoord" required />
-      <button type="submit">Inloggen</button>
+    {% if error %}<div class=\"flash\">{{ error }}</div>{% endif %}
+    <form method=\"post\">
+      <label for=\"email\">E-mail</label>
+      <input id=\"email\" name=\"email\" type=\"email\" placeholder=\"info@oldehanter.nl\" required />
+      <label for=\"pw\">Wachtwoord</label>
+      <input id=\"pw\" name=\"password\" type=\"password\" placeholder=\"Wachtwoord\" required />
+      <button type=\"submit\">Inloggen</button>
     </form>
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 </body>
 </html>
@@ -212,10 +217,10 @@ LOGIN_HTML = """
 
 INDEX_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Olde Hanter Transfer</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -240,52 +245,52 @@ INDEX_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
+  <div class=\"wrap\">
+    <div class=\"topbar\">
       <h1>Bestanden delen met Olde Hanter</h1>
-      <div class="logout">Ingelogd als {{ user_email }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+      <div class=\"logout\">Ingelogd als {{ user_email }} • <a href=\"{{ url_for('logout') }}\">Uitloggen</a></div>
     </div>
 
     {% with messages = get_flashed_messages() %}
-      {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
+      {% if messages %}<div class=\"flash\">{{ messages[0] }}</div>{% endif %}
     {% endwith %}
 
-    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card">
-      <label for="file">Bestanden of map</label>
-      <input id="file" type="file" name="file" multiple required />
-      <div class="row">
-        <input type="checkbox" id="folderMode" name="folder_mode" value="1" />
-        <label for="folderMode" style="margin:0">Map uploaden</label>
-        <span class="hint">(zet de kiezer in map-modus; we maken er automatisch één .zip van)</span>
+    <form method=\"post\" action=\"{{ url_for('upload') }}\" enctype=\"multipart/form-data\" class=\"card\">
+      <label for=\"file\">Bestanden of map</label>
+      <input id=\"file\" type=\"file\" name=\"file\" multiple required />
+      <div class=\"row\">
+        <input type=\"checkbox\" id=\"folderMode\" name=\"folder_mode\" value=\"1\" />
+        <label for=\"folderMode\" style=\"margin:0\">Map uploaden</label>
+        <span class=\"hint\">(zet de kiezer in map-modus; we maken er automatisch één .zip van)</span>
       </div>
 
-      <div class="grid" style="margin-top:.6rem">
+      <div class=\"grid\" style=\"margin-top:.6rem\">
         <div>
-          <label for="expiry">Verloopt over (dagen)</label>
-          <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="24" />
+          <label for=\"expiry\">Verloopt over (dagen)</label>
+          <input id=\"expiry\" type=\"number\" name=\"expiry_days\" step=\"1\" min=\"1\" placeholder=\"24\" />
         </div>
         <div>
-          <label for="pw">Wachtwoord (optioneel)</label>
-          <input id="pw" type="password" name="password" placeholder="Laat leeg voor geen wachtwoord" />
+          <label for=\"pw\">Wachtwoord (optioneel)</label>
+          <input id=\"pw\" type=\"password\" name=\"password\" placeholder=\"Laat leeg voor geen wachtwoord\" />
         </div>
       </div>
 
-      <button class="btn" type="submit">Uploaden</button>
-      <p class="note">Max {{ max_mb }} MB per request (bij map-upload telt alles samen).</p>
+      <button class=\"btn\" type=\"submit\">Uploaden</button>
+      <p class=\"note\">Max {{ max_mb }} MB per request (bij map-upload telt alles samen).</p>
     </form>
 
     {% if link %}
-    <div class="card" style="margin-top:1rem">
+    <div class=\"card\" style=\"margin-top:1rem\">
       <strong>Deelbare link:</strong>
-      <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-        <input type="text" id="shareLink" value="{{ link }}" readonly />
-        <button class="copy-btn" onclick="copyLink()">Kopieer</button>
+      <div style=\"display:flex;gap:.5rem;align-items:center;margin-top:.35rem\">
+        <input type=\"text\" id=\"shareLink\" value=\"{{ link }}\" readonly />
+        <button class=\"copy-btn\" onclick=\"copyLink()\">Kopieer</button>
       </div>
-      {% if pw_set %}<div class="note">Wachtwoord is ingesteld.</div>{% endif %}
+      {% if pw_set %}<div class=\"note\">Wachtwoord is ingesteld.</div>{% endif %}
     </div>
     {% endif %}
 
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
   <script>
     // Zet file input in directory-modus als "Map uploaden" is aangevinkt
@@ -316,10 +321,10 @@ INDEX_HTML = """
 
 PASSWORD_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Beveiligd bestand - Olde Hanter</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -331,14 +336,14 @@ PASSWORD_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <div class=\"wrap\">
     <h2>Voer wachtwoord in</h2>
-    {% if error %}<p style="color:#b91c1c">Onjuist wachtwoord</p>{% endif %}
-    <form method="post">
-      <input type="password" name="password" placeholder="Wachtwoord" required />
-      <button type="submit">Ontgrendel</button>
+    {% if error %}<p style=\"color:#b91c1c\">Onjuist wachtwoord</p>{% endif %}
+    <form method=\"post\">
+      <input type=\"password\" name=\"password\" placeholder=\"Wachtwoord\" required />
+      <button type=\"submit\">Ontgrendel</button>
     </form>
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 </body>
 </html>
@@ -346,10 +351,10 @@ PASSWORD_HTML = """
 
 DOWNLOAD_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Download bestand - Olde Hanter</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -368,31 +373,31 @@ DOWNLOAD_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="panel">
+  <div class=\"wrap\">
+    <div class=\"panel\">
       <h1>Download bestand</h1>
-      <div class="meta">
+      <div class=\"meta\">
         <div><strong>Bestandsnaam:</strong> {{ name }}</div>
         <div><strong>Grootte:</strong> {{ size_human }}</div>
         <div><strong>Verloopt:</strong> {{ expires_human }}</div>
       </div>
-      <a class="btn" href="{{ url_for('download_file', token=token) }}">Download</a>
+      <a class=\"btn\" href=\"{{ url_for('download_file', token=token) }}\">Download</a>
 
-      <div class="linkbox">
+      <div class=\"linkbox\">
         <div><strong>Deelbare link</strong></div>
-        <div style="display:flex;gap:.5rem;align-items:center;">
-          <input type="text" id="shareLink" value="{{ share_link }}" readonly />
-          <button class="copy-btn" onclick="copyLink()">Kopieer</button>
+        <div style=\"display:flex;gap:.5rem;align-items:center;\">
+          <input type=\"text\" id=\"shareLink\" value=\"{{ share_link }}\" readonly />
+          <button class=\"copy-btn\" onclick=\"copyLink()\">Kopieer</button>
         </div>
-        <div class="muted">De link blijft geldig tot de verloopdatum.</div>
+        <div class=\"muted\">De link blijft geldig tot de verloopdatum.</div>
       </div>
 
-      <div class="contact">
+      <div class=\"contact\">
         <div>Interesse in een eigen transfer-oplossing?</div>
-        <a href="{{ url_for('contact') }}">Vraag offerte / stel samen</a>
+        <a href=\"{{ url_for('contact') }}\">Vraag offerte / stel samen</a>
       </div>
 
-      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+      <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
   <script>
@@ -409,10 +414,10 @@ DOWNLOAD_HTML = """
 
 CONTACT_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Eigen transfer-oplossing - Olde Hanter</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -431,59 +436,57 @@ CONTACT_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
+  <div class=\"wrap\">
+    <div class=\"card\">
       <h1>Eigen transfer-oplossing aanvragen</h1>
-      <form method="post" action="{{ url_for('contact') }}">
-        <div class="grid">
+      <form method=\"post\" action=\"{{ url_for('contact') }}\">
+        <div class=\"grid\">
           <div>
-            <label for="login_email">Gewenste inlog-e-mail</label>
-            <input id="login_email" name="login_email" type="email" placeholder="naam@bedrijf.nl" required />
+            <label for=\"login_email\">Gewenste inlog-e-mail</label>
+            <input id=\"login_email\" name=\"login_email\" type=\"email\" placeholder=\"naam@bedrijf.nl\" required />
           </div>
           <div>
-            <label for="storage_tb">Gewenste opslaggrootte</label>
-            <select id="storage_tb" name="storage_tb" required onchange="updatePrice()">
-              <option value="0.5">0,5 TB</option>
-              <option value="1" selected>1 TB</option>
-              <option value="2">2 TB</option>
-              <option value="5">5 TB</option>
+            <label for=\"storage_tb\">Gewenste opslaggrootte</label>
+            <select id=\"storage_tb\" name=\"storage_tb\" required onchange=\"updatePrice()\">
+              <option value=\"0.5\">0,5 TB</option>
+              <option value=\"1\" selected>1 TB</option>
+              <option value=\"2\">2 TB</option>
+              <option value=\"5\">5 TB</option>
             </select>
           </div>
         </div>
 
-        <div class="grid" style="margin-top:1rem">
+        <div class=\"grid\" style=\"margin-top:1rem\">
           <div>
-            <label for="company">Bedrijfsnaam</label>
-            <input id="company" name="company" type="text" placeholder="Bedrijfsnaam BV" />
+            <label for=\"company\">Bedrijfsnaam</label>
+            <input id=\"company\" name=\"company\" type=\"text\" placeholder=\"Bedrijfsnaam BV\" />
           </div>
           <div>
-            <label for="phone">Telefoonnummer</label>
-            <input id="phone" name="phone" type="tel" placeholder="+31 6 12345678" />
+            <label for=\"phone\">Telefoonnummer</label>
+            <input id=\"phone\" name=\"phone\" type=\"tel\" placeholder=\"+31 6 12345678\" />
           </div>
         </div>
 
-        <p class="note">
-          Richtprijs (interne calculatie): €<span id="cost_host">{{ host_cost_eur }}</span>/maand kostprijs —
-          voorstel aan klant ~ €<span id="cost_offer">{{ offer_cost_eur }}</span>/maand.
-          <br>(Deze prijzen worden <u>niet</u> meegestuurd in de e-mail.)
+        <p class=\"note\">
+          Richtprijs voor de klant: <span class=\"price\">€<span id=\"cost_offer\">{{ offer_cost_eur }}</span>/maand</span>
+          (op basis van <span id=\"tb_val\">1</span> TB).
         </p>
 
-        <button class="btn" type="submit">Verstuur aanvraag</button>
+        <button class=\"btn\" type=\"submit\">Verstuur aanvraag</button>
       </form>
-      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+      <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
   <script>
-    const base = {{ base_cost }};
+    let baseOffer = {{ base_offer }};
     const storageSel = document.getElementById('storage_tb');
-    const hostEl = document.getElementById('cost_host');
     const offerEl = document.getElementById('cost_offer');
+    const tbVal = document.getElementById('tb_val');
     function updatePrice(){
       const tb = parseFloat(storageSel.value || "1");
-      const host = tb * base;
-      const offer = host * 2;
-      hostEl.textContent = host.toFixed(2).replace('.', ',');
+      const offer = tb * baseOffer;
       offerEl.textContent = offer.toFixed(2).replace('.', ',');
+      tbVal.textContent = tb.toString().replace('.', ',');
     }
     updatePrice();
   </script>
@@ -493,10 +496,10 @@ CONTACT_HTML = """
 
 CONTACT_DONE_HTML = """
 <!doctype html>
-<html lang="nl">
+<html lang=\"nl\">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>Aanvraag verstuurd</title>
   <style>
     *,*::before,*::after{box-sizing:border-box}
@@ -507,11 +510,40 @@ CONTACT_DONE_HTML = """
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
+  <div class=\"wrap\">
+    <div class=\"card\">
       <h1>Aanvraag is verstuurd</h1>
       <p>Bedankt! We nemen zo snel mogelijk contact met je op.</p>
-      <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+      <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+CONTACT_MAIL_HTML = """
+<!doctype html>
+<html lang=\"nl\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>Aanvraag klaarzetten</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
+    .wrap{max-width:680px;margin:3rem auto;padding:0 1rem}
+    .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    .btn{display:inline-block;margin-top:1rem;padding:.95rem 1.2rem;border-radius:10px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
+    .footer{color:#6b7280;margin-top:1rem;text-align:center}
+  </style>
+</head>
+<body>
+  <div class=\"wrap\">
+    <div class=\"card\">
+      <h1>Aanvraag gereed</h1>
+      <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
+      <a class=\"btn\" href=\"{{ mailto_link }}\">Open e-mail</a>
+      <p class=\"footer\">Olde Hanter Bouwconstructies • Bestandentransfer</p>
     </div>
   </div>
 </body>
@@ -680,23 +712,21 @@ def download_file(token: str):
     path = Path(row["stored_path"]).resolve()
     if not path.exists():
         abort(404)
-    return send_file(path, as_attachment=True, download_name=row["original_name"])
+    return send_file(path, as attachment=True, download_name=row["original_name"]) 
 
-# Contact / offerte (direct mailen)
+# Contact / offerte (direct mailen met fallback)
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
     if request.method == "GET":
-        # default: 1 TB, alleen tonen (niet mailen)
-        host_cost = 1.0 * STORAGE_COST_PER_TB_EUR
-        offer_cost = host_cost * 2
+        # default 1 TB, toon alleen klantprijs
+        offer_cost = 1.0 * CUSTOMER_PRICE_PER_TB_EUR
         return render_template_string(
             CONTACT_HTML,
-            base_cost=STORAGE_COST_PER_TB_EUR,
-            host_cost_eur=f"{host_cost:.2f}".replace('.', ','),
+            base_offer=CUSTOMER_PRICE_PER_TB_EUR,
             offer_cost_eur=f"{offer_cost:.2f}".replace('.', ','),
         )
 
-    # POST: stuur e-mail direct (zonder kosteninfo/marketingzin)
+    # POST: stuur e-mail direct; als SMTP niet staat ingesteld -> mailto fallback
     login_email = (request.form.get("login_email") or "").strip()
     try:
         storage_tb = float(request.form.get("storage_tb") or "1")
@@ -707,23 +737,33 @@ def contact():
 
     subject = "Aanvraag eigen transfer-oplossing"
     body = (
-        "Er is een nieuwe aanvraag binnengekomen voor een eigen transfer-oplossing:\n\n"
-        f"- Gewenste inlog-e-mail: {login_email}\n"
-        f"- Gewenste opslag: {storage_tb} TB\n"
-        f"- Bedrijfsnaam: {company}\n"
-        f"- Telefoonnummer: {phone}\n"
+        "Er is een nieuwe aanvraag binnengekomen voor een eigen transfer-oplossing:
+
+"
+        f"- Gewenste inlog-e-mail: {login_email}
+"
+        f"- Gewenste opslag: {storage_tb} TB
+"
+        f"- Bedrijfsnaam: {company}
+"
+        f"- Telefoonnummer: {phone}
+"
     )
 
-    try:
-        send_email(CONTACT_TO, subject, body)
-    except Exception as e:
-        # Toon duidelijke foutmelding als SMTP niet goed staat
-        return f"Versturen mislukt: {e}. Controleer SMTP_* environment variables.", 500
+    if is_smtp_configured():
+        try:
+            send_email(CONTACT_TO, subject, body)
+            return render_template_string(CONTACT_DONE_HTML)
+        except Exception:
+            mailto = f"mailto:{CONTACT_TO}?subject={quote(subject)}&body={quote(body)}"
+            return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
 
-    return render_template_string(CONTACT_DONE_HTML)
+    mailto = f"mailto:{CONTACT_TO}?subject={quote(subject)}&body={quote(body)}"
+    return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
 
 # ---------------------- Main ----------------------
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
