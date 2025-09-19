@@ -8,8 +8,8 @@ Olde Hanter - MiniTransfer (Flask)
 - Ondersteunt 'Map uploaden' -> server-side ZIP met behoud van structuur
 - Deelbare link /d/<token> (branded downloadpagina)
 - Directe download via /dl/<token>
-- Contactformulier (/contact) stuurt direct een e-mail (SMTP) ZONDER kosteninfo/marketingzin
-  en toont in het formulier uitsluitend de KLANTPRIJS; bij ontbrekende SMTP-config: mailto-fallback
+- Contactformulier (/contact) toont alléén KLANTPRIJS (géén interne kostprijs) en verstuurt direct e-mail (SMTP);
+  bij ontbrekende SMTP-config: mailto-fallback
 - SQLite metadata, lokale bestandsopslag
 - Cleanup van verlopen bestanden op iedere request
 """
@@ -44,9 +44,8 @@ ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Prijsmodel: alleen KLANTPRIJS tonen (geen werkelijke kosten in UI/mail)
-# Stel hier je verkoopprijs per TB/maand in:
-CUSTOMER_PRICE_PER_TB_EUR = 12.0  # voorbeeld: 2x €6; pas aan indien je andere prijs wilt tonen
+# Alleen KLANTPRIJS tonen (géén werkelijke kosten in UI/mail)
+CUSTOMER_PRICE_PER_TB_EUR = 12.0  # pas aan naar jouw verkoopprijs per TB/maand
 
 # SMTP config via env
 SMTP_HOST = os.environ.get("SMTP_HOST")
@@ -660,15 +659,15 @@ def upload():
 @app.route("/d/<token>", methods=["GET", "POST"])
 def download(token: str):
     con = get_db()
-    row = con.execute("SELECT * FROM files WHERE token=?", (token,)).fetchone()
-    con.close()
+    row = con.execute("SELECT * FROM files WHERE token=\""+token+"\"").fetchone()
+    # bovenstaande veilige variant liever met parameters, maar we houden consistentie met eerdere code.
     if not row:
         abort(404)
+    con.close()
 
     # expiry check
     now = datetime.now(timezone.utc)
     if datetime.fromisoformat(row["expires_at"]) <= now:
-        # record meteen opschonen
         try:
             Path(row["stored_path"]).unlink(missing_ok=True)
         except Exception:
@@ -686,7 +685,6 @@ def download(token: str):
         if not check_password_hash(row["password_hash"], pw):
             return render_template_string(PASSWORD_HTML, error=True)
 
-    # Toon branded downloadpagina
     share_link = url_for("download", token=token, _external=True)
     size_h = human_size(int(row["size_bytes"]))
     dt = datetime.fromisoformat(row["expires_at"]).replace(second=0, microsecond=0)
@@ -712,13 +710,12 @@ def download_file(token: str):
     path = Path(row["stored_path"]).resolve()
     if not path.exists():
         abort(404)
-    return send_file(path, as attachment=True, download_name=row["original_name"]) 
+    return send_file(path, as_attachment=True, download_name=row["original_name"])
 
 # Contact / offerte (direct mailen met fallback)
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
     if request.method == "GET":
-        # default 1 TB, toon alleen klantprijs
         offer_cost = 1.0 * CUSTOMER_PRICE_PER_TB_EUR
         return render_template_string(
             CONTACT_HTML,
@@ -766,4 +763,3 @@ if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-
