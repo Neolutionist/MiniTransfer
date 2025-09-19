@@ -486,30 +486,37 @@ def logout():
 # ---------- Direct-to-B2 flow ----------
 @app.route("/sign-upload", methods=["POST"])
 def sign_upload():
-    if not require_login(): return abort(401)
+    if not require_login():
+        return abort(401)
     filename = secure_filename(request.form.get("filename") or "upload.bin")
     size = int(request.form.get("size") or 0)
-    if size > MAX_CONTENT_LENGTH:
-        return {"error": "File too large"}, 400
 
-    token = uuid.uuid4().hex[:10]
-    object_key = f"uploads/{token}__{filename}"
+    app.logger.info(f"Sign upload request: filename={filename}, size={size}")
 
-    conditions = [
-        {"bucket": S3_BUCKET},
-        ["starts-with", "$key", "uploads/"],
-        ["content-length-range", 0, MAX_CONTENT_LENGTH],
-    ]
-    fields = {"acl": "private"}
-    post = s3.generate_presigned_post(
-        Bucket=S3_BUCKET,
-        Key=object_key,
-        Fields=fields,
-        Conditions=conditions,
-        ExpiresIn=900,  # 15 min
-    )
-    return {"token": token, "key": object_key, "url": post["url"], "fields": post["fields"]}
+    try:
+        token = uuid.uuid4().hex[:10]
+        object_key = f"uploads/{token}__{filename}"
 
+        conditions = [
+            {"bucket": S3_BUCKET},
+            ["starts-with", "$key", "uploads/"],
+            ["content-length-range", 0, MAX_CONTENT_LENGTH],
+        ]
+        fields = {"acl": "private"}
+
+        post = s3.generate_presigned_post(
+            Bucket=S3_BUCKET,
+            Key=object_key,
+            Fields=fields,
+            Conditions=conditions,
+            ExpiresIn=900,
+        )
+
+        return {"token": token, "key": object_key, "url": post["url"], "fields": post["fields"]}
+    except Exception as e:
+        app.logger.error(f"Error in sign_upload: {e}")
+        return {"error": str(e)}, 500
+        
 @app.route("/finalize", methods=["POST"])
 def finalize():
     if not require_login(): return abort(401)
