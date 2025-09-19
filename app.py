@@ -70,39 +70,73 @@ INDEX_HTML = """
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Olde Hanter – Upload</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(135deg,#cfe5ff,#e7dcff);margin:0}
-  .wrap{max-width:980px;margin:6vh auto;padding:0 16px}
-  .top{display:flex;justify-content:space-between;align-items:center}
-  h1{color:#003366;margin:.5rem 0}
-  .card{background:rgba(255,255,255,.85);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.5);border-radius:18px;padding:18px;box-shadow:0 16px 36px rgba(0,0,0,.12)}
-  label{display:block;margin:.6rem 0 .25rem;font-weight:600}
-  input[type=file],input[type=number],input[type=password]{width:100%;padding:.9rem 1rem;border:1px solid #d1d5db;border-radius:12px;background:#fff}
-  button{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:12px;background:#003366;color:#fff;font-weight:700;cursor:pointer}
-  .note{color:#334155}
-  .footer{color:#475569;text-align:center;margin-top:1rem}
+  *,*:before,*:after{box-sizing:border-box}
+  :root{
+    --bg1:#60a5fa; --bg2:#a78bfa; --bg3:#34d399;
+    --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+    --brand:#003366; --text:#0f172a;
+  }
+  html,body{height:100%}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
+
+  /* Dynamische achtergrond */
+  .bg{position:fixed;inset:0;z-index:-2;background:
+      radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
+      radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
+      radial-gradient(60vmax 60vmax at 50% 90%,var(--bg3) 0%,transparent 60%),
+      linear-gradient(180deg,#eef2f7 0%,#e9eef6 100%);}
+  .bg:before,.bg:after{content:"";position:absolute;inset:-8%;will-change:transform}
+  .bg:before{background:
+      radial-gradient(40% 60% at 20% 30%,rgba(255,255,255,.35),transparent),
+      radial-gradient(50% 60% at 80% 25%,rgba(255,255,255,.25),transparent);
+      animation:f1 16s linear infinite}
+  .bg:after{background:
+      radial-gradient(35% 50% at 60% 70%,rgba(255,255,255,.22),transparent),
+      radial-gradient(45% 55% at 30% 80%,rgba(255,255,255,.18),transparent);
+      animation:f2 22s linear infinite}
+  @keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
+  @keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
+  @media (prefers-reduced-motion:reduce){.bg:before,.bg:after{animation:none}}
+
+  .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+  h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+  .logout a{color:var(--brand);text-decoration:none;font-weight:700}
+
+  /* Glassy kaart */
+  .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
+        border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
+  label{display:block;margin:.55rem 0 .25rem;font-weight:600}
+  input[type=file],input[type=number],input[type=password]{
+      width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
+  .btn{margin-top:1rem;padding:.95rem 1.2rem;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,51,102,.25)}
+  .note{font-size:.95rem;color:#334155;margin-top:.5rem}
+  .footer{color:#334155;margin-top:1.2rem;text-align:center}
 </style></head><body>
+<div class="bg" aria-hidden="true"></div>
+
 <div class="wrap">
-  <div class="top">
+  <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div>Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
-    <label>Bestand</label>
-    <input type="file" name="file" id="file" required>
+    <label for="file">Bestand</label>
+    <input id="file" type="file" name="file" required>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
-        <label>Verloopt over (dagen)</label>
-        <input type="number" name="expiry_days" id="exp" min="1" value="24">
+        <label for="exp">Verloopt over (dagen)</label>
+        <input id="exp" type="number" name="expiry_days" min="1" value="24">
       </div>
       <div>
-        <label>Wachtwoord (optioneel)</label>
-        <input type="password" name="password" id="pw" placeholder="Laat leeg voor geen wachtwoord" autocomplete="new-password">
+        <label for="pw">Wachtwoord (optioneel)</label>
+        <input id="pw" type="password" name="password" placeholder="Laat leeg voor geen wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false">
       </div>
     </div>
 
-    <button type="submit">Uploaden</button>
+    <button class="btn" type="submit">Uploaden</button>
     <p class="note">Max {{ max_mb }} MB via server-relay.</p>
   </form>
 
@@ -131,9 +165,16 @@ INDEX_HTML = """
 
     resBox.innerHTML = `
       <div class="card" style="margin-top:1rem">
-        <strong>Deelbare link</strong><br>
-        <input style="width:100%;padding:.7rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
-        <button style="margin-top:.6rem" onclick="navigator.clipboard.writeText('${data.link}').then(()=>alert('Link gekopieerd'))">Kopieer</button>
+        <strong>Deelbare link</strong>
+        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
+          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
+          <button class="btn" type="button"
+            onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject())
+                     .then(()=>alert('Link gekopieerd'))
+                     .catch(()=>{ /* fallback */ })">
+            Kopieer
+          </button>
+        </div>
       </div>`;
   });
 </script>
