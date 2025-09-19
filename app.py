@@ -8,7 +8,7 @@ Olde Hanter - MiniTransfer (Flask)
 - Map-upload: meerdere bestanden of een hele map -> server-side ZIP
 - Deelbare link /d/<token> (branded downloadpagina) + /dl/<token> directe download
 - Contactformulier (/contact) toont alleen 'Richtprijs' en verstuurt direct via SMTP
-  (Brevo/SendGrid/Outlook/Gmail) op basis van env vars; anders duidelijke melding.
+  (Brevo/SendGrid/Outlook/Gmail) op basis van env vars; anders nette mailto-fallback.
 - SQLite metadata, lokale bestandsopslag
 - Cleanup van verlopen bestanden op iedere request
 """
@@ -43,7 +43,7 @@ ALLOWED_EXTENSIONS = None  # bv. {"pdf","zip","jpg"} om te beperken
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Alleen KLANTPRIJS tonen (géén interne kostprijs in UI/mail)
+# Klantprijs (alleen tonen in UI)
 CUSTOMER_PRICE_PER_TB_EUR = 12.0  # pas aan naar jouw verkoopprijs per TB/maand
 
 # SMTP config via ENV (bijv. Brevo / SendGrid / Office365 / Gmail)
@@ -200,9 +200,15 @@ LOGIN_HTML = """
   <div class="wrap">
     <h1>Inloggen</h1>
     {% if error %}<div class="flash">{{ error }}</div>{% endif %}
-    <form method="post">
+    <form method="post" autocomplete="on">
       <label for="email">E-mail</label>
-      <input id="email" name="email" type="email" placeholder="info@oldehanter.nl" required />
+      <input id="email"
+             name="email"
+             type="email"
+             placeholder="info@oldehanter.nl"
+             value="info@oldehanter.nl"
+             autocomplete="username"
+             required />
       <label for="pw">Wachtwoord</label>
       <input id="pw" name="password" type="password" placeholder="Wachtwoord" required />
       <button type="submit">Inloggen</button>
@@ -253,7 +259,7 @@ INDEX_HTML = """
       {% if messages %}<div class="flash">{{ messages[0] }}</div>{% endif %}
     {% endwith %}
 
-    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card">
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="card" autocomplete="off">
       <label for="file">Bestanden of map</label>
       <input id="file" type="file" name="file" multiple required />
       <div class="row">
@@ -268,15 +274,14 @@ INDEX_HTML = """
           <input id="expiry" type="number" name="expiry_days" step="1" min="1" placeholder="24" />
         </div>
         <div>
-<label for="pw">Wachtwoord (optioneel)</label>
-<input id="pw"
-       type="password"
-       name="password"
-       placeholder="Laat leeg voor geen wachtwoord"
-       autocomplete="new-password"
-       autocapitalize="off"
-       spellcheck="false" />
-
+          <label for="pw">Wachtwoord (optioneel)</label>
+          <input id="pw"
+                 type="password"
+                 name="password"
+                 placeholder="Laat leeg voor geen wachtwoord"
+                 autocomplete="new-password"
+                 autocapitalize="off"
+                 spellcheck="false" />
         </div>
       </div>
 
@@ -538,7 +543,8 @@ CONTACT_MAIL_HTML = """
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f2f5f9;color:#111827;margin:0}
     .wrap{max-width:680px;margin:3rem auto;padding:0 1rem}
     .card{padding:1.25rem;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    .btn{display:inline-block;margin-top:1rem;padding:.95rem 1.2rem;border-radius:10px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
+    .btn{display:inline-block;margin-top:1rem;padding:.95rem 1.2rem;border-radius:10px;background:#00366
+0;color:#fff;text-decoration:none;font-weight:700}
     .footer{color:#6b7280;margin-top:1rem;text-align:center}
   </style>
 </head>
@@ -725,7 +731,7 @@ def contact():
             offer_cost_eur=f"{offer_cost:.2f}".replace('.', ','),
         )
 
-    # POST: SMTP direct (of nette melding als niet geconfigureerd)
+    # POST: SMTP direct (of nette mailto fallback)
     login_email = (request.form.get("login_email") or "").strip()
     try:
         storage_tb = float(request.form.get("storage_tb") or "1")
@@ -747,8 +753,7 @@ def contact():
         try:
             send_email(MAIL_TO, subject, body)
             return render_template_string(CONTACT_DONE_HTML)
-        except Exception as e:
-            # Toon nette fallback met mailto-link
+        except Exception:
             mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
             return render_template_string(CONTACT_MAIL_HTML, mailto_link=mailto)
     else:
