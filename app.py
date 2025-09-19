@@ -65,6 +65,9 @@ app.config.update(
 )
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+# Init DB at import (voor Gunicorn/Render)
+init_db()
+
 # ---------------------- Database ----------------------
 def get_db():
     con = sqlite3.connect(DB_PATH)
