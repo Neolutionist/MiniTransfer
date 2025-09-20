@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (iOS + ZIP precheck/fixes) =========
+# ========= MiniTransfer – Olde Hanter (direct file/folder picker + animated bg) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
 # - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
-# - Downloadpagina met voortgang + "alles zippen" (lazy streaming)
+# - Downloadpagina met voortgang + "alles zippen" (lazy streaming + compat)
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload uitgeschakeld en verborgen
 # - ZIP precheck: duidelijke 422 i.p.v. 500 als bestanden ontbreken
+# - NIEUW: klikken op "Bestand(en)" of "Map" opent direct de systeem-picker
+# - NIEUW: moderne, dynamische (bewegende) achtergrond
 # ========================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -116,11 +118,20 @@ BASE_CSS = """
 }
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-.bg{position:fixed;inset:0;z-index:-2;background:
-  radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
-  radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
-  radial-gradient(60vmax 60vmax at 50% 90%,var(--bg3) 0%,transparent 60%),
-  linear-gradient(180deg,#eef2f7 0%,#e9eef6 100%)}
+
+/* Dynamische achtergrond: multi-layer gradient blobs + subtiele beweging */
+.bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:linear-gradient(180deg,#eef3fb 0%,#e9eef6 100%)}
+.bg .blob{
+  position:absolute;filter:blur(40px);opacity:.55;will-change:transform;
+  border-radius:50%;
+}
+.blob.b1{width:60vmax;height:60vmax;left:-10vmax;top:-6vmax;background:radial-gradient(closest-side,var(--bg1),transparent 66%);animation:float1 18s ease-in-out infinite}
+.blob.b2{width:55vmax;height:55vmax;right:-12vmax;top:-8vmax;background:radial-gradient(closest-side,var(--bg2),transparent 66%);animation:float2 22s ease-in-out infinite}
+.blob.b3{width:60vmax;height:60vmax;left:10vmax;bottom:-18vmax;background:radial-gradient(closest-side,var(--bg3),transparent 66%);animation:float3 26s ease-in-out infinite}
+@keyframes float1{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(4%,3%,0)}100%{transform:translate3d(0,0,0)}}
+@keyframes float2{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(-3%,5%,0)}100%{transform:translate3d(0,0,0)}}
+@keyframes float3{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(5%,-4%,0)}100%{transform:translate3d(0,0,0)}}
+
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
@@ -182,7 +193,9 @@ input[type=file]::file-selector-button{
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
@@ -208,7 +221,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
 </style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 
 <div class="wrap">
   <div class="topbar">
@@ -219,8 +234,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
     <div class="toggle">
-      <label><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-      <label id="modeFolderWrap"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+      <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+      <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
     </div>
 
     <div id="fileRow">
@@ -270,28 +285,48 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
   const modeFiles = document.getElementById('modeFiles');
   const modeFolder = document.getElementById('modeFolder');
-  const modeFolderWrap = document.getElementById('modeFolderWrap');
+  const lblFiles = document.getElementById('lblFiles');
+  const lblFolder = document.getElementById('lblFolder');
+
   if(isIOS()){
-    modeFiles.checked = true;
+    // verberg map-optie volledig op iOS/iPadOS
     modeFolder.disabled = true;
-    modeFolderWrap.style.display = 'none';
+    lblFolder.style.display = 'none';
+    modeFiles.checked = true;
   }
 
-  // Toggle bestand/map
+  // Toggle bestand/map + DIRECT de picker openen bij klik
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
-  function applyMode(){
+  const fileInput   = document.getElementById('fileInput');
+  const folderInput = document.getElementById('folderInput');
+
+  function applyMode(openPicker){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     fileRow.style.display  = (mode==='files')  ? '' : 'none';
     folderRow.style.display = (mode==='folder') ? '' : 'none';
+    // Open direct de juiste picker als dit uit een gebruikersklik komt
+    if(openPicker === true){
+      try{
+        (mode==='files' ? fileInput : folderInput).click();
+      }catch(e){}
+    }
   }
-  modeRadios.forEach(r => r.addEventListener('change', applyMode));
-  applyMode();
+  modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
 
-  const form = document.getElementById('f');
-  const fileInput   = document.getElementById('fileInput');
-  const folderInput = document.getElementById('folderInput');
+  // Ook klikken op het label opent direct de picker (extra gebruiksgemak)
+  lblFiles.addEventListener('click', (e)=>{
+    // als al actief, open toch direct de picker
+    setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0);
+  });
+  lblFolder.addEventListener('click', (e)=>{
+    if(isIOS()) return; // map niet ondersteund op iOS
+    setTimeout(()=>{ try{ folderInput.click(); }catch(e){} }, 0);
+  });
+
+  applyMode(false);
+
   const resBox = document.getElementById('result');
   const upbar = document.getElementById('upbar');
   const upbarFill = upbar.querySelector('i');
@@ -367,7 +402,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
 
-  // Belangrijk voor iOS: dezelfde Content-Type header meesturen als in de presigned URL
+  // iOS: exacte Content-Type header meesturen
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
@@ -447,10 +482,19 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  form.addEventListener('submit', async (e)=>{
+  const upbar = document.getElementById('upbar');
+  const upbarFill = upbar.querySelector('i');
+  const uptext = document.getElementById('uptext');
+
+  document.getElementById('f').addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const files = (()=>{ const mode=document.querySelector('input[name="upmode"]:checked').value; const f=(mode==='files'? fileInput.files:folderInput.files); return Array.from(f||[]); })();
-    if(!files.length){ alert("Kies bestand(en)"+(isIOS()?"":" of map")); return; }
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    const files = Array.from((mode==='files' ? fileInput.files : folderInput.files) || []);
+    if(!files.length){
+      alert("Kies bestand(en)"+(isIOS()?"":" of map"));
+      (mode==='files' ? fileInput : folderInput).click();
+      return;
+    }
 
     const expiryDays = document.getElementById('exp').value || '24';
     const password   = document.getElementById('pw').value || '';
@@ -477,7 +521,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
-      resBox.innerHTML = `
+      document.getElementById('result').innerHTML = `
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
@@ -507,7 +551,9 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 </style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 
 <div class="wrap">
   <div class="card">
@@ -611,7 +657,9 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 CONTACT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
@@ -652,7 +700,9 @@ CONTACT_HTML = """
 CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
 </body></html>
 """
@@ -660,7 +710,9 @@ CONTACT_DONE_HTML = """
 CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<div class="bg" aria-hidden="true">
+  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+</div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
@@ -911,7 +963,7 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    # --- Basischecks ---
+    # ZIP-precheck + compat voor diverse zipstream-ng API's
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
@@ -921,7 +973,7 @@ def stream_zip(token):
     c.close()
     if not rows: abort(404)
 
-    # --- Precheck: S3-objecten bestaan? ---
+    # Precheck: welke items ontbreken?
     missing = []
     try:
         for r in rows:
@@ -940,109 +992,70 @@ def stream_zip(token):
         return resp
 
     if missing:
-        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " \
-               + "\n- ".join(missing) + "\n\nUpload het pakket opnieuw of verwijder de kapotte items."
+        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
         resp = Response(text, mimetype="text/plain", status=422)
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
-    # --- ZIP streamen met compat-laag ---
     try:
         z = ZipStream()  # geen kwargs
 
         class _GenReader:
-            """Wrapt een bytes-generator naar een file-like met read()."""
-            def __init__(self, gen):
-                self._it = gen
-                self._buf = b""
-                self._done = False
+            def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
             def read(self, n=-1):
-                if self._done and not self._buf:
-                    return b""
-                if n is None or n < 0:
-                    # lees alles
-                    chunks = [self._buf]
-                    self._buf = b""
-                    for chunk in self._it:
-                        chunks.append(chunk)
-                    self._done = True
-                    return b"".join(chunks)
-                # lees tot n bytes
-                while len(self._buf) < n and not self._done:
-                    try:
-                        self._buf += next(self._it)
-                    except StopIteration:
-                        self._done = True
-                        break
-                out, self._buf = self._buf[:n], self._buf[n:]
-                return out
+                if self._done and not self._buf: return b""
+                if n is None or n<0:
+                    chunks=[self._buf]; self._buf=b""
+                    for ch in self._it: chunks.append(ch)
+                    self._done=True; return b"".join(chunks)
+                while len(self._buf)<n and not self._done:
+                    try: self._buf += next(self._it)
+                    except StopIteration: self._done=True; break
+                out,self._buf=self._buf[:n],self._buf[n:]; return out
 
-        methods_tried = []
+        methods_tried=[]
 
         def add_compat(arcname, gen_factory):
-            # 1) add_iter(arcname, iterator)
-            if hasattr(z, "add_iter"):
+            if hasattr(z,"add_iter"):
                 try:
                     methods_tried.append("add_iter(arcname, iterator)")
-                    z.add_iter(arcname, gen_factory())
-                    return
-                except Exception:
-                    pass
-            # 2) add(arcname=..., iterable=...)
+                    z.add_iter(arcname, gen_factory()); return
+                except Exception: pass
             try:
                 methods_tried.append("add(arcname=..., iterable=...)")
-                z.add(arcname=arcname, iterable=gen_factory())
-                return
-            except Exception:
-                pass
-            # 3) add(arcname=..., stream=...)
+                z.add(arcname=arcname, iterable=gen_factory()); return
+            except Exception: pass
             try:
                 methods_tried.append("add(arcname=..., stream=...)")
-                z.add(arcname=arcname, stream=gen_factory())
-                return
-            except Exception:
-                pass
-            # 4) add(arcname=..., fileobj=...)
+                z.add(arcname=arcname, stream=gen_factory()); return
+            except Exception: pass
             try:
                 methods_tried.append("add(arcname=..., fileobj=...)")
-                z.add(arcname=arcname, fileobj=_GenReader(gen_factory()))
-                return
-            except Exception:
-                pass
-            # 5) add(arcname, iterator)
+                z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
+            except Exception: pass
             try:
                 methods_tried.append("add(arcname, iterator)")
-                z.add(arcname, gen_factory())
-                return
-            except Exception:
-                pass
-            # 6) add(iterator, arcname)
+                z.add(arcname, gen_factory()); return
+            except Exception: pass
             try:
                 methods_tried.append("add(iterator, arcname)")
-                z.add(gen_factory(), arcname)
-                return
-            except Exception:
-                pass
+                z.add(gen_factory(), arcname); return
+            except Exception: pass
             raise RuntimeError("Geen compatibele zipstream-ng add()-signatuur gevonden")
 
         for r in rows:
             arcname = r["path"] or r["name"]
-
             def reader(key=r["s3_key"]):
                 obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-                for chunk in obj["Body"].iter_chunks(1024 * 512):
-                    if chunk:
-                        yield chunk
-
+                for chunk in obj["Body"].iter_chunks(1024*512):
+                    if chunk: yield chunk
             add_compat(arcname, lambda: reader())
 
         def generate():
-            for chunk in z:
-                yield chunk
+            for chunk in z: yield chunk
 
-        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"', '')
-        if not filename.lower().endswith(".zip"):
-            filename += ".zip"
+        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
+        if not filename.lower().endswith(".zip"): filename += ".zip"
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -1051,11 +1064,10 @@ def stream_zip(token):
 
     except Exception as e:
         log.exception("stream_zip failed")
-        msg = f"ZIP generatie mislukte. Probeer andere zipstream-ng API. Tried: {', '.join(methods_tried)}. Err: {e}"
+        msg = f"ZIP generatie mislukte. Tried: {', '.join(methods_tried)}. Err: {e}"
         resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
-
 
 # Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
