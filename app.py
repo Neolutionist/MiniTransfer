@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (click radio => open picker; animated bg) =========
+# ========= MiniTransfer – Olde Hanter (vibrant bg + radio opens picker) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
 # - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
-# - Downloadpagina met voortgang + "alles zippen" (compat met meerdere zipstream-ng API’s)
+# - Downloadpagina met voortgang + "alles zippen" (zipstream compat)
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload uitgeschakeld en verborgen
-# - Klik op "Bestand(en)" of "Map" opent direct het selectievenster (upload start NIET automatisch)
-# ========================================================================
+# - Klik op "Bestand(en)" of "Map" opent direct de systeempicker (upload start NIET automatisch)
+# ===============================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
@@ -22,7 +22,6 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-    # wachtwoord is optioneel; hash voor pakketbeveiliging
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -109,7 +108,8 @@ init_db()
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  --bg1:#60a5fa; --bg2:#a78bfa; --bg3:#34d399;
+  /* Levendere kleuren */
+  --bg1:#5b91ff; --bg2:#a06bff; --bg3:#10d6a7; --bg4:#ffd166;
   --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
   --brand:#003366; --brand-2:#0f4c98;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
@@ -118,18 +118,28 @@ BASE_CSS = """
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
 
-/* Dynamische achtergrond: multi-layer gradient blobs + subtiele beweging */
-.bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:linear-gradient(180deg,#eef3fb 0%,#e9eef6 100%)}
-.bg .blob{
-  position:absolute;filter:blur(40px);opacity:.55;will-change:transform;border-radius:50%;
+/* === Vibrant bewegende achtergrond (GPU-vriendelijk) === */
+.bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:linear-gradient(180deg,#eaf1ff 0%,#eef2f7 30%,#ebf6ff 100%)}
+.bg > i{position:absolute;will-change:transform,opacity;pointer-events:none}
+.bg .cone{
+  inset:-30vmax; border-radius:50%;
+  background:conic-gradient(from 0deg at 50% 50%, var(--bg1), var(--bg2), var(--bg3), var(--bg1));
+  filter:blur(80px); opacity:.20;
+  animation:coneSpin 36s linear infinite;
 }
-.blob.b1{width:60vmax;height:60vmax;left:-10vmax;top:-6vmax;background:radial-gradient(closest-side,var(--bg1),transparent 66%);animation:float1 18s ease-in-out infinite}
-.blob.b2{width:55vmax;height:55vmax;right:-12vmax;top:-8vmax;background:radial-gradient(closest-side,var(--bg2),transparent 66%);animation:float2 22s ease-in-out infinite}
-.blob.b3{width:60vmax;height:60vmax;left:10vmax;bottom:-18vmax;background:radial-gradient(closest-side,var(--bg3),transparent 66%);animation:float3 26s ease-in-out infinite}
-@keyframes float1{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(4%,3%,0)}100%{transform:translate3d(0,0,0)}}
-@keyframes float2{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(-3%,5%,0)}100%{transform:translate3d(0,0,0)}}
-@keyframes float3{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(5%,-4%,0)}100%{transform:translate3d(0,0,0)}}
+.bg .blob{border-radius:50%; filter:blur(40px); opacity:.55}
+.bg .b1{width:60vmax;height:60vmax;left:-8vmax;top:-10vmax;background:radial-gradient(closest-side,var(--bg1),transparent 66%);animation:float1 14s ease-in-out infinite}
+.bg .b2{width:55vmax;height:55vmax;right:-12vmax;top:-6vmax;background:radial-gradient(closest-side,var(--bg2),transparent 66%);animation:float2 18s ease-in-out infinite}
+.bg .b3{width:60vmax;height:60vmax;left:6vmax;bottom:-18vmax;background:radial-gradient(closest-side,var(--bg3),transparent 66%);animation:float3 22s ease-in-out infinite}
+.bg .beam{
+  width:140vmax;height:16vmax;left:-20vmax;top:15%;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+  transform:rotate(-8deg); filter:blur(18px); opacity:.35;
+  animation:beamDrift 12s ease-in-out infinite;
+}
+.bg .beam.bx{top:auto;bottom:12%;left:-16vmax;transform:rotate(6deg);opacity:.28;animation-duration:15s}
 
+/* Layout */
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
@@ -179,11 +189,23 @@ input[type=file]::file-selector-button{
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
 
-/* CTA vast onderaan de card, niet meescrollen */
+/* CTA vast onderaan de card */
 .cta-fixed{
   position:sticky; bottom:0; display:flex; justify-content:center;
   padding:1rem; margin-top:1rem;
   background:linear-gradient(180deg,transparent,rgba(0,0,0,.03));
+}
+
+/* Animaties */
+@keyframes coneSpin{to{transform:rotate(360deg)}}
+@keyframes float1{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(4%,3%,0)}100%{transform:translate3d(0,0,0)}}
+@keyframes float2{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(-3%,5%,0)}100%{transform:translate3d(0,0,0)}}
+@keyframes float3{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(5%,-4%,0)}100%{transform:translate3d(0,0,0)}}
+@keyframes beamDrift{0%{transform:translateX(0) rotate(var(--r, -8deg))}50%{transform:translateX(4%) rotate(var(--r, -8deg))}100%{transform:translateX(0) rotate(var(--r, -8deg))}}
+
+/* Respecteer reduce motion */
+@media (prefers-reduced-motion: reduce){
+  .bg .cone,.bg .blob,.bg .beam{animation:none}
 }
 """
 
@@ -192,7 +214,12 @@ LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
@@ -220,7 +247,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
 </style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 
 <div class="wrap">
@@ -314,15 +346,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
 
-  // Ook klikken op het label opent direct de picker (extra gebruiksgemak)
-  lblFiles.addEventListener('click', (e)=>{
-    // als al actief, open toch de picker
-    setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0);
-  });
-  lblFolder.addEventListener('click', (e)=>{
-    if(isIOS()) return; // map niet ondersteund op iOS
-    setTimeout(()=>{ try{ folderInput.click(); }catch(e){} }, 0);
-  });
+  // Ook klikken op het label opent direct de picker
+  lblFiles.addEventListener('click', ()=>{ setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0); });
+  lblFolder.addEventListener('click', ()=>{ if(!isIOS()) setTimeout(()=>{ try{ folderInput.click(); }catch(e){} }, 0); });
 
   applyMode(false);
 
@@ -549,7 +575,12 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 </style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 
 <div class="wrap">
@@ -655,7 +686,12 @@ CONTACT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -698,7 +734,12 @@ CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
 </body></html>
@@ -708,7 +749,12 @@ CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="cone"></i>
+  <i class="blob b1"></i>
+  <i class="blob b2"></i>
+  <i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i>
+  <i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
@@ -970,7 +1016,7 @@ def stream_zip(token):
     c.close()
     if not rows: abort(404)
 
-    # Precheck: welke items ontbreken?
+    # Precheck: ontbrekende S3-objecten melden i.p.v. 500
     missing = []
     try:
       for r in rows:
