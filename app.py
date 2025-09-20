@@ -1499,7 +1499,77 @@ def send_email(to_addr: str, subject: str, body: str):
         s.login(SMTP_USER, SMTP_PASS)
         s.send_message(msg)
 
+# -------------------------------
+# API: altijd JSON responses (ook bij fouten) voor upload/download endpoints
+# -------------------------------
+from werkzeug.exceptions import HTTPException
+from functools import wraps
 
+# Welke routes beschouwen we als "API" (geen HTML, altijd JSON)?
+API_PATHS = {"/package-init", "/mpu-init", "/mpu-sign", "/mpu-complete"}
+
+def _is_api_path(path: str) -> bool:
+    # exact match is genoeg; wil je uitbreiden, voeg hier paden toe
+    return path in API_PATHS
+
+def json_ok(payload=None, status=200, **extra):
+    data = {"ok": True}
+    if payload:
+        data.update(payload)
+    if extra:
+        data.update(extra)
+    return jsonify(data), status
+
+def json_error(message="error", status=400, **extra):
+    data = {"ok": False, "error": message, "status": status}
+    if extra:
+        data.update(extra)
+    return jsonify(data), status
+
+def require_login_api(fn):
+    """Gebruik op API-routes die login nodig hebben: @require_login_api"""
+    @wraps(fn)
+    def _wrap(*args, **kwargs):
+        if not logged_in():
+            return json_error("unauthorized", 401)
+        return fn(*args, **kwargs)
+    return _wrap
+
+@app.after_request
+def _api_never_redirect(resp):
+    """
+    Zorg dat API-routes nooit als HTML/Redirect eindigen.
+    Als er toch een redirect (302/303/307/308) ontstaat, geef JSON 401 terug.
+    """
+    try:
+        if _is_api_path(request.path):
+            if 300 <= resp.status_code < 400:
+                return json_error("unauthorized", 401, location=resp.headers.get("Location"))
+    except Exception:
+        pass
+    return resp
+
+@app.errorhandler(HTTPException)
+def _api_http_exception(e: HTTPException):
+    """
+    Alle HTTP-fouten op API-routes als JSON.
+    Voor niet-API-routes blijft het standaard HTML-gedrag intact.
+    """
+    if _is_api_path(request.path):
+        key = e.name.lower().replace(" ", "_")
+        # Gebruik werkelijke statuscode van de exception (404/413/etc.)
+        return json_error(key, e.code, description=e.description)
+    return e
+
+@app.errorhandler(Exception)
+def _api_unexpected_exception(e: Exception):
+    """
+    Onverwachte fouten op API-routes als JSON 500; elders laat standaard gedrag staan.
+    """
+    if _is_api_path(request.path):
+        app.logger.exception("Unhandled error on %s", request.path)
+        return json_error("server_error", 500)
+    raise e
 # -------------- Routes --------------
 @app.route("/")
 def index():
