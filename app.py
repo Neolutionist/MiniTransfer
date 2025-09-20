@@ -972,49 +972,65 @@ def stream_file(token, item_id):
         resp.headers["Content-Length"] = str(length)
     return resp
 
+from zipfile import ZIP_DEFLATED
+from zipstream import ZipStream
+from flask import Response, stream_with_context
+
 @app.route("/zip/<token>")
 def stream_zip(token):
+    # --- zelfde beveiliging/validatie als single download ---
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg:
-        c.close()
-        abort(404)
+        c.close(); abort(404)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close()
-        abort(410)
+        c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close()
-        abort(403)
+        c.close(); abort(403)
     rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
     if not rows:
         abort(404)
 
-    # zipstream: maak streaming zip
-    z = ZipStream(mode="w", compression=ZIP_DEFLATED)
+    # --- zipstream: compat met beide varianten ---
+    try:
+        # sommige builds: ZipStream(compress_type=ZIP_DEFLATED)
+        z = ZipStream(compress_type=ZIP_DEFLATED)
+    except TypeError:
+        # andere builds: ZipStream(mode='w', compression=ZIP_DEFLATED)
+        z = ZipStream(mode="w", compression=ZIP_DEFLATED)
 
-    # Helper: compat met verschillende zipstream-versies
     def _zip_add(zs, arcname, iterator):
+        # zipstream-ng: write_iter, oudere lib: add
         if hasattr(zs, "write_iter"):
             return zs.write_iter(arcname, iterator)
-        # oudere API
         return zs.add(arcname, iterator)
 
-    for r in rows:
-        # veilige arcname (forward slashes, geen leading slash) — behoud mapstructuur
-        arcname = (r["path"] or r["name"]).replace("\\", "/").lstrip("/")
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-
-        def reader(body=obj["Body"]):
+    # helper: chunked reader (iter_chunks of read-fallback)
+    def _reader(body):
+        if hasattr(body, "iter_chunks"):
             for chunk in body.iter_chunks(1024 * 512):
                 if chunk:
                     yield chunk
+        else:
+            # boto3 StreamingBody .read()
+            while True:
+                chunk = body.read(1024 * 512)
+                if not chunk:
+                    break
+                yield chunk
 
-        _zip_add(z, arcname, reader())
+    # bestanden toevoegen – behoud mappad (relatief)
+    for r in rows:
+        arcname = (r["path"] or r["name"]).replace("\\", "/").lstrip("/")
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+        _zip_add(z, arcname, _reader(obj["Body"]))
 
+    # stream response
     resp = Response(z, mimetype="application/zip", direct_passthrough=True)
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
     return resp
+
 
 # -------- Contact / aanvraag --------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
