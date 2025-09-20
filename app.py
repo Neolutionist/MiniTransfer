@@ -5,7 +5,7 @@
 # - Login
 # - Upload (bestanden of complete map) -> Backblaze B2 (S3-compat)
 # - Single PUT voor < 5 MB (incl. 0 bytes)
-# - Multipart upload met betrouwbare voortgang voor ≥ 5 MB
+# - Multipart upload voor ≥ 5 MB
 # - Downloadpagina met voortgangsbalk (en "alles zippen")
 # - Contactformulier; knop onderaan de downloadpagina
 # ==============================================
@@ -31,7 +31,6 @@ from zipstream import ZipStream  # zipstream-ng
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
-# Eenvoudige login (pas aan naar wens)
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
@@ -103,8 +102,6 @@ BASE_CSS = """
 }
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-
-/* Dynamische, bewegende achtergrond */
 .bg{position:fixed;inset:0;z-index:-2;background:
   radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
   radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
@@ -121,14 +118,12 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
   animation:f2 18s linear infinite}
 @keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.6%,-1.6%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
 @keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.4%,1.4%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
-
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
-
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
@@ -151,7 +146,6 @@ input[type=file]::file-selector-button{
 }
 input[type=file]::file-selector-button:hover{background:#e8edf4}
 input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05rem;height:1.05rem}
-
 .btn{
   padding:.95rem 1.2rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
@@ -160,7 +154,6 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 """
@@ -245,7 +238,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-  // Toggle bestand/map
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
@@ -272,7 +264,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  // ===== Helpers upload =====
   async function packageInit(expiryDays, password){
     const r = await fetch("{{ url_for('package_init') }}", {
       method: "POST",
@@ -338,12 +329,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
 
-  // PUT helper (zowel single als part)
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
-      xhr.timeout = 300000; // 300s
+      xhr.timeout = 300000;
       xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
@@ -360,15 +350,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
 
   async function uploadSingle(token, file, relpath, totalTracker){
-    // 0-byte: sommige browsers geven geen progress events; zet direct klaar
     const init = await singleInit(token, file.name, file.type);
-    const label = 'PUT object';
-    const etag = await putWithProgress(init.url, file, (loaded)=>{
+    await putWithProgress(init.url, file, (loaded)=>{
       const total = totalTracker.currentBase + loaded;
       const p = Math.round(total / totalTracker.totalBytes * 100);
       upbarFill.style.width = Math.min(p,100) + "%";
       uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
-    }, label);
+    }, 'PUT object');
     await singleComplete(token, init.key, file.name, relpath);
     totalTracker.currentBase += file.size;
   }
@@ -410,7 +398,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       }
     }
 
-    // sequentieel is stabiel; wil je sneller, maak parallel
     const results = [];
     for(let pn=1; pn<=parts; pn++){
       results.push(await uploadPart(pn));
@@ -449,13 +436,14 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
+      // >>> FIX: geen backslash, zodat JS template literal interpoleert
       resBox.innerHTML = `
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input class="input" style="flex:1" value="\${link}" readonly>
+            <input class="input" style="flex:1" value="${link}" readonly>
             <button class="btn" type="button"
-              onclick="(navigator.clipboard?.writeText('\${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+              onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
               Kopieer
             </button>
           </div>
@@ -779,7 +767,6 @@ def mpu_complete():
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
 
     try:
-        # 1) Server-side parts ophalen
         server_parts = {}
         paginator = s3.get_paginator("list_parts")
         for page in paginator.paginate(Bucket=S3_BUCKET, Key=key, UploadId=upload_id):
@@ -789,7 +776,6 @@ def mpu_complete():
         if not server_parts:
             return jsonify(ok=False, error="Geen geüploade parts gevonden voor dit uploadId"), 400
 
-        # 2) Missende ETags aanvullen en valideren
         completed = []
         for client_p in parts_in:
             pn  = int(client_p.get("PartNumber") or 0)
@@ -800,7 +786,6 @@ def mpu_complete():
 
         completed.sort(key=lambda x: x["PartNumber"])
 
-        # 3) Afronden
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET,
             Key=key,
@@ -808,7 +793,6 @@ def mpu_complete():
             UploadId=upload_id
         )
 
-        # 4) Grootte vastleggen
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
 
@@ -831,7 +815,6 @@ def package_page(token):
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
 
-    # verlopen?
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
         for r in rows:
@@ -842,7 +825,6 @@ def package_page(token):
         c.commit(); c.close()
         abort(410)
 
-    # wachtwoord?
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
             return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
