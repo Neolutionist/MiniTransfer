@@ -886,7 +886,6 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    # FIX: netjes streamen en exceptions loggen → geen 500 meer bij correcte S3
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
@@ -899,13 +898,16 @@ def stream_zip(token):
     try:
         z = ZipStream(mode='w', compression='deflated')
 
-        # elk bestand als generator (behoudt mapstructuur via 'path')
+        # Belangrijk: get_object pas BINNEN de reader doen → lazy ophalen
         for r in rows:
             arcname = r["path"] or r["name"]
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            def reader(body=obj["Body"]):
-                for chunk in body.iter_chunks(1024*512):
-                    if chunk: yield chunk
+
+            def reader(key=r["s3_key"]):
+                obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+                for chunk in obj["Body"].iter_chunks(1024*512):
+                    if chunk:
+                        yield chunk
+
             z.add(arcname, reader())
 
         def generate():
@@ -914,12 +916,14 @@ def stream_zip(token):
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
-        if not filename.lower().endswith(".zip"): filename += ".zip"
+        if not filename.lower().endswith(".zip"):
+            filename += ".zip"
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
+
     except Exception:
-        log.exception("stream_zip failed")
+        app.logger.exception("stream_zip failed")
         abort(500)
 
 # Contact
