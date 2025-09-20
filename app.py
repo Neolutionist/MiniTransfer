@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
-    session, jsonify
+    session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -23,8 +23,7 @@ DB_PATH = BASE_DIR / "files.db"
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Max 5 GB standaard (pas aan met env MAX_RELAY_MB)
-MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "5120"))
+MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "5120"))  # 5 GB default
 MAX_RELAY_BYTES = MAX_RELAY_MB * 1024 * 1024
 
 # Backblaze B2 (S3-compatibel)
@@ -32,7 +31,7 @@ S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
-# SMTP (optioneel; zo niet aanwezig → mailto fallback)
+# SMTP (optioneel)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -74,7 +73,6 @@ def init_db():
       )
     """)
     c.commit(); c.close()
-
 init_db()
 
 # -------------- gedeelde CSS --------------
@@ -90,7 +88,7 @@ BASE_CSS = """
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
 
-/* Dynamische achtergrond */
+/* Dynamische, bewegende achtergrond */
 .bg{position:fixed;inset:0;z-index:-2;background:
   radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
   radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
@@ -100,14 +98,13 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
 .bg:before{background:
   radial-gradient(40% 60% at 20% 30%,rgba(255,255,255,.35),transparent),
   radial-gradient(50% 60% at 80% 25%,rgba(255,255,255,.25),transparent);
-  animation:f1 16s linear infinite}
+  animation:f1 12s linear infinite}
 .bg:after{background:
   radial-gradient(35% 50% at 60% 70%,rgba(255,255,255,.22),transparent),
   radial-gradient(45% 55% at 30% 80%,rgba(255,255,255,.18),transparent);
-  animation:f2 22s linear infinite}
-@keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.5%,-1.5%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
-@keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.25%,1.25%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
-@media (prefers-reduced-motion:reduce){.bg:before,.bg:after{animation:none}}
+  animation:f2 18s linear infinite}
+@keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.6%,-1.6%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
+@keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.4%,1.4%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
 
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
@@ -128,12 +125,10 @@ select, textarea{
 }
 textarea{min-height:120px; resize:vertical}
 input[readonly], .input[readonly]{background:var(--surface-2)}
-
 input:focus, .input:focus, select:focus, textarea:focus{
   border-color: var(--ring);
   box-shadow: 0 0 0 4px rgba(37,99,235,.15);
 }
-
 /* File input */
 input[type=file]{padding:.55rem 1rem; background:#f0f6ff; cursor:pointer}
 input[type=file]::file-selector-button{
@@ -142,10 +137,8 @@ input[type=file]::file-selector-button{
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
 input[type=file]::file-selector-button:hover{background:#e8edf4}
-
 /* Radio/checkbox */
 input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05rem;height:1.05rem}
-
 /* Knoppen */
 .btn{
   padding:.95rem 1.2rem;border:0;border-radius:12px;
@@ -155,7 +148,6 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-
 /* Progress bars */
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
@@ -261,6 +253,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const upbarFill = upbar.querySelector('i');
   const uptext = document.getElementById('uptext');
 
+  const DIRECT_LIMIT_MB = 90; // >90MB => direct naar B2
+
   function gatherFiles(){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     return (mode==='files') ? fileInput.files : folderInput.files;
@@ -270,62 +264,124 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  form.addEventListener('submit', (e)=>{
+  async function directUpload(file, expiryDays, password){
+    // 1) server: presigned PUT
+    const signRes = await fetch("{{ url_for('sign_upload') }}", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ filename: file.name })
+    });
+    const sign = await signRes.json();
+    if(!signRes.ok || !sign.ok) throw new Error(sign.error || "Signeren mislukt");
+
+    // 2) PUT naar B2 (XHR => progress)
+    await new Promise((resolve,reject)=>{
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", sign.url, true);
+      xhr.upload.onprogress = (ev)=>{
+        if(ev.lengthComputable){
+          const p = Math.round(ev.loaded/ev.total*100);
+          upbarFill.style.width = p+'%';
+          uptext.textContent = (p<100? p+'%' : '100% – verwerken…');
+        }else{
+          uptext.textContent = 'Bezig met uploaden…';
+        }
+      };
+      xhr.onload = ()=> (xhr.status>=200 && xhr.status<300 ? resolve() : reject(new Error("Opslag weigerde upload ("+xhr.status+")")));
+      xhr.onerror = ()=> reject(new Error("Netwerkfout naar opslag"));
+      xhr.send(file);
+    });
+
+    // 3) finalize → link genereren
+    const finRes = await fetch("{{ url_for('finalize_upload') }}", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        token: sign.token,
+        key:   sign.key,
+        name:  file.name,
+        size:  file.size,
+        expiry_days: expiryDays,
+        password: password || ""
+      })
+    });
+    const fin = await finRes.json();
+    if(!finRes.ok || !fin.ok) throw new Error(fin.error || "Finalize mislukt");
+    return fin.link;
+  }
+
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const files = gatherFiles();
     if(!files || files.length===0){ alert("Kies bestand(en) of map"); return; }
 
-    const fd = new FormData();
-    fd.append('expiry_days', document.getElementById('exp').value || '24');
-    fd.append('password', document.getElementById('pw').value || '');
-    for(const f of files){
-      fd.append('files', f, f.name);
-      fd.append('paths', relPath(f));
-    }
+    const expiryDays = document.getElementById('exp').value || '24';
+    const password = document.getElementById('pw').value || '';
+    const isSingleLarge = (files.length===1) && (files[0].size/1024/1024 >= DIRECT_LIMIT_MB);
 
     upbar.style.display='block'; uptext.style.display='block';
     upbarFill.style.width='0%'; uptext.textContent='0%';
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', "{{ url_for('upload_relay') }}", true);
-
-    // Echte upload voortgang
-    xhr.upload.onprogress = (ev)=>{
-      if(ev.lengthComputable){
-        const p = Math.round(100*ev.loaded/ev.total);
-        const show = Math.max(0, Math.min(100, p));
-        upbarFill.style.width = show + '%';
-        uptext.textContent = (show<100? show + '%' : '100% – verwerken…');
-      }else{
-        uptext.textContent = 'Bezig met uploaden…';
-      }
-    };
-
-    xhr.onerror = ()=>{ alert('Netwerkfout tijdens upload.'); };
-    xhr.onreadystatechange = ()=>{
-      if(xhr.readyState===4){
-        let data = {};
-        try{ data = JSON.parse(xhr.responseText||'{}'); }catch(e){}
-        if(xhr.status!==200 || !data.ok){
-          alert((data && data.error) ? data.error : ('Fout: '+xhr.status));
-          return;
-        }
+    try{
+      if(isSingleLarge){
+        const link = await directUpload(files[0], expiryDays, password);
         upbarFill.style.width='100%'; uptext.textContent='Klaar';
         resBox.innerHTML = `
           <div class="card" style="margin-top:1rem">
             <strong>Deelbare link</strong>
             <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-              <input class="input" style="flex:1" value="${data.link}" readonly>
+              <input class="input" style="flex:1" value="${link}" readonly>
               <button class="btn" type="button"
-                onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+                onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
                 Kopieer
               </button>
             </div>
           </div>`;
+        return;
       }
-    };
 
-    xhr.send(fd);
+      // Server-relay voor kleine/multi/mapper
+      const fd = new FormData();
+      fd.append('expiry_days', expiryDays);
+      fd.append('password', password);
+      for(const f of files){ fd.append('files', f, f.name); fd.append('paths', relPath(f)); }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', "{{ url_for('upload_relay') }}", true);
+      xhr.upload.onprogress = (ev)=>{
+        if(ev.lengthComputable){
+          const p = Math.round(100*ev.loaded/ev.total);
+          upbarFill.style.width = p+'%';
+          uptext.textContent = (p<100? p+'%' : '100% – verwerken…');
+        }
+      };
+      xhr.onreadystatechange = ()=>{
+        if(xhr.readyState===4){
+          let data = {};
+          try{ data = JSON.parse(xhr.responseText||'{}'); }catch(e){}
+          if(xhr.status!==200 || !data.ok){
+            alert((data && data.error) ? data.error : ('Fout: '+xhr.status));
+            return;
+          }
+          upbarFill.style.width='100%'; uptext.textContent='Klaar';
+          resBox.innerHTML = `
+            <div class="card" style="margin-top:1rem">
+              <strong>Deelbare link</strong>
+              <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
+                <input class="input" style="flex:1" value="${data.link}" readonly>
+                <button class="btn" type="button"
+                  onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+                  Kopieer
+                </button>
+              </div>
+            </div>`;
+        }
+      };
+      xhr.send(fd);
+
+    }catch(err){
+      alert(err.message || 'Onbekende fout');
+    }
   });
 </script>
 </body></html>
@@ -354,9 +410,9 @@ input[type=text]{width:100%}
     <div><strong>Verloopt:</strong> {{ expires_human }}</div>
   </div>
 
-  <a class="btn" id="dlBtn" href="{{ url_for('download_file', token=token) }}">Download</a>
+  <button class="btn" id="dlBtn" type="button">Download</button>
   <div class="progress" id="dlbar" style="display:none;margin-top:.6rem"><i></i></div>
-  <div class="small" id="dltext" style="display:none">Download voorbereiden…</div>
+  <div class="small" id="dltext" style="display:none">Starten…</div>
 
   <div class="linkbox" style="margin-top:1rem">
     <div><strong>Deelbare link</strong></div>
@@ -382,10 +438,45 @@ input[type=text]{width:100%}
   const fill = dlbar.querySelector('i');
   const dltext = document.getElementById('dltext');
 
-  dlBtn.addEventListener('click', ()=>{
+  // ECHTE download-progress via streaming fetch van /stream/{{ token }}
+  async function downloadWithProgress(){
     dlbar.style.display='block'; dltext.style.display='block';
-    let p=0; const t=setInterval(()=>{ p=Math.min(95,p+5); fill.style.width=p+'%'; if(p>=95) clearInterval(t); },100);
-  }, {passive:true});
+    fill.style.width='0%'; dltext.textContent='Starten…';
+
+    const res = await fetch("{{ url_for('stream_download', token=token) }}");
+    if(!res.ok) { alert('Fout bij starten download ('+res.status+')'); return; }
+
+    const total = parseInt(res.headers.get('Content-Length') || '0', 10);
+    const filename = res.headers.get('X-Filename') || '{{ name }}';
+
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      chunks.push(value);
+      received += value.length;
+      if(total){
+        const p = Math.round(received/total*100);
+        fill.style.width = p + '%';
+        dltext.textContent = p + '%';
+      }else{
+        dltext.textContent = (received/1024/1024).toFixed(1) + ' MB…';
+      }
+    }
+
+    const blob = new Blob(chunks);
+    fill.style.width='100%'; dltext.textContent='Klaar';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  dlBtn.addEventListener('click', ()=>{ downloadWithProgress(); });
 </script>
 </body></html>
 """
@@ -499,7 +590,56 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# Upload (server-relay) + map→ZIP bundeling
+# -------- Direct-to-S3 (grote single files) --------
+@app.route("/sign-upload", methods=["POST"])
+def sign_upload():
+    if not logged_in(): abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    filename = secure_filename(data.get("filename") or "")
+    if not filename: return jsonify(ok=False, error="Geen bestandsnaam"), 400
+
+    token = uuid.uuid4().hex[:10]
+    object_key = f"uploads/{token}__{filename}"
+
+    url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": S3_BUCKET, "Key": object_key},
+        ExpiresIn=3600,
+        HttpMethod="PUT",
+    )
+    return jsonify(ok=True, token=token, key=object_key, url=url)
+
+@app.route("/finalize-upload", methods=["POST"])
+def finalize_upload():
+    if not logged_in(): abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    token   = data.get("token")
+    key     = data.get("key")
+    name    = data.get("name")
+    size    = int(data.get("size") or 0)
+    days    = float(data.get("expiry_days") or 24)
+    pw      = data.get("password") or ""
+    if not token or not key or not name:
+        return jsonify(ok=False, error="Onvolledige finalize-data"), 400
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        size = int(head.get("ContentLength", size))
+    except Exception:
+        return jsonify(ok=False, error="Upload niet gevonden bij opslag"), 400
+
+    pw_hash = generate_password_hash(pw) if pw else None
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+    c = db()
+    c.execute("""INSERT INTO files(token,stored_path,original_name,password_hash,expires_at,size_bytes,created_at)
+                 VALUES(?,?,?,?,?,?,?)""",
+              (token, key, name, pw_hash, expires_at, size, datetime.now(timezone.utc).isoformat()))
+    c.commit(); c.close()
+
+    link = url_for("download", token=token, _external=True)
+    return jsonify(ok=True, link=link)
+
+# -------- Server-relay upload (kleine/multi/mapper) --------
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
     if not logged_in():
@@ -510,7 +650,6 @@ def upload_relay():
     if not files:
         return jsonify(ok=False, error="Geen bestand"), 400
 
-    # Client-size check (indien bekend)
     content_len = request.content_length or 0
     if content_len and content_len > MAX_RELAY_BYTES:
         return jsonify(ok=False, error=f"Upload groter dan {MAX_RELAY_MB} MB"), 413
@@ -524,7 +663,6 @@ def upload_relay():
 
     try:
         if must_zip:
-            # Bepaal root-map naam (voor ZIP-naam; alleen cosmetisch)
             root = None
             for p in paths:
                 if "/" in p:
@@ -577,11 +715,11 @@ def upload_relay():
         traceback.print_exc()
         return jsonify(ok=False, error="Upload verwerken mislukt. Probeer opnieuw of neem contact op."), 500
 
+# -------- Download scherm --------
 @app.route("/d/<token>", methods=["GET","POST"])
 def download(token):
     c = db(); row = c.execute("SELECT * FROM files WHERE token=?", (token,)).fetchone(); c.close()
-    if not row:
-        abort(404)
+    if not row: abort(404)
 
     if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
         try: s3.delete_object(Bucket=S3_BUCKET, Key=row["stored_path"])
@@ -589,6 +727,7 @@ def download(token):
         c = db(); c.execute("DELETE FROM files WHERE token=?", (token,)); c.commit(); c.close()
         abort(410)
 
+    # Wachtwoord-check
     if row["password_hash"]:
         if request.method == "GET":
             return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
@@ -602,6 +741,7 @@ def download(token):
                         <input class="input" type="password" name="password" required>
                         <button class="btn" style="margin-top:.6rem">Opnieuw</button>
                       </form>"""
+        session[f"allow_{token}"] = True  # markeer als vrijgegeven in deze sessie
 
     share_link = url_for("download", token=token, _external=True)
     size_h = human(int(row["size_bytes"]))
@@ -618,15 +758,29 @@ def download(token):
         base_css=BASE_CSS
     )
 
-@app.route("/dl/<token>")
-def download_file(token):
+# -------- Streaming download met echte progress --------
+@app.route("/stream/<token>")
+def stream_download(token):
     c = db(); row = c.execute("SELECT * FROM files WHERE token=?", (token,)).fetchone(); c.close()
-    if not row:
-        abort(404)
-    url = s3.generate_presigned_url(
-        "get_object", Params={"Bucket": S3_BUCKET, "Key": row["stored_path"]}, ExpiresIn=3600
-    )
-    return redirect(url)
+    if not row: abort(404)
+    if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc): abort(410)
+    if row["password_hash"] and not session.get(f"allow_{token}", False): abort(403)
+
+    # haal object op (streaming), communiceer lengte voor progress
+    head = s3.head_object(Bucket=S3_BUCKET, Key=row["stored_path"])
+    length = int(head.get("ContentLength", 0))
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=row["stored_path"])
+
+    def gen():
+        for chunk in obj["Body"].iter_chunks(1024 * 512):
+            if chunk: yield chunk
+
+    filename = row["original_name"]
+    resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+    if length: resp.headers["Content-Length"] = str(length)
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["X-Filename"] = filename  # voor JS
+    return resp
 
 # -------- Contact / aanvraag --------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
