@@ -4,9 +4,10 @@
 # ========= MiniTransfer – Olde Hanter =========
 # - Login
 # - Upload (bestanden of complete map) -> Backblaze B2 (S3-compat)
-# - Multipart upload met betrouwbare voortgang
+# - Single PUT voor < 5 MB (incl. 0 bytes)
+# - Multipart upload met betrouwbare voortgang voor ≥ 5 MB
 # - Downloadpagina met voortgangsbalk (en "alles zippen")
-# - Contactformulier; knop staat onderaan de downloadpagina
+# - Contactformulier; knop onderaan de downloadpagina
 # ==============================================
 
 import os, sqlite3, uuid, smtplib, re
@@ -61,7 +62,6 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
-
 # ================ Database ==================
 def db():
     c = sqlite3.connect(DB_PATH)
@@ -90,7 +90,6 @@ def init_db():
     """)
     c.commit(); c.close()
 init_db()
-
 
 # ================ Shared CSS =================
 BASE_CSS = """
@@ -130,7 +129,6 @@ h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
 
-/* Uniforme invoervelden */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
@@ -166,7 +164,6 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 """
-
 
 # =================== Templates ===================
 LOGIN_HTML = """
@@ -287,6 +284,29 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j.token;
   }
 
+  // ---- Single PUT (voor < 5MB, incl. 0 bytes) ----
+  async function singleInit(token, filename, type){
+    const r = await fetch("{{ url_for('put_init') }}", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
+    return j; // {key, url}
+  }
+  async function singleComplete(token, key, name, path){
+    const r = await fetch("{{ url_for('put_complete') }}", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key, name, path })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
+    return j;
+  }
+
+  // ---- Multipart (≥ 5MB) ----
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST",
@@ -294,10 +314,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
     });
     const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init mislukt");
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
     return j; // {key, uploadId}
   }
-
   async function signPart(key, uploadId, partNumber){
     const r = await fetch("{{ url_for('mpu_sign') }}", {
       method: "POST",
@@ -308,26 +327,19 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
     return j.url;
   }
-
-  // Let op: uploadId wordt nu meegestuurd!
-  async function completeOne(token, key, name, path, parts, expiryDays, password, uploadId){
+  async function mpuComplete(token, key, name, path, parts, uploadId){
     const r = await fetch("{{ url_for('mpu_complete') }}", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        token, key, name, path,
-        parts, uploadId,
-        expiry_days: expiryDays,
-        password: password || ""
-      })
+      body: JSON.stringify({ token, key, name, path, parts, uploadId })
     });
     const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden mislukt");
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
     return j;
   }
 
-  // PUT met progress en stevige timeouts
-  function putPart(url, blob, updateCb, partNumber){
+  // PUT helper (zowel single als part)
+  function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
@@ -338,24 +350,35 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           const etag = xhr.getResponseHeader("ETag");
           resolve(etag ? etag.replaceAll('"','') : null);
         } else {
-          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} op part ${partNumber}: ${xhr.responseText||''}`));
+          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
       };
-      xhr.onerror   = ()=> reject(new Error(`Netwerkfout op part ${partNumber} (CORS/endpoint?)`));
-      xhr.ontimeout = ()=> reject(new Error(`Timeout op part ${partNumber}`));
+      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
+      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
       xhr.send(blob);
     });
   }
 
-  // Multipart upload – stabiel en voorspelbaar
-  async function multipartUploadOne(token, file, relpath, expiryDays, password, totalTracker){
-    const CHUNK = 5 * 1024 * 1024; // B2: min 5MB per part (laatste part mag kleiner)
-    const CONCURRENCY = 1;
+  async function uploadSingle(token, file, relpath, totalTracker){
+    // 0-byte: sommige browsers geven geen progress events; zet direct klaar
+    const init = await singleInit(token, file.name, file.type);
+    const label = 'PUT object';
+    const etag = await putWithProgress(init.url, file, (loaded)=>{
+      const total = totalTracker.currentBase + loaded;
+      const p = Math.round(total / totalTracker.totalBytes * 100);
+      upbarFill.style.width = Math.min(p,100) + "%";
+      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
+    }, label);
+    await singleComplete(token, init.key, file.name, relpath);
+    totalTracker.currentBase += file.size;
+  }
 
+  async function uploadMultipart(token, file, relpath, totalTracker){
+    const CHUNK = 5 * 1024 * 1024;
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
-    const parts = Math.ceil(file.size / CHUNK);
+    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
     const perPart = new Array(parts).fill(0);
 
     function updateBar(){
@@ -366,7 +389,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
     }
 
-    async function uploadPartWithRetry(partNumber){
+    async function uploadPart(partNumber){
       const idx   = partNumber - 1;
       const start = idx * CHUNK;
       const end   = Math.min(start + CHUNK, file.size);
@@ -376,7 +399,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putPart(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, partNumber);
+          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, `part ${partNumber}`);
           perPart[idx] = blob.size; updateBar();
           return { PartNumber: partNumber, ETag: etag };
         }catch(err){
@@ -387,17 +410,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       }
     }
 
-    let next = 1;
-    const results = new Array(parts);
-    const runners = new Array(CONCURRENCY).fill(0).map(async ()=>{
-      while(next <= parts){
-        const mine = next++;
-        results[mine-1] = await uploadPartWithRetry(mine);
-      }
-    });
-    await Promise.all(runners);
+    // sequentieel is stabiel; wil je sneller, maak parallel
+    const results = [];
+    for(let pn=1; pn<=parts; pn++){
+      results.push(await uploadPart(pn));
+    }
 
-    await completeOne(token, key, file.name, relpath, results, expiryDays, password, uploadId);
+    await mpuComplete(token, key, file.name, relpath, results, uploadId);
     totalTracker.currentBase += file.size;
   }
 
@@ -419,7 +438,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const token = await packageInit(expiryDays, password);
 
       for(const f of files){
-        await multipartUploadOne(token, f, relPath(f), expiryDays, password, tracker);
+        const rel = relPath(f);
+        if(f.size < 5 * 1024 * 1024){
+          await uploadSingle(token, f, rel, tracker);
+        }else{
+          await uploadMultipart(token, f, rel, tracker);
+        }
       }
 
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
@@ -613,7 +637,6 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </div></div></body></html>
 """
 
-
 # =================== Helpers ===================
 def logged_in() -> bool:
     return session.get("authed", False)
@@ -633,7 +656,6 @@ def send_email(to_addr: str, subject: str, body: str):
     msg.set_content(body)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-
 
 # =================== Routes ===================
 @app.route("/")
@@ -657,8 +679,7 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-
-# ------- API: pakketten & multipart --------
+# ------- API: pakketten --------
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in():
@@ -675,6 +696,44 @@ def package_init():
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
 
+# ------- Single PUT (< 5MB + 0 bytes) -------
+@app.route("/put-init", methods=["POST"])
+def put_init():
+    if not logged_in(): abort(401)
+    d = request.get_json(force=True, silent=True) or {}
+    token = d.get("token")
+    filename = secure_filename(d.get("filename") or "")
+    content_type = d.get("contentType") or "application/octet-stream"
+    if not token or not filename:
+        return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
+    key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+    url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": S3_BUCKET, "Key": key, "ContentType": content_type},
+        ExpiresIn=3600, HttpMethod="PUT"
+    )
+    return jsonify(ok=True, key=key, url=url)
+
+@app.route("/put-complete", methods=["POST"])
+def put_complete():
+    if not logged_in(): abort(401)
+    d = request.get_json(force=True, silent=True) or {}
+    token = d.get("token"); key = d.get("key"); name = d.get("name"); path = d.get("path") or name
+    if not (token and key and name):
+        return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        size = int(head.get("ContentLength", 0))
+        c = db()
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
+                  (token, key, name, path, size))
+        c.commit(); c.close()
+        return jsonify(ok=True)
+    except ClientError as e:
+        msg = getattr(e, "response", {}).get("Error", {}).get("Message", str(e))
+        return jsonify(ok=False, error=f"S3-fout: {msg}"), 500
+
+# ------- Multipart (≥ 5MB) -------
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
     if not logged_in(): abort(401)
@@ -683,7 +742,7 @@ def mpu_init():
     filename = secure_filename(data.get("filename") or "")
     content_type = data.get("contentType") or "application/octet-stream"
     if not token or not filename:
-        return jsonify(ok=False, error="Onvolledige init"), 400
+        return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     init = s3.create_multipart_upload(
         Bucket=S3_BUCKET, Key=key, ContentType=content_type
@@ -697,7 +756,7 @@ def mpu_sign():
     key = data.get("key"); upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
     if not key or not upload_id or part_no<=0:
-        return jsonify(ok=False, error="Onvolledig"), 400
+        return jsonify(ok=False, error="Onvolledig sign"), 400
     url = s3.generate_presigned_url(
         "upload_part",
         Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
@@ -720,7 +779,7 @@ def mpu_complete():
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
 
     try:
-        # 1) Haal server-side parts op (bron van waarheid)
+        # 1) Server-side parts ophalen
         server_parts = {}
         paginator = s3.get_paginator("list_parts")
         for page in paginator.paginate(Bucket=S3_BUCKET, Key=key, UploadId=upload_id):
@@ -730,7 +789,7 @@ def mpu_complete():
         if not server_parts:
             return jsonify(ok=False, error="Geen geüploade parts gevonden voor dit uploadId"), 400
 
-        # 2) Vul missende ETags aan en valideer
+        # 2) Missende ETags aanvullen en valideren
         completed = []
         for client_p in parts_in:
             pn  = int(client_p.get("PartNumber") or 0)
@@ -764,7 +823,6 @@ def mpu_complete():
         return jsonify(ok=False, error=f"S3-fout: {msg}"), 500
     except Exception as e:
         return jsonify(ok=False, error=f"Serverfout: {e}"), 500
-
 
 # ------- Package page & download -------
 @app.route("/p/<token>", methods=["GET","POST"])
@@ -868,7 +926,6 @@ def stream_zip(token):
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
     return resp
 
-
 # -------- Contact / aanvraag --------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
@@ -930,7 +987,6 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
-
 # ---------- Healthcheck & Aliassen ----------
 @app.route("/health-s3")
 def health():
@@ -946,7 +1002,6 @@ def package_alias(token): return redirect(url_for("package_page", token=token))
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
-
 
 if __name__ == "__main__":
     app.run(debug=True)
