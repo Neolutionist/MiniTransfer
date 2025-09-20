@@ -5,3 +5,4 @@ itsdangerous==2.1.2
 click==8.1.7
 gunicorn==21.2.0
 boto3==1.34.131
+zipstream-ng==1.7.1
