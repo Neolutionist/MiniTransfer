@@ -187,6 +187,7 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 .8rem}
+.badge{display:none}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -201,7 +202,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     <div class="toggle">
       <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
       <label><input type="radio" name="upmode" value="folder"> Map</label>
-      <span class="badge">max {{ max_mb }} MB via relay</span>
+      <span class="badge"></span>
     </div>
 
     <div id="fileRow">
@@ -253,7 +254,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const upbarFill = upbar.querySelector('i');
   const uptext = document.getElementById('uptext');
 
-  const DIRECT_LIMIT_MB = 90; // >90MB => direct naar B2
+  const DIRECT_LIMIT_MB = 90; // >90MB => multipart direct naar B2
 
   function gatherFiles(){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
@@ -265,48 +266,87 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
 
   async function directUpload(file, expiryDays, password){
-    // 1) server: presigned PUT
-    const signRes = await fetch("{{ url_for('sign_upload') }}", {
+    const CHUNK = 8 * 1024 * 1024; // 8MB parts
+    const CONCURRENCY = 4;
+
+    // 1) init multipart
+    const initRes = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ filename: file.name })
+      body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream" })
     });
-    const sign = await signRes.json();
-    if(!signRes.ok || !sign.ok) throw new Error(sign.error || "Signeren mislukt");
+    const init = await initRes.json();
+    if(!initRes.ok || !init.ok) throw new Error(init.error || "Init mislukt");
+    const { token, key, uploadId } = init;
 
-    // 2) PUT naar B2 (XHR => progress)
-    await new Promise((resolve,reject)=>{
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", sign.url, true);
-      xhr.upload.onprogress = (ev)=>{
-        if(ev.lengthComputable){
-          const p = Math.round(ev.loaded/ev.total*100);
-          upbarFill.style.width = p+'%';
-          uptext.textContent = (p<100? p+'%' : '100% – verwerken…');
-        }else{
-          uptext.textContent = 'Bezig met uploaden…';
-        }
-      };
-      xhr.onload = ()=> (xhr.status>=200 && xhr.status<300 ? resolve() : reject(new Error("Opslag weigerde upload ("+xhr.status+")")));
-      xhr.onerror = ()=> reject(new Error("Netwerkfout naar opslag"));
-      xhr.send(file);
+    const parts = Math.ceil(file.size / CHUNK);
+    let uploaded = 0;
+    const etags = new Array(parts);
+
+    async function uploadPart(partNumber){
+      const start = (partNumber-1) * CHUNK;
+      const end   = Math.min(start + CHUNK, file.size);
+      const blob  = file.slice(start, end);
+
+      const ps = await fetch("{{ url_for('mpu_sign') }}", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ key, uploadId, partNumber })
+      });
+      const sig = await ps.json();
+      if(!ps.ok || !sig.ok) throw new Error(sig.error || "Sign part mislukt");
+
+      const etag = await new Promise((resolve,reject)=>{
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", sig.url, true);
+        xhr.upload.onprogress = (ev)=>{
+          if(ev.lengthComputable){
+            const p = Math.min(99, Math.round(((uploaded + ev.loaded) / file.size) * 100));
+            upbarFill.style.width = p + "%";
+            uptext.textContent    = (p<100)? (p+"%") : "100% – verwerken…";
+          }else{
+            uptext.textContent = 'Bezig met uploaden…';
+          }
+        };
+        xhr.onload = ()=>{
+          if(xhr.status>=200 && xhr.status<300){
+            const tag = xhr.getResponseHeader("ETag");
+            resolve(tag ? tag.replaceAll('"','') : null);
+          } else reject(new Error("Part "+partNumber+" faalde ("+xhr.status+")"));
+        };
+        xhr.onerror = ()=> reject(new Error("Netwerkfout op part "+partNumber));
+        xhr.send(blob);
+      });
+
+      uploaded += (end - start);
+      const p = Math.round((uploaded / file.size) * 100);
+      upbarFill.style.width = p + "%";
+      uptext.textContent    = (p<100)? (p+"%") : "100% – verwerken…";
+
+      etags[partNumber-1] = { PartNumber: partNumber, ETag: etag };
+    }
+
+    // limited concurrency
+    let next = 1;
+    const runners = new Array(CONCURRENCY).fill(0).map(async ()=>{
+      while(next <= parts){
+        const mine = next++;
+        await uploadPart(mine);
+      }
     });
+    await Promise.all(runners);
 
-    // 3) finalize → link genereren
-    const finRes = await fetch("{{ url_for('finalize_upload') }}", {
+    // afronden
+    const finRes = await fetch("{{ url_for('mpu_complete') }}", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        token: sign.token,
-        key:   sign.key,
-        name:  file.name,
-        size:  file.size,
-        expiry_days: expiryDays,
-        password: password || ""
+        token, key, name:file.name, parts: etags,
+        expiry_days: expiryDays, password: password || ""
       })
     });
     const fin = await finRes.json();
-    if(!finRes.ok || !fin.ok) throw new Error(fin.error || "Finalize mislukt");
+    if(!finRes.ok || !fin.ok) throw new Error(fin.error || "Afronden mislukt");
     return fin.link;
   }
 
@@ -399,6 +439,11 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .linkbox{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}
 input[type=text]{width:100%}
 .secondary{background:#0f4c98}
+.cta-fixed{
+  position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+  z-index:20; padding:1rem 1.25rem; box-shadow:0 10px 24px rgba(0,0,0,.18);
+}
+@media (max-width:560px){ .cta-fixed{width:calc(100% - 32px); text-align:center} }
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -425,12 +470,12 @@ input[type=text]{width:100%}
     </div>
   </div>
 
-  <div style="margin-top:1.25rem">
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-  </div>
-
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer" style="margin-bottom:4.5rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+
+<a class="btn secondary cta-fixed" href="{{ url_for('contact') }}">
+  Eigen transfer-oplossing aanvragen
+</a>
 
 <script>
   const dlBtn = document.getElementById('dlBtn');
@@ -438,7 +483,6 @@ input[type=text]{width:100%}
   const fill = dlbar.querySelector('i');
   const dltext = document.getElementById('dltext');
 
-  // ECHTE download-progress via streaming fetch van /stream/{{ token }}
   async function downloadWithProgress(){
     dlbar.style.display='block'; dltext.style.display='block';
     fill.style.width='0%'; dltext.textContent='Starten…';
@@ -573,7 +617,7 @@ def send_email(to_addr: str, subject: str, body: str):
 def index():
     if not logged_in():
         return redirect(url_for("login"))
-    return render_template_string(INDEX_HTML, user=session.get("user"), max_mb=MAX_RELAY_MB, base_css=BASE_CSS)
+    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
@@ -590,42 +634,65 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# -------- Direct-to-S3 (grote single files) --------
-@app.route("/sign-upload", methods=["POST"])
-def sign_upload():
-    if not logged_in(): abort(401)
+# -------- Multipart Upload (grote single files) --------
+@app.route("/mpu-init", methods=["POST"])
+def mpu_init():
+    if not logged_in():
+        return abort(401)
     data = request.get_json(force=True, silent=True) or {}
     filename = secure_filename(data.get("filename") or "")
-    if not filename: return jsonify(ok=False, error="Geen bestandsnaam"), 400
+    content_type = data.get("contentType") or "application/octet-stream"
+    if not filename:
+        return jsonify(ok=False, error="Geen bestandsnaam"), 400
 
     token = uuid.uuid4().hex[:10]
     object_key = f"uploads/{token}__{filename}"
 
+    init = s3.create_multipart_upload(
+        Bucket=S3_BUCKET, Key=object_key, ContentType=content_type
+    )
+    upload_id = init["UploadId"]
+    return jsonify(ok=True, token=token, key=object_key, uploadId=upload_id)
+
+@app.route("/mpu-sign", methods=["POST"])
+def mpu_sign():
+    if not logged_in():
+        return abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get("key")
+    upload_id = data.get("uploadId")
+    part_no = int(data.get("partNumber") or 0)
+    if not key or not upload_id or part_no <= 0:
+        return jsonify(ok=False, error="Onvolledig mpu-sign verzoek"), 400
+
     url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": S3_BUCKET, "Key": object_key},
+        "upload_part",
+        Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
         ExpiresIn=3600,
         HttpMethod="PUT",
     )
-    return jsonify(ok=True, token=token, key=object_key, url=url)
+    return jsonify(ok=True, url=url)
 
-@app.route("/finalize-upload", methods=["POST"])
-def finalize_upload():
-    if not logged_in(): abort(401)
+@app.route("/mpu-complete", methods=["POST"])
+def mpu_complete():
+    if not logged_in():
+        return abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token   = data.get("token")
     key     = data.get("key")
     name    = data.get("name")
-    size    = int(data.get("size") or 0)
+    parts   = data.get("parts") or []  # [{PartNumber:int, ETag:str}, ...]
     days    = float(data.get("expiry_days") or 24)
     pw      = data.get("password") or ""
-    if not token or not key or not name:
-        return jsonify(ok=False, error="Onvolledige finalize-data"), 400
-    try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-        size = int(head.get("ContentLength", size))
-    except Exception:
-        return jsonify(ok=False, error="Upload niet gevonden bij opslag"), 400
+    if not token or not key or not name or not parts:
+        return jsonify(ok=False, error="Onvolledige complete-data"), 400
+
+    comp = s3.complete_multipart_upload(
+        Bucket=S3_BUCKET, Key=key,
+        MultipartUpload={"Parts": sorted(parts, key=lambda p: p["PartNumber"])}
+    )
+    head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+    size = int(head.get("ContentLength", 0))
 
     pw_hash = generate_password_hash(pw) if pw else None
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
@@ -741,7 +808,7 @@ def download(token):
                         <input class="input" type="password" name="password" required>
                         <button class="btn" style="margin-top:.6rem">Opnieuw</button>
                       </form>"""
-        session[f"allow_{token}"] = True  # markeer als vrijgegeven in deze sessie
+        session[f"allow_{token}"] = True
 
     share_link = url_for("download", token=token, _external=True)
     size_h = human(int(row["size_bytes"]))
@@ -766,7 +833,6 @@ def stream_download(token):
     if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc): abort(410)
     if row["password_hash"] and not session.get(f"allow_{token}", False): abort(403)
 
-    # haal object op (streaming), communiceer lengte voor progress
     head = s3.head_object(Bucket=S3_BUCKET, Key=row["stored_path"])
     length = int(head.get("ContentLength", 0))
     obj = s3.get_object(Bucket=S3_BUCKET, Key=row["stored_path"])
@@ -779,7 +845,7 @@ def stream_download(token):
     resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
     if length: resp.headers["Content-Length"] = str(length)
     resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    resp.headers["X-Filename"] = filename  # voor JS
+    resp.headers["X-Filename"] = filename
     return resp
 
 # -------- Contact / aanvraag --------
