@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (fixed) =========
+# ========= MiniTransfer – Olde Hanter (iOS + ZIP fixes) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
-# - Single PUT < 5 MB (incl. 0 bytes)
-# - Multipart upload ≥ 5 MB
-# - Downloadpagina met voortgang + "alles zippen" (gefixt)
+# - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
+# - Downloadpagina met voortgang + "alles zippen" (lazy streaming)
 # - Titel (onderwerp) per pakket
-# - CTA sticky onderaan de card (niet meesource-scrollen)
-# - Mobile-vriendelijke downloadtabel
-# ======================================================
+# - CTA sticky onderaan de card
+# - iOS/iPhone: map-upload uitgeschakeld en verborgen
+# ================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
@@ -98,12 +97,9 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # voeg 'title' toe indien nodig
     if not _column_exists(c, "packages", "title"):
-        try:
-            c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
-        except Exception:
-            pass
+        try: c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
+        except Exception: pass
     c.commit(); c.close()
 init_db()
 
@@ -160,7 +156,7 @@ input[type=file]::file-selector-button{
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 
-/* Downloadpagina */
+/* Downloadpagina mobile-friendly */
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 @media (max-width: 680px){
@@ -220,8 +216,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
     <div class="toggle">
-      <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-      <label><input type="radio" name="upmode" value="folder"> Map</label>
+      <label><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+      <label id="modeFolderWrap"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
     </div>
 
     <div id="fileRow">
@@ -262,15 +258,34 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
+  // --- iOS detectie: Map-upload uitschakelen en verbergen ---
+  function isIOS(){
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+    const iOSUA = /iPad|iPhone|iPod/.test(ua);
+    const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return iOSUA || iPadOS;
+  }
+  const modeFiles = document.getElementById('modeFiles');
+  const modeFolder = document.getElementById('modeFolder');
+  const modeFolderWrap = document.getElementById('modeFolderWrap');
+  if(isIOS()){
+    // forceer 'Bestand(en)', verberg 'Map'
+    modeFiles.checked = true;
+    modeFolder.disabled = true;
+    modeFolderWrap.style.display = 'none';
+  }
+
   // Toggle bestand/map
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
-  modeRadios.forEach(r => r.addEventListener('change', () => {
+  function applyMode(){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     fileRow.style.display  = (mode==='files')  ? '' : 'none';
     folderRow.style.display = (mode==='folder') ? '' : 'none';
-  }));
+  }
+  modeRadios.forEach(r => r.addEventListener('change', applyMode));
+  applyMode();
 
   const form = document.getElementById('f');
   const fileInput   = document.getElementById('fileInput');
@@ -350,11 +365,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
 
+  // Belangrijk voor iOS: dezelfde Content-Type header meesturen als in de presigned URL
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
       xhr.timeout = 300000;
+      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
       xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
@@ -430,8 +447,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const files = (()=>{ const f=(document.querySelector('input[name="upmode"]:checked').value==='files'? fileInput.files:folderInput.files); return Array.from(f||[]); })();
-    if(!files.length){ alert("Kies bestand(en) of map"); return; }
+    const files = (()=>{ const mode=document.querySelector('input[name="upmode"]:checked').value; const f=(mode==='files'? fileInput.files:folderInput.files); return Array.from(f||[]); })();
+    if(!files.length){ alert("Kies bestand(en)"+(isIOS()?"":" of map")); return; }
 
     const expiryDays = document.getElementById('exp').value || '24';
     const password   = document.getElementById('pw').value || '';
@@ -447,7 +464,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const token = await packageInit(expiryDays, password, title);
 
       for(const f of files){
-        const rel = (document.querySelector('input[name="upmode"]:checked').value==='files'? f.name : (f.webkitRelativePath || f.name));
+        const rel = relPath(f);
         if(f.size < 5 * 1024 * 1024){
           await uploadSingle(token, f, rel, tracker);
         }else{
@@ -718,7 +735,7 @@ def put_init():
             ExpiresIn=3600, HttpMethod="PUT"
         )
         return jsonify(ok=True, key=key, url=url)
-    except Exception as e:
+    except Exception:
         log.exception("put_init failed")
         return jsonify(ok=False, error="server_error"), 500
 
@@ -738,7 +755,7 @@ def put_complete():
                   (token, key, name, path, size))
         c.commit(); c.close()
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError):
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
@@ -886,6 +903,7 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
+    # Lazy ZIP streaming – geen 'mode' argument gebruiken
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
@@ -896,37 +914,33 @@ def stream_zip(token):
     if not rows: abort(404)
 
     try:
-        # GEEN mode=... meegeven — deze versie ondersteunt dat niet
-        z = ZipStream(compression='deflated')  # kan je ook weglaten; 'deflated' is default
+        z = ZipStream(compression='deflated')  # sommige versies kennen geen 'mode' kwarg
 
-        # Lazy lezen: S3 pas openen als het item aan de beurt is
+        # Lazy reader: S3 pas openen wanneer item wordt geschreven
         for r in rows:
             arcname = r["path"] or r["name"]
 
             def reader(key=r["s3_key"]):
                 obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
                 for chunk in obj["Body"].iter_chunks(1024 * 512):
-                    if chunk:
-                        yield chunk
+                    if chunk: yield chunk
 
             z.add(arcname, reader())
 
         def generate():
-            for chunk in z:   # ZipStream is een generator
+            for chunk in z:
                 yield chunk
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
-        if not filename.lower().endswith(".zip"):
-            filename += ".zip"
-        resp.headers["Content-Disposition"] = f'attachment; filename=\"{filename}\"'
+        if not filename.lower().endswith(".zip"): filename += ".zip"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
-
     except Exception:
-        app.logger.exception("stream_zip failed")
+        log.exception("stream_zip failed")
         abort(500)
-        
+
 # Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
