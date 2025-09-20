@@ -914,20 +914,14 @@ def stream_zip(token):
     # --- Basischecks ---
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg:
-        c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close(); abort(403)
-    rows = c.execute(
-        "SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)
-    ).fetchall()
+    if not pkg: c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
-    if not rows:
-        abort(404)
+    if not rows: abort(404)
 
-    # --- Precheck: bestaan alle S3-objecten? ---
+    # --- Precheck: S3-objecten bestaan? ---
     missing = []
     try:
         for r in rows:
@@ -952,9 +946,84 @@ def stream_zip(token):
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
-    # --- ZIP streamen (API: add(arcname, iterable)) ---
+    # --- ZIP streamen met compat-laag ---
     try:
-        z = ZipStream()  # geen kwargs -> maximale compatibiliteit
+        z = ZipStream()  # geen kwargs
+
+        class _GenReader:
+            """Wrapt een bytes-generator naar een file-like met read()."""
+            def __init__(self, gen):
+                self._it = gen
+                self._buf = b""
+                self._done = False
+            def read(self, n=-1):
+                if self._done and not self._buf:
+                    return b""
+                if n is None or n < 0:
+                    # lees alles
+                    chunks = [self._buf]
+                    self._buf = b""
+                    for chunk in self._it:
+                        chunks.append(chunk)
+                    self._done = True
+                    return b"".join(chunks)
+                # lees tot n bytes
+                while len(self._buf) < n and not self._done:
+                    try:
+                        self._buf += next(self._it)
+                    except StopIteration:
+                        self._done = True
+                        break
+                out, self._buf = self._buf[:n], self._buf[n:]
+                return out
+
+        methods_tried = []
+
+        def add_compat(arcname, gen_factory):
+            # 1) add_iter(arcname, iterator)
+            if hasattr(z, "add_iter"):
+                try:
+                    methods_tried.append("add_iter(arcname, iterator)")
+                    z.add_iter(arcname, gen_factory())
+                    return
+                except Exception:
+                    pass
+            # 2) add(arcname=..., iterable=...)
+            try:
+                methods_tried.append("add(arcname=..., iterable=...)")
+                z.add(arcname=arcname, iterable=gen_factory())
+                return
+            except Exception:
+                pass
+            # 3) add(arcname=..., stream=...)
+            try:
+                methods_tried.append("add(arcname=..., stream=...)")
+                z.add(arcname=arcname, stream=gen_factory())
+                return
+            except Exception:
+                pass
+            # 4) add(arcname=..., fileobj=...)
+            try:
+                methods_tried.append("add(arcname=..., fileobj=...)")
+                z.add(arcname=arcname, fileobj=_GenReader(gen_factory()))
+                return
+            except Exception:
+                pass
+            # 5) add(arcname, iterator)
+            try:
+                methods_tried.append("add(arcname, iterator)")
+                z.add(arcname, gen_factory())
+                return
+            except Exception:
+                pass
+            # 6) add(iterator, arcname)
+            try:
+                methods_tried.append("add(iterator, arcname)")
+                z.add(gen_factory(), arcname)
+                return
+            except Exception:
+                pass
+            raise RuntimeError("Geen compatibele zipstream-ng add()-signatuur gevonden")
 
         for r in rows:
             arcname = r["path"] or r["name"]
@@ -965,8 +1034,7 @@ def stream_zip(token):
                     if chunk:
                         yield chunk
 
-            # BELANGRIJK: 2 positionele argumenten (arcname, generator)
-            z.add(arcname, reader())
+            add_compat(arcname, lambda: reader())
 
         def generate():
             for chunk in z:
@@ -981,11 +1049,13 @@ def stream_zip(token):
         resp.headers["X-Filename"] = filename
         return resp
 
-    except Exception:
+    except Exception as e:
         log.exception("stream_zip failed")
-        resp = Response("ZIP generatie mislukte. Zie serverlogs.", status=500, mimetype="text/plain")
+        msg = f"ZIP generatie mislukte. Probeer andere zipstream-ng API. Tried: {', '.join(methods_tried)}. Err: {e}"
+        resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
+
 
 # Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
