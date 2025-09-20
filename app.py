@@ -3,11 +3,12 @@
 
 # ========= MiniTransfer – Olde Hanter =========
 # - Login
-# - Upload (bestanden of complete map) -> Backblaze B2 (S3-compat)
+# - Upload (bestanden of map) -> Backblaze B2 (S3)
 # - Single PUT voor < 5 MB (incl. 0 bytes)
 # - Multipart upload voor ≥ 5 MB
-# - Downloadpagina met voortgangsbalk (en "alles zippen")
-# - Contactformulier; knop onderaan de downloadpagina
+# - Downloadpagina met voortgang (en "alles zippen")
+# - Optioneel onderwerp per pakket (wordt getoond i.p.v. alleen code)
+# - Kleinere downloadknoppen
 # ==============================================
 
 import os, sqlite3, uuid, smtplib, re
@@ -20,7 +21,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash
+ the werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -67,6 +68,11 @@ def db():
     c.row_factory = sqlite3.Row
     return c
 
+def _column_exists(cursor, table, column):
+    rows = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+    names = {r[1] for r in rows}
+    return column in names
+
 def init_db():
     c = db()
     c.execute("""
@@ -87,6 +93,12 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
+    # Voeg kolom 'title' toe aan packages (indien nog niet aanwezig)
+    if not _column_exists(c, "packages", "title"):
+        try:
+            c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
+        except Exception:
+            pass
     c.commit(); c.close()
 init_db()
 
@@ -147,13 +159,15 @@ input[type=file]::file-selector-button{
 input[type=file]::file-selector-button:hover{background:#e8edf4}
 input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05rem;height:1.05rem}
 .btn{
-  padding:.95rem 1.2rem;border:0;border-radius:12px;
+  padding:.9rem 1.15rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
   box-shadow:0 4px 14px rgba(0,51,102,.25); transition:filter .15s, transform .02s
 }
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
+/* Kleine varianten voor knoppen in tabellen */
+.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 """
@@ -219,9 +233,16 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
+        <label for="title">Onderwerp (optioneel)</label>
+        <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+      </div>
+      <div>
         <label for="exp">Verloopt over (dagen)</label>
         <input id="exp" class="input" type="number" min="1" value="24">
       </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr;gap:1rem;margin-top:.6rem">
       <div>
         <label for="pw">Wachtwoord (optioneel)</label>
         <input id="pw" class="input" type="password" placeholder="Laat leeg voor geen wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false">
@@ -264,11 +285,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  async function packageInit(expiryDays, password){
+  async function packageInit(expiryDays, password, title){
     const r = await fetch("{{ url_for('package_init') }}", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ expiry_days: expiryDays, password: password || "" })
+      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
@@ -414,6 +435,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     const expiryDays = document.getElementById('exp').value || '24';
     const password   = document.getElementById('pw').value || '';
+    const title      = document.getElementById('title').value || '';
 
     const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
     const tracker = { totalBytes, currentBase: 0 };
@@ -422,7 +444,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     upbarFill.style.width='0%'; uptext.textContent='0%';
 
     try{
-      const token = await packageInit(expiryDays, password);
+      const token = await packageInit(expiryDays, password, title);
 
       for(const f of files){
         const rel = relPath(f);
@@ -436,7 +458,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
-      // >>> FIX: geen backslash, zodat JS template literal interpoleert
       resBox.innerHTML = `
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
@@ -466,8 +487,9 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .meta{margin:.4rem 0 1rem;color:#374151}
 .btn{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
+.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
-.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
+.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:middle}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
@@ -475,7 +497,8 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 <div class="wrap"><div class="card">
   <h1>Download</h1>
   <div class="meta">
-    <div><strong>Pakket:</strong> {{ token }}</div>
+    <div><strong>Pakket:</strong> {{ title or token }}</div>
+    <div><strong>Code:</strong> {{ token }}</div>
     <div><strong>Verloopt:</strong> {{ expires_human }}</div>
     <div><strong>Totaal:</strong> {{ total_human }}</div>
   </div>
@@ -490,14 +513,14 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     <div class="small" id="txt" style="display:none">Starten…</div>
 
     <table class="table">
-      <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th><th></th></tr></thead>
+      <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th><th style="width:1%"></th></tr></thead>
       <tbody>
       {% for it in items %}
         <tr>
           <td>{{ it["name"] }}</td>
           <td class="small">{{ it["path"] }}</td>
           <td>{{ it["size_h"] }}</td>
-          <td><a class="btn secondary" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+          <td><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
         </tr>
       {% endfor %}
       </tbody>
@@ -673,14 +696,18 @@ def package_init():
     if not logged_in():
         return abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    days = float(data.get("expiry_days") or 24)
-    pw   = data.get("password") or ""
+    days  = float(data.get("expiry_days") or 24)
+    pw    = data.get("password") or ""
+    title_raw = (data.get("title") or "").strip()
+    title = title_raw[:120] if title_raw else None
+
     token = uuid.uuid4().hex[:10]
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
+
     c = db()
-    c.execute("INSERT INTO packages(token,expires_at,password_hash,created_at) VALUES(?,?,?,?)",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat()))
+    c.execute("INSERT INTO packages(token,expires_at,password_hash,created_at,title) VALUES(?,?,?,?,?)",
+              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title))
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
 
@@ -854,8 +881,8 @@ def package_page(token):
 
     return render_template_string(
         PACKAGE_HTML,
-        token=token, items=its,
-        share_link=share_link, total_human=total_h,
+        token=token, title=pkg["title"],
+        items=its, share_link=share_link, total_human=total_h,
         expires_human=expires_h, base_css=BASE_CSS
     )
 
