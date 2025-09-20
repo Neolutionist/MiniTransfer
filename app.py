@@ -896,36 +896,37 @@ def stream_zip(token):
     if not rows: abort(404)
 
     try:
-        z = ZipStream(mode='w', compression='deflated')
+        # GEEN mode=... meegeven — deze versie ondersteunt dat niet
+        z = ZipStream(compression='deflated')  # kan je ook weglaten; 'deflated' is default
 
-        # Belangrijk: get_object pas BINNEN de reader doen → lazy ophalen
+        # Lazy lezen: S3 pas openen als het item aan de beurt is
         for r in rows:
             arcname = r["path"] or r["name"]
 
             def reader(key=r["s3_key"]):
                 obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-                for chunk in obj["Body"].iter_chunks(1024*512):
+                for chunk in obj["Body"].iter_chunks(1024 * 512):
                     if chunk:
                         yield chunk
 
             z.add(arcname, reader())
 
         def generate():
-            for chunk in z:
+            for chunk in z:   # ZipStream is een generator
                 yield chunk
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
         if not filename.lower().endswith(".zip"):
             filename += ".zip"
-        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.headers["Content-Disposition"] = f'attachment; filename=\"{filename}\"'
         resp.headers["X-Filename"] = filename
         return resp
 
     except Exception:
         app.logger.exception("stream_zip failed")
         abort(500)
-
+        
 # Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
