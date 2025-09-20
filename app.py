@@ -1,25 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter =========
-# - Login
-# - Upload (bestanden of map) -> Backblaze B2 (S3)
-# - Single PUT voor < 5 MB (incl. 0 bytes)
-# - Multipart upload voor ≥ 5 MB
-# - Downloadpagina met voortgang (en "alles zippen")
-# - Onderwerp per pakket (optioneel)
-# - Kleinere downloadknoppen, mobielvriendelijke pagina
-# ==============================================
-
-import os
-import re
-import uuid
-import smtplib
-import sqlite3
+import os, sqlite3, uuid, smtplib, re, logging
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zipfile import ZIP_DEFLATED
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
@@ -30,25 +15,22 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
+from zipstream import ZipStream  # zipstream-ng
 
-# zipstream-ng (of zipstream): class heet "ZipStream"
-# pip install zipstream-ng
-from zipstream import ZipStream
-
-# ================== Config ==================
+# ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Backblaze B2 (S3-compatibel)
+# Backblaze (S3 compat)
 S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
-# SMTP (optioneel)
+# SMTP (optional)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -70,22 +52,23 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
-# ================ Database ==================
+# Logging (handig bij 500's)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
+
+
+# --------------- DB --------------------
 def db():
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
     return c
-
-def _column_exists(cursor, table, column):
-    rows = cursor.execute(f"PRAGMA table_info({table})").fetchall()
-    names = {r[1] for r in rows}
-    return column in names
 
 def init_db():
     c = db()
     c.execute("""
       CREATE TABLE IF NOT EXISTS packages (
         token TEXT PRIMARY KEY,
+        subject TEXT,
         expires_at TEXT NOT NULL,
         password_hash TEXT,
         created_at TEXT NOT NULL
@@ -101,17 +84,11 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Kolom 'title' toevoegen indien nog niet aanwezig
-    if not _column_exists(c, "packages", "title"):
-        try:
-            c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
-        except Exception:
-            pass
-    c.commit()
-    c.close()
+    c.commit(); c.close()
 init_db()
 
-# ================ Shared CSS =================
+
+# -------------- CSS --------------
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -128,17 +105,6 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
   radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
   radial-gradient(60vmax 60vmax at 50% 90%,var(--bg3) 0%,transparent 60%),
   linear-gradient(180deg,#eef2f7 0%,#e9eef6 100%)}
-.bg:before,.bg:after{content:"";position:absolute;inset:-8%;will-change:transform}
-.bg:before{background:
-  radial-gradient(40% 60% at 20% 30%,rgba(255,255,255,.35),transparent),
-  radial-gradient(50% 60% at 80% 25%,rgba(255,255,255,.25),transparent);
-  animation:f1 12s linear infinite}
-.bg:after{background:
-  radial-gradient(35% 50% at 60% 70%,rgba(255,255,255,.22),transparent),
-  radial-gradient(45% 55% at 30% 80%,rgba(255,255,255,.18),transparent);
-  animation:f2 18s linear infinite}
-@keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.6%,-1.6%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
-@keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.4%,1.4%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
@@ -153,8 +119,6 @@ select, textarea{
   background:#f0f6ff; color:var(--text);
   outline: none; transition: box-shadow .15s, border-color .15s, background .15s;
 }
-textarea{min-height:120px; resize:vertical}
-input[readonly], .input[readonly]{background:var(--surface-2)}
 input:focus, .input:focus, select:focus, textarea:focus{
   border-color: var(--ring);
   box-shadow: 0 0 0 4px rgba(37,99,235,.15);
@@ -165,39 +129,42 @@ input[type=file]::file-selector-button{
   background:var(--surface-2); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
-input[type=file]::file-selector-button:hover{background:#e8edf4}
-input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05rem;height:1.05rem}
 .btn{
-  padding:.9rem 1.15rem;border:0;border-radius:12px;
+  padding:.8rem 1.05rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
-  box-shadow:0 4px 14px rgba(0,51,102,.25); transition:filter .15s, transform .02s
+  box-shadow:0 4px 14px rgba(0,51,102,.25); transition:filter .15s, transform .02s;
+  font-size:.95rem; line-height:1;
 }
+.btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-/* Kleinere variant voor knoppen in tabel */
-.btn.mini{padding:.45rem .65rem;font-size:.85rem;border-radius:10px}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 
-/* Download tabel responsief */
-.table-wrap{width:100%; overflow-x:auto}
-.table{width:100%;border-collapse:collapse;margin-top:.6rem;min-width:560px}
-.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:middle}
-.table .col-path{word-break:break-word;max-width:40vw}
-@media (max-width: 640px){
-  .table{min-width:0}
-  .table .col-path, .table thead th.col-path{display:none}
-  .btn.mini{padding:.4rem .55rem;font-size:.82rem}
+/* Downloadpagina mobile-friendly */
+.table{width:100%;border-collapse:collapse;margin-top:.6rem}
+.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
+@media (max-width: 680px){
+  .table thead{display:none}
+  .table, .table tbody, .table tr, .table td{display:block;width:100%}
+  .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
+  .table td{border:0;padding:.25rem 0}
+  .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+}
+
+/* CTA vast onder de kaart, niet meescrollen */
+.cta-fixed{
+  position:sticky; bottom:0; display:flex; justify-content:center;
+  padding:1rem; background:linear-gradient(180deg,transparent,rgba(0,0,0,.03));
 }
 """
 
-# =================== Templates ===================
+
+# -------------- Templates (login/index/download/contact) --------------
 LOGIN_HTML = """
-<!doctype html><html lang="nl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen – Olde Hanter</title>
-<style>{{ base_css }}</style></head><body>
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
@@ -215,8 +182,7 @@ LOGIN_HTML = """
 """
 
 INDEX_HTML = """
-<!doctype html><html lang="nl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Olde Hanter – Upload</title>
 <style>
 {{ base_css }}
@@ -224,7 +190,6 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
-.small{color:#475569}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -235,6 +200,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
+    <div style="display:grid;grid-template-columns:1fr;gap:1rem">
+      <div>
+        <label for="subject">Onderwerp (optioneel)</label>
+        <input id="subject" class="input" type="text" placeholder="Bijv. Tekeningen project X">
+      </div>
+    </div>
+
     <label>Uploadtype</label>
     <div class="toggle">
       <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
@@ -253,16 +225,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
-        <label for="title">Onderwerp (optioneel)</label>
-        <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
-      </div>
-      <div>
         <label for="exp">Verloopt over (dagen)</label>
         <input id="exp" class="input" type="number" min="1" value="24">
       </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr;gap:1rem;margin-top:.6rem">
       <div>
         <label for="pw">Wachtwoord (optioneel)</label>
         <input id="pw" class="input" type="password" placeholder="Laat leeg voor geen wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false">
@@ -279,6 +244,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
+  // Toggle bestand/map
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
@@ -302,124 +268,100 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
-    // BEHOUD map-structuur bij map-upload
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  async function packageInit(expiryDays, password, title){
+  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+  async function packageInit(expiryDays, password, subject){
     const r = await fetch("{{ url_for('package_init') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", subject: subject || "" })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
     return j.token;
   }
-
-  // ---- Single PUT (voor < 5MB, incl. 0 bytes) ----
-  async function singleInit(token, filename, type){
-    const r = await fetch("{{ url_for('put_init') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j; // {key, url}
-  }
-  async function singleComplete(token, key, name, path){
-    const r = await fetch("{{ url_for('put_complete') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
-    return j;
-  }
-
-  // ---- Multipart (≥ 5MB) ----
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
     });
     const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init mislukt");
     return j; // {key, uploadId}
   }
   async function signPart(key, uploadId, partNumber){
     const r = await fetch("{{ url_for('mpu_sign') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ key, uploadId, partNumber })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
     return j.url;
   }
-  async function mpuComplete(token, key, name, path, parts, uploadId){
+  async function completeOne(token, key, name, path, parts, expiryDays, password){
     const r = await fetch("{{ url_for('mpu_complete') }}", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path, parts, uploadId })
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key, name, path, parts, expiry_days: expiryDays, password: password || "" })
     });
     const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden mislukt");
     return j;
   }
 
-  function putWithProgress(url, blob, updateCb, label){
+  // PUT 1 part — met fallback ticker en duidelijke fout
+  function putPart(url, blob, updateCb, partNumber){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
-      xhr.timeout = 300000;
-      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
+      xhr.timeout = 300000; // 300s
+      let last = 0;
+      const tick = setInterval(()=>{
+        if(last < blob.size){
+          last = Math.min(blob.size, last + Math.max(16*1024, Math.floor(blob.size*0.01)));
+          updateCb(last);
+        }
+      }, 250);
+
+      xhr.upload.onprogress = (ev)=>{ last = ev.loaded; updateCb(ev.loaded); };
       xhr.onload = ()=>{
+        clearInterval(tick);
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
           resolve(etag ? etag.replaceAll('"','') : null);
         } else {
-          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
+          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} op part ${partNumber}: ${xhr.responseText||''}`));
         }
       };
-      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
-      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
+      xhr.onerror   = ()=>{ clearInterval(tick); reject(new Error(`Netwerkfout bij PUT object (CORS/endpoint?)`)); };
+      xhr.ontimeout = ()=>{ clearInterval(tick); reject(new Error(`Timeout op part ${partNumber}`)); };
+
       xhr.send(blob);
     });
   }
 
-  async function uploadSingle(token, file, relpath, totalTracker){
-    const init = await singleInit(token, file.name, file.type);
-    await putWithProgress(init.url, file, (loaded)=>{
-      const total = totalTracker.currentBase + loaded;
-      const p = Math.round(total / totalTracker.totalBytes * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
-    }, 'PUT object');
-    await singleComplete(token, init.key, file.name, relpath);
-    totalTracker.currentBase += file.size;
-  }
+  // Multipart upload — kleine parts + retries
+  async function multipartUploadOne(token, file, relpath, expiryDays, password, totalTracker){
+    const CHUNK = 2 * 1024 * 1024; // 2 MB parts → minder kans op timeouts/CORS issues
+    const CONCURRENCY = 1;
 
-  async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 5 * 1024 * 1024;
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
-    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
+    const parts = Math.ceil(file.size / CHUNK);
     const perPart = new Array(parts).fill(0);
 
     function updateBar(){
       const uploadedThis = perPart.reduce((a,b)=>a+b,0);
       const total = totalTracker.currentBase + uploadedThis;
-      const p = Math.round(total / totalTracker.totalBytes * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
+      const denom = totalTracker.totalBytes || 1;
+      const p = Math.max(0, Math.min(100, Math.round(total / denom * 100)));
+      upbarFill.style.width = p + "%";
+      uptext.textContent = (p<100? (p+"%") : "100% – verwerken…");
     }
 
-    async function uploadPart(partNumber){
+    async function uploadPartWithRetry(partNumber){
       const idx   = partNumber - 1;
       const start = idx * CHUNK;
       const end   = Math.min(start + CHUNK, file.size);
@@ -429,24 +371,30 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, `part ${partNumber}`);
+          const etag = await putPart(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, partNumber);
           perPart[idx] = blob.size; updateBar();
           return { PartNumber: partNumber, ETag: etag };
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
-          const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
+          const backoff = Math.round(700 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
           await new Promise(r=>setTimeout(r, backoff));
         }
       }
     }
 
-    const results = [];
-    for(let pn=1; pn<=parts; pn++){
-      results.push(await uploadPart(pn));
-    }
+    let next = 1;
+    const results = new Array(parts);
+    const runners = new Array(CONCURRENCY).fill(0).map(async ()=>{
+      while(next <= parts){
+        const mine = next++;
+        results[mine-1] = await uploadPartWithRetry(mine);
+      }
+    });
+    await Promise.all(runners);
 
-    await mpuComplete(token, key, file.name, relpath, results, uploadId);
+    await completeOne(token, key, file.name, relpath, results, expiryDays, password);
     totalTracker.currentBase += file.size;
+    updateBar();
   }
 
   form.addEventListener('submit', async (e)=>{
@@ -456,24 +404,19 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     const expiryDays = document.getElementById('exp').value || '24';
     const password   = document.getElementById('pw').value || '';
-    const title      = document.getElementById('title').value || '';
+    const subject    = document.getElementById('subject').value || '';
 
-    const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
+    const totalBytes = Math.max(1, files.reduce((a,f)=>a+f.size,0));
     const tracker = { totalBytes, currentBase: 0 };
 
     upbar.style.display='block'; uptext.style.display='block';
     upbarFill.style.width='0%'; uptext.textContent='0%';
 
     try{
-      const token = await packageInit(expiryDays, password, title);
+      const token = await packageInit(expiryDays, password, subject);
 
       for(const f of files){
-        const rel = relPath(f); // behoud submap-structuur
-        if(f.size < 5 * 1024 * 1024){
-          await uploadSingle(token, f, rel, tracker);
-        }else{
-          await uploadMultipart(token, f, rel, tracker);
-        }
+        await multipartUploadOne(token, f, relPath(f), expiryDays, password, tracker);
       }
 
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
@@ -499,82 +442,49 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 """
 
 PACKAGE_HTML = """
-<!doctype html><html lang="nl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>
 <style>
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
 .meta{margin:.4rem 0 1rem;color:#374151}
-.btn{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
-.btn.secondary{background:#0f4c98}
-.btn.mini{padding:.45rem .65rem;font-size:.85rem;border-radius:10px}
-.table-wrap{width:100%;overflow-x:auto}
-.table{width:100%;border-collapse:collapse;margin-top:.6rem;min-width:560px}
-.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:middle}
-.table .col-path{word-break:break-word;max-width:40vw}
-.progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
-@media (max-width: 640px){
-  .table{min-width:0}
-  .table .col-path, .table thead th.col-path{display:none}
-  .btn.mini{padding:.4rem .55rem;font-size:.82rem}
-}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
-<div class="wrap"><div class="card">
-  <h1>Download</h1>
-  <div class="meta">
-    <div><strong>Pakket:</strong> {{ title or token }}</div>
-    <div><strong>Code:</strong> {{ token }}</div>
-    <div><strong>Verloopt:</strong> {{ expires_human }}</div>
-    <div><strong>Totaal:</strong> {{ total_human }}</div>
-  </div>
-
-  {% if items|length == 1 %}
-    <button class="btn" id="dlBtn">Download</button>
-    <div class="progress" id="bar" style="display:none"><i></i></div>
-    <div class="small" id="txt" style="display:none">Starten…</div>
-  {% else %}
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Bestand</th><th class="col-path">Pad</th><th>Grootte</th><th style="width:1%"></th></tr></thead>
-        <tbody>
-        {% for it in items %}
-          <tr>
-            <td>{{ it["name"] }}</td>
-            <td class="small col-path">{{ it["path"] }}</td>
-            <td>{{ it["size_h"] }}</td>
-            <td><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+<div class="wrap">
+  <div class="card">
+    <h1>Download</h1>
+    <div class="meta">
+      <div><strong>Pakket:</strong> {{ subject if subject else token }}</div>
+      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
+      <div><strong>Totaal:</strong> {{ total_human }}</div>
+      <div><strong>Bestanden:</strong> {{ items|length }}</div>
     </div>
 
-    <button class="btn" id="zipAll" style="margin-top:1rem">Alles downloaden (zip)</button>
+    <button class="btn small" id="zipAll">Alles downloaden (zip)</button>
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
-  {% endif %}
 
-  <!-- CTA: vast in de card -->
-  <div style="margin-top:1.25rem;display:flex;justify-content:center">
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-  </div>
+    <table class="table">
+      <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr></thead>
+      <tbody>
+      {% for it in items %}
+        <tr>
+          <td data-label="Bestand">{{ it["name"] }}</td>
+          <td class="small" data-label="Pad">{{ it["path"] }}</td>
+          <td data-label="Grootte">{{ it["size_h"] }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
 
-  <div class="linkbox" style="margin-top:1rem">
-    <div><strong>Deelbare link</strong></div>
-    <div style="display:flex;gap:.5rem;align-items:center;">
-      <input class="input" type="text" id="shareLink" value="{{ share_link }}" readonly>
-      <button class="btn" type="button"
-        onclick="(navigator.clipboard?.writeText('{{ share_link }}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-        Kopieer
-      </button>
+    <div class="cta-fixed">
+      <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
     </div>
   </div>
 
-  <p class="footer" style="margin-top:1.25rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div></div>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
 
 <script>
   const bar = document.getElementById('bar');
@@ -587,7 +497,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     const res = await fetch(url);
     if(!res.ok){ alert('Fout '+res.status); return; }
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
-    const name  = res.headers.get('X-Filename') || fallbackName || 'download';
+    const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
 
     const reader = res.body.getReader(); const chunks=[]; let received=0;
     while(true){
@@ -603,24 +513,16 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
   }
 
-  {% if items|length == 1 %}
-    document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}", "{{ items[0]['name'] }}");
-    });
-  {% else %}
-    document.getElementById('zipAll')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_zip', token=token) }}", "download.zip");
-    });
-  {% endif %}
+  document.getElementById('zipAll')?.addEventListener('click', ()=>{
+    streamToBlob("{{ url_for('stream_zip', token=token) }}", "download.zip");
+  });
 </script>
 </body></html>
 """
 
 CONTACT_HTML = """
-<!doctype html><html lang="nl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – Olde Hanter</title>
-<style>{{ base_css }}</style></head><body>
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -661,26 +563,27 @@ CONTACT_HTML = """
 
 CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag verstuurd</title>
-<style>{{ base_css }}</style>
-</head><body><div class="bg" aria-hidden="true"></div>
-<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div></body></html>
+<title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
+<div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
+</body></html>
 """
 
 CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag gereed</title>
-<style>{{ base_css }}</style>
-</head><body><div class="bg" aria-hidden="true"></div>
+<title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
+<div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
   <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div></div></body></html>
+</div></div>
+</body></html>
 """
 
-# =================== Helpers ===================
+
+# -------------- Helpers / routes --------------
 def logged_in() -> bool:
     return session.get("authed", False)
 
@@ -698,211 +601,122 @@ def send_email(to_addr: str, subject: str, body: str):
     msg["To"] = to_addr
     msg.set_content(body)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls()
-        s.login(SMTP_USER, SMTP_PASS)
-        s.send_message(msg)
+        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
-# =================== Routes ===================
 @app.route("/")
 def index():
-    if not logged_in():
-        return redirect(url_for("login"))
+    if not logged_in(): return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
         if (request.form.get("email") or "").lower()==AUTH_EMAIL and request.form.get("password")==AUTH_PASSWORD:
-            session["authed"] = True
-            session["user"] = AUTH_EMAIL
+            session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
         return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS)
     return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS)
 
 @app.route("/logout")
 def logout():
-    session.clear()
-    return redirect(url_for("login"))
+    session.clear(); return redirect(url_for("login"))
 
-# ------- API: pakketten --------
+# API: packages + multipart
 @app.route("/package-init", methods=["POST"])
 def package_init():
-    if not logged_in():
-        return abort(401)
-    data  = request.get_json(force=True, silent=True) or {}
-    days  = float(data.get("expiry_days") or 24)
-    pw    = data.get("password") or ""
-    title_raw = (data.get("title") or "").strip()
-    title = title_raw[:120] if title_raw else None
-
+    if not logged_in(): abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    days = float(data.get("expiry_days") or 24)
+    pw   = data.get("password") or ""
+    subject = (data.get("subject") or "").strip()
     token = uuid.uuid4().hex[:10]
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
-
     c = db()
-    c.execute("INSERT INTO packages(token,expires_at,password_hash,created_at,title) VALUES(?,?,?,?,?)",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title))
-    c.commit()
-    c.close()
+    c.execute("INSERT INTO packages(token,subject,expires_at,password_hash,created_at) VALUES(?,?,?,?,?)",
+              (token, subject, expires_at, pw_hash, datetime.now(timezone.utc).isoformat()))
+    c.commit(); c.close()
     return jsonify(ok=True, token=token)
 
-# ------- Single PUT (< 5MB + 0 bytes) -------
-@app.route("/put-init", methods=["POST"])
-def put_init():
-    if not logged_in():
-        abort(401)
-    d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token")
-    filename = secure_filename(d.get("filename") or "")
-    content_type = d.get("contentType") or "application/octet-stream"
-    if not token or not filename:
-        return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
-    key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
-    url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": S3_BUCKET, "Key": key, "ContentType": content_type},
-        ExpiresIn=3600, HttpMethod="PUT"
-    )
-    return jsonify(ok=True, key=key, url=url)
-
-@app.route("/put-complete", methods=["POST"])
-def put_complete():
-    if not logged_in():
-        abort(401)
-    d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token")
-    key   = d.get("key")
-    name  = d.get("name")
-    path  = d.get("path") or name
-    if not (token and key and name):
-        return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
-    try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-        size = int(head.get("ContentLength", 0))
-        c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-                  (token, key, name, path, size))
-        c.commit()
-        c.close()
-        return jsonify(ok=True)
-    except ClientError as e:
-        msg = getattr(e, "response", {}).get("Error", {}).get("Message", str(e))
-        return jsonify(ok=False, error=f"S3-fout: {msg}"), 500
-
-# ------- Multipart (≥ 5MB) -------
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
-    if not logged_in():
-        abort(401)
+    if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token = data.get("token")
     filename = secure_filename(data.get("filename") or "")
     content_type = data.get("contentType") or "application/octet-stream"
     if not token or not filename:
-        return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
+        return jsonify(ok=False, error="Onvolledige init"), 400
     key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
-    init = s3.create_multipart_upload(
-        Bucket=S3_BUCKET, Key=key, ContentType=content_type
-    )
-    return jsonify(ok=True, key=key, uploadId=init["UploadId"])
+    try:
+        init = s3.create_multipart_upload(
+            Bucket=S3_BUCKET, Key=key, ContentType=content_type
+        )
+        return jsonify(ok=True, key=key, uploadId=init["UploadId"])
+    except Exception as e:
+        log.exception("mpu_init failed")
+        return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-sign", methods=["POST"])
 def mpu_sign():
-    if not logged_in():
-        abort(401)
+    if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    key = data.get("key")
-    upload_id = data.get("uploadId")
+    key = data.get("key"); upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
-    if not key or not upload_id or part_no <= 0:
-        return jsonify(ok=False, error="Onvolledig sign"), 400
-    url = s3.generate_presigned_url(
-        "upload_part",
-        Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
-        ExpiresIn=3600, HttpMethod="PUT"
-    )
-    return jsonify(ok=True, url=url)
+    if not key or not upload_id or part_no<=0:
+        return jsonify(ok=False, error="Onvolledig"), 400
+    try:
+        url = s3.generate_presigned_url(
+            "upload_part",
+            Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
+            ExpiresIn=3600, HttpMethod="PUT"
+        )
+        return jsonify(ok=True, url=url)
+    except Exception as e:
+        log.exception("mpu_sign failed")
+        return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-complete", methods=["POST"])
 def mpu_complete():
-    if not logged_in():
-        abort(401)
-    data      = request.get_json(force=True, silent=True) or {}
-    token     = data.get("token")
-    key       = data.get("key")
-    name      = data.get("name")
-    path      = data.get("path") or name
-    parts_in  = data.get("parts") or []
-    upload_id = data.get("uploadId")
-
-    if not (token and key and name and parts_in and upload_id):
+    if not logged_in(): abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    token = data.get("token"); key = data.get("key")
+    name = data.get("name"); path = data.get("path") or name
+    parts = data.get("parts") or []
+    if not token or not key or not name or not parts:
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
-
     try:
-        # Valideer wat er op S3 staat
-        server_parts = {}
-        paginator = s3.get_paginator("list_parts")
-        for page in paginator.paginate(Bucket=S3_BUCKET, Key=key, UploadId=upload_id):
-            for p in page.get("Parts", []):
-                server_parts[p["PartNumber"]] = p.get("ETag")
-
-        if not server_parts:
-            return jsonify(ok=False, error="Geen geüploade parts gevonden voor dit uploadId"), 400
-
-        completed = []
-        for client_p in parts_in:
-            pn  = int(client_p.get("PartNumber") or 0)
-            et  = client_p.get("ETag") or server_parts.get(pn)
-            if pn <= 0 or not et:
-                return jsonify(ok=False, error=f"Part {pn} ontbreekt of heeft geen ETag"), 400
-            completed.append({"PartNumber": pn, "ETag": et})
-
-        completed.sort(key=lambda x: x["PartNumber"])
-
         s3.complete_multipart_upload(
-            Bucket=S3_BUCKET,
-            Key=key,
-            MultipartUpload={"Parts": completed},
-            UploadId=upload_id
+            Bucket=S3_BUCKET, Key=key,
+            MultipartUpload={"Parts": sorted(parts, key=lambda p: p["PartNumber"])}
         )
-
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
-
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
                   (token, key, name, path, size))
-        c.commit()
-        c.close()
+        c.commit(); c.close()
         return jsonify(ok=True)
+    except (BotoCoreError, ClientError) as e:
+        log.exception("complete_multipart_upload failed")
+        return jsonify(ok=False, error="server_error"), 500
 
-    except ClientError as e:
-        msg = getattr(e, "response", {}).get("Error", {}).get("Message", str(e))
-        return jsonify(ok=False, error=f"S3-fout: {msg}"), 500
-    except Exception as e:
-        return jsonify(ok=False, error=f"Serverfout: {e}"), 500
 
-# ------- Package page & download -------
+# Download pages/streams
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg:
-        c.close()
-        abort(404)
+    if not pkg: c.close(); abort(404)
 
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
         for r in rows:
-            try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception:
-                pass
+            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception: pass
         c.execute("DELETE FROM items WHERE token=?", (token,))
         c.execute("DELETE FROM packages WHERE token=?", (token,))
-        c.commit()
-        c.close()
-        abort(410)
+        c.commit(); c.close(); abort(410)
 
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
@@ -933,106 +747,56 @@ def package_page(token):
 
     return render_template_string(
         PACKAGE_HTML,
-        token=token, title=pkg["title"],
+        token=token, subject=(pkg["subject"] or "").strip(),
         items=its, share_link=share_link, total_human=total_h,
         expires_human=expires_h, base_css=BASE_CSS
     )
 
-@app.route("/file/<token>/<int:item_id>")
-def stream_file(token, item_id):
-    c = db()
-    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg:
-        c.close()
-        abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close()
-        abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close()
-        abort(403)
-    it = c.execute("SELECT * FROM items WHERE id=? AND token=?", (item_id, token)).fetchone()
-    c.close()
-    if not it:
-        abort(404)
-
-    head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-    length = int(head.get("ContentLength", 0))
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-    def gen():
-        for chunk in obj["Body"].iter_chunks(1024*512):
-            if chunk:
-                yield chunk
-
-    resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-    resp.headers["X-Filename"] = it["name"]
-    if length:
-        resp.headers["Content-Length"] = str(length)
-    return resp
-
-from zipfile import ZIP_DEFLATED
-from zipstream import ZipStream
-from flask import Response, stream_with_context
-
 @app.route("/zip/<token>")
 def stream_zip(token):
-    # --- zelfde beveiliging/validatie als single download ---
+    # wachtwoord + geldig pakket
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg:
-        c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close(); abort(403)
+    if not pkg: c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
     rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
-    if not rows:
-        abort(404)
+    if not rows: abort(404)
 
-    # --- zipstream: compat met beide varianten ---
     try:
-        # sommige builds: ZipStream(compress_type=ZIP_DEFLATED)
-        z = ZipStream(compress_type=ZIP_DEFLATED)
-    except TypeError:
-        # andere builds: ZipStream(mode='w', compression=ZIP_DEFLATED)
-        z = ZipStream(mode="w", compression=ZIP_DEFLATED)
+        z = ZipStream(mode='w', compression='deflated')
 
-    def _zip_add(zs, arcname, iterator):
-        # zipstream-ng: write_iter, oudere lib: add
-        if hasattr(zs, "write_iter"):
-            return zs.write_iter(arcname, iterator)
-        return zs.add(arcname, iterator)
+        # Elk bestand als generator toevoegen — behoudt mapstructuur via 'path'
+        for r in rows:
+            arcname = r["path"] or r["name"]
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
 
-    # helper: chunked reader (iter_chunks of read-fallback)
-    def _reader(body):
-        if hasattr(body, "iter_chunks"):
-            for chunk in body.iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
-        else:
-            # boto3 StreamingBody .read()
-            while True:
-                chunk = body.read(1024 * 512)
-                if not chunk:
-                    break
+            def reader(body=obj["Body"]):
+                for chunk in body.iter_chunks(1024*512):
+                    if chunk:
+                        yield chunk
+
+            z.add(arcname, reader())
+
+        def generate():
+            for chunk in z:
                 yield chunk
 
-    # bestanden toevoegen – behoud mappad (relatief)
-    for r in rows:
-        arcname = (r["path"] or r["name"]).replace("\\", "/").lstrip("/")
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-        _zip_add(z, arcname, _reader(obj["Body"]))
+        resp = Response(stream_with_context(generate()), mimetype="application/zip")
+        filename = (pkg["subject"] or f"pakket-{token}").strip().replace('"','')
+        if not filename.lower().endswith(".zip"):
+            filename += ".zip"
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.headers["X-Filename"] = filename
+        return resp
 
-    # stream response
-    resp = Response(z, mimetype="application/zip", direct_passthrough=True)
-    resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
-    return resp
+    except Exception:
+        log.exception("stream_zip failed")
+        abort(500)
 
 
-# -------- Contact / aanvraag --------
+# Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
@@ -1041,12 +805,10 @@ ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 def contact():
     if request.method == "GET":
         return render_template_string(
-            CONTACT_HTML,
-            error=None,
+            CONTACT_HTML, error=None,
             form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
             base_css=BASE_CSS
         )
-
     login_email   = (request.form.get("login_email") or "").strip()
     storage_tb_raw= (request.form.get("storage_tb") or "").strip()
     company       = (request.form.get("company") or "").strip()
@@ -1054,7 +816,7 @@ def contact():
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
-    try: storage_tb = float(storage_tb_raw.replace(",", "."))
+    try: storage_tb = float(storage_tb_raw.replace(",", ".")); 
     except Exception: storage_tb = None
     if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
@@ -1093,7 +855,7 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
-# ---------- Healthcheck & Aliassen ----------
+# Healthcheck
 @app.route("/health-s3")
 def health():
     try:
@@ -1102,10 +864,9 @@ def health():
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
+# Aliassen
 @app.route("/package/<token>")
 def package_alias(token): return redirect(url_for("package_page", token=token))
-@app.route("/stream/<token>/<int:item_id>")
-def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
