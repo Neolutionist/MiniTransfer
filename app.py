@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# ========= MiniTransfer – Olde Hanter =========
+# - Login
+# - Upload (bestanden of complete map) -> Backblaze B2 (S3-compat)
+# - Multipart upload met betrouwbare voortgang
+# - Downloadpagina met voortgangsbalk (en "alles zippen")
+# - Contactformulier; knop staat onderaan de downloadpagina
+# ==============================================
+
 import os, sqlite3, uuid, smtplib, re
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
@@ -12,26 +20,26 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException
 
 import boto3
 from botocore.config import Config as BotoConfig
-from zipstream import ZipStream
-from functools import wraps
+from botocore.exceptions import ClientError
+from zipstream import ZipStream  # zipstream-ng
 
-# ---------------- Config ----------------
+# ================== Config ==================
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
+# Eenvoudige login (pas aan naar wens)
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Backblaze (S3 compat)
+# Backblaze B2 (S3-compatibel)
 S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
-# SMTP (optional)
+# SMTP (optioneel)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -53,51 +61,8 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
-# -------------------------------
-# API: altijd JSON responses (ook bij fouten) voor upload/download endpoints
-# -------------------------------
-API_PATHS = {"/package-init", "/mpu-init", "/mpu-sign", "/mpu-complete"}
 
-def _is_api_path(path: str) -> bool:
-    return path in API_PATHS
-
-def json_error(message="error", status=400, **extra):
-    data = {"ok": False, "error": message, "status": status}
-    if extra: data.update(extra)
-    return jsonify(data), status
-
-def require_login_api(fn):
-    @wraps(fn)
-    def _wrap(*args, **kwargs):
-        if not logged_in():
-            return json_error("unauthorized", 401)
-        return fn(*args, **kwargs)
-    return _wrap
-
-@app.after_request
-def _api_never_redirect(resp):
-    try:
-        if _is_api_path(request.path) and 300 <= resp.status_code < 400:
-            return json_error("unauthorized", 401, location=resp.headers.get("Location"))
-    except Exception:
-        pass
-    return resp
-
-@app.errorhandler(HTTPException)
-def _api_http_exception(e: HTTPException):
-    if _is_api_path(request.path):
-        key = e.name.lower().replace(" ", "_")
-        return json_error(key, e.code, description=e.description)
-    return e
-
-@app.errorhandler(Exception)
-def _api_unexpected_exception(e: Exception):
-    if _is_api_path(request.path):
-        app.logger.exception("Unhandled error on %s", request.path)
-        return json_error("server_error", 500)
-    raise e
-
-# --------------- DB --------------------
+# ================ Database ==================
 def db():
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
@@ -126,7 +91,8 @@ def init_db():
     c.commit(); c.close()
 init_db()
 
-# -------------- CSS --------------
+
+# ================ Shared CSS =================
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -138,6 +104,8 @@ BASE_CSS = """
 }
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
+
+/* Dynamische, bewegende achtergrond */
 .bg{position:fixed;inset:0;z-index:-2;background:
   radial-gradient(60vmax 60vmax at 15% 25%,var(--bg1) 0%,transparent 60%),
   radial-gradient(55vmax 55vmax at 85% 20%,var(--bg2) 0%,transparent 60%),
@@ -154,12 +122,15 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
   animation:f2 18s linear infinite}
 @keyframes f1{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(1.6%,-1.6%,0) rotate(180deg)}100%{transform:translate3d(0,0,0) rotate(360deg)}}
 @keyframes f2{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(-1.4%,1.4%,0) rotate(-180deg)}100%{transform:translate3d(0,0,0) rotate(-360deg)}}
+
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
+
+/* Uniforme invoervelden */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
@@ -168,6 +139,8 @@ select, textarea{
   background:#f0f6ff; color:var(--text);
   outline: none; transition: box-shadow .15s, border-color .15s, background .15s;
 }
+textarea{min-height:120px; resize:vertical}
+input[readonly], .input[readonly]{background:var(--surface-2)}
 input:focus, .input:focus, select:focus, textarea:focus{
   border-color: var(--ring);
   box-shadow: 0 0 0 4px rgba(37,99,235,.15);
@@ -178,6 +151,9 @@ input[type=file]::file-selector-button{
   background:var(--surface-2); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
+input[type=file]::file-selector-button:hover{background:#e8edf4}
+input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05rem;height:1.05rem}
+
 .btn{
   padding:.95rem 1.2rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
@@ -186,14 +162,18 @@ input[type=file]::file-selector-button{
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
+
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 """
 
-# -------------- Templates (login/index/download/contact) --------------
+
+# =================== Templates ===================
 LOGIN_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inloggen – Olde Hanter</title>
+<style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
@@ -211,7 +191,8 @@ LOGIN_HTML = """
 """
 
 INDEX_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Olde Hanter – Upload</title>
 <style>
 {{ base_css }}
@@ -219,6 +200,7 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+.small{color:#475569}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -293,62 +275,65 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
-
+  // ===== Helpers upload =====
   async function packageInit(expiryDays, password){
     const r = await fetch("{{ url_for('package_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ expiry_days: expiryDays, password: password || "" })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
     return j.token;
   }
+
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Init mislukt");
     return j; // {key, uploadId}
   }
+
   async function signPart(key, uploadId, partNumber){
     const r = await fetch("{{ url_for('mpu_sign') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ key, uploadId, partNumber })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
     return j.url;
   }
-  async function completeOne(token, key, name, path, parts, expiryDays, password){
+
+  // Let op: uploadId wordt nu meegestuurd!
+  async function completeOne(token, key, name, path, parts, expiryDays, password, uploadId){
     const r = await fetch("{{ url_for('mpu_complete') }}", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path, parts, expiry_days: expiryDays, password: password || "" })
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        token, key, name, path,
+        parts, uploadId,
+        expiry_days: expiryDays,
+        password: password || ""
+      })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Afronden mislukt");
     return j;
   }
 
-  // PUT 1 part — met fallback timer voor voortgang
+  // PUT met progress en stevige timeouts
   function putPart(url, blob, updateCb, partNumber){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
       xhr.timeout = 300000; // 300s
-      let last = 0;
-      const tick = setInterval(()=>{
-        if(last < blob.size){
-          last = Math.min(blob.size, last + Math.max(16*1024, Math.floor(blob.size*0.01)));
-          updateCb(last);
-        }
-      }, 250);
-
-      xhr.upload.onprogress = (ev)=>{ last = ev.loaded; updateCb(ev.loaded); };
+      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
       xhr.onload = ()=>{
-        clearInterval(tick);
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
           resolve(etag ? etag.replaceAll('"','') : null);
@@ -356,16 +341,15 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} op part ${partNumber}: ${xhr.responseText||''}`));
         }
       };
-      xhr.onerror   = ()=>{ clearInterval(tick); reject(new Error(`Netwerkfout op part ${partNumber} (CORS/endpoint?)`)); };
-      xhr.ontimeout = ()=>{ clearInterval(tick); reject(new Error(`Timeout op part ${partNumber}`)); };
-
+      xhr.onerror   = ()=> reject(new Error(`Netwerkfout op part ${partNumber} (CORS/endpoint?)`));
+      xhr.ontimeout = ()=> reject(new Error(`Timeout op part ${partNumber}`));
       xhr.send(blob);
     });
   }
 
-  // Multipart upload — kleinere parts + robuuste progress
+  // Multipart upload – stabiel en voorspelbaar
   async function multipartUploadOne(token, file, relpath, expiryDays, password, totalTracker){
-    const CHUNK = 1 * 1024 * 1024; // 1 MB parts
+    const CHUNK = 5 * 1024 * 1024; // B2: min 5MB per part (laatste part mag kleiner)
     const CONCURRENCY = 1;
 
     const init = await mpuInit(token, file.name, file.type);
@@ -374,17 +358,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const parts = Math.ceil(file.size / CHUNK);
     const perPart = new Array(parts).fill(0);
 
-    if(!totalTracker.totalBytes || totalTracker.totalBytes <= 0){
-      totalTracker.totalBytes = file.size;
-    }
-
     function updateBar(){
       const uploadedThis = perPart.reduce((a,b)=>a+b,0);
       const total = totalTracker.currentBase + uploadedThis;
-      const denom = totalTracker.totalBytes || 1;
-      const p = Math.max(0, Math.min(100, Math.round(total / denom * 100)));
-      upbarFill.style.width = p + "%";
-      uptext.textContent = (p<100? (p+"%") : "100% – verwerken…");
+      const p = Math.round(total / totalTracker.totalBytes * 100);
+      upbarFill.style.width = Math.min(p,100) + "%";
+      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
     }
 
     async function uploadPartWithRetry(partNumber){
@@ -418,9 +397,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     });
     await Promise.all(runners);
 
-    await completeOne(token, key, file.name, relpath, results, expiryDays, password);
+    await completeOne(token, key, file.name, relpath, results, expiryDays, password, uploadId);
     totalTracker.currentBase += file.size;
-    updateBar();
   }
 
   form.addEventListener('submit', async (e)=>{
@@ -431,7 +409,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const expiryDays = document.getElementById('exp').value || '24';
     const password   = document.getElementById('pw').value || '';
 
-    const totalBytes = Math.max(1, files.reduce((a,f)=>a+f.size,0));
+    const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
     const tracker = { totalBytes, currentBase: 0 };
 
     upbar.style.display='block'; uptext.style.display='block';
@@ -467,7 +445,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 """
 
 PACKAGE_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>
 <style>
 {{ base_css }}
@@ -480,6 +459,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
+
 <div class="wrap"><div class="card">
   <h1>Download</h1>
   <div class="meta">
@@ -570,8 +550,10 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 """
 
 CONTACT_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Eigen transfer-oplossing – Olde Hanter</title>
+<style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -612,26 +594,27 @@ CONTACT_HTML = """
 
 CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
-<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
-</body></html>
+<title>Aanvraag verstuurd</title>
+<style>{{ base_css }}</style>
+</head><body><div class="bg" aria-hidden="true"></div>
+<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div></body></html>
 """
 
 CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true"></div>
+<title>Aanvraag gereed</title>
+<style>{{ base_css }}</style>
+</head><body><div class="bg" aria-hidden="true"></div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
   <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div></div>
-</body></html>
+</div></div></body></html>
 """
 
-# -------------- Helpers / routes --------------
+
+# =================== Helpers ===================
 def logged_in() -> bool:
     return session.get("authed", False)
 
@@ -651,28 +634,35 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
+
+# =================== Routes ===================
 @app.route("/")
 def index():
-    if not logged_in(): return redirect(url_for("login"))
+    if not logged_in():
+        return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
         if (request.form.get("email") or "").lower()==AUTH_EMAIL and request.form.get("password")==AUTH_PASSWORD:
-            session["authed"] = True; session["user"] = AUTH_EMAIL
+            session["authed"] = True
+            session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
         return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS)
     return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS)
 
 @app.route("/logout")
 def logout():
-    session.clear(); return redirect(url_for("login"))
+    session.clear()
+    return redirect(url_for("login"))
 
-# API: packages + multipart
+
+# ------- API: pakketten & multipart --------
 @app.route("/package-init", methods=["POST"])
-@require_login_api
 def package_init():
+    if not logged_in():
+        return abort(401)
     data = request.get_json(force=True, silent=True) or {}
     days = float(data.get("expiry_days") or 24)
     pw   = data.get("password") or ""
@@ -686,8 +676,8 @@ def package_init():
     return jsonify(ok=True, token=token)
 
 @app.route("/mpu-init", methods=["POST"])
-@require_login_api
 def mpu_init():
+    if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token = data.get("token")
     filename = secure_filename(data.get("filename") or "")
@@ -701,8 +691,8 @@ def mpu_init():
     return jsonify(ok=True, key=key, uploadId=init["UploadId"])
 
 @app.route("/mpu-sign", methods=["POST"])
-@require_login_api
 def mpu_sign():
+    if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
     key = data.get("key"); upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
@@ -716,35 +706,74 @@ def mpu_sign():
     return jsonify(ok=True, url=url)
 
 @app.route("/mpu-complete", methods=["POST"])
-@require_login_api
 def mpu_complete():
-    data = request.get_json(force=True, silent=True) or {}
-    token = data.get("token"); key = data.get("key")
-    name = data.get("name"); path = data.get("path") or name
-    parts = data.get("parts") or []
-    if not token or not key or not name or not parts:
-        return jsonify(ok=False, error="Onvolledig afronden"), 400
+    if not logged_in(): abort(401)
+    data      = request.get_json(force=True, silent=True) or {}
+    token     = data.get("token")
+    key       = data.get("key")
+    name      = data.get("name")
+    path      = data.get("path") or name
+    parts_in  = data.get("parts") or []
+    upload_id = data.get("uploadId")
 
-    s3.complete_multipart_upload(
-        Bucket=S3_BUCKET, Key=key,
-        MultipartUpload={"Parts": sorted(parts, key=lambda p: p["PartNumber"])}
-    )
-    head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-    size = int(head.get("ContentLength", 0))
+    if not (token and key and name and parts_in and upload_id):
+        return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
 
-    c = db()
-    c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-              (token, key, name, path, size))
-    c.commit(); c.close()
-    return jsonify(ok=True)
+    try:
+        # 1) Haal server-side parts op (bron van waarheid)
+        server_parts = {}
+        paginator = s3.get_paginator("list_parts")
+        for page in paginator.paginate(Bucket=S3_BUCKET, Key=key, UploadId=upload_id):
+            for p in page.get("Parts", []):
+                server_parts[p["PartNumber"]] = p.get("ETag")
 
-# Download pages/streams
+        if not server_parts:
+            return jsonify(ok=False, error="Geen geüploade parts gevonden voor dit uploadId"), 400
+
+        # 2) Vul missende ETags aan en valideer
+        completed = []
+        for client_p in parts_in:
+            pn  = int(client_p.get("PartNumber") or 0)
+            et  = client_p.get("ETag") or server_parts.get(pn)
+            if pn <= 0 or not et:
+                return jsonify(ok=False, error=f"Part {pn} ontbreekt of heeft geen ETag"), 400
+            completed.append({"PartNumber": pn, "ETag": et})
+
+        completed.sort(key=lambda x: x["PartNumber"])
+
+        # 3) Afronden
+        s3.complete_multipart_upload(
+            Bucket=S3_BUCKET,
+            Key=key,
+            MultipartUpload={"Parts": completed},
+            UploadId=upload_id
+        )
+
+        # 4) Grootte vastleggen
+        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        size = int(head.get("ContentLength", 0))
+
+        c = db()
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
+                  (token, key, name, path, size))
+        c.commit(); c.close()
+        return jsonify(ok=True)
+
+    except ClientError as e:
+        msg = getattr(e, "response", {}).get("Error", {}).get("Message", str(e))
+        return jsonify(ok=False, error=f"S3-fout: {msg}"), 500
+    except Exception as e:
+        return jsonify(ok=False, error=f"Serverfout: {e}"), 500
+
+
+# ------- Package page & download -------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
 
+    # verlopen?
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
         for r in rows:
@@ -752,8 +781,10 @@ def package_page(token):
             except: pass
         c.execute("DELETE FROM items WHERE token=?", (token,))
         c.execute("DELETE FROM packages WHERE token=?", (token,))
-        c.commit(); c.close(); abort(410)
+        c.commit(); c.close()
+        abort(410)
 
+    # wachtwoord?
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
             return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
@@ -837,7 +868,8 @@ def stream_zip(token):
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
     return resp
 
-# Contact
+
+# -------- Contact / aanvraag --------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
@@ -846,10 +878,12 @@ ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 def contact():
     if request.method == "GET":
         return render_template_string(
-            CONTACT_HTML, error=None,
+            CONTACT_HTML,
+            error=None,
             form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
             base_css=BASE_CSS
         )
+
     login_email   = (request.form.get("login_email") or "").strip()
     storage_tb_raw= (request.form.get("storage_tb") or "").strip()
     company       = (request.form.get("company") or "").strip()
@@ -857,7 +891,7 @@ def contact():
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
-    try: storage_tb = float(storage_tb_raw.replace(",", ".")); 
+    try: storage_tb = float(storage_tb_raw.replace(",", "."))
     except Exception: storage_tb = None
     if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
@@ -896,7 +930,8 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
-# Healthcheck
+
+# ---------- Healthcheck & Aliassen ----------
 @app.route("/health-s3")
 def health():
     try:
@@ -905,13 +940,13 @@ def health():
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
-# Aliases
 @app.route("/package/<token>")
 def package_alias(token): return redirect(url_for("package_page", token=token))
 @app.route("/stream/<token>/<int:item_id>")
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
+
 
 if __name__ == "__main__":
     app.run(debug=True)
