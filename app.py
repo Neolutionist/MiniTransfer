@@ -23,7 +23,8 @@ DB_PATH = BASE_DIR / "files.db"
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "200"))
+# 5 GB standaard
+MAX_RELAY_MB = int(os.environ.get("MAX_RELAY_MB", "5120"))
 MAX_RELAY_BYTES = MAX_RELAY_MB * 1024 * 1024
 
 S3_BUCKET       = os.environ["S3_BUCKET"]
@@ -107,10 +108,13 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 label{display:block;margin:.55rem 0 .25rem;font-weight:600}
 input[type=file],input[type=number],input[type=password],input[type=text],select{
-  width:100%;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
+  width:100%;display:block;padding:.9rem 1rem;border-radius:12px;border:1px solid #d1d5db;background:#fff}
+.progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
+.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
+.small{font-size:.9rem;color:#475569}
 """
 
-# -------------- Templates (géén f-strings) --------------
+# -------------- Templates --------------
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -146,6 +150,8 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .note{font-size:.95rem;color:#334155;margin-top:.5rem}
+.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 .8rem}
+.badge{display:inline-block;padding:.15rem .5rem;border-radius:999px;background:#eef2f7;border:1px solid #e2e8f0;font-size:.8rem}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -156,8 +162,22 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
-    <label for="files">Bestand of map</label>
-    <input id="files" type="file" name="files" multiple webkitdirectory directory>
+    <label>Uploadtype</label>
+    <div class="toggle">
+      <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+      <label><input type="radio" name="upmode" value="folder"> Map</label>
+      <span class="badge">max {{ max_mb }} MB via relay</span>
+    </div>
+
+    <div id="fileRow">
+      <label for="fileInput">Kies bestand(en)</label>
+      <input id="fileInput" type="file" multiple>
+    </div>
+
+    <div id="folderRow" style="display:none">
+      <label for="folderInput">Kies een map</label>
+      <input id="folderInput" type="file" multiple webkitdirectory directory>
+    </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
@@ -171,8 +191,10 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     </div>
 
     <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
-    <p class="note">Je kunt één bestand of een hele map selecteren. Mapuploads worden automatisch als ZIP gebundeld.
-      Max {{ max_mb }} MB via server-relay.</p>
+    <div class="progress" id="upbar" style="display:none"><i></i></div>
+    <div class="small" id="uptext" style="display:none">0%</div>
+
+    <p class="note">Je kunt één of meerdere bestanden selecteren, of een hele map. Bij mapupload wordt automatisch één ZIP gemaakt.</p>
   </form>
 
   <div id="result"></div>
@@ -180,42 +202,78 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-  const form = document.getElementById('f');
-  const input = document.getElementById('files');
-  const resBox = document.getElementById('result');
+  const modeRadios = document.querySelectorAll('input[name="upmode"]');
+  const fileRow = document.getElementById('fileRow');
+  const folderRow = document.getElementById('folderRow');
+  modeRadios.forEach(r => r.addEventListener('change', () => {
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    fileRow.style.display = (mode==='files') ? '' : 'none';
+    folderRow.style.display = (mode==='folder') ? '' : 'none';
+  }));
 
-  form.addEventListener('submit', async (e)=>{
+  const form = document.getElementById('f');
+  const fileInput = document.getElementById('fileInput');
+  const folderInput = document.getElementById('folderInput');
+  const resBox = document.getElementById('result');
+  const upbar = document.getElementById('upbar');
+  const upbarFill = upbar.querySelector('i');
+  const uptext = document.getElementById('uptext');
+
+  function gatherFiles(){
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    return (mode==='files') ? fileInput.files : folderInput.files;
+  }
+  function relPaths(f){
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    return (mode==='files') ? (f.name) : (f.webkitRelativePath || f.name);
+  }
+
+  form.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const files = input.files;
-    if(!files || files.length===0){ alert("Kies een bestand of map"); return; }
+    const files = gatherFiles();
+    if(!files || files.length===0){ alert("Kies bestand(en) of map"); return; }
 
     const fd = new FormData();
     fd.append('expiry_days', document.getElementById('exp').value || '24');
     fd.append('password', document.getElementById('pw').value || '');
-
     for(const f of files){
       fd.append('files', f, f.name);
-      fd.append('paths', f.webkitRelativePath || f.name);
+      fd.append('paths', relPaths(f));
     }
 
-    let res;
-    try{ res = await fetch("{{ url_for('upload_relay') }}", { method:"POST", body: fd }); }
-    catch(e){ alert("Verbinding met server mislukt."); return; }
+    upbar.style.display='block'; uptext.style.display='block';
+    upbarFill.style.width='0%'; uptext.textContent='0%';
 
-    const data = await res.json().catch(()=>({ok:false,error:"Onbekende fout"}));
-    if(!res.ok || !data.ok){ alert(data.error || ("Fout: "+res.status)); return; }
-
-    resBox.innerHTML = `
-      <div class="card" style="margin-top:1rem">
-        <strong>Deelbare link</strong>
-        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-          <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
-          <button class="btn" type="button"
-            onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-            Kopieer
-          </button>
-        </div>
-      </div>`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', "{{ url_for('upload_relay') }}", true);
+    xhr.upload.onprogress = (ev)=>{
+      if(ev.lengthComputable){
+        const p = Math.max(1, Math.min(99, Math.round(100*ev.loaded/ev.total)));
+        upbarFill.style.width = p+'%';
+        uptext.textContent = p+'%';
+      }
+    };
+    xhr.onreadystatechange = ()=>{
+      if(xhr.readyState===4){
+        upbarFill.style.width = '100%'; uptext.textContent='100%';
+        try{
+          const data = JSON.parse(xhr.responseText||'{}');
+          if(xhr.status!==200 || !data.ok){ alert(data.error || ('Fout: '+xhr.status)); return; }
+          resBox.innerHTML = `
+            <div class="card" style="margin-top:1rem">
+              <strong>Deelbare link</strong>
+              <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
+                <input style="flex:1;padding:.8rem;border-radius:10px;border:1px solid #d1d5db" value="${data.link}" readonly>
+                <button class="btn" type="button"
+                  onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+                  Kopieer
+                </button>
+              </div>
+            </div>`;
+        }catch(e){ alert('Onbekende fout.'); }
+      }
+    };
+    xhr.send(fd);
   });
 </script>
 </body></html>
@@ -232,7 +290,6 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .btn{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .linkbox{margin-top:1rem;background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.35);border-radius:12px;padding:.9rem}
 input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px solid #d1d5db;background:#fff}
-.actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem}
 .secondary{background:#0f4c98}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
@@ -245,12 +302,11 @@ input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px so
     <div><strong>Verloopt:</strong> {{ expires_human }}</div>
   </div>
 
-  <div class="actions">
-    <a class="btn" href="{{ url_for('download_file', token=token) }}">Download</a>
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-  </div>
+  <a class="btn" id="dlBtn" href="{{ url_for('download_file', token=token) }}">Download</a>
+  <div class="progress" id="dlbar" style="display:none;margin-top:.6rem"><i></i></div>
+  <div class="small" id="dltext" style="display:none">Download voorbereiden…</div>
 
-  <div class="linkbox">
+  <div class="linkbox" style="margin-top:1rem">
     <div><strong>Deelbare link</strong></div>
     <div style="display:flex;gap:.5rem;align-items:center;">
       <input type="text" id="shareLink" value="{{ share_link }}" readonly>
@@ -261,8 +317,29 @@ input[type=text]{width:100%;padding:.8rem .9rem;border-radius:10px;border:1px so
     </div>
   </div>
 
+  <div style="margin-top:1rem">
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+  </div>
+
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+
+<script>
+  const dlBtn = document.getElementById('dlBtn');
+  const dlbar = document.getElementById('dlbar');
+  const fill = dlbar.querySelector('i');
+  const dltext = document.getElementById('dltext');
+
+  dlBtn.addEventListener('click', ()=>{
+    dlbar.style.display='block'; dltext.style.display='block';
+    let p=0;
+    const t = setInterval(()=>{
+      p=Math.min(95,p+5); fill.style.width=p+'%';
+      if(p>=95) clearInterval(t);
+    },100);
+    // Browser gaat nu naar de presigned URL; voortgang is daarna aan de browser
+  }, {passive:true});
+</script>
 </body></html>
 """
 
@@ -380,7 +457,7 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# Browser → server → B2 (geen CORS) + map→ZIP bundeling
+# Upload (server-relay) + map→ZIP bundeling
 @app.route("/upload-relay", methods=["POST"])
 def upload_relay():
     if not logged_in():
@@ -557,7 +634,7 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
-# eenvoudige S3 healthcheck
+# Healthcheck
 @app.route("/health-s3")
 def health():
     try:
