@@ -11,7 +11,11 @@
 # - Kleinere downloadknoppen
 # ==============================================
 
-import os, sqlite3, uuid, smtplib, re
+import os
+import re
+import uuid
+import smtplib
+import sqlite3
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,7 +25,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
- the werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -99,7 +103,9 @@ def init_db():
             c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
         except Exception:
             pass
-    c.commit(); c.close()
+    c.commit()
+    c.close()
+
 init_db()
 
 # ================ Shared CSS =================
@@ -666,7 +672,9 @@ def send_email(to_addr: str, subject: str, body: str):
     msg["To"] = to_addr
     msg.set_content(body)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+        s.starttls()
+        s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
 
 # =================== Routes ===================
 @app.route("/")
@@ -695,7 +703,7 @@ def logout():
 def package_init():
     if not logged_in():
         return abort(401)
-    data = request.get_json(force=True, silent=True) or {}
+    data  = request.get_json(force=True, silent=True) or {}
     days  = float(data.get("expiry_days") or 24)
     pw    = data.get("password") or ""
     title_raw = (data.get("title") or "").strip()
@@ -708,13 +716,15 @@ def package_init():
     c = db()
     c.execute("INSERT INTO packages(token,expires_at,password_hash,created_at,title) VALUES(?,?,?,?,?)",
               (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title))
-    c.commit(); c.close()
+    c.commit()
+    c.close()
     return jsonify(ok=True, token=token)
 
 # ------- Single PUT (< 5MB + 0 bytes) -------
 @app.route("/put-init", methods=["POST"])
 def put_init():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
     d = request.get_json(force=True, silent=True) or {}
     token = d.get("token")
     filename = secure_filename(d.get("filename") or "")
@@ -731,9 +741,13 @@ def put_init():
 
 @app.route("/put-complete", methods=["POST"])
 def put_complete():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
     d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token"); key = d.get("key"); name = d.get("name"); path = d.get("path") or name
+    token = d.get("token")
+    key   = d.get("key")
+    name  = d.get("name")
+    path  = d.get("path") or name
     if not (token and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
     try:
@@ -742,7 +756,8 @@ def put_complete():
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
                   (token, key, name, path, size))
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         return jsonify(ok=True)
     except ClientError as e:
         msg = getattr(e, "response", {}).get("Error", {}).get("Message", str(e))
@@ -751,7 +766,8 @@ def put_complete():
 # ------- Multipart (≥ 5MB) -------
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token = data.get("token")
     filename = secure_filename(data.get("filename") or "")
@@ -766,11 +782,13 @@ def mpu_init():
 
 @app.route("/mpu-sign", methods=["POST"])
 def mpu_sign():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    key = data.get("key"); upload_id = data.get("uploadId")
+    key = data.get("key")
+    upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
-    if not key or not upload_id or part_no<=0:
+    if not key or not upload_id or part_no <= 0:
         return jsonify(ok=False, error="Onvolledig sign"), 400
     url = s3.generate_presigned_url(
         "upload_part",
@@ -781,7 +799,8 @@ def mpu_sign():
 
 @app.route("/mpu-complete", methods=["POST"])
 def mpu_complete():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
     data      = request.get_json(force=True, silent=True) or {}
     token     = data.get("token")
     key       = data.get("key")
@@ -826,7 +845,8 @@ def mpu_complete():
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
                   (token, key, name, path, size))
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         return jsonify(ok=True)
 
     except ClientError as e:
@@ -840,16 +860,21 @@ def mpu_complete():
 def package_page(token):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg: c.close(); abort(404)
+    if not pkg:
+        c.close()
+        abort(404)
 
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
         for r in rows:
-            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except: pass
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
         c.execute("DELETE FROM items WHERE token=?", (token,))
         c.execute("DELETE FROM packages WHERE token=?", (token,))
-        c.commit(); c.close()
+        c.commit()
+        c.close()
         abort(410)
 
     if pkg["password_hash"]:
@@ -890,12 +915,19 @@ def package_page(token):
 def stream_file(token, item_id):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg: c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    if not pkg:
+        c.close()
+        abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        c.close()
+        abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
     it = c.execute("SELECT * FROM items WHERE id=? AND token=?", (item_id, token)).fetchone()
     c.close()
-    if not it: abort(404)
+    if not it:
+        abort(404)
 
     head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
     length = int(head.get("ContentLength", 0))
@@ -903,24 +935,33 @@ def stream_file(token, item_id):
 
     def gen():
         for chunk in obj["Body"].iter_chunks(1024*512):
-            if chunk: yield chunk
+            if chunk:
+                yield chunk
 
     resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
     resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
     resp.headers["X-Filename"] = it["name"]
-    if length: resp.headers["Content-Length"] = str(length)
+    if length:
+        resp.headers["Content-Length"] = str(length)
     return resp
 
 @app.route("/zip/<token>")
 def stream_zip(token):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg: c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    if not pkg:
+        c.close()
+        abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        c.close()
+        abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
     rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
-    if not rows: abort(404)
+    if not rows:
+        abort(404)
 
     z = ZipStream(mode='w', compression='deflated')
     for r in rows:
@@ -928,7 +969,8 @@ def stream_zip(token):
         obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
         def reader(body=obj["Body"]):
             for chunk in body.iter_chunks(1024*512):
-                if chunk: yield chunk
+                if chunk:
+                    yield chunk
         z.add(arcname, reader())
 
     resp = Response(z, mimetype="application/zip")
