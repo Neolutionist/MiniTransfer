@@ -914,7 +914,7 @@ def stream_zip(token):
     # --- Basischecks ---
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg: 
+    if not pkg:
         c.close(); abort(404)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         c.close(); abort(410)
@@ -952,24 +952,9 @@ def stream_zip(token):
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
-    # --- ZIP streamen ---
+    # --- ZIP streamen (API: add(arcname, iterable)) ---
     try:
-        z = ZipStream()  # gebruik defaults; geen 'mode=' etc.
-
-        def add_to_zip(arcname, gen_factory):
-            """
-            Voeg een item toe met keyword-args, compatibel met verschillende zipstream-ng versies.
-            """
-            try:
-                # nieuwe API
-                z.add(arcname=arcname, iterable=gen_factory())
-            except TypeError:
-                try:
-                    # oudere alias
-                    z.add(arcname=arcname, stream=gen_factory())
-                except TypeError:
-                    # fallback
-                    z.add(arcname=arcname, fileobj=gen_factory())
+        z = ZipStream()  # geen kwargs -> maximale compatibiliteit
 
         for r in rows:
             arcname = r["path"] or r["name"]
@@ -980,13 +965,14 @@ def stream_zip(token):
                     if chunk:
                         yield chunk
 
-            add_to_zip(arcname, reader)
+            # BELANGRIJK: 2 positionele argumenten (arcname, generator)
+            z.add(arcname, reader())
 
         def generate():
             for chunk in z:
                 yield chunk
 
-        filename = (pkg.get("title") or f"pakket-{token}").strip().replace('"', '')
+        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"', '')
         if not filename.lower().endswith(".zip"):
             filename += ".zip"
 
