@@ -236,40 +236,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-  // Toggle bestand/map
-  const modeRadios = document.querySelectorAll('input[name="upmode"]');
-  const fileRow = document.getElementById('fileRow');
-  const folderRow = document.getElementById('folderRow');
-  modeRadios.forEach(r => r.addEventListener('change', () => {
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    fileRow.style.display = (mode==='files') ? '' : 'none';
-    folderRow.style.display = (mode==='folder') ? '' : 'none';
-  }));
-
-  const form = document.getElementById('f');
-  const fileInput = document.getElementById('fileInput');
-  const folderInput = document.getElementById('folderInput');
-  const resBox = document.getElementById('result');
-  const upbar = document.getElementById('upbar');
-  const upbarFill = upbar.querySelector('i');
-  const uptext = document.getElementById('uptext');
-
-  // We forceren direct upload voor elke single file
-  function gatherFiles(){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? fileInput.files : folderInput.files;
-  }
-  function relPath(f){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
-  }
-
-  // Multipart direct upload met nauwkeurige progress (per-part tracking)
+  // --- NIEUWE directUpload met retries, back-off, timeout en lagere concurrency ---
   async function directUpload(file, expiryDays, password){
-    const CHUNK = 8 * 1024 * 1024; // 8MB
-    const CONCURRENCY = 4;
+    // Iets kleinere parts en lagere concurrency voor stabiliteit
+    const CHUNK = 6 * 1024 * 1024; // 6MB
+    const CONCURRENCY = 2;         // 2 parallelle parts
 
-    // 1) init multipart
+    // Init multipart op de server
     const initRes = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
@@ -280,21 +253,18 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const { token, key, uploadId } = init;
 
     const parts = Math.ceil(file.size / CHUNK);
-    const partProgress = new Array(parts).fill(0); // bytes per part
+    const partProgress = new Array(parts).fill(0); // bijgehouden bytes per part
+
     function updateBar(){
       const uploaded = partProgress.reduce((a,b)=>a+b,0);
       const p = Math.round((uploaded / file.size) * 100);
-      upbarFill.style.width = Math.min(p, 100) + "%";
+      upbarFill.style.width = Math.min(p,100) + "%";
       uptext.textContent = p < 100 ? (p + "%") : "100% – verwerken…";
     }
+    const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 
-    async function uploadPart(partNumber){
-      const idx  = partNumber - 1;
-      const start = idx * CHUNK;
-      const end   = Math.min(start + CHUNK, file.size);
-      const blob  = file.slice(start, end);
-
-      // sign
+    // Haal een presigned URL op voor een part
+    async function signPart(partNumber){
       const ps = await fetch("{{ url_for('mpu_sign') }}", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -302,11 +272,15 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       });
       const sig = await ps.json();
       if(!ps.ok || !sig.ok) throw new Error(sig.error || "Sign part mislukt");
+      return sig.url;
+    }
 
-      // PUT met progress
-      const etag = await new Promise((resolve,reject)=>{
+    // Stuur 1 part, 1 poging
+    async function putPartOnce(partNumber, url, blob, idx){
+      return await new Promise((resolve,reject)=>{
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", sig.url, true);
+        xhr.open("PUT", url, true);
+        xhr.timeout = 120000; // 120s per part
         xhr.upload.onprogress = (ev)=>{
           if(ev.lengthComputable){
             partProgress[idx] = ev.loaded;
@@ -317,31 +291,56 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         };
         xhr.onload = ()=>{
           if(xhr.status>=200 && xhr.status<300){
-            partProgress[idx] = blob.size; // zeker weten
+            partProgress[idx] = blob.size; // zeker maken
             updateBar();
             const tag = xhr.getResponseHeader("ETag");
             resolve(tag ? tag.replaceAll('"','') : null);
-          } else reject(new Error("Part "+partNumber+" faalde ("+xhr.status+")"));
+          } else {
+            reject(new Error("HTTP "+xhr.status));
+          }
         };
-        xhr.onerror = ()=> reject(new Error("Netwerkfout op part "+partNumber));
+        xhr.onerror   = ()=> reject(new Error("Netwerkfout op part "+partNumber));
+        xhr.ontimeout = ()=> reject(new Error("Timeout op part "+partNumber));
         xhr.send(blob);
       });
-
-      return { PartNumber: partNumber, ETag: etag };
     }
 
-    // limited concurrency
+    // Stuur 1 part met retries en exponentiële back-off
+    async function uploadPartWithRetry(partNumber){
+      const idx   = partNumber - 1;
+      const start = idx * CHUNK;
+      const end   = Math.min(start + CHUNK, file.size);
+      const blob  = file.slice(start, end);
+
+      const MAX_TRIES = 5;
+      for(let attempt=1; attempt<=MAX_TRIES; attempt++){
+        try{
+          const url = await signPart(partNumber);               // elke poging een verse URL
+          const etag = await putPartOnce(partNumber, url, blob, idx);
+          return { PartNumber: partNumber, ETag: etag };
+        }catch(err){
+          if(attempt === MAX_TRIES) {
+            throw new Error((err && err.message) ? err.message : ("Part "+partNumber+" gefaald"));
+          }
+          // back-off met beetje jitter (0.4s, 0.8s, 1.6s, 3.2s…)
+          const backoff = Math.round(400 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
+          await sleep(backoff);
+        }
+      }
+    }
+
+    // Limited concurrency
     let next = 1;
     const results = new Array(parts);
     const runners = new Array(CONCURRENCY).fill(0).map(async ()=>{
       while(next <= parts){
         const mine = next++;
-        results[mine-1] = await uploadPart(mine);
+        results[mine-1] = await uploadPartWithRetry(mine);
       }
     });
     await Promise.all(runners);
 
-    // afronden
+    // Afronden
     const finRes = await fetch("{{ url_for('mpu_complete') }}", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -354,83 +353,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     if(!finRes.ok || !fin.ok) throw new Error(fin.error || "Afronden mislukt");
     return fin.link;
   }
-
-  form.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const files = gatherFiles();
-    if(!files || files.length===0){ alert("Kies bestand(en) of map"); return; }
-
-    const expiryDays = document.getElementById('exp').value || '24';
-    const password = document.getElementById('pw').value || '';
-    const isSingle = (files.length === 1);
-
-    upbar.style.display='block'; uptext.style.display='block';
-    upbarFill.style.width='0%'; uptext.textContent='0%';
-
-    try{
-      if(isSingle){
-        const link = await directUpload(files[0], expiryDays, password);
-        upbarFill.style.width='100%'; uptext.textContent='Klaar';
-        resBox.innerHTML = `
-          <div class="card" style="margin-top:1rem">
-            <strong>Deelbare link</strong>
-            <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-              <input class="input" style="flex:1" value="${link}" readonly>
-              <button class="btn" type="button"
-                onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-                Kopieer
-              </button>
-            </div>
-          </div>`;
-        return;
-      }
-
-      // Server-relay voor kleine/multi/mapper
-      const fd = new FormData();
-      fd.append('expiry_days', expiryDays);
-      fd.append('password', password);
-      for(const f of files){ fd.append('files', f, f.name); fd.append('paths', relPath(f)); }
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', "{{ url_for('upload_relay') }}", true);
-      xhr.upload.onprogress = (ev)=>{
-        if(ev.lengthComputable){
-          const p = Math.round(100*ev.loaded/ev.total);
-          upbarFill.style.width = p+'%';
-          uptext.textContent = (p<100? p+'%' : '100% – verwerken…');
-        }else{
-          uptext.textContent = 'Bezig met uploaden…';
-        }
-      };
-      xhr.onreadystatechange = ()=>{
-        if(xhr.readyState===4){
-          let data = {};
-          try{ data = JSON.parse(xhr.responseText||'{}'); }catch(e){}
-          if(xhr.status!==200 || !data.ok){
-            alert((data && data.error) ? data.error : ('Fout: '+xhr.status));
-            return;
-          }
-          upbarFill.style.width='100%'; uptext.textContent='Klaar';
-          resBox.innerHTML = `
-            <div class="card" style="margin-top:1rem">
-              <strong>Deelbare link</strong>
-              <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-                <input class="input" style="flex:1" value="${data.link}" readonly>
-                <button class="btn" type="button"
-                  onclick="(navigator.clipboard?.writeText('${data.link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-                  Kopieer
-                </button>
-              </div>
-            </div>`;
-        }
-      };
-      xhr.send(fd);
-
-    }catch(err){
-      alert(err.message || 'Onbekende fout');
-    }
-  });
 </script>
+
 </body></html>
 """
 
