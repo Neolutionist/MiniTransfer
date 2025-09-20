@@ -254,8 +254,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const upbarFill = upbar.querySelector('i');
   const uptext = document.getElementById('uptext');
 
-  const DIRECT_LIMIT_MB = 90; // >90MB => multipart direct naar B2
-
+  // We forceren direct upload voor elke single file
   function gatherFiles(){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     return (mode==='files') ? fileInput.files : folderInput.files;
@@ -265,8 +264,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
+  // Multipart direct upload met nauwkeurige progress (per-part tracking)
   async function directUpload(file, expiryDays, password){
-    const CHUNK = 8 * 1024 * 1024; // 8MB parts
+    const CHUNK = 8 * 1024 * 1024; // 8MB
     const CONCURRENCY = 4;
 
     // 1) init multipart
@@ -280,14 +280,21 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const { token, key, uploadId } = init;
 
     const parts = Math.ceil(file.size / CHUNK);
-    let uploaded = 0;
-    const etags = new Array(parts);
+    const partProgress = new Array(parts).fill(0); // bytes per part
+    function updateBar(){
+      const uploaded = partProgress.reduce((a,b)=>a+b,0);
+      const p = Math.round((uploaded / file.size) * 100);
+      upbarFill.style.width = Math.min(p, 100) + "%";
+      uptext.textContent = p < 100 ? (p + "%") : "100% – verwerken…";
+    }
 
     async function uploadPart(partNumber){
-      const start = (partNumber-1) * CHUNK;
+      const idx  = partNumber - 1;
+      const start = idx * CHUNK;
       const end   = Math.min(start + CHUNK, file.size);
       const blob  = file.slice(start, end);
 
+      // sign
       const ps = await fetch("{{ url_for('mpu_sign') }}", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -296,20 +303,22 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const sig = await ps.json();
       if(!ps.ok || !sig.ok) throw new Error(sig.error || "Sign part mislukt");
 
+      // PUT met progress
       const etag = await new Promise((resolve,reject)=>{
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", sig.url, true);
         xhr.upload.onprogress = (ev)=>{
           if(ev.lengthComputable){
-            const p = Math.min(99, Math.round(((uploaded + ev.loaded) / file.size) * 100));
-            upbarFill.style.width = p + "%";
-            uptext.textContent    = (p<100)? (p+"%") : "100% – verwerken…";
+            partProgress[idx] = ev.loaded;
+            updateBar();
           }else{
             uptext.textContent = 'Bezig met uploaden…';
           }
         };
         xhr.onload = ()=>{
           if(xhr.status>=200 && xhr.status<300){
+            partProgress[idx] = blob.size; // zeker weten
+            updateBar();
             const tag = xhr.getResponseHeader("ETag");
             resolve(tag ? tag.replaceAll('"','') : null);
           } else reject(new Error("Part "+partNumber+" faalde ("+xhr.status+")"));
@@ -318,20 +327,16 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         xhr.send(blob);
       });
 
-      uploaded += (end - start);
-      const p = Math.round((uploaded / file.size) * 100);
-      upbarFill.style.width = p + "%";
-      uptext.textContent    = (p<100)? (p+"%") : "100% – verwerken…";
-
-      etags[partNumber-1] = { PartNumber: partNumber, ETag: etag };
+      return { PartNumber: partNumber, ETag: etag };
     }
 
     // limited concurrency
     let next = 1;
+    const results = new Array(parts);
     const runners = new Array(CONCURRENCY).fill(0).map(async ()=>{
       while(next <= parts){
         const mine = next++;
-        await uploadPart(mine);
+        results[mine-1] = await uploadPart(mine);
       }
     });
     await Promise.all(runners);
@@ -341,7 +346,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        token, key, name:file.name, parts: etags,
+        token, key, name:file.name, parts: results,
         expiry_days: expiryDays, password: password || ""
       })
     });
@@ -357,13 +362,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     const expiryDays = document.getElementById('exp').value || '24';
     const password = document.getElementById('pw').value || '';
-    const isSingleLarge = (files.length===1) && (files[0].size/1024/1024 >= DIRECT_LIMIT_MB);
+    const isSingle = (files.length === 1);
 
     upbar.style.display='block'; uptext.style.display='block';
     upbarFill.style.width='0%'; uptext.textContent='0%';
 
     try{
-      if(isSingleLarge){
+      if(isSingle){
         const link = await directUpload(files[0], expiryDays, password);
         upbarFill.style.width='100%'; uptext.textContent='Klaar';
         resBox.innerHTML = `
@@ -393,6 +398,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           const p = Math.round(100*ev.loaded/ev.total);
           upbarFill.style.width = p+'%';
           uptext.textContent = (p<100? p+'%' : '100% – verwerken…');
+        }else{
+          uptext.textContent = 'Bezig met uploaden…';
         }
       };
       xhr.onreadystatechange = ()=>{
