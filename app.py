@@ -7,7 +7,7 @@
 # - Single PUT voor < 5 MB (incl. 0 bytes)
 # - Multipart upload voor ≥ 5 MB
 # - Downloadpagina met voortgang (en "alles zippen")
-# - Optioneel onderwerp per pakket (i.p.v. alleen code)
+# - Onderwerp per pakket (optioneel)
 # - Kleinere downloadknoppen, mobielvriendelijke pagina
 # ==============================================
 
@@ -31,8 +31,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
-# zipstream-ng: pip install zipstream-ng
-from zipstream import ZipFile as ZipStream
+
+# zipstream-ng (of zipstream): class heet "ZipStream"
+# pip install zipstream-ng
+from zipstream import ZipStream
 
 # ================== Config ==================
 BASE_DIR = Path(__file__).parent
@@ -99,7 +101,7 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Kolom 'title' toevoegen als die nog niet bestaat
+    # Kolom 'title' toevoegen indien nog niet aanwezig
     if not _column_exists(c, "packages", "title"):
         try:
             c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
@@ -107,7 +109,6 @@ def init_db():
             pass
     c.commit()
     c.close()
-
 init_db()
 
 # ================ Shared CSS =================
@@ -174,7 +175,7 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-/* Kleine varianten */
+/* Kleinere variant voor knoppen in tabel */
 .btn.mini{padding:.45rem .65rem;font-size:.85rem;border-radius:10px}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
@@ -301,6 +302,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
+    // BEHOUD map-structuur bij map-upload
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
@@ -406,7 +408,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
-    const parts = maxParts = Math.ceil(max = Math.max(1, file.size) / CHUNK); // eslint hint noop
+    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
     const perPart = new Array(parts).fill(0);
 
     function updateBar(){
@@ -466,7 +468,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const token = await packageInit(expiryDays, password, title);
 
       for(const f of files){
-        const rel = relPath(f);
+        const rel = relPath(f); // behoud submap-structuur
         if(f.size < 5 * 1024 * 1024){
           await uploadSingle(token, f, rel, tracker);
         }else{
@@ -555,7 +557,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     <div class="small" id="txt" style="display:none">Starten…</div>
   {% endif %}
 
-  <!-- CTA staat nu vast onderaan de kaart, niet op de viewport -->
+  <!-- CTA: vast in de card -->
   <div style="margin-top:1.25rem;display:flex;justify-content:center">
     <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
   </div>
@@ -837,6 +839,7 @@ def mpu_complete():
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
 
     try:
+        # Valideer wat er op S3 staat
         server_parts = {}
         paginator = s3.get_paginator("list_parts")
         for page in paginator.paginate(Bucket=S3_BUCKET, Key=key, UploadId=upload_id):
@@ -987,11 +990,18 @@ def stream_zip(token):
     if not rows:
         abort(404)
 
-    # zipstream-ng: build streaming zip
+    # zipstream: maak streaming zip
     z = ZipStream(mode="w", compression=ZIP_DEFLATED)
 
+    # Helper: compat met verschillende zipstream-versies
+    def _zip_add(zs, arcname, iterator):
+        if hasattr(zs, "write_iter"):
+            return zs.write_iter(arcname, iterator)
+        # oudere API
+        return zs.add(arcname, iterator)
+
     for r in rows:
-        # veilige arcname (forward slashes, geen leading slash)
+        # veilige arcname (forward slashes, geen leading slash) — behoud mapstructuur
         arcname = (r["path"] or r["name"]).replace("\\", "/").lstrip("/")
         obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
 
@@ -1000,7 +1010,7 @@ def stream_zip(token):
                 if chunk:
                     yield chunk
 
-        z.write_iter(arcname, reader())
+        _zip_add(z, arcname, reader())
 
     resp = Response(z, mimetype="application/zip", direct_passthrough=True)
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
