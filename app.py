@@ -1,6 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+MiniTransfer – volledige app.py
+- Inloggen (vast account)
+- Upload: ALTIJD direct naar Backblaze B2 (S3) met multipart (óók mappen/meerdere bestanden) -> geen 413
+- Robuuste multipart: retries per part, back-off, ruimere timeout
+- Totale upload-voortgang over alle bestanden/parts
+- Download:
+  * 1 bestand: stream met voortgang
+  * Meerdere: losse downloads + “Alles downloaden (zip)” (on-the-fly, geen tijdelijke grote zip)
+- Wachtwoord (optioneel) en verloop in dagen
+- Contactformulier (SMTP optioneel), CTA onderaan downloadpagina
+- Dynamische achtergrond + uniforme invoervelden
+
+Vereiste env vars:
+S3_BUCKET, S3_REGION (bv. eu-central-003), S3_ENDPOINT_URL (bv. https://s3.eu-central-003.backblazeb2.com)
+SECRET_KEY
+(Optioneel mail) SMTP_HOST, SMTP_PORT=587, SMTP_USER, SMTP_PASS, SMTP_FROM, MAIL_TO
+
+requirements.txt (relevant):
+Flask==3.0.0
+Werkzeug==3.0.1
+Jinja2==3.1.3
+itsdangerous==2.1.2
+click==8.1.7
+gunicorn==21.2.0
+boto3==1.34.131
+zipstream-ng==1.7.1
+"""
+
 import os, sqlite3, uuid, smtplib, re, traceback
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
@@ -16,6 +45,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from botocore.config import Config as BotoConfig
 from zipstream import ZipStream
+
 
 # ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
@@ -51,6 +81,7 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
+
 # --------------- DB --------------------
 def db():
     c = sqlite3.connect(DB_PATH)
@@ -80,6 +111,7 @@ def init_db():
     """)
     c.commit(); c.close()
 init_db()
+
 
 # -------------- gedeelde CSS --------------
 BASE_CSS = """
@@ -154,6 +186,7 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
 """
+
 
 # -------------- Templates --------------
 LOGIN_HTML = """
@@ -309,28 +342,33 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j; // {ok:true}
   }
 
-  // PUT 1 part
+  // PUT 1 part — met ruimer timeout en duidelijke foutmelding
   function putPart(url, blob, updateCb, partNumber){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
-      xhr.timeout = 120000; // 120s
+      xhr.timeout = 300000; // 300s per part
       xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
+
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
           resolve(etag ? etag.replaceAll('"','') : null);
-        } else reject(new Error("HTTP "+xhr.status));
+        } else {
+          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} op part ${partNumber}: ${xhr.responseText||''}`));
+        }
       };
-      xhr.onerror   = ()=> reject(new Error("Netwerkfout op part "+partNumber));
-      xhr.ontimeout = ()=> reject(new Error("Timeout op part "+partNumber));
+      xhr.onerror   = ()=> reject(new Error(`Netwerkfout op part ${partNumber} (CORS/endpoint?)`));
+      xhr.ontimeout = ()=> reject(new Error(`Timeout op part ${partNumber}`));
+
       xhr.send(blob);
     });
   }
 
+  // Multipart upload van één bestand – stabiele defaults
   async function multipartUploadOne(token, file, relpath, expiryDays, password, totalTracker){
-    const CHUNK = 6 * 1024 * 1024;
-    const CONCURRENCY = 2;
+    const CHUNK = 5 * 1024 * 1024; // 5MB parts
+    const CONCURRENCY = 1;         // eerst stabiel: 1 parallelle upload
 
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
@@ -352,19 +390,17 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const end   = Math.min(start + CHUNK, file.size);
       const blob  = file.slice(start, end);
 
-      const MAX_TRIES = 5;
+      const MAX_TRIES = 6;
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
-          const url = await signPart(key, uploadId, partNumber);
-          const etag = await putPart(url, blob, (loaded)=>{
-            perPart[idx] = loaded; updateBar();
-          }, partNumber);
+          const url  = await signPart(key, uploadId, partNumber);
+          const etag = await putPart(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, partNumber);
           perPart[idx] = blob.size; updateBar();
           return { PartNumber: partNumber, ETag: etag };
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
-          const backoff = Math.round(400 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
-          await sleep(backoff);
+          const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
+          await new Promise(r=>setTimeout(r, backoff));
         }
       }
     }
@@ -380,10 +416,10 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     await Promise.all(runners);
 
     await completeOne(token, key, file.name, relpath, results, expiryDays, password);
-    // zet basis omhoog voor volgende file
     totalTracker.currentBase += file.size;
   }
 
+  // Submit
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const files = (()=>{ const f=gatherFiles(); return Array.from(f||[]); })();
@@ -402,7 +438,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     try{
       const token = await packageInit(expiryDays, password);
 
-      // upload elk bestand (sequentieel voor eenvoud/stabiliteit)
+      // Upload elk bestand sequentieel (stabieler). Wil je sneller?
+      // verhoog CONCURRENCY in multipartUploadOne of upload meerdere tegelijk.
       for(const f of files){
         await multipartUploadOne(token, f, relPath(f), expiryDays, password, tracker);
       }
@@ -414,9 +451,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input class="input" style="flex:1" value="${link}" readonly>
+            <input class="input" style="flex:1" value="\${link}" readonly>
             <button class="btn" type="button"
-              onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+              onclick="(navigator.clipboard?.writeText('\${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
               Kopieer
             </button>
           </div>
@@ -598,6 +635,7 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </div></div></body></html>
 """
 
+
 # -------------- Helpers --------------
 def logged_in() -> bool:
     return session.get("authed", False)
@@ -620,6 +658,7 @@ def send_email(to_addr: str, subject: str, body: str):
         s.login(SMTP_USER, SMTP_PASS)
         s.send_message(msg)
 
+
 # -------------- Routes --------------
 @app.route("/")
 def index():
@@ -641,6 +680,7 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
 
 # ------- API: pakketten & multipart --------
 @app.route("/package-init", methods=["POST"])
@@ -713,6 +753,7 @@ def mpu_complete():
     c.commit(); c.close()
     return jsonify(ok=True)
 
+
 # ------- Package page & download -------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
@@ -722,7 +763,6 @@ def package_page(token):
 
     # verlopen?
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        # optioneel: alles verwijderen
         rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
         for r in rows:
             try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
@@ -758,7 +798,6 @@ def package_page(token):
     dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
     expires_h = dt.strftime("%d-%m-%Y %H:%M")
 
-    # verrijk items
     its = []
     for r in items:
         its.append({"id": r["id"], "name": r["name"], "path": r["path"], "size_h": human(int(r["size_bytes"]))})
@@ -808,12 +847,11 @@ def stream_zip(token):
     c.close()
     if not rows: abort(404)
 
-    # zipstream-ng: schrijf elk bestand als iterable naar zip
+    # zipstream-ng: schrijf elk bestand als iterable naar zip (memory-vriendelijk)
     z = ZipStream(mode='w', compression='deflated')
 
     for r in rows:
         arcname = r["path"] or r["name"]
-        # stream uit s3
         obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
         def reader(body=obj["Body"]):
             for chunk in body.iter_chunks(1024*512):
@@ -822,8 +860,8 @@ def stream_zip(token):
 
     resp = Response(z, mimetype="application/zip")
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
-    # Content-Length onbekend (stream), progress is "MB gedownload"
     return resp
+
 
 # -------- Contact / aanvraag --------
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -886,6 +924,7 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS)
 
+
 # Healthcheck
 @app.route("/health-s3")
 def health():
@@ -895,7 +934,8 @@ def health():
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
-# Kortere aliases voor JS
+
+# Korte aliassen (handig)
 @app.route("/package/<token>")
 def package_alias(token):
     return redirect(url_for("package_page", token=token))
@@ -907,6 +947,7 @@ def stream_file_alias(token, item_id):
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token):
     return redirect(url_for("stream_zip", token=token))
+
 
 if __name__ == "__main__":
     app.run(debug=True)
