@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (direct file/folder picker + animated bg) =========
+# ========= MiniTransfer – Olde Hanter (click radio => open picker; animated bg) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
 # - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
-# - Downloadpagina met voortgang + "alles zippen" (lazy streaming + compat)
+# - Downloadpagina met voortgang + "alles zippen" (compat met meerdere zipstream-ng API’s)
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload uitgeschakeld en verborgen
-# - ZIP precheck: duidelijke 422 i.p.v. 500 als bestanden ontbreken
-# - NIEUW: klikken op "Bestand(en)" of "Map" opent direct de systeem-picker
-# - NIEUW: moderne, dynamische (bewegende) achtergrond
+# - Klik op "Bestand(en)" of "Map" opent direct het selectievenster (upload start NIET automatisch)
 # ========================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -24,6 +22,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
+    # wachtwoord is optioneel; hash voor pakketbeveiliging
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -122,8 +121,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
 /* Dynamische achtergrond: multi-layer gradient blobs + subtiele beweging */
 .bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:linear-gradient(180deg,#eef3fb 0%,#e9eef6 100%)}
 .bg .blob{
-  position:absolute;filter:blur(40px);opacity:.55;will-change:transform;
-  border-radius:50%;
+  position:absolute;filter:blur(40px);opacity:.55;will-change:transform;border-radius:50%;
 }
 .blob.b1{width:60vmax;height:60vmax;left:-10vmax;top:-6vmax;background:radial-gradient(closest-side,var(--bg1),transparent 66%);animation:float1 18s ease-in-out infinite}
 .blob.b2{width:55vmax;height:55vmax;right:-12vmax;top:-8vmax;background:radial-gradient(closest-side,var(--bg2),transparent 66%);animation:float2 22s ease-in-out infinite}
@@ -283,19 +281,19 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     return iOSUA || iPadOS;
   }
+  const form = document.getElementById('f');
   const modeFiles = document.getElementById('modeFiles');
   const modeFolder = document.getElementById('modeFolder');
   const lblFiles = document.getElementById('lblFiles');
   const lblFolder = document.getElementById('lblFolder');
 
   if(isIOS()){
-    // verberg map-optie volledig op iOS/iPadOS
     modeFolder.disabled = true;
     lblFolder.style.display = 'none';
     modeFiles.checked = true;
   }
 
-  // Toggle bestand/map + DIRECT de picker openen bij klik
+  // Toggle bestand/map
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
@@ -306,10 +304,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     fileRow.style.display  = (mode==='files')  ? '' : 'none';
     folderRow.style.display = (mode==='folder') ? '' : 'none';
-    // Open direct de juiste picker als dit uit een gebruikersklik komt
+
+    // Als dit uit een klik komt → open direct de juiste picker (upload start niet automatisch)
     if(openPicker === true){
       try{
-        (mode==='files' ? fileInput : folderInput).click();
+        (mode === 'files' ? fileInput : folderInput).click();
       }catch(e){}
     }
   }
@@ -317,7 +316,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   // Ook klikken op het label opent direct de picker (extra gebruiksgemak)
   lblFiles.addEventListener('click', (e)=>{
-    // als al actief, open toch direct de picker
+    // als al actief, open toch de picker
     setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0);
   });
   lblFolder.addEventListener('click', (e)=>{
@@ -327,6 +326,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   applyMode(false);
 
+  // ---- Helpers ----
   const resBox = document.getElementById('result');
   const upbar = document.getElementById('upbar');
   const upbarFill = upbar.querySelector('i');
@@ -402,7 +402,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
 
-  // iOS: exacte Content-Type header meesturen
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
@@ -413,7 +412,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('"','') : null);
+          resolve(etag ? etag.replaceAll('\"','') : null);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -482,17 +481,15 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  const upbar = document.getElementById('upbar');
-  const upbarFill = upbar.querySelector('i');
-  const uptext = document.getElementById('uptext');
-
-  document.getElementById('f').addEventListener('submit', async (e)=>{
+  // Handmatige submit (knop) start de upload
+  form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     const files = Array.from((mode==='files' ? fileInput.files : folderInput.files) || []);
     if(!files.length){
       alert("Kies bestand(en)"+(isIOS()?"":" of map"));
-      (mode==='files' ? fileInput : folderInput).click();
+      // open de juiste picker als er nog niets geselecteerd is
+      try { (mode==='files'? fileInput : folderInput).click(); } catch(e){}
       return;
     }
 
@@ -976,26 +973,26 @@ def stream_zip(token):
     # Precheck: welke items ontbreken?
     missing = []
     try:
-        for r in rows:
-            try:
-                s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except ClientError as ce:
-                code = ce.response.get("Error", {}).get("Code", "")
-                if code in {"NoSuchKey", "NotFound", "404"}:
-                    missing.append(r["path"] or r["name"])
-                else:
-                    raise
+      for r in rows:
+        try:
+          s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+        except ClientError as ce:
+          code = ce.response.get("Error", {}).get("Code", "")
+          if code in {"NoSuchKey", "NotFound", "404"}:
+            missing.append(r["path"] or r["name"])
+          else:
+            raise
     except Exception:
-        log.exception("zip precheck failed")
-        resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
-        resp.headers["X-Error"] = "zip_precheck_failed"
-        return resp
+      log.exception("zip precheck failed")
+      resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
+      resp.headers["X-Error"] = "zip_precheck_failed"
+      return resp
 
     if missing:
-        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
-        resp = Response(text, mimetype="text/plain", status=422)
-        resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
-        return resp
+      text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
+      resp = Response(text, mimetype="text/plain", status=422)
+      resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
+      return resp
 
     try:
         z = ZipStream()  # geen kwargs
