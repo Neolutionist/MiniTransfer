@@ -7,8 +7,8 @@
 # - Single PUT voor < 5 MB (incl. 0 bytes)
 # - Multipart upload voor ≥ 5 MB
 # - Downloadpagina met voortgang (en "alles zippen")
-# - Optioneel onderwerp per pakket (wordt getoond i.p.v. alleen code)
-# - Kleinere downloadknoppen
+# - Optioneel onderwerp per pakket (i.p.v. alleen code)
+# - Kleinere downloadknoppen, mobielvriendelijke pagina
 # ==============================================
 
 import os
@@ -19,6 +19,7 @@ import sqlite3
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zipfile import ZIP_DEFLATED
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
@@ -30,7 +31,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
-from zipstream import ZipStream  # zipstream-ng
+# zipstream-ng: pip install zipstream-ng
+from zipstream import ZipFile as ZipStream
 
 # ================== Config ==================
 BASE_DIR = Path(__file__).parent
@@ -97,7 +99,7 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Voeg kolom 'title' toe aan packages (indien nog niet aanwezig)
+    # Kolom 'title' toevoegen als die nog niet bestaat
     if not _column_exists(c, "packages", "title"):
         try:
             c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
@@ -172,10 +174,21 @@ input[type=radio], input[type=checkbox]{accent-color: var(--brand-2); width:1.05
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-/* Kleine varianten voor knoppen in tabellen */
-.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
+/* Kleine varianten */
+.btn.mini{padding:.45rem .65rem;font-size:.85rem;border-radius:10px}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
 .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
+
+/* Download tabel responsief */
+.table-wrap{width:100%; overflow-x:auto}
+.table{width:100%;border-collapse:collapse;margin-top:.6rem;min-width:560px}
+.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:middle}
+.table .col-path{word-break:break-word;max-width:40vw}
+@media (max-width: 640px){
+  .table{min-width:0}
+  .table .col-path, .table thead th.col-path{display:none}
+  .btn.mini{padding:.4rem .55rem;font-size:.82rem}
+}
 """
 
 # =================== Templates ===================
@@ -393,7 +406,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
-    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
+    const parts = maxParts = Math.ceil(max = Math.max(1, file.size) / CHUNK); // eslint hint noop
     const perPart = new Array(parts).fill(0);
 
     function updateBar(){
@@ -493,10 +506,17 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .meta{margin:.4rem 0 1rem;color:#374151}
 .btn{padding:.9rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
-.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
-.table{width:100%;border-collapse:collapse;margin-top:.6rem}
+.btn.mini{padding:.45rem .65rem;font-size:.85rem;border-radius:10px}
+.table-wrap{width:100%;overflow-x:auto}
+.table{width:100%;border-collapse:collapse;margin-top:.6rem;min-width:560px}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:middle}
+.table .col-path{word-break:break-word;max-width:40vw}
 .progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
+@media (max-width: 640px){
+  .table{min-width:0}
+  .table .col-path, .table thead th.col-path{display:none}
+  .btn.mini{padding:.4rem .55rem;font-size:.82rem}
+}
 </style></head><body>
 <div class="bg" aria-hidden="true"></div>
 
@@ -514,24 +534,31 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
   {% else %}
-    <button class="btn" id="zipAll">Alles downloaden (zip)</button>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Bestand</th><th class="col-path">Pad</th><th>Grootte</th><th style="width:1%"></th></tr></thead>
+        <tbody>
+        {% for it in items %}
+          <tr>
+            <td>{{ it["name"] }}</td>
+            <td class="small col-path">{{ it["path"] }}</td>
+            <td>{{ it["size_h"] }}</td>
+            <td><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button class="btn" id="zipAll" style="margin-top:1rem">Alles downloaden (zip)</button>
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
-
-    <table class="table">
-      <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th><th style="width:1%"></th></tr></thead>
-      <tbody>
-      {% for it in items %}
-        <tr>
-          <td>{{ it["name"] }}</td>
-          <td class="small">{{ it["path"] }}</td>
-          <td>{{ it["size_h"] }}</td>
-          <td><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
   {% endif %}
+
+  <!-- CTA staat nu vast onderaan de kaart, niet op de viewport -->
+  <div style="margin-top:1.25rem;display:flex;justify-content:center">
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+  </div>
 
   <div class="linkbox" style="margin-top:1rem">
     <div><strong>Deelbare link</strong></div>
@@ -544,11 +571,8 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     </div>
   </div>
 
-  <p class="footer" style="margin-bottom:4.5rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer" style="margin-top:1.25rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
-
-<a class="btn secondary" style="position:fixed;left:50%;transform:translateX(-50%);bottom:16px"
-   href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
 
 <script>
   const bar = document.getElementById('bar');
@@ -963,17 +987,22 @@ def stream_zip(token):
     if not rows:
         abort(404)
 
-    z = ZipStream(mode='w', compression='deflated')
+    # zipstream-ng: build streaming zip
+    z = ZipStream(mode="w", compression=ZIP_DEFLATED)
+
     for r in rows:
-        arcname = r["path"] or r["name"]
+        # veilige arcname (forward slashes, geen leading slash)
+        arcname = (r["path"] or r["name"]).replace("\\", "/").lstrip("/")
         obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+
         def reader(body=obj["Body"]):
-            for chunk in body.iter_chunks(1024*512):
+            for chunk in body.iter_chunks(1024 * 512):
                 if chunk:
                     yield chunk
-        z.add(arcname, reader())
 
-    resp = Response(z, mimetype="application/zip")
+        z.write_iter(arcname, reader())
+
+    resp = Response(z, mimetype="application/zip", direct_passthrough=True)
     resp.headers["Content-Disposition"] = 'attachment; filename="download.zip"'
     return resp
 
