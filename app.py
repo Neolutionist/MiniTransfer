@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (iOS + ZIP fixes) =========
+# ========= MiniTransfer – Olde Hanter (iOS + ZIP precheck/fixes) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
 # - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
@@ -9,7 +9,8 @@
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload uitgeschakeld en verborgen
-# ================================================================
+# - ZIP precheck: duidelijke 422 i.p.v. 500 als bestanden ontbreken
+# ========================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
@@ -143,6 +144,8 @@ input[type=file]::file-selector-button{
   background:var(--surface-2); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
+
+/* Buttons & progress */
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
@@ -269,7 +272,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const modeFolder = document.getElementById('modeFolder');
   const modeFolderWrap = document.getElementById('modeFolderWrap');
   if(isIOS()){
-    // forceer 'Bestand(en)', verberg 'Map'
     modeFiles.checked = true;
     modeFolder.disabled = true;
     modeFolderWrap.style.display = 'none';
@@ -569,7 +571,13 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     bar.style.display='block'; txt.style.display='block';
     fill.style.width='0%'; txt.textContent='Starten…';
     const res = await fetch(url);
-    if(!res.ok){ alert('Fout '+res.status); return; }
+    if(!res.ok){
+      const xerr = res.headers.get('X-Error') || '';
+      let body = '';
+      try { body = await res.text(); } catch(e){}
+      alert(`Fout ${res.status}${xerr ? ' – '+xerr : ''}${body ? '\\n\\n'+body : ''}`);
+      return;
+    }
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
     const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
 
@@ -903,21 +911,17 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    # 1) Basischecks
+    # ZIP-precheck + lazy streaming (geen 'mode' kwarg gebruiken)
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
-    if not pkg:
-        c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close(); abort(403)
+    if not pkg: c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
     rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
-    if not rows:
-        abort(404)
+    if not rows: abort(404)
 
-    # 2) Controleer vooraf of alle S3 keys bestaan; log en rapporteer welke ontbreken
+    # Precheck: welke items ontbreken?
     missing = []
     try:
         for r in rows:
@@ -925,61 +929,52 @@ def stream_zip(token):
                 s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
             except ClientError as ce:
                 code = ce.response.get("Error", {}).get("Code", "")
-                if code == "404" or code == "NoSuchKey":
+                if code in {"404", "NoSuchKey", "NotFound"}:
                     missing.append(r["path"] or r["name"])
                 else:
                     raise
     except Exception:
-        app.logger.exception("zip precheck failed")
-        abort(500)
+        log.exception("zip precheck failed")
+        resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
+        resp.headers["X-Error"] = "zip_precheck_failed"
+        return resp
 
     if missing:
-        # Laat de client een nette melding zien in plaats van een 500
-        resp = Response(
-            f"De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " +
-            "\n- ".join(missing) + "\n\nUpload het pakket opnieuw of verwijder de kapotte items.",
-            mimetype="text/plain", status=422  # Unprocessable Entity
-        )
+        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing) + "\n\nUpload het pakket opnieuw of verwijder de kapotte items."
+        resp = Response(text, mimetype="text/plain", status=422)
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
-    # 3) Stream de ZIP ‘lazy’ (compatibel met oudere zipstream-ng; géén mode/compression kwargs)
     try:
-        z = ZipStream()  # gebruik defaults; sommige builds kennen geen kwargs
+        z = ZipStream()  # Gebruik defaults; sommige builds kennen geen kwargs
 
+        # Lazy reader: S3 pas openen wanneer item wordt geschreven
         for r in rows:
             arcname = r["path"] or r["name"]
 
             def reader(key=r["s3_key"]):
-                # S3 pas openen als het item weggeschreven wordt
                 obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
                 for chunk in obj["Body"].iter_chunks(1024 * 512):
-                    if chunk:
-                        yield chunk
+                    if chunk: yield chunk
 
-            # zipstream-ng accepteert (naam, iterator)
             z.add(arcname, reader())
 
         def generate():
             for chunk in z:
                 yield chunk
 
-        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"', '')
-        if not filename.lower().endswith(".zip"):
-            filename += ".zip"
+        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
+        if not filename.lower().endswith(".zip"): filename += ".zip"
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
-
     except Exception:
-        app.logger.exception("stream_zip failed")
-        # Stuur een hint terug zodat de front-end die kan tonen
+        log.exception("stream_zip failed")
         resp = Response("ZIP generatie mislukte. Zie serverlogs.", status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
-
 
 # Contact
 EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
