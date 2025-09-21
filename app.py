@@ -548,7 +548,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           await uploadMultipart(token, f, rel, tracker);
         }
       }
-      setProgress(100, "100% – verwerken…");
+      if (animId){ cancelAnimationFrame(animId); animId = null; }
+      setProgress(100);
+      upbarFill.style.width = '100%';   // <- extra
+      uptext.textContent = "Klaar";
+
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
       resBox.innerHTML = `
@@ -562,6 +566,15 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
             </button>
           </div>
         </div>`;
+           // laat de gebruiker de link zien, verberg daarna de progress UI
+setTimeout(()=>{
+  upbar.style.display = 'none';
+  uptext.style.display = 'none';
+  // reset voor volgende run
+  displayPct = 0; 
+  targetPct  = 0; 
+  animId = null;
+}, 800);
     }catch(err){
       alert(err.message || 'Onbekende fout');
     }
