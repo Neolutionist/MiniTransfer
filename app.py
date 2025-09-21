@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (CSS-only moving background) =========
+# ========= MiniTransfer – Olde Hanter (met robuuste S3/B2 handling) =========
 # - Login
-# - Upload (files/folders) naar B2 (S3)
+# - Upload (files/folders) naar B2 (S3-compatible)
 # - Single PUT < 5 MB | Multipart ≥ 5 MB
 # - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload verborgen/disabled
 # - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
-# ==========================================================================
+# - Fix: retry op S3 HEAD na (MPU) complete om eventual consistency te overbruggen
+# - Fix: grotere MPU-chunks (8 MiB) en langere timeouts voor stabiliteit
+# ============================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging
+import os, re, uuid, smtplib, sqlite3, logging, time
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,8 +35,9 @@ from zipstream import ZipStream  # zipstream-ng
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
-AUTH_EMAIL = "info@oldehanter.nl"
-AUTH_PASSWORD = "Hulsmaat"
+# Let de gevoelige waarden bij voorkeur via env variabelen binnenkomen.
+AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")
 
 S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
@@ -99,6 +102,42 @@ def init_db():
         except Exception: pass
     c.commit(); c.close()
 init_db()
+
+# ---------- Helpers ----------
+def logged_in() -> bool:
+    return session.get("authed", False)
+
+def human(n: int) -> str:
+    x = float(n)
+    for u in ["B","KB","MB","GB","TB"]:
+        if x < 1024 or u == "TB":
+            return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
+        x /= 1024
+
+def send_email(to_addr: str, subject: str, body: str):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_addr
+    msg.set_content(body)
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+
+def head_object_with_retry(bucket: str, key: str, tries: int = 6, base_ms: int = 150):
+    """
+    Na (multipart) uploads kan een object bij S3/B2 nog héél kort onzichtbaar zijn.
+    Deze helper overbrugt dat met exponentiële backoff + jitter.
+    """
+    last_err = None
+    for i in range(tries):
+        try:
+            return s3.head_object(Bucket=bucket, Key=key)
+        except Exception as e:
+            last_err = e
+            # 150ms, 240ms, 384ms, 614ms, 983ms, 1573ms (met jitter)
+            sleep_s = (base_ms/1000.0) * (1.6 ** i) * (0.8 + 0.4*int.from_bytes(os.urandom(1), "big")/255.0)
+            time.sleep(sleep_s)
+    raise last_err
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -221,7 +260,7 @@ LOGIN_HTML = """
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="on">
     <label for="email">E-mail</label>
-    <input id="email" class="input" name="email" type="email" value="info@oldehanter.nl" autocomplete="username" required>
+    <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
     <label for="pw">Wachtwoord</label>
     <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord" autocomplete="current-password" required>
     <button class="btn" type="submit" style="margin-top:1rem">Inloggen</button>
@@ -404,7 +443,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
-      xhr.timeout = 300000;
+      xhr.timeout = 900000; // 15 min per (deel)upload
       xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
       xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
       xhr.onload = ()=>{
@@ -435,7 +474,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
 
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 5 * 1024 * 1024;
+    const CHUNK = 8 * 1024 * 1024; // 8 MiB — stabieler dan exact 5 MiB
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -706,26 +745,7 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-# -------------- Helpers / routes --------------
-def logged_in() -> bool:
-    return session.get("authed", False)
-
-def human(n: int) -> str:
-    x = float(n)
-    for u in ["B","KB","MB","GB","TB"]:
-        if x < 1024 or u == "TB":
-            return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
-        x /= 1024
-
-def send_email(to_addr: str, subject: str, body: str):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
-    msg["To"] = to_addr
-    msg.set_content(body)
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-
+# -------------- Routes --------------
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
@@ -734,11 +754,11 @@ def index():
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
-        if (request.form.get("email") or "").lower()==AUTH_EMAIL and request.form.get("password")==AUTH_PASSWORD:
+        if (request.form.get("email") or "").lower()==AUTH_EMAIL.lower() and request.form.get("password")==AUTH_PASSWORD:
             session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
-        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV)
-    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV)
+        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL)
+    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL)
 
 @app.route("/logout")
 def logout():
@@ -780,7 +800,7 @@ def put_init():
         )
         return jsonify(ok=True, key=key, url=url)
     except Exception:
-        log.exception("put_init failed")
+        log.exception("put_init failed token=%s key=%s", token, key)
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/put-complete", methods=["POST"])
@@ -792,7 +812,7 @@ def put_complete():
     if not (token and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
     try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        head = head_object_with_retry(S3_BUCKET, key)
         size = int(head.get("ContentLength", 0))
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
@@ -800,8 +820,8 @@ def put_complete():
         c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
-        log.exception("put_complete failed")
-        return jsonify(ok=False, error="server_error"), 500
+        log.exception("put_complete failed token=%s key=%s", token, key)
+        return jsonify(ok=False, error="s3_head_failed_after_put"), 500
 
 # Multipart
 @app.route("/mpu-init", methods=["POST"])
@@ -818,7 +838,7 @@ def mpu_init():
         init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
         return jsonify(ok=True, key=key, uploadId=init["UploadId"])
     except Exception:
-        log.exception("mpu_init failed")
+        log.exception("mpu_init failed token=%s key=%s", token, key)
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-sign", methods=["POST"])
@@ -837,7 +857,7 @@ def mpu_sign():
         )
         return jsonify(ok=True, url=url)
     except Exception:
-        log.exception("mpu_sign failed")
+        log.exception("mpu_sign failed key=%s upload_id=%s part=%s", key, upload_id, part_no)
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-complete", methods=["POST"])
@@ -855,7 +875,7 @@ def mpu_complete():
             MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
             UploadId=upload_id
         )
-        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        head = head_object_with_retry(S3_BUCKET, key)
         size = int(head.get("ContentLength", 0))
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
@@ -863,8 +883,8 @@ def mpu_complete():
         c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
-        log.exception("mpu_complete failed")
-        return jsonify(ok=False, error="server_error"), 500
+        log.exception("mpu_complete failed token=%s key=%s upload_id=%s", token, key, upload_id)
+        return jsonify(ok=False, error="s3_complete_or_head_failed"), 500
 
 # Download pages/streams
 @app.route("/p/<token>", methods=["GET","POST"])
@@ -942,7 +962,7 @@ def stream_file(token, item_id):
         if length: resp.headers["Content-Length"] = str(length)
         return resp
     except Exception:
-        log.exception("stream_file failed")
+        log.exception("stream_file failed token=%s item_id=%s key=%s", token, item_id, it["s3_key"])
         abort(500)
 
 @app.route("/zip/<token>")
@@ -966,7 +986,7 @@ def stream_zip(token):
                 if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
                 else: raise
     except Exception:
-        log.exception("zip precheck failed")
+        log.exception("zip precheck failed token=%s", token)
         resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
         resp.headers["X-Error"]="zip_precheck_failed"; return resp
     if missing:
@@ -975,7 +995,7 @@ def stream_zip(token):
         resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
 
     try:
-        z = ZipStream()  # geen kwargs, compat met meerdere versies
+        z = ZipStream()  # compat met meerdere versies
 
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
@@ -1026,14 +1046,14 @@ def stream_zip(token):
         resp.headers["X-Filename"] = filename
         return resp
     except Exception as e:
-        log.exception("stream_zip failed")
+        log.exception("stream_zip failed token=%s", token)
         msg = f"ZIP generatie mislukte. Tried: {', '.join(methods_tried)}. Err: {e}"
         resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
 # Contact
-EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\\.[^@\\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 
@@ -1069,11 +1089,11 @@ def contact():
     price_map = {0.5:"€6/maand", 1.0:"€12/maand", 2.0:"€24/maand", 5.0:"€60/maand"}
     price    = price_map.get(storage_tb, "op aanvraag")
     body = (
-        "Er is een nieuwe aanvraag binnengekomen:\n\n"
-        f"- Gewenste inlog-e-mail: {login_email}\n"
-        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\n"
-        f"- Bedrijfsnaam: {company}\n"
-        f"- Telefoonnummer: {phone}\n"
+        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
+        f"- Gewenste inlog-e-mail: {login_email}\\n"
+        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\\n"
+        f"- Bedrijfsnaam: {company}\\n"
+        f"- Telefoonnummer: {phone}\\n"
     )
 
     try:
@@ -1085,6 +1105,7 @@ def contact():
                 s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
             return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV)
     except Exception:
+        log.exception("SMTP send failed")
         pass
 
     from urllib.parse import quote
@@ -1108,4 +1129,5 @@ def stream_file_alias(token, item_id): return redirect(url_for("stream_file", to
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
 if __name__ == "__main__":
+    # In productie: gebruik een WSGI server (gunicorn/uwsgi) en zet debug=False
     app.run(debug=True)
