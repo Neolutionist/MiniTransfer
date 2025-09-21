@@ -34,7 +34,8 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")
+# Geen hardcoded default wachtwoord meer:
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "")
 
 S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
@@ -187,11 +188,16 @@ LOGIN_HTML = """
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-  <form method="post" autocomplete="on">
+  <form method="post" autocomplete="off">
+    <!-- Dummy-velden tegen agressieve autofill -->
+    <input type="text" name="fakeusernameremembered" style="display:none" tabindex="-1" aria-hidden="true" />
+    <input type="password" name="fakepasswordremembered" style="display:none" tabindex="-1" aria-hidden="true" />
+
     <label for="email">E-mail</label>
     <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
     <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord" autocomplete="current-password" required>
+    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord"
+           autocomplete="new-password" autocapitalize="off" spellcheck="false" required>
     <button class="btn" type="submit" style="margin-top:1rem">Inloggen</button>
   </form>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
@@ -875,16 +881,22 @@ def package_page(token):
 
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
-            return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
+            return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui" autocomplete="off">
                         <h3>Voer wachtwoord in</h3>
-                        <input class="input" type="password" name="password" required>
+                        <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
+                        <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
+                        <input class="input" type="password" name="password" required
+                               autocomplete="new-password" autocapitalize="off" spellcheck="false">
                         <button class="btn" style="margin-top:.6rem">Ontgrendel</button>
                       </form>"""
         if request.method == "POST":
             if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
-                return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui">
+                return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui" autocomplete="off">
                             <h3 style="color:#b91c1c">Onjuist wachtwoord</h3>
-                            <input class="input" type="password" name="password" required>
+                            <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
+                            <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
+                            <input class="input" type="password" name="password" required
+                                   autocomplete="new-password" autocapitalize="off" spellcheck="false">
                             <button class="btn" style="margin-top:.6rem">Opnieuw</button>
                           </form>"""
             session[f"allow_{token}"] = True
@@ -1023,7 +1035,7 @@ def stream_zip(token):
         return resp
 
 # Contact
-EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\\.[^@\s]+$")
+EMAIL_RE  = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 
