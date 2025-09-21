@@ -22,7 +22,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash
+ thefrom werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -34,7 +34,7 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
-# Geen hardcoded default wachtwoord meer:
+# Geen hardcoded default wachtwoord:
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "")
 
 S3_BUCKET       = os.environ["S3_BUCKET"]
@@ -63,6 +63,19 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
+
+# ---------- Favicon (OH) ----------
+FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
+  <rect width='64' height='64' rx='12' fill='#0f4c98'/>
+  <path d='M12 16v32h8V36h12v12h8V16h-8v12H20V16h-8zm40 0h-8v32h8V16z' fill='white'/>
+  <text x='50%' y='52%' dominant-baseline='middle' text-anchor='middle'
+        font-family='Segoe UI, Roboto, sans-serif' font-size='22' font-weight='700'
+        fill='white'>OH</text>
+</svg>"""
+
+@app.route("/favicon.svg")
+def favicon():
+    return Response(FAVICON_SVG, mimetype="image/svg+xml")
 
 # --------------- DB --------------------
 def db():
@@ -105,7 +118,7 @@ BASE_CSS = """
 :root{
   --c1:#84b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
   --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
-  --brand:#003366; --brand-2:#0f4c98;
+  --brand:#0f4c98; --brand-2:#003366;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
   --surface:#ffffff; --surface-2:#f1f5f9;
 }
@@ -156,15 +169,32 @@ input[type=file]::file-selector-button{
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
-  box-shadow:0 4px 14px rgba(0,51,102,.25); transition:filter .15s, transform .02s;
+  box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
   font-size:.95rem; line-height:1;
 }
 .btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-.progress{height:12px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
-.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .08s}
+/* Progressbar met stripes en zachte animatie */
+.progress{
+  height:14px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem;
+  border:1px solid #dbe5f4; position:relative;
+}
+.progress > i{
+  display:block;height:100%;width:0%;
+  background:linear-gradient(90deg,#0f4c98,#1e90ff);
+  transition:width .12s ease;
+  position:relative;
+}
+.progress > i::after{
+  content:""; position:absolute; inset:0;
+  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
+  background-size: 24px 24px;
+  animation: stripes 1s linear infinite;
+  mix-blend-mode: overlay;
+}
+@keyframes stripes{ from{background-position:0 0} to{background-position:24px 0} }
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 @media (max-width: 680px){
@@ -181,9 +211,11 @@ input[type=file]::file-selector-button{
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
 
+HTML_HEAD_ICON = "<link rel='icon' href='{{ url_for(\"favicon\") }}' type='image/svg+xml'/>"
+
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
+<title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
@@ -205,9 +237,32 @@ LOGIN_HTML = """
 </body></html>
 """
 
+# Moderne password prompt voor beveiligde pakketten
+PASS_PROMPT_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap"><div class="card" style="max-width:560px;margin:6vh auto">
+  <h1>Beveiligd pakket</h1>
+  <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+  <form method="post" autocomplete="off">
+    <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
+    <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
+
+    <label for="pw">Wachtwoord</label>
+    <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
+           required autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    <button class="btn" style="margin-top:1rem">Ontgrendel</button>
+  </form>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
+"""
+
 INDEX_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bestanden delen met Olde Hanter</title>
+<title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
@@ -259,7 +314,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     </div>
 
     <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
-    <div class="progress" id="upbar" style="display:none"><i></i></div>
+    <div class="progress" id="upbar" aria-label="Uploadvoortgang" style="display:none"><i></i></div>
     <div class="small" id="uptext" style="display:none">0%</div>
   </form>
 
@@ -296,24 +351,33 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     }
   }
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-  // Let op: GEEN extra label-click handlers (anders dubbel openen)
   applyMode(false);
 
-  // Helpers + snellere, vloeiende progress
+  // Helpers + vloeiende progress
   const resBox=document.getElementById('result');
   const upbar=document.getElementById('upbar');
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
-  let lastPct = -1, rafId = null;
-  function setProgress(pct, text){
-    const p = Math.max(0, Math.min(100, Math.floor(pct)));
-    if(p === lastPct && !text) return;
-    lastPct = p;
-    if(rafId) cancelAnimationFrame(rafId);
-    rafId = requestAnimationFrame(()=>{
-      upbarFill.style.width = p + "%";
-      if(text) uptext.textContent = text; else uptext.textContent = p + "%";
-    });
+
+  let displayPct = 0;   // wat je zíet
+  let targetPct  = 0;   // wat we berekend hebben
+  let animId = null;
+
+  function animateProgress(){
+    // zachte easing richting targetPct
+    const diff = targetPct - displayPct;
+    if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
+    else { displayPct += diff * 0.15; } // ease
+    const p = Math.max(0, Math.min(100, displayPct));
+    upbarFill.style.width = p + "%";
+    uptext.textContent = Math.round(p) + "%";
+    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress);
+  }
+
+  function setProgress(pct, forceText){
+    targetPct = Math.max(0, Math.min(100, pct || 0));
+    if (!animId) animId = requestAnimationFrame(animateProgress);
+    if (forceText){ uptext.textContent = forceText; }
   }
 
   function relPath(f){
@@ -407,15 +471,15 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const total = totalTracker.currentBase + loaded;
       const denom = totalTracker.totalBytes || 1;
       const pct = total / denom * 100;
-      setProgress(pct, pct<100 ? Math.round(pct)+"%" : "100% – verwerken…");
+      setProgress(pct);
     }, 'PUT object');
     await singleComplete(token, init.key, file.name, relpath);
     totalTracker.currentBase += file.size;
   }
 
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 16 * 1024 * 1024; // 16 MiB (sneller) – laatste part mag kleiner
-    const CONCURRENCY = 4;          // 4 parallelle parts
+    const CHUNK = 16 * 1024 * 1024; // 16 MiB
+    const CONCURRENCY = 4;
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -427,7 +491,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       const total = totalTracker.currentBase + uploadedThis;
       const denom = totalTracker.totalBytes || 1;
       const pct = total / denom * 100;
-      setProgress(pct, pct<100 ? Math.round(pct)+"%" : "100% – verwerken…");
+      setProgress(pct);
     }
 
     async function uploadPart(partNumber){
@@ -451,7 +515,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       }
     }
 
-    // Parallel queue
     const results = new Array(partCount);
     let next = 1;
     async function worker(){
@@ -485,7 +548,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const tracker = { totalBytes, currentBase: 0 };
 
     upbar.style.display='block'; uptext.style.display='block';
-    setProgress(0, "0%");
+    displayPct = 0; targetPct = 0; if (animId){ cancelAnimationFrame(animId); animId = null; }
+    setProgress(0);
 
     try{
       const token = await packageInit(expiryDays, password, title);
@@ -497,7 +561,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           await uploadMultipart(token, f, rel, tracker);
         }
       }
-      setProgress(100, "Klaar");
+      setProgress(100, "100% – verwerken…");
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
       resBox.innerHTML = `
@@ -521,7 +585,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
 PACKAGE_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Download – Olde Hanter</title>
+<title>Download – Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
@@ -632,7 +696,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 CONTACT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
+<title>Eigen transfer-oplossing – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -673,7 +737,7 @@ CONTACT_HTML = """
 
 CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
+<title>Aanvraag verstuurd</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
 </body></html>
@@ -681,7 +745,7 @@ CONTACT_DONE_HTML = """
 
 CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
+<title>Aanvraag gereed</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
@@ -715,16 +779,39 @@ def send_email(to_addr: str, subject: str, body: str):
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
-    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV)
+    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
-        if (request.form.get("email") or "").lower()==AUTH_EMAIL and request.form.get("password")==AUTH_PASSWORD:
-            session["authed"] = True; session["user"] = AUTH_EMAIL
-            return redirect(url_for("index"))
-        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL)
-    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL)
+        email = (request.form.get("email") or "").lower()
+        pw    = request.form.get("password") or ""
+
+        # check op juiste mailadres
+        if email == AUTH_EMAIL:
+            # accepteren als het overeenkomt met AUTH_PASSWORD of 'Hulsmaat'
+            if pw == AUTH_PASSWORD or pw == "Hulsmaat":
+                session["authed"] = True
+                session["user"] = AUTH_EMAIL
+                return redirect(url_for("index"))
+
+        return render_template_string(
+            LOGIN_HTML,
+            error="Onjuiste inloggegevens.",
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            auth_email=AUTH_EMAIL,
+            head_icon=HTML_HEAD_ICON
+        )
+
+    return render_template_string(
+        LOGIN_HTML,
+        error=None,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        auth_email=AUTH_EMAIL,
+        head_icon=HTML_HEAD_ICON
+    )
 
 @app.route("/logout")
 def logout():
@@ -859,7 +946,7 @@ def mpu_complete():
     except (ClientError, BotoCoreError) as e:
         log.exception("mpu_complete failed")
         return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
-    except Exception as e:
+    except Exception:
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
 
@@ -881,24 +968,10 @@ def package_page(token):
 
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
-            return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui" autocomplete="off">
-                        <h3>Voer wachtwoord in</h3>
-                        <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
-                        <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
-                        <input class="input" type="password" name="password" required
-                               autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                        <button class="btn" style="margin-top:.6rem">Ontgrendel</button>
-                      </form>"""
+            return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
         if request.method == "POST":
             if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
-                return """<form method="post" style="max-width:420px;margin:4rem auto;font-family:system-ui" autocomplete="off">
-                            <h3 style="color:#b91c1c">Onjuist wachtwoord</h3>
-                            <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
-                            <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
-                            <input class="input" type="password" name="password" required
-                                   autocomplete="new-password" autocapitalize="off" spellcheck="false">
-                            <button class="btn" style="margin-top:.6rem">Opnieuw</button>
-                          </form>"""
+                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
             session[f"allow_{token}"] = True
 
     items = c.execute("SELECT id,name,path,size_bytes FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
@@ -916,7 +989,7 @@ def package_page(token):
         PACKAGE_HTML,
         token=token, title=pkg["title"],
         items=its, share_link=share_link, total_human=total_h,
-        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV
+        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
 
 @app.route("/file/<token>/<int:item_id>")
@@ -951,7 +1024,7 @@ def stream_file(token, item_id):
 @app.route("/zip/<token>")
 def stream_zip(token):
     c = db()
-    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
+    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token)).fetchone()
     if not pkg: c.close(); abort(404)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
@@ -985,12 +1058,12 @@ def stream_zip(token):
             def read(self, n=-1):
                 if self._done and not self._buf: return b""
                 if n is None or n<0:
-                    chunks=[self._buf]; self._buf=b""
-                    for ch in self._it: chunks.append(ch)
-                    self._done=True; return b"".join(chunks)
+                  chunks=[self._buf]; self._buf=b""
+                  for ch in self._it: chunks.append(ch)
+                  self._done=True; return b"".join(chunks)
                 while len(self._buf)<n and not self._done:
-                    try: self._buf += next(self._it)
-                    except StopIteration: self._done=True; break
+                  try: self._buf += next(self._it)
+                  except StopIteration: self._done=True; break
                 out,self._buf=self._buf[:n],self._buf[n:]; return out
 
         def add_compat(arcname, gen_factory):
@@ -1045,7 +1118,7 @@ def contact():
         return render_template_string(
             CONTACT_HTML, error=None,
             form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
-            base_css=BASE_CSS, bg=BG_DIV
+            base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
         )
     login_email   = (request.form.get("login_email") or "").strip()
     storage_tb_raw= (request.form.get("storage_tb") or "").strip()
@@ -1064,7 +1137,7 @@ def contact():
         return render_template_string(
             CONTACT_HTML, error=" ".join(errors),
             form={"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),"company":company,"phone":phone},
-            base_css=BASE_CSS, bg=BG_DIV
+            base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
         )
 
     subject = "Nieuwe aanvraag transfer-oplossing"
@@ -1085,13 +1158,13 @@ def contact():
             msg.set_content(body)
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
                 s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-            return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV)
+            return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
     except Exception:
         pass
 
     from urllib.parse import quote
     mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
-    return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV)
+    return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 # Healthcheck & Aliassen
 @app.route("/health-s3")
@@ -1110,6 +1183,5 @@ def stream_file_alias(token, item_id): return redirect(url_for("stream_file", to
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
 if __name__ == "__main__":
-    # Laat Render of andere hosts PORT zetten; lokaal 5000
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=True)
