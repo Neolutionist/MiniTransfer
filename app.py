@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter =========
+# ========= MiniTransfer – Olde Hanter (met abonnementbeheer) =========
 # - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
-# - Upload (files/folders) naar B2 (S3)
-# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel) — MET juiste ETags
-# - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
-# - Onderwerp per pakket
-# - iOS/iPhone: map-upload verborgen/disabled
-# - Favicon (OH) als SVG + .ico fallback
-# - Werkende voortgangsbalken (upload & download)
-# - Prijzen: 0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30 (p/mnd)
-# - Contact: subdomein-preview, wachtwoord-veld, PayPal abonnement-knop (per opslagvariant)
-# - Facturatie-tekst; livegang 1–2 dagen (langer bij maatwerk)
-# - CTA NIET op uploadpagina
-# - “Kopieer” toont inline “Gekopieerd!” i.p.v. alert
+# - Upload (files/folders) naar B2 (S3) met voortgang
+# - Downloadpagina met zip-stream en precheck
+# - Contact/aanvraag met PayPal abonnement-knop (per opslagvariant)
+# - “Meer opslag” verbergt PayPal en toont toelichting; standaard “Maak een keuze…”
+# - Overal “wachtwoord” (term “wens-wachtwoord” verwijderd)
+# - Abonnementbeheer: opslaan subscriptionID, opzeggen, plan wijzigen (revise)
 # ====================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging
+import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,7 +21,6 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-# check_password_hash wordt gebruikt voor pakket-wachtwoord (niet voor login)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -54,16 +47,21 @@ SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
 # PayPal Subscriptions
-# - Client ID overridable via env (PAYPAL_CLIENT_ID)
-# - Plannen alvast ingevuld met jouw IDs; env vars overriden indien aanwezig
-PAYPAL_CLIENT_ID = os.environ.get(
-    "PAYPAL_CLIENT_ID",
-    "Ab8h88fW-hPlMAkILiefRCyXTf08ykTwPm77SSv2Oaj31rR2sicDd1WUufNhWJqy6Y7oaa_bpPlBDxta"
-)
+PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID", "Ab8h88fW-hPlMAkILiefRCyXTf08ykTwPm77SSv2Oaj31rR2sicDd1WUufNhWJqy6Y7oaa_bpPlBDxta")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")  # <-- voeg toe in je env
+PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
+
 PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
 PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
 PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
 PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
+
+PLAN_MAP = {
+    "0.5": PAYPAL_PLAN_0_5,
+    "1":   PAYPAL_PLAN_1,
+    "2":   PAYPAL_PLAN_2,
+    "5":   PAYPAL_PLAN_5,
+}
 
 s3 = boto3.client(
     "s3",
@@ -103,6 +101,17 @@ def init_db():
         name TEXT NOT NULL,
         path TEXT NOT NULL,
         size_bytes INTEGER NOT NULL
+      )
+    """)
+    # Abonnementen
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        login_email TEXT NOT NULL,
+        plan_value TEXT NOT NULL,            -- '0.5','1','2','5'
+        subscription_id TEXT UNIQUE NOT NULL,
+        status TEXT DEFAULT 'ACTIVE',
+        created_at TEXT NOT NULL
       )
     """)
     c.commit(); c.close()
@@ -279,6 +288,7 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+.nav a{color:var(--brand);text-decoration:none;font-weight:700}
 </style></head><body>
 {{ bg|safe }}
 
@@ -286,6 +296,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
+
+  <div class="nav" style="margin-bottom:1rem">
+    <a href="{{ url_for('contact') }}">Aanvraag / Abonnement starten</a> •
+    <a href="{{ url_for('billing_page') }}">Beheer abonnement</a>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
@@ -401,7 +416,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j.token;
   }
 
-  // Single PUT (<5MB)
+  // XHR helper
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
@@ -412,7 +427,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : null);
+          resolve(etag ? etag.replaceAll('\"','') : None);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -429,7 +444,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j; // {key, url}
+    return j;
   }
   async function singleComplete(token, key, name, path){
     const r = await fetch("{{ url_for('put_complete') }}", {
@@ -451,7 +466,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  // Multipart (≥5MB)
+  // Multipart
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -459,7 +474,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
-    return j; // {key, uploadId}
+    return j;
   }
   async function signPart(key, uploadId, partNumber){
     const r = await fetch("{{ url_for('mpu_sign') }}", {
@@ -588,11 +603,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
       });
 
-      setTimeout(()=>{
-        upbar.style.display = 'none';
-        uptext.style.display = 'none';
-        displayPct = 0; targetPct = 0; animId = null;
-      }, 800);
+      setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
 
     }catch(err){
       alert(err.message || 'Onbekende fout');
@@ -826,7 +837,6 @@ const moreNote = document.getElementById('more-note');
 
 function currentPlanId(){
   const v = storageSelect?.value || "";
-  // Geen PayPal bij geen keuze of 'more'
   if (!v || v === "more") return "";
   return PLAN_MAP[v] || "";
 }
@@ -835,16 +845,13 @@ function toggleNotesAndPaypalVisibility() {
   const v = storageSelect?.value || "";
   const btnEl = document.querySelector(paypalContainerSel);
 
-  // Toon notitie bij 'Meer opslag'
   if (moreNote) moreNote.style.display = (v === "more") ? 'block' : 'none';
 
-  // Verberg PayPal geheel als er geen geldige plan is, geen keuze, of 'more'
   const hasPlan = !!currentPlanId();
   if (btnEl) {
     btnEl.style.display = hasPlan ? 'block' : 'none';
-    if (!hasPlan) btnEl.innerHTML = ""; // wis oude knop
+    if (!hasPlan) btnEl.innerHTML = "";
   }
-  // Hint: alleen tonen indien er wel een concrete keuze is zonder plan (fallback)
   if (paypalHint) {
     if (!v || v === "more") {
       paypalHint.style.display = 'none';
@@ -862,7 +869,6 @@ function renderPaypal(){
   const el = document.querySelector(container);
   if(!window.paypal || !el || !planId){ return; }
 
-  // Clear eerdere knop
   el.innerHTML = "";
 
   paypal.Buttons({
@@ -870,8 +876,20 @@ function renderPaypal(){
     createSubscription: function(data, actions) {
       return actions.subscription.create({ plan_id: planId });
     },
-    onApprove: function(data, actions) {
-      alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+    onApprove: async function(data, actions) {
+      try{
+        await fetch("{{ url_for('paypal_store_subscription') }}", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            subscription_id: data.subscriptionID,
+            plan_value: (document.getElementById('storage_tb')?.value || "")
+          })
+        });
+        alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+      }catch(e){
+        alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
+      }
     }
   }).render(container);
 }
@@ -913,7 +931,77 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-# -------------- Helpers / routes --------------
+# ---- Beheer abonnement (UI) ----
+BILLING_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap">
+  <div class="topbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h1 style="color:var(--brand)">Beheer abonnement</h1>
+    <div>Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
+
+  <div class="card">
+    {% if sub %}
+      <div class="small" style="margin-bottom:.8rem">
+        <div><strong>Subscription ID:</strong> <code id="subid">{{ sub['subscription_id'] }}</code></div>
+        <div><strong>Status:</strong> <span id="status">{{ sub['status'] }}</span></div>
+        <div><strong>Huidig plan:</strong> <span id="plan">{{ sub['plan_value'] }}</span> TB</div>
+      </div>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:end">
+        <div>
+          <label for="newPlan">Nieuw plan</label>
+          <select id="newPlan" class="input" style="min-width:180px">
+            <option value="0.5">0,5 TB</option>
+            <option value="1">1 TB</option>
+            <option value="2">2 TB</option>
+            <option value="5">5 TB</option>
+          </select>
+        </div>
+        <button class="btn" id="btnChange">Wijzig plan</button>
+        <button class="btn secondary" id="btnCancel">Opzeggen</button>
+      </div>
+    {% else %}
+      <p class="small">Geen actief abonnement gevonden voor {{ user }}. Start een abonnement via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.</p>
+    {% endif %}
+  </div>
+
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
+{% if sub %}
+<script>
+async function api(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ throw new Error(j.error || ('HTTP '+r.status)); }
+  return j;
+}
+document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid').textContent.trim();
+  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
+  try{
+    await api("{{ url_for('billing_cancel') }}", {subscription_id: id});
+    alert('Opgezegd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+document.getElementById('btnChange')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid').textContent.trim();
+  const val = document.getElementById('newPlan').value;
+  try{
+    await api("{{ url_for('billing_change') }}", {subscription_id: id, new_plan_value: val});
+    alert('Plan gewijzigd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+</script>
+{% endif %}
+</body></html>
+"""
+
+# -------------- Helpers --------------
 def logged_in() -> bool:
     return session.get("authed", False)
 
@@ -935,6 +1023,18 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
+def paypal_access_token():
+    if not PAYPAL_CLIENT_ID or not PAYPAL_CLIENT_SECRET:
+        raise RuntimeError("PAYPAL_CLIENT_ID/SECRET ontbreekt")
+    req = urllib.request.Request(PAYPAL_API_BASE + "/v1/oauth2/token", method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    creds = f"{PAYPAL_CLIENT_ID}:{PAYPAL_CLIENT_SECRET}".encode()
+    req.add_header("Authorization", "Basic " + base64.b64encode(creds).decode())
+    data = "grant_type=client_credentials".encode()
+    with urllib.request.urlopen(req, data=data, timeout=20) as resp:
+        j = json.loads(resp.read().decode())
+        return j["access_token"]
+
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
     host = (request.host or "").split(":")[0].lower()
@@ -942,6 +1042,7 @@ def get_base_host():
         return "downloadlink.nl"
     return os.environ.get("BASE_HOST", "downloadlink.nl")
 
+# -------------- Routes (core) --------------
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
@@ -962,7 +1063,7 @@ def login():
 def logout():
     session.clear(); return redirect(url_for("login"))
 
-# API: packages + uploads
+# -------------- Upload API --------------
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in(): abort(401)
@@ -980,7 +1081,6 @@ def package_init():
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
 
-# Single PUT
 @app.route("/put-init", methods=["POST"])
 def put_init():
     if not logged_in(): abort(401)
@@ -1021,7 +1121,6 @@ def put_complete():
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
-# Multipart
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
     if not logged_in(): abort(401)
@@ -1094,7 +1193,7 @@ def mpu_complete():
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
 
-# Download pages/streams
+# -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
@@ -1196,7 +1295,7 @@ def stream_zip(token):
         resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
 
     try:
-        z = ZipStream()  # compat modus
+        z = ZipStream()
 
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
@@ -1252,16 +1351,14 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
-# Contact: validatie + mail
+# -------------- Contact / Mail --------------
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
 
 def _send_contact_email(form):
-    # storage_tb kan float (0.5,1,2,5) zijn of de string "more"
     storage_val = form.get("storage_tb")
-
     if storage_val in PRICE_LABEL:
         price_label = PRICE_LABEL[storage_val]  # type: ignore[index]
         storage_line = f"- Gewenste opslag: {storage_val} TB (indicatie {price_label})\n"
@@ -1313,7 +1410,6 @@ def contact():
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
 
-    # Opslag: sta 'more' toe (op aanvraag), lege waarde afkeuren
     is_more = (storage_tb_raw.lower() == "more")
     storage_tb = None
     if not storage_tb_raw:
@@ -1345,7 +1441,7 @@ def contact():
             paypal_plan_5=PAYPAL_PLAN_5
         )
 
-    # Slug voor voorbeeld subdomein (zelfde logica als in JS)
+    # Slug voor voorbeeld subdomein
     def slugify_py(s: str) -> str:
         import unicodedata, re as _re
         s = unicodedata.normalize('NFKD', s)
@@ -1399,6 +1495,75 @@ def contact():
     from urllib.parse import quote
     mailto = f"mailto:{MAIL_TO}?subject={quote('Nieuwe aanvraag transfer-oplossing')}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
+
+# -------------- Abonnementbeheer (server) --------------
+@app.route("/billing/store", methods=["POST"])
+def paypal_store_subscription():
+    # wordt aangeroepen door PayPal onApprove javascript
+    data = request.get_json(force=True, silent=True) or {}
+    sub_id = (data.get("subscription_id") or "").strip()
+    plan_value = (data.get("plan_value") or "").strip()
+    if not sub_id or plan_value not in {"0.5","1","2","5"}:
+        return jsonify(ok=False, error="invalid_input"), 400
+    c = db()
+    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at)
+                 VALUES(?,?,?,?,?)""",
+              (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat()))
+    c.commit(); c.close()
+    return jsonify(ok=True)
+
+@app.route("/billing/cancel", methods=["POST"])
+def billing_cancel():
+    if not logged_in(): abort(401)
+    sub_id = (request.json or {}).get("subscription_id") or ""
+    if not sub_id: return jsonify(ok=False, error="missing_id"), 400
+    try:
+        token = paypal_access_token()
+        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"reason":"Cancelled by customer via portal"}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20):  # 204 expected
+            pass
+        c = db(); c.execute("UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?", (sub_id,)); c.commit(); c.close()
+        return jsonify(ok=True)
+    except Exception as e:
+        log.exception("PayPal cancel failed")
+        return jsonify(ok=False, error="paypal_cancel_failed"), 502
+
+@app.route("/billing/change", methods=["POST"])
+def billing_change():
+    if not logged_in(): abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    sub_id = (data.get("subscription_id") or "").strip()
+    new_plan_value = (data.get("new_plan_value") or "").strip()
+    new_plan_id = PLAN_MAP.get(new_plan_value)
+    if not sub_id or not new_plan_id:
+        return jsonify(ok=False, error="invalid_input"), 400
+    try:
+        token = paypal_access_token()
+        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"plan_id": new_plan_id}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20) as resp:
+            _ = resp.read()
+        c = db(); c.execute("UPDATE subscriptions SET plan_value=? WHERE subscription_id=?", (new_plan_value, sub_id)); c.commit(); c.close()
+        return jsonify(ok=True)
+    except Exception:
+        log.exception("PayPal revise failed")
+        return jsonify(ok=False, error="paypal_revise_failed"), 502
+
+# -------------- Abonnementbeheer (UI) --------------
+@app.route("/billing")
+def billing_page():
+    if not logged_in(): return redirect(url_for("login"))
+    c = db()
+    sub = c.execute("SELECT * FROM subscriptions WHERE login_email=? ORDER BY id DESC LIMIT 1", (AUTH_EMAIL,)).fetchone()
+    c.close()
+    return render_template_string(
+        BILLING_HTML, sub=sub, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, user=session.get("user")
+    )
 
 # Healthcheck & Aliassen
 @app.route("/health-s3")
