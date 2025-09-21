@@ -6,10 +6,12 @@
 # - Upload (files/folders) naar B2 (S3)
 # - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel)
 # - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
-# - Onderwerp per pakket (voorheen “Pakket”)
+# - Onderwerp per pakket
 # - iOS/iPhone: map-upload verborgen/disabled
 # - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
 # - Favicon (OH) + modern wachtwoordprompt voor pakketten
+# - Werkende voortgangsbalken (upload & download)
+# - Aangepaste prijzen voor 0,5 / 1 / 2 / 5 TB
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -58,7 +60,7 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-# Simpele secret voor sessies (mag zo blijven — geen extra env vereist):
+# Simpele secret voor sessies (geen extra env vereist):
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
 logging.basicConfig(level=logging.INFO)
@@ -175,6 +177,15 @@ input[type=file]::file-selector-button{
   background-size: 24px 24px;
   animation: stripes 1s linear infinite;
   mix-blend-mode: overlay;
+}
+/* Indeterminate variant voor onbekende lengte (download zip) */
+.progress.indet > i{
+  width:40%;
+  animation: indet-move 1.2s linear infinite;
+}
+@keyframes indet-move{
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
@@ -358,7 +369,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const p = Math.max(0, Math.min(100, displayPct));
     upbarFill.style.width = p + "%";
     uptext.textContent = Math.round(p) + "%";
-    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress);
+    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
   }
 
   function setProgress(pct, forceText){
@@ -383,6 +394,27 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
 
   // Single PUT (<5MB)
+  function putWithProgress(url, blob, updateCb, label){
+    return new Promise((resolve,reject)=>{
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url, true);
+      xhr.timeout = 900000; // 15 min per (deel)upload
+      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
+      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
+      xhr.onload = ()=>{
+        if(xhr.status>=200 && xhr.status<300){
+          const etag = xhr.getResponseHeader("ETag");
+          resolve(etag ? etag.replaceAll('\"','') : null);
+        } else {
+          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
+        }
+      };
+      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
+      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
+      xhr.send(blob);
+    });
+  }
+
   async function singleInit(token, filename, type){
     const r = await fetch("{{ url_for('put_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -400,6 +432,18 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
     return j;
+  }
+
+  async function uploadSingle(token, file, relpath, totalTracker){
+    const init = await singleInit(token, file.name, file.type);
+    await putWithProgress(init.url, file, (loaded, total, known)=>{
+      const pctFile = known && total ? (loaded/total) : (loaded / file.size);
+      const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
+      const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
+      setProgress(pctTotal);
+    }, 'PUT object');
+    await singleComplete(token, init.key, file.name, relpath);
+    totalTracker.currentBase += file.size;
   }
 
   // Multipart (≥5MB)
@@ -431,41 +475,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
 
-  function putWithProgress(url, blob, updateCb, label){
-    return new Promise((resolve,reject)=>{
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url, true);
-      xhr.timeout = 900000; // 15 min per (deel)upload
-      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
-      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
-      xhr.onload = ()=>{
-        if(xhr.status>=200 && xhr.status<300){
-          const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : null);
-        } else {
-          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
-        }
-      };
-      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
-      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
-      xhr.send(blob);
-    });
-  }
-
-  async function uploadSingle(token, file, relpath, totalTracker){
-    const init = await singleInit(token, file.name, file.type);
-    await putWithProgress(init.url, file, (loaded)=>{
-      const total = totalTracker.currentBase + loaded;
-      const denom = totalTracker.totalBytes || 1;
-      const pct = total / denom * 100;
-      setProgress(pct);
-    }, 'PUT object');
-    await singleComplete(token, init.key, file.name, relpath);
-    totalTracker.currentBase += file.size;
-  }
-
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 16 * 1024 * 1024; // 16 MiB
+    const CHUNK = 16 * 1024 * 1024;
     const CONCURRENCY = 4;
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
@@ -476,8 +487,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     function refreshTotal(){
       const uploadedThis = perPart.reduce((a,b)=>a+b,0);
       const total = totalTracker.currentBase + uploadedThis;
-      const denom = totalTracker.totalBytes || 1;
-      const pct = total / denom * 100;
+      const pct = (total / totalTracker.totalBytes) * 100;
       setProgress(pct);
     }
 
@@ -491,9 +501,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; refreshTotal(); }, `part ${partNumber}`);
+          await putWithProgress(url, blob, (loaded, total, known)=>{
+            perPart[idx] = Math.min(loaded, blob.size);
+            refreshTotal();
+          }, `part ${partNumber}`);
           perPart[idx] = blob.size; refreshTotal();
-          return { PartNumber: partNumber, ETag: etag };
+          return { PartNumber: partNumber, ETag: null };
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
           const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
@@ -548,9 +561,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           await uploadMultipart(token, f, rel, tracker);
         }
       }
+
+      // uploads klaar -> afronden UI
       if (animId){ cancelAnimationFrame(animId); animId = null; }
       setProgress(100);
-      upbarFill.style.width = '100%';   // <- extra
+      upbarFill.style.width = '100%';
       uptext.textContent = "Klaar";
 
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
@@ -566,15 +581,14 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
             </button>
           </div>
         </div>`;
-           // laat de gebruiker de link zien, verberg daarna de progress UI
-setTimeout(()=>{
-  upbar.style.display = 'none';
-  uptext.style.display = 'none';
-  // reset voor volgende run
-  displayPct = 0; 
-  targetPct  = 0; 
-  animId = null;
-}, 800);
+
+      // verberg progress UI na korte delay + reset state
+      setTimeout(()=>{
+        upbar.style.display = 'none';
+        uptext.style.display = 'none';
+        displayPct = 0; targetPct = 0; animId = null;
+      }, 800);
+
     }catch(err){
       alert(err.message || 'Onbekende fout');
     }
@@ -657,6 +671,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   async function streamToBlob(url, fallbackName){
     bar.style.display='block'; txt.style.display='block';
     fill.style.width='0%'; txt.textContent='Starten…';
+
     const res = await fetch(url);
     if(!res.ok){
       const xerr = res.headers.get('X-Error') || '';
@@ -667,18 +682,28 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
     const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
 
+    if (!total){ bar.classList.add('indet'); } else { bar.classList.remove('indet'); }
+
     const reader = res.body.getReader(); const chunks=[]; let received=0;
     while(true){
       const {done,value} = await reader.read();
       if(done) break;
       chunks.push(value); received += value.length;
-      if(total){ const p=Math.round(received/total*100); fill.style.width=p+'%'; txt.textContent=p+'%'; }
-      else { txt.textContent = (received/1024/1024).toFixed(1)+' MB…'; }
+      if(total){
+        const p=Math.round(received/total*100);
+        fill.style.width=p+'%'; txt.textContent=p+'%';
+      }else{
+        txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
+      }
     }
+    bar.classList.remove('indet');
     fill.style.width='100%'; txt.textContent='Klaar';
+
     const blob = new Blob(chunks);
     const u = URL.createObjectURL(blob); const a = document.createElement('a');
     a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+
+    setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
   }
 
   {% if items|length == 1 %}
@@ -711,10 +736,10 @@ CONTACT_HTML = """
         <label for="storage_tb">Gewenste opslaggrootte</label>
         <select id="storage_tb" class="input" name="storage_tb" required>
           <option value="">Maak een keuze…</option>
-          <option value="0.5" {% if form.storage_tb=='0.5' %}selected{% endif %}>0,5 TB — €6/maand</option>
-          <option value="1"   {% if (form.storage_tb or '1')=='1' %}selected{% endif %}>1 TB — €12/maand</option>
-          <option value="2"   {% if form.storage_tb=='2' %}selected{% endif %}>2 TB — €24/maand</option>
-          <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €60/maand</option>
+          <option value="0.5" {% if form.storage_tb=='0.5' %}selected{% endif %}>0,5 TB — €12/maand</option>
+          <option value="1"   {% if (form.storage_tb or '1')=='1' %}selected{% endif %}>1 TB — €15/maand</option>
+          <option value="2"   {% if form.storage_tb=='2' %}selected{% endif %}>2 TB — €20/maand</option>
+          <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €30/maand</option>
         </select>
       </div>
     </div>
@@ -911,11 +936,11 @@ def mpu_complete():
         # HEAD kan bij B2 soms even haperen; probeer, anders val terug op client_size
         size = 0
         try:
-            head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-            size = int(head.get("ContentLength", 0))
+          head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+          size = int(head.get("ContentLength", 0))
         except Exception:
-            if client_size>0: size = client_size
-            else: raise
+          if client_size>0: size = client_size
+          else: raise
 
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
@@ -1122,7 +1147,8 @@ def contact():
         )
 
     subject = "Nieuwe aanvraag transfer-oplossing"
-    price_map = {0.5:"€6/maand", 1.0:"€12/maand", 2.0:"€24/maand", 5.0:"€60/maand"}
+    # AANGEPASTE PRIJZEN
+    price_map = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
     price    = price_map.get(storage_tb, "op aanvraag")
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
