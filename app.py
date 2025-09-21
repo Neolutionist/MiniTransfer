@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (met abonnementbeheer) =========
+# ========= MiniTransfer – Olde Hanter (met abonnementbeheer + PayPal webhook) =========
 # - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
 # - Upload (files/folders) naar B2 (S3) met voortgang
 # - Downloadpagina met zip-stream en precheck
-# - Contact/aanvraag met PayPal abonnement-knop (per opslagvariant)
-# - “Meer opslag” verbergt PayPal en toont toelichting; standaard “Maak een keuze…”
-# - Overal “wachtwoord” (term “wens-wachtwoord” verwijderd)
+# - Contact/aanvraag met PayPal abonnement-knop (pas zichtbaar bij volledig geldig formulier)
 # - Abonnementbeheer: opslaan subscriptionID, opzeggen, plan wijzigen (revise)
-# ====================================================================
+# - Webhook: verifieert PayPal-events en mailt bij activatie/annulering/suspense/reactivatie en bij elke capture
+# - Domeinen: ondersteunt minitransfer.onrender.com én downloadlink.nl in get_base_host()
+# ======================================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
 from email.message import EmailMessage
@@ -21,6 +21,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
+ the
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -47,8 +48,8 @@ SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
 # PayPal Subscriptions
-PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID", "Ab8h88fW-hPlMAkILiefRCyXTf08ykTwPm77SSv2Oaj31rR2sicDd1WUufNhWJqy6Y7oaa_bpPlBDxta")
-PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")  # <-- voeg toe in je env
+PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
 PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
 
 PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
@@ -56,12 +57,15 @@ PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI
 PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
 PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
 
+PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID")  # vanuit Developer Dashboard → My Apps & Credentials → jouw app → Webhooks
+
 PLAN_MAP = {
     "0.5": PAYPAL_PLAN_0_5,
     "1":   PAYPAL_PLAN_1,
     "2":   PAYPAL_PLAN_2,
     "5":   PAYPAL_PLAN_5,
 }
+REVERSE_PLAN_MAP = {v: k for k, v in PLAN_MAP.items() if v}
 
 s3 = boto3.client(
     "s3",
@@ -103,12 +107,11 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Abonnementen
     c.execute("""
       CREATE TABLE IF NOT EXISTS subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         login_email TEXT NOT NULL,
-        plan_value TEXT NOT NULL,            -- '0.5','1','2','5'
+        plan_value TEXT NOT NULL,
         subscription_id TEXT UNIQUE NOT NULL,
         status TEXT DEFAULT 'ACTIVE',
         created_at TEXT NOT NULL
@@ -209,10 +212,7 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
-/* Responsive helper om 2 kolommen naar 1 te schakelen op mobiel en verspringing te voorkomen */
-@media (max-width: 680px){
-  .cols-2{ grid-template-columns: 1fr !important; }
-}
+@media (max-width: 680px){ .cols-2{ grid-template-columns: 1fr !important; } }
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
@@ -298,9 +298,10 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-<div class="nav" style="margin-bottom:1rem">
-  <a href="{{ url_for('billing_page') }}">Beheer abonnement</a>
-</div>
+  <!-- Aanvraag-link verwijderd -->
+  <div class="nav" style="margin-bottom:1rem">
+    <a href="{{ url_for('billing_page') }}">Beheer abonnement</a>
+  </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
@@ -348,7 +349,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-  // iOS: map upload niet ondersteunen
   function isIOS(){
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     const iOSUA = /iPad|iPhone|iPod/.test(ua);
@@ -360,7 +360,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const lblFolder = document.getElementById('lblFolder');
   if(isIOS()){ modeFolder.disabled = true; lblFolder.style.display='none'; modeFiles.checked = true; }
 
-  // Toggle + direct picker
   const modeRadios = document.querySelectorAll('input[name="upmode"]');
   const fileRow = document.getElementById('fileRow');
   const folderRow = document.getElementById('folderRow');
@@ -378,7 +377,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
   applyMode(false);
 
-  // Helpers + vloeiende progress
   const resBox=document.getElementById('result');
   const upbar=document.getElementById('upbar');
   const upbarFill=upbar.querySelector('i');
@@ -415,7 +413,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j.token;
   }
 
-  // XHR helper
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
@@ -426,7 +423,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : None);
+          resolve(etag ? etag.replaceAll('\"','') : null);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -465,7 +462,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  // Multipart
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -787,8 +783,8 @@ CONTACT_HTML = """
   <!-- Betaal alvast via PayPal (abonnement) -->
   <div style="margin-top:1.5rem">
     <h3>Direct starten met een abonnement via PayPal</h3>
-    <p class="small">De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze.</p>
-    <div id="paypal-button-container" style="max-width:360px"></div>
+    <p class="small">De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze, zodra alle velden ingevuld zijn.</p>
+    <div id="paypal-button-container" style="max-width:360px; display:none"></div>
     <div id="paypal-hint" class="small" style="color:#991b1b; display:none; margin-top:.5rem">
       Geen PayPal-plan geconfigureerd voor deze opslaggrootte. Kies een andere grootte of rond eerst je aanvraag af; we sturen dan een incasso-link per e-mail na livegang.
     </div>
@@ -801,11 +797,11 @@ CONTACT_HTML = """
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
 
 <script>
-/* --------- Helpers --------- */
+// Slugify bedrijfsnaam naar subdomein + voorbeeldlink
 function slugify(s){
   return (s||"")
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
     .replace(/&/g,' en ')
     .replace(/[^a-z0-9]+/g,'-')
     .replace(/^-+|-+$/g,'')
@@ -822,14 +818,13 @@ function updatePreview(){
 company?.addEventListener('input', updatePreview);
 updatePreview();
 
-/* --------- PayPal dynamisch renderen o.b.v. complete form + plan --------- */
+// PayPal: dynamische plan selectie + alleen tonen als formulier compleet is
 const PLAN_MAP = {
   "0.5": "{{ paypal_plan_0_5 }}",
   "1":   "{{ paypal_plan_1 }}",
   "2":   "{{ paypal_plan_2 }}",
   "5":   "{{ paypal_plan_5 }}"
 };
-
 const formEl           = document.getElementById('contactForm');
 const storageSelect    = document.getElementById('storage_tb');
 const loginEmailInput  = document.getElementById('login_email');
@@ -838,81 +833,49 @@ const phoneInput       = document.getElementById('phone');
 const passwordInput    = document.getElementById('desired_password');
 const moreNote         = document.getElementById('more-note');
 const paypalHint       = document.getElementById('paypal-hint');
-
 const PAYPAL_CONTAINER_SEL = '#paypal-button-container';
-let lastRenderedPlanId = null;    // houd bij wat er gerenderd is
-let isRendered = false;           // staat van PayPal buttons
+
+let lastRenderedPlanId = null;
+let isRendered = false;
 
 function currentPlanId(){
   const v = storageSelect?.value || "";
   if (!v || v === "more") return "";
   return PLAN_MAP[v] || "";
 }
-
 function isContactFormComplete(){
-  // Gebruik native validatie en aanvullende checks
   const emailOk    = loginEmailInput?.checkValidity();
   const companyOk  = companyInput?.checkValidity();
   const phoneOk    = phoneInput?.checkValidity();
   const passOk     = (passwordInput?.value || "").length >= 6;
   const storageVal = storageSelect?.value || "";
-
-  // Niet "more", niet leeg
   const storageOk  = storageVal && storageVal !== "more";
-
   return !!(emailOk && companyOk && phoneOk && passOk && storageOk);
 }
-
 function setPaypalVisibility(visible){
   const el = document.querySelector(PAYPAL_CONTAINER_SEL);
   if (!el) return;
   el.style.display = visible ? 'block' : 'none';
-  if (!visible){
-    // Leegmaken om oude render te verwijderen en events te resetten
-    el.innerHTML = "";
-    isRendered = false;
-    lastRenderedPlanId = null;
-  }
+  if (!visible){ el.innerHTML = ""; isRendered = false; lastRenderedPlanId = null; }
 }
-
 function updateNotesAndHints(){
   const v = storageSelect?.value || "";
   if (moreNote) moreNote.style.display = (v === "more") ? 'block' : 'none';
-
   const planId = currentPlanId();
   const hasPlan = !!planId;
-
-  // Hint alleen tonen als er wél een opslaggrootte (niet "more") is gekozen,
-  // maar géén plan beschikbaar is
   if (paypalHint){
-    if (!v || v === "more"){
-      paypalHint.style.display = 'none';
-    } else {
-      paypalHint.style.display = hasPlan ? 'none' : 'block';
-    }
+    if (!v || v === "more"){ paypalHint.style.display = 'none'; }
+    else { paypalHint.style.display = hasPlan ? 'none' : 'block'; }
   }
 }
-
 function maybeRenderPaypal(){
   updateNotesAndHints();
-
   const container = document.querySelector(PAYPAL_CONTAINER_SEL);
   const planId = currentPlanId();
   const complete = isContactFormComplete();
   const canShow = !!(planId && complete && window.paypal && container);
-
-  if (!canShow){
-    setPaypalVisibility(false);
-    return;
-  }
-
-  // Als al gerenderd voor dezelfde planId, niets doen
-  if (isRendered && lastRenderedPlanId === planId){
-    setPaypalVisibility(true);
-    return;
-  }
-
-  // (Re)renderen
+  if (!canShow){ setPaypalVisibility(false); return; }
+  if (isRendered && lastRenderedPlanId === planId){ setPaypalVisibility(true); return; }
   container.innerHTML = "";
   try{
     paypal.Buttons({
@@ -936,30 +899,18 @@ function maybeRenderPaypal(){
         }
       }
     }).render(PAYPAL_CONTAINER_SEL);
-
     isRendered = true;
     lastRenderedPlanId = planId;
     setPaypalVisibility(true);
   }catch(e){
-    // Als render mislukt, verberg dan de container
     setPaypalVisibility(false);
   }
 }
-
 function onFormChange(){
-  // Elke wijziging aan inputs triggert her-evaluatie
   updateNotesAndHints();
-
-  // Als formulier (nog) niet compleet, verberg PayPal
-  if (!isContactFormComplete() || !currentPlanId()){
-    setPaypalVisibility(false);
-    return;
-  }
-  // Form is compleet + plan bestaat -> proberen (opnieuw) te renderen
+  if (!isContactFormComplete() || !currentPlanId()){ setPaypalVisibility(false); return; }
   maybeRenderPaypal();
 }
-
-// Luisteraars op alle relevante velden
 ['input','change'].forEach(evt => {
   loginEmailInput?.addEventListener(evt, onFormChange);
   companyInput?.addEventListener(evt, onFormChange);
@@ -967,17 +918,8 @@ function onFormChange(){
   passwordInput?.addEventListener(evt, onFormChange);
   storageSelect?.addEventListener(evt, onFormChange);
 });
-
-// Init bij pagina-laden en wanneer PayPal SDK geladen is
-if (typeof paypal !== "undefined"){
-  onFormChange();
-  maybeRenderPaypal();
-} else {
-  window.addEventListener('load', () => {
-    onFormChange();
-    maybeRenderPaypal();
-  });
-}
+if (typeof paypal !== "undefined"){ onFormChange(); maybeRenderPaypal(); }
+else { window.addEventListener('load', ()=>{ onFormChange(); maybeRenderPaypal(); }); }
 </script>
 </body></html>
 """
@@ -1009,7 +951,6 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-# ---- Beheer abonnement (UI) ----
 BILLING_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
@@ -1091,7 +1032,8 @@ def human(n: int) -> str:
         x /= 1024
 
 def send_email(to_addr: str, subject: str, body: str):
-    if not to_addr:
+    if not to_addr or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
+        log.warning("E-mail niet verstuurd: SMTP niet (volledig) geconfigureerd")
         return
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -1115,10 +1057,18 @@ def paypal_access_token():
 
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
+    """
+    Herkent zowel downloadlink.nl als minitransfer.onrender.com.
+    - Als de app via downloadlink.nl draait: gebruik downloadlink.nl
+    - Als de app via *.onrender.com draait: gebruik minitransfer.onrender.com
+    - Anders: BASE_HOST env of fallback 'minitransfer.onrender.com'
+    """
     host = (request.host or "").split(":")[0].lower()
     if host.endswith(".downloadlink.nl") or host == "downloadlink.nl":
         return "downloadlink.nl"
-    return os.environ.get("BASE_HOST", "downloadlink.nl")
+    if host.endswith(".onrender.com") or host == "minitransfer.onrender.com":
+        return "minitransfer.onrender.com"
+    return os.environ.get("BASE_HOST", "minitransfer.onrender.com")
 
 # -------------- Routes (core) --------------
 @app.route("/")
@@ -1443,7 +1393,7 @@ def _send_contact_email(form):
     else:
         storage_line = "- Gewenste opslag: meer opslag (op aanvraag)\n"
 
-    base_host = form.get("base_host") or "downloadlink.nl"
+    base_host = form.get("base_host") or get_base_host()
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
@@ -1471,11 +1421,11 @@ def contact():
             form={"login_email":"", "storage_tb":"", "company":"", "phone":"", "notes":""},
             base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
             base_host=base_host,
-            paypal_client_id=PAYPAL_CLIENT_ID,
-            paypal_plan_0_5=PAYPAL_PLAN_0_5,
-            paypal_plan_1=PAYPAL_PLAN_1,
-            paypal_plan_2=PAYPAL_PLAN_2,
-            paypal_plan_5=PAYPAL_PLAN_5
+            paypal_client_id=PAYPAL_CLIENT_ID or "",
+            paypal_plan_0_5=PAYPAL_PLAN_0_5 or "",
+            paypal_plan_1=PAYPAL_PLAN_1 or "",
+            paypal_plan_2=PAYPAL_PLAN_2 or "",
+            paypal_plan_5=PAYPAL_PLAN_5 or ""
         )
 
     login_email   = (request.form.get("login_email") or "").strip()
@@ -1512,11 +1462,11 @@ def contact():
             CONTACT_HTML, error=" ".join(errors),
             form=form_back, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
             base_host=base_host,
-            paypal_client_id=PAYPAL_CLIENT_ID,
-            paypal_plan_0_5=PAYPAL_PLAN_0_5,
-            paypal_plan_1=PAYPAL_PLAN_1,
-            paypal_plan_2=PAYPAL_PLAN_2,
-            paypal_plan_5=PAYPAL_PLAN_5
+            paypal_client_id=PAYPAL_CLIENT_ID or "",
+            paypal_plan_0_5=PAYPAL_PLAN_0_5 or "",
+            paypal_plan_1=PAYPAL_PLAN_1 or "",
+            paypal_plan_2=PAYPAL_PLAN_2 or "",
+            paypal_plan_5=PAYPAL_PLAN_5 or ""
         )
 
     # Slug voor voorbeeld subdomein
@@ -1548,7 +1498,7 @@ def contact():
                 CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
             )
     except Exception:
-        pass
+        log.exception("contact mail failed")
 
     # Fallback: mailto
     if storage_tb in PRICE_LABEL:
@@ -1588,6 +1538,20 @@ def paypal_store_subscription():
                  VALUES(?,?,?,?,?)""",
               (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat()))
     c.commit(); c.close()
+
+    # Stuur bevestigingsmail aan beheerder
+    try:
+        plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_value+" TB")
+        body = (
+            "Er is zojuist een PayPal-abonnement gestart (via onApprove):\n\n"
+            f"- Subscription ID: {sub_id}\n"
+            f"- Plan: {plan_label}\n"
+            f"- Inlog-e-mail (klant in systeem): {AUTH_EMAIL}\n"
+            f"- Datum/tijd (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        send_email(MAIL_TO, "Nieuwe PayPal-abonnement gestart", body)
+    except Exception:
+        log.exception("Kon bevestigingsmail niet versturen")
     return jsonify(ok=True)
 
 @app.route("/billing/cancel", methods=["POST"])
@@ -1601,11 +1565,11 @@ def billing_cancel():
         req.add_header("Authorization", f"Bearer {token}")
         req.add_header("Content-Type", "application/json")
         body = json.dumps({"reason":"Cancelled by customer via portal"}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20):  # 204 expected
+        with urllib.request.urlopen(req, data=body, timeout=20):
             pass
         c = db(); c.execute("UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?", (sub_id,)); c.commit(); c.close()
         return jsonify(ok=True)
-    except Exception as e:
+    except Exception:
         log.exception("PayPal cancel failed")
         return jsonify(ok=False, error="paypal_cancel_failed"), 502
 
@@ -1624,15 +1588,14 @@ def billing_change():
         req.add_header("Authorization", f"Bearer {token}")
         req.add_header("Content-Type", "application/json")
         body = json.dumps({"plan_id": new_plan_id}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20) as resp:
-            _ = resp.read()
+        with urllib.request.urlopen(req, data=body, timeout=20):
+            pass
         c = db(); c.execute("UPDATE subscriptions SET plan_value=? WHERE subscription_id=?", (new_plan_value, sub_id)); c.commit(); c.close()
         return jsonify(ok=True)
     except Exception:
         log.exception("PayPal revise failed")
         return jsonify(ok=False, error="paypal_revise_failed"), 502
 
-# -------------- Abonnementbeheer (UI) --------------
 @app.route("/billing")
 def billing_page():
     if not logged_in(): return redirect(url_for("login"))
@@ -1642,6 +1605,126 @@ def billing_page():
     return render_template_string(
         BILLING_HTML, sub=sub, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, user=session.get("user")
     )
+
+# -------------- PayPal Webhook --------------
+def paypal_verify_webhook_sig(headers, body_text: str) -> bool:
+    """Verifieer webhook via /v1/notifications/verify-webhook-signature"""
+    if not PAYPAL_WEBHOOK_ID:
+        log.error("PAYPAL_WEBHOOK_ID ontbreekt; webhook niet te verifiëren.")
+        return False
+    try:
+        transmission_id  = headers.get("Paypal-Transmission-Id") or headers.get("PayPal-Transmission-Id")
+        timestamp        = headers.get("Paypal-Transmission-Time") or headers.get("PayPal-Transmission-Time")
+        cert_url         = headers.get("Paypal-Cert-Url") or headers.get("PayPal-Cert-Url")
+        auth_algo        = headers.get("Paypal-Auth-Algo") or headers.get("PayPal-Auth-Algo")
+        transmission_sig = headers.get("Paypal-Transmission-Sig") or headers.get("PayPal-Transmission-Sig")
+        if not all([transmission_id, timestamp, cert_url, auth_algo, transmission_sig]):
+            log.warning("Webhook headers incompleet")
+            return False
+        token = paypal_access_token()
+        payload = json.dumps({
+            "auth_algo": auth_algo,
+            "cert_url": cert_url,
+            "transmission_id": transmission_id,
+            "transmission_sig": transmission_sig,
+            "transmission_time": timestamp,
+            "webhook_id": PAYPAL_WEBHOOK_ID,
+            "webhook_event": json.loads(body_text)
+        }).encode()
+        req = urllib.request.Request(PAYPAL_API_BASE + "/v1/notifications/verify-webhook-signature", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, data=payload, timeout=20) as resp:
+            v = json.loads(resp.read().decode())
+            return (v.get("verification_status","").upper() == "SUCCESS")
+    except Exception:
+        log.exception("paypal_verify_webhook_sig failed")
+        return False
+
+@app.route("/webhook/paypal", methods=["POST"])
+def paypal_webhook():
+    body_text = request.get_data(as_text=True) or ""
+    if not body_text:
+        return jsonify(ok=False, error="empty_body"), 400
+    if not paypal_verify_webhook_sig(request.headers, body_text):
+        return jsonify(ok=False, error="verification_failed"), 400
+
+    try:
+        event = json.loads(body_text)
+    except Exception:
+        return jsonify(ok=False, error="invalid_json"), 400
+
+    event_type = (event.get("event_type") or "").upper()
+    resource = event.get("resource") or {}
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    sub_id  = (resource.get("id") or "").strip() or (resource.get("billing_agreement_id") or "").strip()
+    plan_id = (resource.get("plan_id") or "").strip()
+    plan_value = REVERSE_PLAN_MAP.get(plan_id)
+
+    try:
+        if event_type == "BILLING.SUBSCRIPTION.ACTIVATED":
+            status = (resource.get("status") or "ACTIVE").upper()
+            if sub_id:
+                c = db()
+                c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at)
+                             VALUES(?,?,?,?,?)""",
+                          (AUTH_EMAIL, plan_value or (plan_id or ""), sub_id, status, datetime.now(timezone.utc).isoformat()))
+                c.commit(); c.close()
+            try:
+                plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_id or "(onbekend plan)")
+                body = (
+                    "PayPal abonnement geactiveerd:\n\n"
+                    f"- Event: {event_type}\n"
+                    f"- Subscription ID: {sub_id or '-'}\n"
+                    f"- Plan: {plan_label}\n"
+                    f"- Datum/tijd (UTC): {now_utc}\n"
+                )
+                send_email(MAIL_TO, "PayPal: abonnement geactiveerd", body)
+            except Exception:
+                log.exception("Webhook mail (activated) failed")
+
+        elif event_type in {"BILLING.SUBSCRIPTION.CANCELLED", "BILLING.SUBSCRIPTION.SUSPENDED", "BILLING.SUBSCRIPTION.RE-ACTIVATED"}:
+            new_status = "ACTIVE" if event_type.endswith("RE-ACTIVATED") else event_type.split(".")[-1]
+            if sub_id:
+                c = db()
+                c.execute("UPDATE subscriptions SET status=? WHERE subscription_id=?", (new_status, sub_id))
+                c.commit(); c.close()
+            try:
+                body = (
+                    "PayPal abonnementsstatus gewijzigd:\n\n"
+                    f"- Event: {event_type}\n"
+                    f"- Subscription ID: {sub_id or '-'}\n"
+                    f"- Plan ID: {plan_id or '-'}\n"
+                    f"- Datum/tijd (UTC): {now_utc}\n"
+                )
+                send_email(MAIL_TO, f"PayPal: {event_type}", body)
+            except Exception:
+                log.exception("Webhook mail (status change) failed")
+
+        elif event_type == "PAYMENT.CAPTURE.COMPLETED":
+            # Mail bij elke (terugkerende) betaling
+            amount = (resource.get("amount") or {}).get("value")
+            currency = (resource.get("amount") or {}).get("currency_code")
+            try:
+                body = (
+                    "PayPal betaling ontvangen:\n\n"
+                    f"- Event: {event_type}\n"
+                    f"- Bedrag: {amount or '-'} {currency or ''}\n"
+                    f"- Subscription (indien bekend): {sub_id or '-'}\n"
+                    f"- Datum/tijd (UTC): {now_utc}\n"
+                )
+                send_email(MAIL_TO, "PayPal: betaling ontvangen", body)
+            except Exception:
+                log.exception("Webhook mail (payment) failed")
+        else:
+            log.info("PayPal webhook: event %s genegeerd", event_type)
+
+    except Exception:
+        log.exception("Webhook processing error")
+        return jsonify(ok=False, error="processing_error"), 500
+
+    return jsonify(ok=True)
 
 # Healthcheck & Aliassen
 @app.route("/health-s3")
