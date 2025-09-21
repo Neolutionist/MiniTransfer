@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (vibrant bg + radio opens picker + force anim) =========
+# ========= MiniTransfer – Olde Hanter (CSS-only moving background) =========
 # - Login
-# - Upload (files/folders) naar Backblaze B2 (S3)
-# - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
-# - Downloadpagina met voortgang + "alles zippen" (zipstream compat)
+# - Upload (files/folders) naar B2 (S3)
+# - Single PUT < 5 MB | Multipart ≥ 5 MB
+# - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
 # - Titel (onderwerp) per pakket
 # - CTA sticky onderaan de card
-# - iOS/iPhone: map-upload uitgeschakeld en verborgen
-# - Klik op "Bestand(en)" of "Map" opent direct de systeempicker (upload start NIET automatisch)
-# - Animatie geforceerd aan; mini-toggle om te pauzeren/hervatten
-# ===============================================================================
+# - iOS/iPhone: map-upload verborgen/disabled
+# - Radio “Bestand(en)”/“Map” opent direct de systeempicker (upload start NIET automatisch)
+# ==========================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
@@ -37,12 +36,10 @@ DB_PATH = BASE_DIR / "files_multi.db"
 AUTH_EMAIL = "info@oldehanter.nl"
 AUTH_PASSWORD = "Hulsmaat"
 
-# Backblaze (S3 compat)
 S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
-# SMTP (optioneel)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -53,7 +50,6 @@ MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
-# S3 client
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
@@ -64,7 +60,6 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
-# Logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
 
@@ -106,10 +101,14 @@ def init_db():
 init_db()
 
 # -------------- CSS --------------
+# Pure CSS, auto-start, performant:
+# - vaste achtergrond met 3 zachte radial-gradients
+# - 2 animatielagen (::before en ::after) waarvan de posities en opacity langzaam variëren
+# - geen JS, geen controls, geen prefers-reduced-motion gate
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  --bg1:#5b91ff; --bg2:#a06bff; --bg3:#10d6a7; --bg4:#ffd166;
+  --c1:#84b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
   --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
   --brand:#003366; --brand-2:#0f4c98;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
@@ -118,28 +117,45 @@ BASE_CSS = """
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
 
-/* === Vibrant bewegende achtergrond (GPU-vriendelijk) === */
-.bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:linear-gradient(180deg,#eaf1ff 0%,#eef2f7 30%,#ebf6ff 100%)}
-.bg > i{position:absolute;will-change:transform,opacity;pointer-events:none}
-.bg .cone{
-  inset:-30vmax; border-radius:50%;
-  background:conic-gradient(from 0deg at 50% 50%, var(--bg1), var(--bg2), var(--bg3), var(--bg1));
-  filter:blur(80px); opacity:.20;
-  animation:coneSpin 36s linear infinite;
+/* ===== CSS-only Moving Gradient Background ===== */
+.bg{
+  position:fixed; inset:0; z-index:-2; overflow:hidden;
+  background:
+    radial-gradient(40vmax 40vmax at 15% 25%, var(--c1) 0%, transparent 60%),
+    radial-gradient(38vmax 38vmax at 85% 30%, var(--c2) 0%, transparent 60%),
+    radial-gradient(50vmax 50vmax at 50% 90%, var(--c3) 0%, transparent 60%),
+    linear-gradient(180deg,#edf3ff 0%, #eef4fb 100%);
+  filter: saturate(1.05);
 }
-.bg .blob{border-radius:50%; filter:blur(40px); opacity:.55}
-.bg .b1{width:60vmax;height:60vmax;left:-8vmax;top:-10vmax;background:radial-gradient(closest-side,var(--bg1),transparent 66%);animation:float1 14s ease-in-out infinite}
-.bg .b2{width:55vmax;height:55vmax;right:-12vmax;top:-6vmax;background:radial-gradient(closest-side,var(--bg2),transparent 66%);animation:float2 18s ease-in-out infinite}
-.bg .b3{width:60vmax;height:60vmax;left:6vmax;bottom:-18vmax;background:radial-gradient(closest-side,var(--bg3),transparent 66%);animation:float3 22s ease-in-out infinite}
-.bg .beam{
-  width:140vmax;height:16vmax;left:-20vmax;top:15%;
-  background:linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
-  transform:rotate(-8deg); filter:blur(18px); opacity:.35;
-  animation:beamDrift 12s ease-in-out infinite;
+.bg::before,
+.bg::after{
+  content:""; position:absolute; inset:-10%; pointer-events:none;
+  background:
+    radial-gradient(45vmax 45vmax at 20% 70%, rgba(255,255,255,.35), transparent 60%),
+    radial-gradient(50vmax 50vmax at 80% 20%, rgba(255,255,255,.25), transparent 60%),
+    radial-gradient(35vmax 35vmax at 60% 45%, rgba(255,255,255,.22), transparent 60%);
+  will-change: transform, opacity;
+  animation: driftA 26s ease-in-out infinite;
 }
-.bg .beam.bx{top:auto;bottom:12%;left:-16vmax;transform:rotate(6deg);opacity:.28;animation-duration:15s}
+.bg::after{
+  mix-blend-mode: overlay;
+  opacity:.55;
+  animation: driftB 30s ease-in-out infinite;
+}
+@keyframes driftA{
+  0%   {transform: translate3d(0,0,0) scale(1);   opacity:.6}
+  25%  {transform: translate3d(1.5%, -1.2%, 0) scale(1.02); opacity:.7}
+  50%  {transform: translate3d(0.6%, 1.4%, 0) scale(1.01);  opacity:.5}
+  75%  {transform: translate3d(-1.2%, 0.6%, 0) scale(1.03); opacity:.65}
+  100% {transform: translate3d(0,0,0) scale(1);   opacity:.6}
+}
+@keyframes driftB{
+  0%   {transform: translate3d(0,0,0) rotate(0deg) scale(1.02); opacity:.45}
+  50%  {transform: translate3d(-1.6%,1.2%,0) rotate(180deg) scale(1.04); opacity:.35}
+  100% {transform: translate3d(0,0,0) rotate(360deg) scale(1.02); opacity:.45}
+}
 
-/* Layout */
+/* Layout / UI */
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
@@ -195,60 +211,18 @@ input[type=file]::file-selector-button{
   padding:1rem; margin-top:1rem;
   background:linear-gradient(180deg,transparent,rgba(0,0,0,.03));
 }
-
-/* Animaties */
-@keyframes coneSpin{to{transform:rotate(360deg)}}
-@keyframes float1{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(4%,3%,0)}100%{transform:translate3d(0,0,0)}}
-@keyframes float2{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(-3%,5%,0)}100%{transform:translate3d(0,0,0)}}
-@keyframes float3{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(5%,-4%,0)}100%{transform:translate3d(0,0,0)}}
-@keyframes beamDrift{0%{transform:translateX(0) rotate(var(--r, -8deg))}50%{transform:translateX(4%) rotate(var(--r, -8deg))}100%{transform:translateX(0) rotate(var(--r, -8deg))}}
-
-/* Forceer animaties altijd aan; toggle pauzeert via .anim-paused */
-html.force-anim .bg .cone,
-html.force-anim .bg .blob,
-html.force-anim .bg .beam { animation-play-state: running !important; }
-html.anim-paused .bg .cone,
-html.anim-paused .bg .blob,
-html.anim-paused .bg .beam { animation-play-state: paused !important; }
 """
 
-# -------------- Templates --------------
-# NOTE: elk template voegt een klein script toe om animaties te forceren en een pause-toggle weer te geven.
-ANIM_TOGGLE_SNIPPET = """
-<script>
-  // Force animations ON by default
-  document.documentElement.classList.add('force-anim');
-  // Inject mini toggle (rechtsboven)
-  (function(){
-    if(document.getElementById('animToggle')) return;
-    const btn = document.createElement('button');
-    btn.id='animToggle';
-    btn.textContent='⏯︎';
-    Object.assign(btn.style,{
-      position:'fixed',right:'10px',top:'10px',zIndex:'9999',
-      background:'rgba(0,0,0,.35)',color:'#fff',border:'0',
-      borderRadius:'10px',padding:'6px 10px',cursor:'pointer',
-      backdropFilter:'blur(6px)'
-    });
-    btn.title='Pause/Resume background animation';
-    btn.onclick=function(){
-      document.documentElement.classList.toggle('anim-paused');
-    };
-    document.body.appendChild(btn);
-  })();
-</script>
-"""
+# -------------- Templates (met CSS-only BG) --------------
+BG_HTML = '<div class="bg" aria-hidden="true"></div>'
 
-LOGIN_HTML = """
+LOGIN_HTML = f"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+<title>Inloggen – Olde Hanter</title><style>{{{{ base_css }}}}</style></head><body>
+{BG_HTML}
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
-  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+  {{% if error %}}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{{{ error }}}}</div>{{% endif %}}
   <form method="post" autocomplete="on">
     <label for="email">E-mail</label>
     <input id="email" class="input" name="email" type="email" value="info@oldehanter.nl" autocomplete="username" required>
@@ -258,29 +232,25 @@ LOGIN_HTML = """
   </form>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
-INDEX_HTML = """
+INDEX_HTML = f"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Olde Hanter – Upload</title>
+<title>Bestanden delen met Olde Hanter</title>
 <style>
-{{ base_css }}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
-.logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+{{{{ base_css }}}}
+.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}}
+h1{{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}}
+.logout a{{color:var(--brand);text-decoration:none;font-weight:700}}
+.toggle{{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}}
 </style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+{BG_HTML}
 
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    <div class="logout">Ingelogd als {{{{ user }}}} • <a href="{{{{ url_for('logout') }}}}">Uitloggen</a></div>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
@@ -328,316 +298,246 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-  // --- iOS detectie: Map-upload uitschakelen en verbergen ---
+  // iOS: map upload niet ondersteunen
   function isIOS(){
-    const ua = navigator.userAgent || navigator.vendor || window.opera;
-    const iOSUA = /iPad|iPhone|iPod/.test(ua);
-    const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    return iOSUA || iPadOS;
+    const ua=navigator.userAgent||navigator.vendor||window.opera;
+    const iOSUA=/iPad|iPhone|iPod/.test(ua);
+    const iPadOS=(navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    return iOSUA||iPadOS;
   }
-  const form = document.getElementById('f');
-  const modeFiles = document.getElementById('modeFiles');
-  const modeFolder = document.getElementById('modeFolder');
-  const lblFiles = document.getElementById('lblFiles');
-  const lblFolder = document.getElementById('lblFolder');
+  const modeFiles=document.getElementById('modeFiles');
+  const modeFolder=document.getElementById('modeFolder');
+  const lblFolder=document.getElementById('lblFolder');
+  if(isIOS()){ modeFolder.disabled=true; lblFolder.style.display='none'; modeFiles.checked=true; }
 
-  if(isIOS()){
-    modeFolder.disabled = true;
-    lblFolder.style.display = 'none';
-    modeFiles.checked = true;
-  }
-
-  // Toggle bestand/map
-  const modeRadios = document.querySelectorAll('input[name="upmode"]');
-  const fileRow = document.getElementById('fileRow');
-  const folderRow = document.getElementById('folderRow');
-  const fileInput   = document.getElementById('fileInput');
-  const folderInput = document.getElementById('folderInput');
+  // Toggle + direct picker (upload start NIET)
+  const modeRadios=document.querySelectorAll('input[name="upmode"]');
+  const fileRow=document.getElementById('fileRow');
+  const folderRow=document.getElementById('folderRow');
+  const fileInput=document.getElementById('fileInput');
+  const folderInput=document.getElementById('folderInput');
 
   function applyMode(openPicker){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    fileRow.style.display  = (mode==='files')  ? '' : 'none';
-    folderRow.style.display = (mode==='folder') ? '' : 'none';
-    if(openPicker === true){
-      try{ (mode === 'files' ? fileInput : folderInput).click(); }catch(e){}
+    const mode=document.querySelector('input[name="upmode"]:checked').value;
+    fileRow.style.display=(mode==='files')?'':'none';
+    folderRow.style.display=(mode==='folder')?'':'none';
+    if(openPicker===true){
+      try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
     }
   }
-  modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-  lblFiles.addEventListener('click', ()=>{ setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0); });
-  lblFolder.addEventListener('click', ()=>{ if(!isIOS()) setTimeout(()=>{ try{ folderInput.click(); }catch(e){} }, 0); });
+  modeRadios.forEach(r=>r.addEventListener('change',()=>applyMode(true)));
+  document.getElementById('lblFiles').addEventListener('click',()=>{ setTimeout(()=>{ try{fileInput.click();}catch(e){} },0); });
+  lblFolder.addEventListener('click',()=>{ if(!isIOS()) setTimeout(()=>{ try{folderInput.click();}catch(e){} },0); });
   applyMode(false);
 
-  // ---- Helpers ----
-  const resBox = document.getElementById('result');
-  const upbar = document.getElementById('upbar');
-  const upbarFill = upbar.querySelector('i');
-  const uptext = document.getElementById('uptext');
+  // Helpers
+  const resBox=document.getElementById('result');
+  const upbar=document.getElementById('upbar');
+  const upbarFill=upbar.querySelector('i');
+  const uptext=document.getElementById('uptext');
 
   function gatherFiles(){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? fileInput.files : folderInput.files;
+    const mode=document.querySelector('input[name="upmode"]:checked').value;
+    return (mode==='files')?fileInput.files:folderInput.files;
   }
   function relPath(f){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
+    const mode=document.querySelector('input[name="upmode"]:checked').value;
+    return (mode==='files')?f.name:(f.webkitRelativePath||f.name);
   }
 
-  async function packageInit(expiryDays, password, title){
-    const r = await fetch("{{ url_for('package_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
-    return j.token;
+  async function packageInit(expiryDays,password,title){
+    const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password:password||"",title:title||""})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Kan pakket niet starten"); return j.token;
   }
 
   // Single PUT (<5MB)
-  async function singleInit(token, filename, type){
-    const r = await fetch("{{ url_for('put_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j; // {key, url}
+  async function singleInit(token,filename,type){
+    const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||"application/octet-stream"})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Init (PUT) mislukt"); return j;
   }
-  async function singleComplete(token, key, name, path){
-    const r = await fetch("{{ url_for('put_complete') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
-    return j;
+  async function singleComplete(token,key,name,path){
+    const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Afronden (PUT) mislukt"); return j;
   }
 
   // Multipart (≥5MB)
-  async function mpuInit(token, filename, type){
-    const r = await fetch("{{ url_for('mpu_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
-    return j; // {key, uploadId}
+  async function mpuInit(token,filename,type){
+    const r=await fetch("{{ url_for('mpu_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||"application/octet-stream"})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Init (MPU) mislukt"); return j;
   }
-  async function signPart(key, uploadId, partNumber){
-    const r = await fetch("{{ url_for('mpu_sign') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ key, uploadId, partNumber })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
-    return j.url;
+  async function signPart(key,uploadId,partNumber){
+    const r=await fetch("{{ url_for('mpu_sign') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key,uploadId,partNumber})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Sign part mislukt"); return j.url;
   }
-  async function mpuComplete(token, key, name, path, parts, uploadId){
-    const r = await fetch("{{ url_for('mpu_complete') }}", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path, parts, uploadId })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
-    return j;
+  async function mpuComplete(token,key,name,path,parts,uploadId){
+    const r=await fetch("{{ url_for('mpu_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path,parts,uploadId})});
+    const j=await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||"Afronden (MPU) mislukt"); return j;
   }
 
-  function putWithProgress(url, blob, updateCb, label){
+  function putWithProgress(url,blob,updateCb,label){
     return new Promise((resolve,reject)=>{
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url, true);
-      xhr.timeout = 300000;
+      const xhr=new XMLHttpRequest();
+      xhr.open("PUT",url,true); xhr.timeout=300000;
       xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
-      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded);
-      xhr.onload = ()=>{
+      xhr.upload.onprogress=(ev)=>updateCb(ev.loaded);
+      xhr.onload=()=>{
         if(xhr.status>=200 && xhr.status<300){
-          const etag = xhr.getResponseHeader("ETag");
+          const etag=xhr.getResponseHeader("ETag");
           resolve(etag ? etag.replaceAll('\"','') : null);
-        } else {
-          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
-        }
+        } else reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
       };
-      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
-      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
+      xhr.onerror =()=>reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
+      xhr.ontimeout=()=>reject(new Error(`Timeout bij ${label||'upload'}`));
       xhr.send(blob);
     });
   }
 
-  async function uploadSingle(token, file, relpath, totalTracker){
-    const init = await singleInit(token, file.name, file.type);
-    await putWithProgress(init.url, file, (loaded)=>{
-      const total = totalTracker.currentBase + loaded;
-      const denom = totalTracker.totalBytes || 1;
-      const p = Math.round(total / denom * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
-    }, 'PUT object');
-    await singleComplete(token, init.key, file.name, relpath);
-    totalTracker.currentBase += file.size;
+  async function uploadSingle(token,file,relpath,totalTracker){
+    const init=await singleInit(token,file.name,file.type);
+    await putWithProgress(init.url,file,(loaded)=>{
+      const total=totalTracker.currentBase+loaded; const denom=totalTracker.totalBytes||1;
+      const p=Math.round(total/denom*100); upbarFill.style.width=Math.min(p,100)+"%"; uptext.textContent=(p<100? p+"%" : "100% – verwerken…");
+    },'PUT object');
+    await singleComplete(token,init.key,file.name,relpath);
+    totalTracker.currentBase+=file.size;
   }
 
-  async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 5 * 1024 * 1024;
-    const init = await mpuInit(token, file.name, file.type);
-    const key = init.key, uploadId = init.uploadId;
-
-    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
-    const perPart = new Array(parts).fill(0);
+  async function uploadMultipart(token,file,relpath,totalTracker){
+    const CHUNK=5*1024*1024; const init=await mpuInit(token,file.name,file.type);
+    const key=init.key, uploadId=init.uploadId;
+    const parts=Math.ceil(Math.max(1,file.size)/CHUNK); const perPart=new Array(parts).fill(0);
 
     function updateBar(){
-      const uploadedThis = perPart.reduce((a,b)=>a+b,0);
-      const total = totalTracker.currentBase + uploadedThis;
-      const denom = totalTracker.totalBytes || 1;
-      const p = Math.round(total / denom * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
+      const uploadedThis=perPart.reduce((a,b)=>a+b,0);
+      const total=totalTracker.currentBase+uploadedThis; const denom=totalTracker.totalBytes||1;
+      const p=Math.round(total/denom*100); upbarFill.style.width=Math.min(p,100)+"%"; uptext.textContent=(p<100? p+"%" : "100% – verwerken…");
     }
 
     async function uploadPart(partNumber){
-      const idx   = partNumber - 1;
-      const start = idx * CHUNK;
-      const end   = Math.min(start + CHUNK, file.size);
-      const blob  = file.slice(start, end);
-
-      const MAX_TRIES = 6;
-      for(let attempt=1; attempt<=MAX_TRIES; attempt++){
+      const idx=partNumber-1; const start=idx*CHUNK; const end=Math.min(start+CHUNK,file.size); const blob=file.slice(start,end);
+      const MAX_TRIES=6;
+      for(let attempt=1;attempt<=MAX_TRIES;attempt++){
         try{
-          const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, `part ${partNumber}`);
-          perPart[idx] = blob.size; updateBar();
-          return { PartNumber: partNumber, ETag: etag };
+          const url=await signPart(key,uploadId,partNumber);
+          const etag=await putWithProgress(url,blob,(loaded)=>{ perPart[idx]=loaded; updateBar(); },`part ${partNumber}`);
+          perPart[idx]=blob.size; updateBar(); return {{ PartNumber: partNumber, ETag: etag }};
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
-          const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
-          await new Promise(r=>setTimeout(r, backoff));
+          const backoff=Math.round(500*Math.pow(2,attempt-1)*(0.85+Math.random()*0.3));
+          await new Promise(r=>setTimeout(r,backoff));
         }
       }
     }
 
-    const results = [];
-    for(let pn=1; pn<=parts; pn++) results.push(await uploadPart(pn));
-
-    await mpuComplete(token, key, file.name, relpath, results, uploadId);
-    totalTracker.currentBase += file.size;
+    const results=[]; for(let pn=1; pn<=parts; pn++) results.push(await uploadPart(pn));
+    await mpuComplete(token,key,file.name,relpath,results,uploadId);
+    totalTracker.currentBase+=file.size;
   }
 
-  form.addEventListener('submit', async (e)=>{
+  // Upload pas bij klikken op "Uploaden"
+  document.getElementById('f').addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    const files = Array.from((mode==='files' ? fileInput.files : folderInput.files) || []);
+    const mode=document.querySelector('input[name="upmode"]:checked').value;
+    const files=Array.from((mode==='files'?fileInput.files:folderInput.files)||[]);
     if(!files.length){
       alert("Kies bestand(en)"+(isIOS()?"":" of map"));
-      try { (mode==='files'? fileInput : folderInput).click(); } catch(e){}
+      try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
       return;
     }
 
-    const expiryDays = document.getElementById('exp').value || '24';
-    const password   = document.getElementById('pw').value || '';
-    const title      = document.getElementById('title').value || '';
+    const expiryDays=document.getElementById('exp').value||'24';
+    const password=document.getElementById('pw').value||'';
+    const title=document.getElementById('title').value||'';
 
-    const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
-    const tracker = { totalBytes, currentBase: 0 };
+    const totalBytes=files.reduce((a,f)=>a+f.size,0)||1;
+    const tracker={{ totalBytes, currentBase:0 }};
 
     upbar.style.display='block'; uptext.style.display='block';
     upbarFill.style.width='0%'; uptext.textContent='0%';
 
     try{
-      const token = await packageInit(expiryDays, password, title);
-
+      const token=await packageInit(expiryDays,password,title);
       for(const f of files){
-        const rel = relPath(f);
-        if(f.size < 5 * 1024 * 1024){
-          await uploadSingle(token, f, rel, tracker);
-        }else{
-          await uploadMultipart(token, f, rel, tracker);
-        }
+        const rel=relPath(f);
+        if(f.size<5*1024*1024){{ await uploadSingle(token,f,rel,tracker); }}
+        else{{ await uploadMultipart(token,f,rel,tracker); }}
       }
-
       upbarFill.style.width='100%'; uptext.textContent='Klaar';
-      const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-
-      document.getElementById('result').innerHTML = `
+      const link="{{{{ url_for('package_page', token='__T__', _external=True) }}}}".replace("__T__", token);
+      resBox.innerHTML=`
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input class="input" style="flex:1" value="${link}" readonly>
-            <button class="btn" type="button"
-              onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-              Kopieer
-            </button>
+            <input class="input" style="flex:1" value="${{link}}" readonly>
+            <button class="btn" type="button" onclick="(navigator.clipboard?.writeText('${{link}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">Kopieer</button>
           </div>
         </div>`;
-    }catch(err){
-      alert(err.message || 'Onbekende fout');
-    }
+    }catch(err){ alert(err.message||'Onbekende fout'); }
   });
 </script>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
-PACKAGE_HTML = """
+PACKAGE_HTML = f"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>
 <style>
-{{ base_css }}
-h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.4rem 0 1rem;color:#374151}
-.btn{padding:.85rem 1.15rem;border-radius:12px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
-.btn.secondary{background:#0f4c98}
-.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
+{{{{ base_css }}}}
+h1{{margin:.2rem 0 1rem;color:var(--brand)}}
+.meta{{margin:.4rem 0 1rem;color:#374151}}
+.btn{{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}}
+.btn.secondary{{background:#0f4c98}}
+.btn.mini{{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}}
 </style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+{BG_HTML}
 
 <div class="wrap">
   <div class="card">
     <h1>Download</h1>
     <div class="meta">
-      <div><strong>Pakket:</strong> {{ title or token }}</div>
-      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
-      <div><strong>Totaal:</strong> {{ total_human }}</div>
-      <div><strong>Bestanden:</strong> {{ items|length }}</div>
+      <div><strong>Pakket:</strong> {{{{ title or token }}}}</div>
+      <div><strong>Verloopt:</strong> {{{{ expires_human }}}}</div>
+      <div><strong>Totaal:</strong> {{{{ total_human }}}}</div>
+      <div><strong>Bestanden:</strong> {{{{ items|length }}}}</div>
     </div>
 
-    {% if items|length == 1 %}
+    {{% if items|length == 1 %}}
       <button class="btn" id="dlBtn">Download</button>
-    {% else %}
+    {{% else %}}
       <button class="btn" id="zipAll">Alles downloaden (zip)</button>
-    {% endif %}
+    {{% endif %}}
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
 
-    {% if items|length > 1 %}
+    {{% if items|length > 1 %}}
     <table class="table">
       <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th><th style="width:1%"></th></tr></thead>
       <tbody>
-      {% for it in items %}
+      {{% for it in items %}}
         <tr>
-          <td data-label="Bestand">{{ it["name"] }}</td>
-          <td class="small" data-label="Pad">{{ it["path"] }}</td>
-          <td data-label="Grootte">{{ it["size_h"] }}</td>
-          <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+          <td data-label="Bestand">{{{{ it["name"] }}}}</td>
+          <td class="small" data-label="Pad">{{{{ it["path"] }}}}</td>
+          <td data-label="Grootte">{{{{ it["size_h"] }}}}</td>
+          <td data-label=""><a class="btn mini" href="{{{{ url_for('stream_file', token=token, item_id=it['id']) }}}}">Download</a></td>
         </tr>
-      {% endfor %}
+      {{% endfor %}}
       </tbody>
     </table>
-    {% endif %}
+    {{% endif %}}
 
     <div class="linkbox" style="margin-top:1rem">
       <div><strong>Deelbare link</strong></div>
       <div style="display:flex;gap:.5rem;align-items:center;">
-        <input class="input" type="text" id="shareLink" value="{{ share_link }}" readonly>
+        <input class="input" type="text" id="shareLink" value="{{{{ share_link }}}}" readonly>
         <button class="btn" type="button"
-          onclick="(navigator.clipboard?.writeText('{{ share_link }}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
+          onclick="(navigator.clipboard?.writeText('{{{{ share_link }}}}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
           Kopieer
         </button>
       </div>
     </div>
 
     <div class="cta-fixed">
-      <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+      <a class="btn secondary" href="{{{{ url_for('contact') }}}}">Eigen transfer-oplossing aanvragen</a>
     </div>
   </div>
 
@@ -645,123 +545,108 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 </div>
 
 <script>
-  const bar = document.getElementById('bar');
-  const fill = bar?.querySelector('i');
-  const txt = document.getElementById('txt');
+  const bar=document.getElementById('bar');
+  const fill=bar?.querySelector('i');
+  const txt=document.getElementById('txt');
 
-  async function streamToBlob(url, fallbackName){
+  async function streamToBlob(url,fallbackName){
     bar.style.display='block'; txt.style.display='block';
     fill.style.width='0%'; txt.textContent='Starten…';
-    const res = await fetch(url);
+    const res=await fetch(url);
     if(!res.ok){
-      const xerr = res.headers.get('X-Error') || '';
-      let body = '';
-      try { body = await res.text(); } catch(e){}
-      alert(`Fout ${res.status}${xerr ? ' – '+xerr : ''}${body ? '\\n\\n'+body : ''}`);
+      const xerr=res.headers.get('X-Error')||''; let body='';
+      try{{ body=await res.text(); }}catch(e){{}}
+      alert(`Fout ${{res.status}}${{xerr?' – '+xerr:''}}${{body?'\\n\\n'+body:''}}`);
       return;
     }
-    const total = parseInt(res.headers.get('Content-Length')||'0',10);
-    const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
+    const total=parseInt(res.headers.get('Content-Length')||'0',10);
+    const name=res.headers.get('X-Filename')||fallbackName||'download.zip';
 
-    const reader = res.body.getReader(); const chunks=[]; let received=0;
-    while(true){
-      const {done,value} = await reader.read();
+    const reader=res.body.getReader(); const chunks=[]; let received=0;
+    while(true){{
+      const {{done,value}}=await reader.read();
       if(done) break;
-      chunks.push(value); received += value.length;
-      if(total){ const p=Math.round(received/total*100); fill.style.width=p+'%'; txt.textContent=p+'%'; }
-      else { txt.textContent = (received/1024/1024).toFixed(1)+' MB…'; }
-    }
+      chunks.push(value); received+=value.length;
+      if(total){{ const p=Math.round(received/total*100); fill.style.width=p+'%'; txt.textContent=p+'%'; }}
+      else{{ txt.textContent=(received/1024/1024).toFixed(1)+' MB…'; }}
+    }}
     fill.style.width='100%'; txt.textContent='Klaar';
-    const blob = new Blob(chunks);
-    const u = URL.createObjectURL(blob); const a = document.createElement('a');
+    const blob=new Blob(chunks); const u=URL.createObjectURL(blob); const a=document.createElement('a');
     a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
   }
 
-  {% if items|length == 1 %}
-    document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}", "{{ items[0]['name'] }}");
-    });
-  {% else %}
-    document.getElementById('zipAll')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_zip', token=token) }}", "download.zip");
-    });
-  {% endif %}
+  {{% if items|length == 1 %}}
+    document.getElementById('dlBtn')?.addEventListener('click',()=>{{
+      streamToBlob("{{{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}}}", "{{{{ items[0]['name'] }}}}");
+    }});
+  {{% else %}}
+    document.getElementById('zipAll')?.addEventListener('click',()=>{{
+      streamToBlob("{{{{ url_for('stream_zip', token=token) }}}}", "download.zip");
+    }});
+  {{% endif %}}
 </script>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
-CONTACT_HTML = """
+CONTACT_HTML = f"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+<title>Eigen transfer-oplossing – Olde Hanter</title><style>{{{{ base_css }}}}</style></head><body>
+{BG_HTML}
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
-  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-  <form method="post" action="{{ url_for('contact') }}" novalidate>
+  {{% if error %}}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{{{ error }}}}</div>{{% endif %}}
+  <form method="post" action="{{{{ url_for('contact') }}}}" novalidate>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
-        <input id="login_email" class="input" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{ form.login_email or '' }}" required>
+        <input id="login_email" class="input" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{{{ form.login_email or '' }}}}" required>
       </div>
       <div>
         <label for="storage_tb">Gewenste opslaggrootte</label>
         <select id="storage_tb" class="input" name="storage_tb" required>
           <option value="">Maak een keuze…</option>
-          <option value="0.5" {% if form.storage_tb=='0.5' %}selected{% endif %}>0,5 TB — €6/maand</option>
-          <option value="1"   {% if (form.storage_tb or '1')=='1' %}selected{% endif %}>1 TB — €12/maand</option>
-          <option value="2"   {% if form.storage_tb=='2' %}selected{% endif %}>2 TB — €24/maand</option>
-          <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €60/maand</option>
+          <option value="0.5" {{% if form.storage_tb=='0.5' %}}selected{{% endif %}}>0,5 TB — €6/maand</option>
+          <option value="1"   {{% if (form.storage_tb or '1')=='1' %}}selected{{% endif %}}>1 TB — €12/maand</option>
+          <option value="2"   {{% if form.storage_tb=='2' %}}selected{{% endif %}}>2 TB — €24/maand</option>
+          <option value="5"   {{% if form.storage_tb=='5' %}}selected{{% endif %}}>5 TB — €60/maand</option>
         </select>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
       <div>
         <label for="company">Bedrijfsnaam</label>
-        <input id="company" class="input" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{ form.company or '' }}" minlength="2" maxlength="100" required>
+        <input id="company" class="input" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{{{ form.company or '' }}}}" minlength="2" maxlength="100" required>
       </div>
       <div>
         <label for="phone">Telefoonnummer</label>
-        <input id="phone" class="input" name="phone" type="tel" placeholder="+31 6 12345678" value="{{ form.phone or '' }}" pattern="^[0-9+()\\s-]{8,20}$" required>
+        <input id="phone" class="input" name="phone" type="tel" placeholder="+31 6 12345678" value="{{{{ form.phone or '' }}}}" pattern="^[0-9+()\\s-]{{8,20}}$" required>
       </div>
     </div>
     <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
   </form>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
-CONTACT_DONE_HTML = """
+CONTACT_DONE_HTML = f"""
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+<title>Aanvraag verstuurd</title><style>{{{{ base_css }}}}</style></head><body>
+{BG_HTML}
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
-CONTACT_MAIL_FALLBACK_HTML = """
+CONTACT_MAIL_FALLBACK_HTML = f"""
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
-<div class="bg" aria-hidden="true">
-  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
-</div>
+<title>Aanvraag gereed</title><style>{{{{ base_css }}}}</style></head><body>
+{BG_HTML}
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
-  <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
+  <a class="btn" href="{{{{ mailto_link }}}}">Open e-mail</a>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
-""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -1015,32 +900,27 @@ def stream_zip(token):
     c.close()
     if not rows: abort(404)
 
-    # Precheck: ontbrekende S3-objecten
-    missing = []
+    # Precheck ontbrekende objecten
+    missing=[]
     try:
-      for r in rows:
-        try:
-          s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-        except ClientError as ce:
-          code = ce.response.get("Error", {}).get("Code", "")
-          if code in {"NoSuchKey", "NotFound", "404"}:
-            missing.append(r["path"] or r["name"])
-          else:
-            raise
+        for r in rows:
+            try: s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except ClientError as ce:
+                code=ce.response.get("Error",{}).get("Code","")
+                if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
+                else: raise
     except Exception:
-      log.exception("zip precheck failed")
-      resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
-      resp.headers["X-Error"] = "zip_precheck_failed"
-      return resp
-
+        log.exception("zip precheck failed")
+        resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
+        resp.headers["X-Error"]="zip_precheck_failed"; return resp
     if missing:
-      text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
-      resp = Response(text, mimetype="text/plain", status=422)
-      resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
-      return resp
+        text="De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
+        resp=Response(text, mimetype="text/plain", status=422)
+        resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
 
     try:
-        z = ZipStream()
+        z = ZipStream()  # geen kwargs, compat met meerdere versies
+
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
             def read(self, n=-1):
@@ -1059,17 +939,17 @@ def stream_zip(token):
             if hasattr(z,"add_iter"):
                 try: methods_tried.append("add_iter"); z.add_iter(arcname, gen_factory()); return
                 except Exception: pass
-            try: methods_tried.append("add(iterable=)"); z.add(arcname=arcname, iterable=gen_factory()); return
+            try: methods_tried.append("add iterable"); z.add(arcname=arcname, iterable=gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add(stream=)"); z.add(arcname=arcname, stream=gen_factory()); return
+            try: methods_tried.append("add stream"); z.add(arcname=arcname, stream=gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add(fileobj=)"); z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
+            try: methods_tried.append("add fileobj"); z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
             except Exception: pass
-            try: methods_tried.append("add(arcname, iterator)"); z.add(arcname, gen_factory()); return
+            try: methods_tried.append("add (arcname, iterator)"); z.add(arcname, gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add(iterator, arcname)"); z.add(gen_factory(), arcname); return
+            try: methods_tried.append("add (iterator, arcname)"); z.add(gen_factory(), arcname); return
             except Exception: pass
-            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur")
+            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
 
         for r in rows:
             arcname = r["path"] or r["name"]
@@ -1089,7 +969,6 @@ def stream_zip(token):
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
-
     except Exception as e:
         log.exception("stream_zip failed")
         msg = f"ZIP generatie mislukte. Tried: {', '.join(methods_tried)}. Err: {e}"
