@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (met robuuste S3/B2 handling) =========
+# ========= MiniTransfer – Olde Hanter =========
 # - Login
-# - Upload (files/folders) naar B2 (S3-compatible)
-# - Single PUT < 5 MB | Multipart ≥ 5 MB
+# - Upload (files/folders) naar B2 (S3)
+# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel)
 # - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
-# - Titel (onderwerp) per pakket
+# - Onderwerp per pakket (voorheen “Pakket”)
+# - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload verborgen/disabled
 # - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
-# - Fix: retry op S3 HEAD na (MPU) complete + fallback op clientSize
-# - Fix: grotere MPU-chunks (8 MiB) en langere timeouts voor stabiliteit
-# ============================================================================
+# ==============================================
 
-import os, re, uuid, smtplib, sqlite3, logging, time
+import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +22,6 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-    # noqa
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -52,18 +50,11 @@ MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
-# Robuustere boto-config (retries + timeouts)
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
     endpoint_url=S3_ENDPOINT_URL,
-    config=BotoConfig(
-        s3={"addressing_style": "path"},
-        signature_version="s3v4",
-        retries={"max_attempts": 10, "mode": "standard"},
-        connect_timeout=5,
-        read_timeout=60,
-    ),
+    config=BotoConfig(s3={"addressing_style": "path"}, signature_version="s3v4"),
 )
 
 app = Flask(__name__)
@@ -90,7 +81,8 @@ def init_db():
         token TEXT PRIMARY KEY,
         expires_at TEXT NOT NULL,
         password_hash TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        title TEXT
       )
     """)
     c.execute("""
@@ -103,48 +95,10 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    if not _column_exists(c, "packages", "title"):
-        try: c.execute("ALTER TABLE packages ADD COLUMN title TEXT")
-        except Exception: pass
     c.commit(); c.close()
 init_db()
 
-# ---------- Helpers ----------
-def logged_in() -> bool:
-    return session.get("authed", False)
-
-def human(n: int) -> str:
-    x = float(n)
-    for u in ["B","KB","MB","GB","TB"]:
-        if x < 1024 or u == "TB":
-            return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
-        x /= 1024
-
-def send_email(to_addr: str, subject: str, body: str):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
-    msg["To"] = to_addr
-    msg.set_content(body)
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-
-def head_object_with_retry(bucket: str, key: str, tries: int = 10, base_ms: int = 200):
-    """
-    Na (multipart) uploads kan een object bij S3/B2 nog héél kort onzichtbaar zijn.
-    Deze helper overbrugt dat met exponentiële backoff + jitter.
-    """
-    last_err = None
-    for i in range(tries):
-        try:
-            return s3.head_object(Bucket=bucket, Key=key)
-        except Exception as e:
-            last_err = e
-            sleep_s = (base_ms/1000.0) * (1.6 ** i) * (0.8 + 0.4*int.from_bytes(os.urandom(1), "big")/255.0)
-            time.sleep(sleep_s)
-    raise last_err
-
-# -------------- CSS --------------
+# -------------- CSS -------------- 
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -156,10 +110,7 @@ BASE_CSS = """
 }
 html,body{height:100%}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-
-/* ===== CSS-only Moving Gradient Background ===== */
-.bg{
-  position:fixed; inset:0; z-index:-2; overflow:hidden;
+.bg{position:fixed; inset:0; z-index:-2; overflow:hidden;
   background:
     radial-gradient(40vmax 40vmax at 15% 25%, var(--c1) 0%, transparent 60%),
     radial-gradient(38vmax 38vmax at 85% 30%, var(--c2) 0%, transparent 60%),
@@ -167,9 +118,7 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
     linear-gradient(180deg,#edf3ff 0%, #eef4fb 100%);
   filter: saturate(1.05);
 }
-.bg::before,
-.bg::after{
-  content:""; position:absolute; inset:-10%; pointer-events:none;
+.bg::before,.bg::after{content:""; position:absolute; inset:-10%;
   background:
     radial-gradient(45vmax 45vmax at 20% 70%, rgba(255,255,255,.35), transparent 60%),
     radial-gradient(50vmax 50vmax at 80% 20%, rgba(255,255,255,.25), transparent 60%),
@@ -177,25 +126,9 @@ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--
   will-change: transform, opacity;
   animation: driftA 26s ease-in-out infinite;
 }
-.bg::after{
-  mix-blend-mode: overlay;
-  opacity:.55;
-  animation: driftB 30s ease-in-out infinite;
-}
-@keyframes driftA{
-  0%   {transform: translate3d(0,0,0) scale(1);   opacity:.6}
-  25%  {transform: translate3d(1.5%, -1.2%, 0) scale(1.02); opacity:.7}
-  50%  {transform: translate3d(0.6%, 1.4%, 0) scale(1.01);  opacity:.5}
-  75%  {transform: translate3d(-1.2%, 0.6%, 0) scale(1.03); opacity:.65}
-  100% {transform: translate3d(0,0,0) scale(1);   opacity:.6}
-}
-@keyframes driftB{
-  0%   {transform: translate3d(0,0,0) rotate(0deg) scale(1.02); opacity:.45}
-  50%  {transform: translate3d(-1.6%,1.2%,0) rotate(180deg) scale(1.04); opacity:.35}
-  100% {transform: translate3d(0,0,0) rotate(360deg) scale(1.02); opacity:.45}
-}
-
-/* Layout / UI */
+.bg::after{mix-blend-mode: overlay; opacity:.55; animation: driftB 30s ease-in-out infinite}
+@keyframes driftA{0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(.6%,1.4%,0)} 100%{transform:translate3d(0,0,0)}}
+@keyframes driftB{0%{transform:rotate(0deg)} 50%{transform:rotate(180deg)} 100%{transform:rotate(360deg)}}
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
 .card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
       border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
@@ -219,8 +152,6 @@ input[type=file]::file-selector-button{
   background:var(--surface-2); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
-
-/* Buttons & progress */
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
   background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
@@ -231,10 +162,8 @@ input[type=file]::file-selector-button{
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-.progress{height:10px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
-.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .1s}
-
-/* Downloadpagina mobile-friendly */
+.progress{height:12px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem}
+.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .08s}
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 @media (max-width: 680px){
@@ -244,16 +173,11 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
-
-/* CTA vast onderaan de card */
-.cta-fixed{
-  position:sticky; bottom:0; display:flex; justify-content:center;
-  padding:1rem; margin-top:1rem;
-  background:linear-gradient(180deg,transparent,rgba(0,0,0,.03));
-}
+.cta-fixed{position:sticky; bottom:0; display:flex; justify-content:center;
+  padding:1rem; margin-top:1rem; background:linear-gradient(180deg,transparent,rgba(0,0,0,.03))}
 """
 
-# -------------- Templates (geen f-strings) --------------
+# -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
 
 LOGIN_HTML = """
@@ -366,13 +290,25 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     }
   }
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
+  // Let op: GEEN extra label-click handlers (anders dubbel openen)
   applyMode(false);
 
-  // Helpers
+  // Helpers + snellere, vloeiende progress
   const resBox=document.getElementById('result');
   const upbar=document.getElementById('upbar');
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
+  let lastPct = -1, rafId = null;
+  function setProgress(pct, text){
+    const p = Math.max(0, Math.min(100, Math.floor(pct)));
+    if(p === lastPct && !text) return;
+    lastPct = p;
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(()=>{
+      upbarFill.style.width = p + "%";
+      if(text) uptext.textContent = text; else uptext.textContent = p + "%";
+    });
+  }
 
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
@@ -464,29 +400,28 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     await putWithProgress(init.url, file, (loaded)=>{
       const total = totalTracker.currentBase + loaded;
       const denom = totalTracker.totalBytes || 1;
-      const p = Math.round(total / denom * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
+      const pct = total / denom * 100;
+      setProgress(pct, pct<100 ? Math.round(pct)+"%" : "100% – verwerken…");
     }, 'PUT object');
     await singleComplete(token, init.key, file.name, relpath);
     totalTracker.currentBase += file.size;
   }
 
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 8 * 1024 * 1024; // 8 MiB
+    const CHUNK = 16 * 1024 * 1024; // 16 MiB (sneller) – laatste part mag kleiner
+    const CONCURRENCY = 4;          // 4 parallelle parts
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
-    const parts = Math.ceil(Math.max(1, file.size) / CHUNK);
-    const perPart = new Array(parts).fill(0);
+    const partCount = Math.ceil(Math.max(1, file.size) / CHUNK);
+    const perPart = new Array(partCount).fill(0);
 
-    function updateBar(){
+    function refreshTotal(){
       const uploadedThis = perPart.reduce((a,b)=>a+b,0);
       const total = totalTracker.currentBase + uploadedThis;
       const denom = totalTracker.totalBytes || 1;
-      const p = Math.round(total / denom * 100);
-      upbarFill.style.width = Math.min(p,100) + "%";
-      uptext.textContent = (p<100? p+"%" : "100% – verwerken…");
+      const pct = total / denom * 100;
+      setProgress(pct, pct<100 ? Math.round(pct)+"%" : "100% – verwerken…");
     }
 
     async function uploadPart(partNumber){
@@ -499,8 +434,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; updateBar(); }, `part ${partNumber}`);
-          perPart[idx] = blob.size; updateBar();
+          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = loaded; refreshTotal(); }, `part ${partNumber}`);
+          perPart[idx] = blob.size; refreshTotal();
           return { PartNumber: partNumber, ETag: etag };
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
@@ -510,10 +445,17 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       }
     }
 
-    const results = [];
-    for(let pn=1; pn<=parts; pn++){
-      results.push(await uploadPart(pn));
+    // Parallel queue
+    const results = new Array(partCount);
+    let next = 1;
+    async function worker(){
+      while(true){
+        const my = next++; if(my > partCount) break;
+        results[my-1] = await uploadPart(my);
+      }
     }
+    const workers = Array.from({length: Math.min(CONCURRENCY, partCount)}, ()=>worker());
+    await Promise.all(workers);
 
     await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
     totalTracker.currentBase += file.size;
@@ -537,7 +479,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const tracker = { totalBytes, currentBase: 0 };
 
     upbar.style.display='block'; uptext.style.display='block';
-    upbarFill.style.width='0%'; uptext.textContent='0%';
+    setProgress(0, "0%");
 
     try{
       const token = await packageInit(expiryDays, password, title);
@@ -549,7 +491,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           await uploadMultipart(token, f, rel, tracker);
         }
       }
-      upbarFill.style.width='100%'; uptext.textContent='Klaar';
+      setProgress(100, "Klaar");
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
       resBox.innerHTML = `
@@ -588,7 +530,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   <div class="card">
     <h1>Download</h1>
     <div class="meta">
-      <div><strong>Pakket:</strong> {{ title or token }}</div>
+      <div><strong>Onderwerp:</strong> {{ title or token }}</div>
       <div><strong>Verloopt:</strong> {{ expires_human }}</div>
       <div><strong>Totaal:</strong> {{ total_human }}</div>
       <div><strong>Bestanden:</strong> {{ items|length }}</div>
@@ -744,7 +686,26 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-# -------------- Routes --------------
+# -------------- Helpers / routes --------------
+def logged_in() -> bool:
+    return session.get("authed", False)
+
+def human(n: int) -> str:
+    x = float(n)
+    for u in ["B","KB","MB","GB","TB"]:
+        if x < 1024 or u == "TB":
+            return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
+        x /= 1024
+
+def send_email(to_addr: str, subject: str, body: str):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_addr
+    msg.set_content(body)
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
@@ -753,7 +714,7 @@ def index():
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
-        if (request.form.get("email") or "").lower()==AUTH_EMAIL.lower() and request.form.get("password")==AUTH_PASSWORD:
+        if (request.form.get("email") or "").lower()==AUTH_EMAIL and request.form.get("password")==AUTH_PASSWORD:
             session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
         return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL)
@@ -799,7 +760,7 @@ def put_init():
         )
         return jsonify(ok=True, key=key, url=url)
     except Exception:
-        log.exception("put_init failed token=%s key=%s", token, key)
+        log.exception("put_init failed")
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/put-complete", methods=["POST"])
@@ -811,7 +772,7 @@ def put_complete():
     if not (token and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
     try:
-        head = head_object_with_retry(S3_BUCKET, key)
+        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
@@ -819,8 +780,8 @@ def put_complete():
         c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
-        log.exception("put_complete failed token=%s key=%s", token, key)
-        return jsonify(ok=False, error="s3_head_failed_after_put"), 500
+        log.exception("put_complete failed")
+        return jsonify(ok=False, error="server_error"), 500
 
 # Multipart
 @app.route("/mpu-init", methods=["POST"])
@@ -837,7 +798,7 @@ def mpu_init():
         init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
         return jsonify(ok=True, key=key, uploadId=init["UploadId"])
     except Exception:
-        log.exception("mpu_init failed token=%s key=%s", token, key)
+        log.exception("mpu_init failed")
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-sign", methods=["POST"])
@@ -856,7 +817,7 @@ def mpu_sign():
         )
         return jsonify(ok=True, url=url)
     except Exception:
-        log.exception("mpu_sign failed key=%s upload_id=%s part=%s", key, upload_id, part_no)
+        log.exception("mpu_sign failed")
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-complete", methods=["POST"])
@@ -866,49 +827,35 @@ def mpu_complete():
     token     = data.get("token"); key = data.get("key")
     name      = data.get("name");  path = data.get("path") or name
     parts_in  = data.get("parts") or []; upload_id = data.get("uploadId")
-    client_sz = data.get("clientSize")
+    client_size = int(data.get("clientSize") or 0)
     if not (token and key and name and parts_in and upload_id):
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
-
-    # 1) Complete MPU
     try:
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET, Key=key,
             MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
             UploadId=upload_id
         )
-    except (ClientError, BotoCoreError) as e:
-        log.exception("MPU COMPLETE failed token=%s key=%s upload_id=%s", token, key, upload_id)
-        code = ""
-        msg  = ""
+        # HEAD kan bij B2 soms even haperen; probeer, anders val terug op client_size
+        size = 0
         try:
-            code = e.response.get("Error",{}).get("Code","")
-            msg  = e.response.get("Error",{}).get("Message","")
+            head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+            size = int(head.get("ContentLength", 0))
         except Exception:
-            pass
-        return jsonify(ok=False, error=f"mpu_complete_failed:{code or 'unknown'}:{msg or ''}"), 500
+            if client_size>0: size = client_size
+            else: raise
 
-    # 2) HEAD (met retry); zo niet, fallback op clientSize
-    try:
-        head = head_object_with_retry(S3_BUCKET, key, tries=10, base_ms=200)
-        size = int(head.get("ContentLength", 0))
-    except (ClientError, BotoCoreError):
-        log.warning("HEAD after complete failed; fallback to clientSize. token=%s key=%s", token, key)
-        try:
-            size = int(client_sz)
-        except Exception:
-            size = 0  # als we niets weten, 0 invoeren
-
-    # 3) DB opslaan
-    try:
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-                  (token, key, name, path, max(size, 0)))
+                  (token, key, name, path, size))
         c.commit(); c.close()
         return jsonify(ok=True)
-    except Exception:
-        log.exception("DB insert failed token=%s key=%s", token, key)
-        return jsonify(ok=False, error="db_insert_failed"), 500
+    except (ClientError, BotoCoreError) as e:
+        log.exception("mpu_complete failed")
+        return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
+    except Exception as e:
+        log.exception("mpu_complete failed (generic)")
+        return jsonify(ok=False, error="server_error"), 500
 
 # Download pages/streams
 @app.route("/p/<token>", methods=["GET","POST"])
@@ -986,7 +933,7 @@ def stream_file(token, item_id):
         if length: resp.headers["Content-Length"] = str(length)
         return resp
     except Exception:
-        log.exception("stream_file failed token=%s item_id=%s key=%s", token, item_id, it["s3_key"])
+        log.exception("stream_file failed")
         abort(500)
 
 @app.route("/zip/<token>")
@@ -1010,7 +957,7 @@ def stream_zip(token):
                 if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
                 else: raise
     except Exception:
-        log.exception("zip precheck failed token=%s", token)
+        log.exception("zip precheck failed")
         resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
         resp.headers["X-Error"]="zip_precheck_failed"; return resp
     if missing:
@@ -1019,7 +966,7 @@ def stream_zip(token):
         resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
 
     try:
-        z = ZipStream()  # compat met meerdere versies
+        z = ZipStream()  # compat modus
 
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
@@ -1034,20 +981,19 @@ def stream_zip(token):
                     except StopIteration: self._done=True; break
                 out,self._buf=self._buf[:n],self._buf[n:]; return out
 
-        methods_tried=[]
         def add_compat(arcname, gen_factory):
             if hasattr(z,"add_iter"):
-                try: methods_tried.append("add_iter"); z.add_iter(arcname, gen_factory()); return
+                try: z.add_iter(arcname, gen_factory()); return
                 except Exception: pass
-            try: methods_tried.append("add iterable"); z.add(arcname=arcname, iterable=gen_factory()); return
+            try: z.add(arcname=arcname, iterable=gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add stream"); z.add(arcname=arcname, stream=gen_factory()); return
+            try: z.add(arcname=arcname, stream=gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add fileobj"); z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
+            try: z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
             except Exception: pass
-            try: methods_tried.append("add (arcname, iterator)"); z.add(arcname, gen_factory()); return
+            try: z.add(arcname, gen_factory()); return
             except Exception: pass
-            try: methods_tried.append("add (iterator, arcname)"); z.add(gen_factory(), arcname); return
+            try: z.add(gen_factory(), arcname); return
             except Exception: pass
             raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
 
@@ -1062,7 +1008,7 @@ def stream_zip(token):
         def generate():
             for chunk in z: yield chunk
 
-        filename = (pkg["title"] or f"pakket-{token}").strip().replace('"','')
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
         if not filename.lower().endswith(".zip"): filename += ".zip"
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
@@ -1070,14 +1016,14 @@ def stream_zip(token):
         resp.headers["X-Filename"] = filename
         return resp
     except Exception as e:
-        log.exception("stream_zip failed token=%s", token)
-        msg = f"ZIP generatie mislukte. Tried: {', '.join(methods_tried)}. Err: {e}"
+        log.exception("stream_zip failed")
+        msg = f"ZIP generatie mislukte. Err: {e}"
         resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
 # Contact
-EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\\.[^@\\s]+$")
+EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 
@@ -1129,7 +1075,6 @@ def contact():
                 s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
             return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV)
     except Exception:
-        log.exception("SMTP send failed")
         pass
 
     from urllib.parse import quote
@@ -1153,5 +1098,6 @@ def stream_file_alias(token, item_id): return redirect(url_for("stream_file", to
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
 if __name__ == "__main__":
-    # In productie: gebruik een WSGI server (gunicorn/uwsgi) en zet debug=False
-    app.run(debug=True)
+    # Laat Render of andere hosts PORT zetten; lokaal 5000
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=True)
