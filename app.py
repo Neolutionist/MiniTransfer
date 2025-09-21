@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (eenvoudig & compleet) =========
+# ========= MiniTransfer – Olde Hanter =========
 # - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
 # - Upload (files/folders) naar B2 (S3)
-# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel)
+# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel) — MET juiste ETags
 # - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
 # - Onderwerp per pakket
 # - iOS/iPhone: map-upload verborgen/disabled
-# - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
-# - Favicon (OH) + modern wachtwoordprompt voor pakketten
+# - Favicon (OH) als SVG + .ico fallback
 # - Werkende voortgangsbalken (upload & download)
 # - Aangepaste prijzen (0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30)
-# - Transfer-knop verplaatst onder de card, zonder fade/arcering
+# - Transfer-knop onder de card, zonder fade/arcering
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -210,12 +209,21 @@ FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' 
 </svg>"""
 
 @app.route("/favicon.svg")
-def favicon():
+def favicon_svg():
     return Response(FAVICON_SVG, mimetype="image/svg+xml")
+
+# Veel browsers vragen nog expliciet /favicon.ico:
+@app.route("/favicon.ico")
+def favicon_ico():
+    # We serveren dezelfde SVG met een ico-mimetype; dit werkt in moderne browsers.
+    return Response(FAVICON_SVG, mimetype="image/x-icon")
 
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
-HTML_HEAD_ICON = "<link rel='icon' href='{{ url_for(\"favicon\") }}' type='image/svg+xml'/>"
+HTML_HEAD_ICON = """
+<link rel='icon' href='{{ url_for("favicon_svg") }}' type='image/svg+xml'/>
+<link rel='alternate icon' href='{{ url_for("favicon_ico") }}'/>
+"""
 
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -320,9 +328,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   <div id="result" style="margin-top:1rem"></div>
 
-  <!-- TRANSFER-KNOP: onder de card, zonder fade/arcering -->
-  <div class="cta">
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
   </div>
 
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
@@ -507,9 +512,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, `part ${partNumber}`);
+          const etag = await putWithProgress(
+            url, blob,
+            (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); },
+            `part ${partNumber}`
+          );
           perPart[idx] = blob.size; refreshTotal();
-          return { PartNumber: partNumber, ETag: null };
+          return { PartNumber: partNumber, ETag: etag };   // <<< BELANGRIJK: ETag meegeven
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
           const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
@@ -567,9 +576,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
       // uploads klaar -> afronden UI
       if (animId){ cancelAnimationFrame(animId); animId = null; }
-      setProgress(100);
-      upbarFill.style.width = '100%';
-      uptext.textContent = "Klaar";
+      setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
 
       const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
 
@@ -1107,7 +1114,7 @@ def stream_zip(token):
         return resp
 
 # Contact
-EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")   # gefixt: correcte \s
+EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 
