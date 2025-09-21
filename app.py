@@ -725,6 +725,7 @@ CONTACT_HTML = """
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+
   <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
     <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
@@ -773,19 +774,20 @@ CONTACT_HTML = """
     </div>
 
     <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
-    <div class="small" style="margin-top:.5rem">
-      We zetten je omgeving meestal binnen <strong>1–2 dagen</strong> live
-      (bij <strong>maatwerk</strong> kan dit langer duren). Na livegang ontvang je desgewenst een e-mail met link voor <strong>automatische incasso</strong>.
-    </div>
+    <p class="small" style="margin-top:.6rem;color:#334155">
+      Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief. Na livegang ontvang je een <strong>bevestigingsmail</strong> met alle gegevens.
+    </p>
   </form>
 
-  <!-- Betaal alvast via PayPal (abonnement) -->
-  <div style="margin-top:1.5rem">
-    <h3>Direct starten met een abonnement via PayPal</h3>
-    <p class="small">De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze, zodra alle velden ingevuld zijn.</p>
-    <div id="paypal-button-container" style="max-width:360px; display:none"></div>
+  <!-- PayPal-blok: volledig verborgen totdat formulier geldig is én plan gekozen -->
+  <div id="paypalSection" style="display:none; margin-top:1.4rem">
+    <h3 style="margin:0 0 .4rem 0">Direct starten met een abonnement via PayPal</h3>
+    <p class="small" style="margin:.15rem 0 .8rem 0">
+      De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze, zodra alle velden geldig zijn.
+    </p>
+    <div id="paypal-button-container" style="max-width:360px"></div>
     <div id="paypal-hint" class="small" style="color:#991b1b; display:none; margin-top:.5rem">
-      Geen PayPal-plan geconfigureerd voor deze opslaggrootte. Kies een andere grootte of rond eerst je aanvraag af; we sturen dan een incasso-link per e-mail na livegang.
+      Geen PayPal-plan geconfigureerd voor deze opslaggrootte. Kies een andere grootte of rond je aanvraag af; wij sturen dan een incasso-link per e-mail.
     </div>
   </div>
 
@@ -796,7 +798,7 @@ CONTACT_HTML = """
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
 
 <script>
-// Slugify bedrijfsnaam naar subdomein + voorbeeldlink
+// ---------- helpers ----------
 function slugify(s){
   return (s||"")
     .toLowerCase()
@@ -810,118 +812,127 @@ function slugify(s){
 const company = document.getElementById('company');
 const subPreview = document.getElementById('subPreview');
 const BASE_DOMAIN = "{{ base_host }}";
-function updatePreview(){
-  const sub = slugify(company.value);
-  subPreview.textContent = sub ? (sub + "." + BASE_DOMAIN) : BASE_DOMAIN;
-}
-company?.addEventListener('input', updatePreview);
-updatePreview();
+function updatePreview(){ const s = slugify(company.value); subPreview.textContent = s ? (s + "." + BASE_DOMAIN) : BASE_DOMAIN; }
+company?.addEventListener('input', updatePreview); updatePreview();
 
-// PayPal: dynamische plan selectie + alleen tonen als formulier compleet is
+// ---------- plan map ----------
 const PLAN_MAP = {
   "0.5": "{{ paypal_plan_0_5 }}",
   "1":   "{{ paypal_plan_1 }}",
   "2":   "{{ paypal_plan_2 }}",
   "5":   "{{ paypal_plan_5 }}"
 };
-const formEl           = document.getElementById('contactForm');
-const storageSelect    = document.getElementById('storage_tb');
-const loginEmailInput  = document.getElementById('login_email');
-const companyInput     = document.getElementById('company');
-const phoneInput       = document.getElementById('phone');
-const passwordInput    = document.getElementById('desired_password');
-const moreNote         = document.getElementById('more-note');
-const paypalHint       = document.getElementById('paypal-hint');
-const PAYPAL_CONTAINER_SEL = '#paypal-button-container';
 
-let lastRenderedPlanId = null;
-let isRendered = false;
+// ---------- elements ----------
+const form = document.getElementById('contactForm');
+const paypalSection = document.getElementById('paypalSection');
+const paypalContainerSel = '#paypal-button-container';
+const paypalHint = document.getElementById('paypal-hint');
+const storageSelect = document.getElementById('storage_tb');
+const moreNote = document.getElementById('more-note');
+
+// ---------- validatie ----------
+const EMAIL_RE = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
+const PHONE_RE = /^[0-9+()\\s-]{8,20}$/;
 
 function currentPlanId(){
-  const v = storageSelect?.value || "";
+  const v = (storageSelect?.value || "");
   if (!v || v === "more") return "";
   return PLAN_MAP[v] || "";
 }
-function isContactFormComplete(){
-  const emailOk    = loginEmailInput?.checkValidity();
-  const companyOk  = companyInput?.checkValidity();
-  const phoneOk    = phoneInput?.checkValidity();
-  const passOk     = (passwordInput?.value || "").length >= 6;
-  const storageVal = storageSelect?.value || "";
-  const storageOk  = storageVal && storageVal !== "more";
-  return !!(emailOk && companyOk && phoneOk && passOk && storageOk);
+function formIsValid(){
+  const email = document.getElementById('login_email').value.trim();
+  const storage = storageSelect?.value || "";
+  const comp = document.getElementById('company').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const pw = document.getElementById('desired_password').value;
+
+  const ok =
+    EMAIL_RE.test(email) &&
+    storage && storage !== "more" &&
+    comp.length >= 2 && comp.length <= 100 &&
+    PHONE_RE.test(phone) &&
+    (pw || "").length >= 6;
+
+  return ok;
 }
-function setPaypalVisibility(visible){
-  const el = document.querySelector(PAYPAL_CONTAINER_SEL);
-  if (!el) return;
-  el.style.display = visible ? 'block' : 'none';
-  if (!visible){ el.innerHTML = ""; isRendered = false; lastRenderedPlanId = null; }
-}
-function updateNotesAndHints(){
-  const v = storageSelect?.value || "";
-  if (moreNote) moreNote.style.display = (v === "more") ? 'block' : 'none';
+
+// Toon/verberg "meer" hint
+function toggleMoreNote(){ if (moreNote) moreNote.style.display = (storageSelect?.value === "more") ? 'block' : 'none'; }
+
+// Render of hide Paypal sectie
+let renderedForPlan = ""; // onthoud voor welke plan-id de knop is gerenderd
+function renderPaypalConditional(){
+  toggleMoreNote();
+
+  const ok = formIsValid();
   const planId = currentPlanId();
-  const hasPlan = !!planId;
-  if (paypalHint){
-    if (!v || v === "more"){ paypalHint.style.display = 'none'; }
-    else { paypalHint.style.display = hasPlan ? 'none' : 'block'; }
+
+  if (!ok || !planId){
+    // verberg hele sectie + leegmaken
+    paypalSection.style.display = 'none';
+    const el = document.querySelector(paypalContainerSel);
+    if (el) el.innerHTML = "";
+    paypalHint.style.display = 'none';
+    renderedForPlan = "";
+    return;
   }
-}
-function maybeRenderPaypal(){
-  updateNotesAndHints();
-  const container = document.querySelector(PAYPAL_CONTAINER_SEL);
-  const planId = currentPlanId();
-  const complete = isContactFormComplete();
-  const canShow = !!(planId && complete && window.paypal && container);
-  if (!canShow){ setPaypalVisibility(false); return; }
-  if (isRendered && lastRenderedPlanId === planId){ setPaypalVisibility(true); return; }
-  container.innerHTML = "";
-  try{
-    paypal.Buttons({
-      style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
-      createSubscription: function(data, actions) {
-        return actions.subscription.create({ plan_id: planId });
-      },
-      onApprove: async function(data, actions) {
-        try{
-          await fetch("{{ url_for('paypal_store_subscription') }}", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              subscription_id: data.subscriptionID,
-              plan_value: (document.getElementById('storage_tb')?.value || "")
-            })
-          });
-          alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
-        }catch(e){
-          alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
-        }
+
+  // sectie tonen
+  paypalSection.style.display = 'block';
+
+  // als planId ontbreekt maar formulier wel geldig is (zou zelden gebeuren)
+  if (!planId){
+    paypalHint.style.display = 'block';
+    const el = document.querySelector(paypalContainerSel);
+    if (el) el.innerHTML = "";
+    renderedForPlan = "";
+    return;
+  } else {
+    paypalHint.style.display = 'none';
+  }
+
+  // voorkom onnodig opnieuw renderen bij elke toetsaanslag
+  if (renderedForPlan === planId) return;
+
+  const el = document.querySelector(paypalContainerSel);
+  if(!window.paypal || !el){ return; }
+  el.innerHTML = "";
+
+  paypal.Buttons({
+    style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: planId });
+    },
+    onApprove: async function(data, actions) {
+      try{
+        await fetch("{{ url_for('paypal_store_subscription') }}", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            subscription_id: data.subscriptionID,
+            plan_value: (document.getElementById('storage_tb')?.value || "")
+          })
+        });
+        alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+      }catch(e){
+        alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
       }
-    }).render(PAYPAL_CONTAINER_SEL);
-    isRendered = true;
-    lastRenderedPlanId = planId;
-    setPaypalVisibility(true);
-  }catch(e){
-    setPaypalVisibility(false);
-  }
+    }
+  }).render(paypalContainerSel);
+
+  renderedForPlan = planId;
 }
-function onFormChange(){
-  updateNotesAndHints();
-  if (!isContactFormComplete() || !currentPlanId()){ setPaypalVisibility(false); return; }
-  maybeRenderPaypal();
-}
-['input','change'].forEach(evt => {
-  loginEmailInput?.addEventListener(evt, onFormChange);
-  companyInput?.addEventListener(evt, onFormChange);
-  phoneInput?.addEventListener(evt, onFormChange);
-  passwordInput?.addEventListener(evt, onFormChange);
-  storageSelect?.addEventListener(evt, onFormChange);
+
+// events
+['input','change','blur'].forEach(evt => {
+  form.addEventListener(evt, renderPaypalConditional, true);
 });
-if (typeof paypal !== "undefined"){ onFormChange(); maybeRenderPaypal(); }
-else { window.addEventListener('load', ()=>{ onFormChange(); maybeRenderPaypal(); }); }
+window.addEventListener('load', renderPaypalConditional);
 </script>
 </body></html>
 """
+
 
 CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
