@@ -11,7 +11,8 @@
 # - Favicon (OH) als SVG + .ico fallback
 # - Werkende voortgangsbalken (upload & download)
 # - Aangepaste prijzen (0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30)
-# - Transfer-knop onder de card, zonder fade/arcering
+# - Transfer-knop NIET op uploadpagina; wel op download- en contactpagina
+# - “Kopieer” toont een inline “Gekopieerd!” i.p.v. alert
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -60,7 +61,6 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-# Simpele secret voor sessies (geen extra env vereist):
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
 logging.basicConfig(level=logging.INFO)
@@ -160,7 +160,6 @@ input[type=file]::file-selector-button{
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:var(--brand-2)}
-/* Progressbar met stripes en zachte animatie */
 .progress{
   height:14px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem;
   border:1px solid #dbe5f4; position:relative;
@@ -178,15 +177,8 @@ input[type=file]::file-selector-button{
   animation: stripes 1s linear infinite;
   mix-blend-mode: overlay;
 }
-/* Indeterminate variant voor onbekende lengte (download zip) */
-.progress.indet > i{
-  width:40%;
-  animation: indet-move 1.2s linear infinite;
-}
-@keyframes indet-move{
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(250%); }
-}
+.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
+@keyframes indet-move{ 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 @media (max-width: 680px){
@@ -196,7 +188,7 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
-/* Cta is niet meer sticky en zonder fade/achtergrond */
+/* CTA niet op uploadpagina */
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
@@ -212,10 +204,8 @@ FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' 
 def favicon_svg():
     return Response(FAVICON_SVG, mimetype="image/svg+xml")
 
-# Veel browsers vragen nog expliciet /favicon.ico:
 @app.route("/favicon.ico")
 def favicon_ico():
-    # We serveren dezelfde SVG met een ico-mimetype; dit werkt in moderne browsers.
     return Response(FAVICON_SVG, mimetype="image/x-icon")
 
 # -------------- Templates --------------
@@ -233,8 +223,7 @@ LOGIN_HTML = """
   <h1 style="color:var(--brand)">Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="off">
-    <input type="text" name="x" style="display:none">
-    <input type="password" name="y" style="display:none">
+    <input type="text" name="x" style="display:none"><input type="password" name="y" style="display:none">
     <label for="email">E-mail</label>
     <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
     <label for="pw">Wachtwoord</label>
@@ -246,7 +235,6 @@ LOGIN_HTML = """
 </body></html>
 """
 
-# Moderne prompt voor pakket-wachtwoord
 PASS_PROMPT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
@@ -256,8 +244,7 @@ PASS_PROMPT_HTML = """
   <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="off">
-    <input type="text" name="a" style="display:none">
-    <input type="password" name="b" style="display:none">
+    <input type="text" name="a" style="display:none"><input type="password" name="b" style="display:none">
     <label for="pw">Wachtwoord</label>
     <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
            required autocomplete="new-password" autocapitalize="off" spellcheck="false">
@@ -328,8 +315,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   <div id="result" style="margin-top:1rem"></div>
 
-  </div>
-
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
@@ -370,26 +355,22 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
 
-  let displayPct = 0;   // wat je zíet
-  let targetPct  = 0;   // wat we berekend hebben
-  let animId = null;
+  let displayPct = 0; let targetPct  = 0; let animId = null;
 
   function animateProgress(){
     const diff = targetPct - displayPct;
     if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
-    else { displayPct += diff * 0.15; } // ease
+    else { displayPct += diff * 0.15; }
     const p = Math.max(0, Math.min(100, displayPct));
     upbarFill.style.width = p + "%";
     uptext.textContent = Math.round(p) + "%";
     if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
   }
-
   function setProgress(pct, forceText){
     targetPct = Math.max(0, Math.min(100, pct || 0));
     if (!animId) animId = requestAnimationFrame(animateProgress);
     if (forceText){ uptext.textContent = forceText; }
   }
-
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
@@ -410,7 +391,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url, true);
-      xhr.timeout = 900000; // 15 min per (deel)upload
+      xhr.timeout = 900000;
       xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
       xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
       xhr.onload = ()=>{
@@ -426,7 +407,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       xhr.send(blob);
     });
   }
-
   async function singleInit(token, filename, type){
     const r = await fetch("{{ url_for('put_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -445,10 +425,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
     return j;
   }
-
   async function uploadSingle(token, file, relpath, totalTracker){
     const init = await singleInit(token, file.name, file.type);
-    await putWithProgress(init.url, file, (loaded, total, known)=>{
+    await putWithProgress(init.url, file, (loaded)=>{
       const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
       const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
       setProgress(pctTotal);
@@ -485,7 +464,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
     return j;
   }
-
   async function uploadMultipart(token, file, relpath, totalTracker){
     const CHUNK = 16 * 1024 * 1024;
     const CONCURRENCY = 4;
@@ -503,22 +481,18 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     }
 
     async function uploadPart(partNumber){
-      const idx   = partNumber - 1;
+      const idx = partNumber - 1;
       const start = idx * CHUNK;
-      const end   = Math.min(start + CHUNK, file.size);
-      const blob  = file.slice(start, end);
+      const end = Math.min(start + CHUNK, file.size);
+      const blob = file.slice(start, end);
 
       const MAX_TRIES = 6;
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(
-            url, blob,
-            (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); },
-            `part ${partNumber}`
-          );
+          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, `part ${partNumber}`);
           perPart[idx] = blob.size; refreshTotal();
-          return { PartNumber: partNumber, ETag: etag };   // <<< BELANGRIJK: ETag meegeven
+          return { PartNumber: partNumber, ETag: etag };
         }catch(err){
           if(attempt===MAX_TRIES) throw err;
           const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
@@ -574,7 +548,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         }
       }
 
-      // uploads klaar -> afronden UI
+      // uploads klaar
       if (animId){ cancelAnimationFrame(animId); animId = null; }
       setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
 
@@ -584,15 +558,26 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input class="input" style="flex:1" value="${link}" readonly>
-            <button class="btn" type="button"
-              onclick="(navigator.clipboard?.writeText('${link}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-              Kopieer
-            </button>
+            <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
+            <button class="btn" type="button" id="copyBtn">Kopieer</button>
+            <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
           </div>
         </div>`;
 
-      // verberg progress UI na korte delay + reset state
+      // Kopieer-knop met inline bevestiging
+      const copyBtn = document.getElementById('copyBtn');
+      const copyOk  = document.getElementById('copyOk');
+      const input   = document.getElementById('shareLinkInput');
+      copyBtn.addEventListener('click', async ()=>{
+        try{
+          await (navigator.clipboard?.writeText(input.value));
+        }catch(e){
+          input.select(); document.execCommand?.('copy');
+        }
+        copyOk.style.display = 'inline';
+        setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
+      });
+
       setTimeout(()=>{
         upbar.style.display = 'none';
         uptext.style.display = 'none';
@@ -655,7 +640,6 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     {% endif %}
   </div>
 
-  <!-- TRANSFER-KNOP: onder de card, zonder fade/arcering -->
   <div class="cta">
     <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
   </div>
@@ -933,7 +917,6 @@ def mpu_complete():
             MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
             UploadId=upload_id
         )
-        # HEAD kan bij B2 soms even haperen; probeer, anders val terug op client_size
         size = 0
         try:
             head = s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -1149,7 +1132,6 @@ def contact():
         )
 
     subject = "Nieuwe aanvraag transfer-oplossing"
-    # AANGEPASTE PRIJZEN
     price_map = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
     price    = price_map.get(storage_tb, "op aanvraag")
     body = (
