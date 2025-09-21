@@ -11,7 +11,7 @@
 # - Favicon (OH) als SVG + .ico fallback
 # - Werkende voortgangsbalken (upload & download)
 # - Prijzen: 0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30 (p/mnd)
-# - Contact: subdomein-preview, wens-wachtwoord veld, PayPal abonnement-knop (per opslagvariant)
+# - Contact: subdomein-preview, wachtwoord-veld, PayPal abonnement-knop (per opslagvariant)
 # - Facturatie-tekst; livegang 1–2 dagen (langer bij maatwerk)
 # - CTA NIET op uploadpagina
 # - “Kopieer” toont inline “Gekopieerd!” i.p.v. alert
@@ -27,7 +27,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-    # check_password_hash wordt gebruikt voor pakket-wachtwoord (niet voor login)
+# check_password_hash wordt gebruikt voor pakket-wachtwoord (niet voor login)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -108,7 +108,7 @@ def init_db():
     c.commit(); c.close()
 init_db()
 
-# -------------- CSS -------------- 
+# -------------- CSS --------------
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
@@ -199,6 +199,10 @@ input[type=file]::file-selector-button{
   .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+}
+/* Responsive helper om 2 kolommen naar 1 te schakelen op mobiel en verspringing te voorkomen */
+@media (max-width: 680px){
+  .cols-2{ grid-template-columns: 1fr !important; }
 }
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
@@ -301,7 +305,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       <input id="folderInput" class="input" type="file" multiple webkitdirectory directory>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
+    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem">
       <div>
         <label for="title">Onderwerp (optioneel)</label>
         <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
@@ -717,7 +721,7 @@ CONTACT_HTML = """
   <h1>Eigen transfer-oplossing aanvragen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
         <input id="login_email" class="input" name="login_email" type="email" placeholder="naam@bedrijf.nl" value="{{ form.login_email or '' }}" required>
@@ -725,16 +729,20 @@ CONTACT_HTML = """
       <div>
         <label for="storage_tb">Gewenste opslaggrootte</label>
         <select id="storage_tb" class="input" name="storage_tb" required>
-          <option value="">Maak een keuze…</option>
+          <option value="" {% if not form.storage_tb %}selected{% endif %}>Maak een keuze…</option>
           <option value="0.5" {% if form.storage_tb=='0.5' %}selected{% endif %}>0,5 TB — €12/maand</option>
-          <option value="1"   {% if (form.storage_tb or '1')=='1' %}selected{% endif %}>1 TB — €15/maand</option>
+          <option value="1"   {% if form.storage_tb=='1' %}selected{% endif %}>1 TB — €15/maand</option>
           <option value="2"   {% if form.storage_tb=='2' %}selected{% endif %}>2 TB — €20/maand</option>
           <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €30/maand</option>
+          <option value="more" {% if form.storage_tb=='more' %}selected{% endif %}>Meer opslag (op aanvraag)</option>
         </select>
+        <div id="more-note" class="small" style="display:none;margin-top:.35rem">
+          Vul bij <strong>Opmerking</strong> de gewenste grootte of opties in.
+        </div>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
       <div>
         <label for="company">Bedrijfsnaam</label>
         <input id="company" class="input" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{ form.company or '' }}" minlength="2" maxlength="100" required>
@@ -748,14 +756,14 @@ CONTACT_HTML = """
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
       <div>
-        <label for="desired_password">Wens-wachtwoord (voor jouw omgeving)</label>
+        <label for="desired_password">Wachtwoord (voor jouw omgeving)</label>
         <input id="desired_password" class="input" name="desired_password" type="password" placeholder="Kies een sterk wachtwoord" minlength="6" required>
       </div>
       <div>
         <label for="notes">Opmerking (optioneel)</label>
-        <input id="notes" class="input" name="notes" type="text" placeholder="Eventuele wensen/opmerkingen" maxlength="200">
+        <input id="notes" class="input" name="notes" type="text" placeholder="Eventuele wensen/opmerkingen" maxlength="200" value="{{ form.notes or '' }}">
       </div>
     </div>
 
@@ -813,27 +821,49 @@ const PLAN_MAP = {
 };
 const storageSelect = document.getElementById('storage_tb');
 const paypalHint = document.getElementById('paypal-hint');
+const paypalContainerSel = '#paypal-button-container';
+const moreNote = document.getElementById('more-note');
 
 function currentPlanId(){
-  const v = storageSelect?.value || "1";
+  const v = storageSelect?.value || "";
+  // Geen PayPal bij geen keuze of 'more'
+  if (!v || v === "more") return "";
   return PLAN_MAP[v] || "";
 }
 
-function renderPaypal(){
-  const planId = currentPlanId();
-  const container = '#paypal-button-container';
-  const el = document.querySelector(container);
-  if(!window.paypal || !el){ return; }
+function toggleNotesAndPaypalVisibility() {
+  const v = storageSelect?.value || "";
+  const btnEl = document.querySelector(paypalContainerSel);
 
-  // Clear eerder gerenderde knop
-  el.innerHTML = "";
+  // Toon notitie bij 'Meer opslag'
+  if (moreNote) moreNote.style.display = (v === "more") ? 'block' : 'none';
 
-  if(!planId){
-    paypalHint.style.display = 'block';
-    return;
-  } else {
-    paypalHint.style.display = 'none';
+  // Verberg PayPal geheel als er geen geldige plan is, geen keuze, of 'more'
+  const hasPlan = !!currentPlanId();
+  if (btnEl) {
+    btnEl.style.display = hasPlan ? 'block' : 'none';
+    if (!hasPlan) btnEl.innerHTML = ""; // wis oude knop
   }
+  // Hint: alleen tonen indien er wel een concrete keuze is zonder plan (fallback)
+  if (paypalHint) {
+    if (!v || v === "more") {
+      paypalHint.style.display = 'none';
+    } else {
+      paypalHint.style.display = hasPlan ? 'none' : 'block';
+    }
+  }
+}
+
+function renderPaypal(){
+  toggleNotesAndPaypalVisibility();
+
+  const planId = currentPlanId();
+  const container = paypalContainerSel;
+  const el = document.querySelector(container);
+  if(!window.paypal || !el || !planId){ return; }
+
+  // Clear eerdere knop
+  el.innerHTML = "";
 
   paypal.Buttons({
     style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
@@ -1229,7 +1259,15 @@ ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
 
 def _send_contact_email(form):
-    price_label = PRICE_LABEL.get(form["storage_tb"], "op aanvraag")
+    # storage_tb kan float (0.5,1,2,5) zijn of de string "more"
+    storage_val = form.get("storage_tb")
+
+    if storage_val in PRICE_LABEL:
+        price_label = PRICE_LABEL[storage_val]  # type: ignore[index]
+        storage_line = f"- Gewenste opslag: {storage_val} TB (indicatie {price_label})\n"
+    else:
+        storage_line = "- Gewenste opslag: meer opslag (op aanvraag)\n"
+
     base_host = form.get("base_host") or "downloadlink.nl"
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
@@ -1237,10 +1275,10 @@ def _send_contact_email(form):
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\n\n"
         f"- Gewenste inlog-e-mail: {form['login_email']}\n"
-        f"- Gewenste opslag: {form['storage_tb']} TB (indicatie {price_label})\n"
+        f"{storage_line}"
         f"- Bedrijfsnaam: {form['company']}\n"
         f"- Telefoonnummer: {form['phone']}\n"
-        f"- Wens-wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
+        f"- Wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
         f"- Subdomein voorbeeld: {example_link}\n"
         f"- Opmerking: {form.get('notes') or '-'}\n\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
@@ -1255,7 +1293,7 @@ def contact():
     if request.method == "GET":
         return render_template_string(
             CONTACT_HTML, error=None,
-            form={"login_email":"", "storage_tb":"1", "company":"", "phone":"", "notes":""},
+            form={"login_email":"", "storage_tb":"", "company":"", "phone":"", "notes":""},
             base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
             base_host=base_host,
             paypal_client_id=PAYPAL_CLIENT_ID,
@@ -1274,16 +1312,25 @@ def contact():
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
-    try:
-        storage_tb = float(storage_tb_raw.replace(",", "."))
-    except Exception:
-        storage_tb = None
-    if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
+
+    # Opslag: sta 'more' toe (op aanvraag), lege waarde afkeuren
+    is_more = (storage_tb_raw.lower() == "more")
+    storage_tb = None
+    if not storage_tb_raw:
+        errors.append("Kies een geldige opslaggrootte.")
+    elif not is_more:
+        try:
+            storage_tb = float(storage_tb_raw.replace(",", "."))
+        except Exception:
+            storage_tb = None
+        if storage_tb not in ALLOWED_TB:
+            errors.append("Kies een geldige opslaggrootte.")
+
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
     if not PHONE_RE.match(phone): errors.append("Vul een geldig telefoonnummer in (8–20 tekens).")
-    if len(desired_pw) < 6: errors.append("Kies een wens-wachtwoord van minimaal 6 tekens.")
+    if len(desired_pw) < 6: errors.append("Kies een wachtwoord van minimaal 6 tekens.")
 
-    form_back = {"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),
+    form_back = {"login_email":login_email,"storage_tb":(storage_tb_raw or ""),
                  "company":company,"phone":phone,"notes":notes}
 
     if errors:
@@ -1315,7 +1362,7 @@ def contact():
         if SMTP_HOST and SMTP_USER and SMTP_PASS:
             _send_contact_email({
                 "login_email": login_email,
-                "storage_tb": storage_tb,
+                "storage_tb": (storage_tb if not is_more else "more"),
                 "company": company,
                 "phone": phone,
                 "desired_password": desired_pw,
@@ -1330,15 +1377,20 @@ def contact():
         pass
 
     # Fallback: mailto
-    price_label = PRICE_LABEL.get(storage_tb, "op aanvraag")
+    if storage_tb in PRICE_LABEL:
+        price_label = PRICE_LABEL[storage_tb]  # type: ignore[index]
+        storage_line = f"- Gewenste opslag: {storage_tb} TB (indicatie {price_label})\\n"
+    else:
+        storage_line = "- Gewenste opslag: meer opslag (op aanvraag)\\n"
+
     example_link = f"{company_slug}.{base_host}" if company_slug else base_host
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
         f"- Gewenste inlog-e-mail: {login_email}\\n"
-        f"- Gewenste opslag: {storage_tb} TB (indicatie {price_label})\\n"
+        f"{storage_line}"
         f"- Bedrijfsnaam: {company}\\n"
         f"- Telefoonnummer: {phone}\\n"
-        f"- Wens-wachtwoord: {desired_pw}\\n"
+        f"- Wachtwoord: {desired_pw}\\n"
         f"- Subdomein voorbeeld: {example_link}\\n"
         f"- Opmerking: {notes or '-'}\\n\\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\\n"
