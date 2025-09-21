@@ -941,8 +941,8 @@ CONTACT_DONE_HTML = """
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1>
 <p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p>
 <p class="small" style="margin-top:.35rem">
-  We zetten je omgeving meestal binnen <strong>1–2 dagen</strong> live (bij <strong>maatwerk</strong> kan dit langer duren).
-  Je kunt desgewenst ook een abonnement starten via PayPal of je ontvangt na livegang een incasso-link per e-mail.
+  Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief.
+  Na livegang ontvang je een bevestigingsmail met alle gegevens.
 </p>
 <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
 </body></html>
@@ -1067,18 +1067,8 @@ def paypal_access_token():
 
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
-    """
-    Herkent zowel downloadlink.nl als minitransfer.onrender.com.
-    - Als de app via downloadlink.nl draait: gebruik downloadlink.nl
-    - Als de app via *.onrender.com draait: gebruik minitransfer.onrender.com
-    - Anders: BASE_HOST env of fallback 'minitransfer.onrender.com'
-    """
-    host = (request.host or "").split(":")[0].lower()
-    if host.endswith(".downloadlink.nl") or host == "downloadlink.nl":
-        return "downloadlink.nl"
-    if host.endswith(".onrender.com") or host == "minitransfer.onrender.com":
-        return "minitransfer.onrender.com"
-    return os.environ.get("BASE_HOST", "minitransfer.onrender.com")
+    # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
+    return "downloadlink.nl"
 
 # -------------- Routes (core) --------------
 @app.route("/")
