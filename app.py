@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter =========
+# ========= MiniTransfer – Olde Hanter (met abonnementbeheer) =========
 # - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
-# - Upload (files/folders) naar B2 (S3)
-# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel)
-# - Downloadpagina met voortgang + "alles zippen"
-# - Contact met PayPal abonnement-knop (met validatie vóór tonen/klikken)
-# - Opzeggen/wijzigen abonnement via server endpoints
+# - Upload (files/folders) naar B2 (S3) met voortgang
+# - Downloadpagina met zip-stream en precheck
+# - Contact/aanvraag met PayPal abonnement-knop (per opslagvariant)
+# - “Meer opslag” verbergt PayPal en toont toelichting; standaard “Maak een keuze…”
+# - Overal “wachtwoord” (term “wens-wachtwoord” verwijderd)
+# - Abonnementbeheer: opslaan subscriptionID, opzeggen, plan wijzigen (revise)
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
@@ -46,10 +47,9 @@ SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
 # PayPal Subscriptions
-PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID", "")
-PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
-# Live: https://api-m.paypal.com  • Sandbox: https://api-m.sandbox.paypal.com
-PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")
+PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID", "Ab8h88fW-hPlMAkILiefRCyXTf08ykTwPm77SSv2Oaj31rR2sicDd1WUufNhWJqy6Y7oaa_bpPlBDxta")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")  # <-- voeg toe in je env
+PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
 
 PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
 PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
@@ -57,10 +57,10 @@ PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA
 PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
 
 PLAN_MAP = {
-  "0.5": PAYPAL_PLAN_0_5,
-  "1":   PAYPAL_PLAN_1,
-  "2":   PAYPAL_PLAN_2,
-  "5":   PAYPAL_PLAN_5,
+    "0.5": PAYPAL_PLAN_0_5,
+    "1":   PAYPAL_PLAN_1,
+    "2":   PAYPAL_PLAN_2,
+    "5":   PAYPAL_PLAN_5,
 }
 
 s3 = boto3.client(
@@ -103,18 +103,14 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Abonnementen (PayPal)
+    # Abonnementen
     c.execute("""
       CREATE TABLE IF NOT EXISTS subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         login_email TEXT NOT NULL,
-        company TEXT,
-        phone TEXT,
-        desired_password TEXT,
-        notes TEXT,
         plan_value TEXT NOT NULL,            -- '0.5','1','2','5'
         subscription_id TEXT UNIQUE NOT NULL,
-        status TEXT DEFAULT 'ACTIVE',        -- ACTIVE | CANCELED | etc.
+        status TEXT DEFAULT 'ACTIVE',
         created_at TEXT NOT NULL
       )
     """)
@@ -213,6 +209,7 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
+/* Responsive helper om 2 kolommen naar 1 te schakelen op mobiel en verspringing te voorkomen */
 @media (max-width: 680px){
   .cols-2{ grid-template-columns: 1fr !important; }
 }
@@ -291,6 +288,7 @@ INDEX_HTML = """
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+.nav a{color:var(--brand);text-decoration:none;font-weight:700}
 </style></head><body>
 {{ bg|safe }}
 
@@ -299,6 +297,10 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     <h1>Bestanden delen met Olde Hanter</h1>
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
+
+<div class="nav" style="margin-bottom:1rem">
+  <a href="{{ url_for('billing_page') }}">Beheer abonnement</a>
+</div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
@@ -413,7 +415,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j.token;
   }
 
-  // Single PUT (<5MB)
+  // XHR helper
   function putWithProgress(url, blob, updateCb, label){
     return new Promise((resolve,reject)=>{
       const xhr = new XMLHttpRequest();
@@ -424,7 +426,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : null);
+          resolve(etag ? etag.replaceAll('\"','') : None);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -441,7 +443,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j; // {key, url}
+    return j;
   }
   async function singleComplete(token, key, name, path){
     const r = await fetch("{{ url_for('put_complete') }}", {
@@ -463,7 +465,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  // Multipart (≥5MB)
+  // Multipart
   async function mpuInit(token, filename, type){
     const r = await fetch("{{ url_for('mpu_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -471,7 +473,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
-    return j; // {key, uploadId}
+    return j;
   }
   async function signPart(key, uploadId, partNumber){
     const r = await fetch("{{ url_for('mpu_sign') }}", {
@@ -600,11 +602,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
       });
 
-      setTimeout(()=>{
-        upbar.style.display = 'none';
-        uptext.style.display = 'none';
-        displayPct = 0; targetPct = 0; animId = null;
-      }, 800);
+      setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
 
     }catch(err){
       alert(err.message || 'Onbekende fout');
@@ -786,11 +784,11 @@ CONTACT_HTML = """
     </div>
   </form>
 
-  <!-- PayPal -->
+  <!-- Betaal alvast via PayPal (abonnement) -->
   <div style="margin-top:1.5rem">
     <h3>Direct starten met een abonnement via PayPal</h3>
     <p class="small">De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze.</p>
-    <div id="paypal-button-container" style="max-width:360px; display:none"></div>
+    <div id="paypal-button-container" style="max-width:360px"></div>
     <div id="paypal-hint" class="small" style="color:#991b1b; display:none; margin-top:.5rem">
       Geen PayPal-plan geconfigureerd voor deze opslaggrootte. Kies een andere grootte of rond eerst je aanvraag af; we sturen dan een incasso-link per e-mail na livegang.
     </div>
@@ -799,30 +797,32 @@ CONTACT_HTML = """
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 
+<!-- PayPal SDK -->
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
 
 <script>
-// --- Helpers / slug preview ---
+/* --------- Helpers --------- */
 function slugify(s){
-  return (s||"").toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
-    .replace(/&/g,' en ').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/--+/g,'-').substring(0, 50);
+  return (s||"")
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/&/g,' en ')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    .replace(/--+/g,'-')
+    .substring(0, 50);
 }
-const BASE_DOMAIN = "{{ base_host }}";
 const company = document.getElementById('company');
 const subPreview = document.getElementById('subPreview');
-function updatePreview(){ const sub=slugify(company.value); subPreview.textContent = sub ? (sub + "." + BASE_DOMAIN) : BASE_DOMAIN; }
-company?.addEventListener('input', updatePreview); updatePreview();
+const BASE_DOMAIN = "{{ base_host }}";
+function updatePreview(){
+  const sub = slugify(company.value);
+  subPreview.textContent = sub ? (sub + "." + BASE_DOMAIN) : BASE_DOMAIN;
+}
+company?.addEventListener('input', updatePreview);
+updatePreview();
 
-// --- Form validation (front-end gate voor PayPal) ---
-const loginEmail = document.getElementById('login_email');
-const storageSel = document.getElementById('storage_tb');
-const phone      = document.getElementById('phone');
-const passInp    = document.getElementById('desired_password');
-const notesInp   = document.getElementById('notes');
-const moreNote   = document.getElementById('more-note');
-const paypalHint = document.getElementById('paypal-hint');
-const paypalContainerSel = '#paypal-button-container';
-
+/* --------- PayPal dynamisch renderen o.b.v. complete form + plan --------- */
 const PLAN_MAP = {
   "0.5": "{{ paypal_plan_0_5 }}",
   "1":   "{{ paypal_plan_1 }}",
@@ -830,106 +830,154 @@ const PLAN_MAP = {
   "5":   "{{ paypal_plan_5 }}"
 };
 
-function emailOk(v){ return /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v||""); }
-function phoneOk(v){ return /^[0-9+()\\s-]{8,20}$/.test(v||""); }
-function formValid(){
-  const vEmail = emailOk(loginEmail?.value);
-  const vStorage = !!(storageSel?.value && storageSel.value !== "more");
-  const vCompany = (company?.value||"").trim().length >= 2 && (company?.value||"").trim().length <= 100;
-  const vPhone = phoneOk(phone?.value);
-  const vPass  = (passInp?.value||"").length >= 6;
-  return vEmail && vStorage && vCompany && vPhone && vPass;
-}
+const formEl           = document.getElementById('contactForm');
+const storageSelect    = document.getElementById('storage_tb');
+const loginEmailInput  = document.getElementById('login_email');
+const companyInput     = document.getElementById('company');
+const phoneInput       = document.getElementById('phone');
+const passwordInput    = document.getElementById('desired_password');
+const moreNote         = document.getElementById('more-note');
+const paypalHint       = document.getElementById('paypal-hint');
+
+const PAYPAL_CONTAINER_SEL = '#paypal-button-container';
+let lastRenderedPlanId = null;    // houd bij wat er gerenderd is
+let isRendered = false;           // staat van PayPal buttons
+
 function currentPlanId(){
-  const v = storageSel?.value || "";
+  const v = storageSelect?.value || "";
   if (!v || v === "more") return "";
   return PLAN_MAP[v] || "";
 }
 
-function toggleNotesAndPaypalVisibility() {
-  const v = storageSel?.value || "";
-  const btnEl = document.querySelector(paypalContainerSel);
-  const planId = currentPlanId();
+function isContactFormComplete(){
+  // Gebruik native validatie en aanvullende checks
+  const emailOk    = loginEmailInput?.checkValidity();
+  const companyOk  = companyInput?.checkValidity();
+  const phoneOk    = phoneInput?.checkValidity();
+  const passOk     = (passwordInput?.value || "").length >= 6;
+  const storageVal = storageSelect?.value || "";
 
-  // Meer-opslag notitie
+  // Niet "more", niet leeg
+  const storageOk  = storageVal && storageVal !== "more";
+
+  return !!(emailOk && companyOk && phoneOk && passOk && storageOk);
+}
+
+function setPaypalVisibility(visible){
+  const el = document.querySelector(PAYPAL_CONTAINER_SEL);
+  if (!el) return;
+  el.style.display = visible ? 'block' : 'none';
+  if (!visible){
+    // Leegmaken om oude render te verwijderen en events te resetten
+    el.innerHTML = "";
+    isRendered = false;
+    lastRenderedPlanId = null;
+  }
+}
+
+function updateNotesAndHints(){
+  const v = storageSelect?.value || "";
   if (moreNote) moreNote.style.display = (v === "more") ? 'block' : 'none';
 
-  // PayPal zichtbaar alleen als formulier geldig EN er een plan is
-  const showPaypal = formValid() && !!planId;
-  if (btnEl) {
-    btnEl.style.display = showPaypal ? 'block' : 'none';
-    if (!showPaypal) btnEl.innerHTML = "";
-  }
-  // Hint alleen tonen indien wél opslag is gekozen maar geen plan bestaat
-  if (paypalHint) {
-    if (!v || v === "more") { paypalHint.style.display = 'none'; }
-    else { paypalHint.style.display = planId ? 'none' : 'block'; }
-  }
-}
-
-function renderPaypal(){
-  toggleNotesAndPaypalVisibility();
   const planId = currentPlanId();
-  const el = document.querySelector(paypalContainerSel);
-  if(!window.paypal || !el || !planId || !formValid()){ return; }
+  const hasPlan = !!planId;
 
-  el.innerHTML = ""; // reset
-
-  paypal.Buttons({
-    style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
-
-    // Blockeren vóór PayPal als formulier niet geldig is
-    onClick: function(data, actions){
-      if(!formValid()){
-        alert("Vul eerst alle gegevens correct in (e-mail, opslaggrootte, bedrijfsnaam, telefoon en wachtwoord).");
-        return actions.reject();
-      }
-      return actions.resolve();
-    },
-
-    createSubscription: function(data, actions) {
-      return actions.subscription.create({ plan_id: planId });
-    },
-
-    // Na goedkeuring: stuur alles naar de server -> opslaan + e-mail versturen
-    onApprove: async function(data, actions) {
-      try{
-        const payload = {
-          subscription_id: data.subscriptionID,
-          plan_value: storageSel.value,
-          login_email: loginEmail.value,
-          company: company.value,
-          phone: phone.value,
-          desired_password: passInp.value,
-          notes: notesInp.value || ""
-        };
-        const r = await fetch("{{ url_for('paypal_store_subscription') }}", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(payload)
-        });
-        const j = await r.json();
-        if(!r.ok || !j.ok){
-          alert("Abonnement gestart, maar opslaan/e-mail verzenden mislukte. Neem contact op.");
-        }else{
-          alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
-        }
-      }catch(e){
-        alert("Abonnement gestart, maar opslaan/e-mail verzenden mislukte. Neem contact op.");
-      }
+  // Hint alleen tonen als er wél een opslaggrootte (niet "more") is gekozen,
+  // maar géén plan beschikbaar is
+  if (paypalHint){
+    if (!v || v === "more"){
+      paypalHint.style.display = 'none';
+    } else {
+      paypalHint.style.display = hasPlan ? 'none' : 'block';
     }
-  }).render(el);
+  }
 }
 
-["input","change","blur"].forEach(evt=>{
-  loginEmail?.addEventListener(evt, renderPaypal);
-  storageSel?.addEventListener(evt, renderPaypal);
-  company?.addEventListener(evt, renderPaypal);
-  phone?.addEventListener(evt, renderPaypal);
-  passInp?.addEventListener(evt, renderPaypal);
-  notesInp?.addEventListener(evt, renderPaypal);
+function maybeRenderPaypal(){
+  updateNotesAndHints();
+
+  const container = document.querySelector(PAYPAL_CONTAINER_SEL);
+  const planId = currentPlanId();
+  const complete = isContactFormComplete();
+  const canShow = !!(planId && complete && window.paypal && container);
+
+  if (!canShow){
+    setPaypalVisibility(false);
+    return;
+  }
+
+  // Als al gerenderd voor dezelfde planId, niets doen
+  if (isRendered && lastRenderedPlanId === planId){
+    setPaypalVisibility(true);
+    return;
+  }
+
+  // (Re)renderen
+  container.innerHTML = "";
+  try{
+    paypal.Buttons({
+      style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
+      createSubscription: function(data, actions) {
+        return actions.subscription.create({ plan_id: planId });
+      },
+      onApprove: async function(data, actions) {
+        try{
+          await fetch("{{ url_for('paypal_store_subscription') }}", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({
+              subscription_id: data.subscriptionID,
+              plan_value: (document.getElementById('storage_tb')?.value || "")
+            })
+          });
+          alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+        }catch(e){
+          alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
+        }
+      }
+    }).render(PAYPAL_CONTAINER_SEL);
+
+    isRendered = true;
+    lastRenderedPlanId = planId;
+    setPaypalVisibility(true);
+  }catch(e){
+    // Als render mislukt, verberg dan de container
+    setPaypalVisibility(false);
+  }
+}
+
+function onFormChange(){
+  // Elke wijziging aan inputs triggert her-evaluatie
+  updateNotesAndHints();
+
+  // Als formulier (nog) niet compleet, verberg PayPal
+  if (!isContactFormComplete() || !currentPlanId()){
+    setPaypalVisibility(false);
+    return;
+  }
+  // Form is compleet + plan bestaat -> proberen (opnieuw) te renderen
+  maybeRenderPaypal();
+}
+
+// Luisteraars op alle relevante velden
+['input','change'].forEach(evt => {
+  loginEmailInput?.addEventListener(evt, onFormChange);
+  companyInput?.addEventListener(evt, onFormChange);
+  phoneInput?.addEventListener(evt, onFormChange);
+  passwordInput?.addEventListener(evt, onFormChange);
+  storageSelect?.addEventListener(evt, onFormChange);
 });
-if (typeof paypal !== "undefined") { renderPaypal(); } else { window.addEventListener('load', renderPaypal); }
+
+// Init bij pagina-laden en wanneer PayPal SDK geladen is
+if (typeof paypal !== "undefined"){
+  onFormChange();
+  maybeRenderPaypal();
+} else {
+  window.addEventListener('load', () => {
+    onFormChange();
+    maybeRenderPaypal();
+  });
+}
 </script>
 </body></html>
 """
@@ -961,7 +1009,77 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-# -------------- Helpers / routes --------------
+# ---- Beheer abonnement (UI) ----
+BILLING_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap">
+  <div class="topbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+    <h1 style="color:var(--brand)">Beheer abonnement</h1>
+    <div>Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
+
+  <div class="card">
+    {% if sub %}
+      <div class="small" style="margin-bottom:.8rem">
+        <div><strong>Subscription ID:</strong> <code id="subid">{{ sub['subscription_id'] }}</code></div>
+        <div><strong>Status:</strong> <span id="status">{{ sub['status'] }}</span></div>
+        <div><strong>Huidig plan:</strong> <span id="plan">{{ sub['plan_value'] }}</span> TB</div>
+      </div>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:end">
+        <div>
+          <label for="newPlan">Nieuw plan</label>
+          <select id="newPlan" class="input" style="min-width:180px">
+            <option value="0.5">0,5 TB</option>
+            <option value="1">1 TB</option>
+            <option value="2">2 TB</option>
+            <option value="5">5 TB</option>
+          </select>
+        </div>
+        <button class="btn" id="btnChange">Wijzig plan</button>
+        <button class="btn secondary" id="btnCancel">Opzeggen</button>
+      </div>
+    {% else %}
+      <p class="small">Geen actief abonnement gevonden voor {{ user }}. Start een abonnement via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.</p>
+    {% endif %}
+  </div>
+
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
+{% if sub %}
+<script>
+async function api(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ throw new Error(j.error || ('HTTP '+r.status)); }
+  return j;
+}
+document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid').textContent.trim();
+  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
+  try{
+    await api("{{ url_for('billing_cancel') }}", {subscription_id: id});
+    alert('Opgezegd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+document.getElementById('btnChange')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid').textContent.trim();
+  const val = document.getElementById('newPlan').value;
+  try{
+    await api("{{ url_for('billing_change') }}", {subscription_id: id, new_plan_value: val});
+    alert('Plan gewijzigd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+</script>
+{% endif %}
+</body></html>
+"""
+
+# -------------- Helpers --------------
 def logged_in() -> bool:
     return session.get("authed", False)
 
@@ -975,9 +1093,6 @@ def human(n: int) -> str:
 def send_email(to_addr: str, subject: str, body: str):
     if not to_addr:
         return
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
-        log.warning("SMTP niet geconfigureerd; e-mail niet verzonden.")
-        return
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
@@ -987,8 +1102,8 @@ def send_email(to_addr: str, subject: str, body: str):
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
 def paypal_access_token():
-    if not (PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET):
-        raise RuntimeError("PayPal client credentials ontbreken")
+    if not PAYPAL_CLIENT_ID or not PAYPAL_CLIENT_SECRET:
+        raise RuntimeError("PAYPAL_CLIENT_ID/SECRET ontbreekt")
     req = urllib.request.Request(PAYPAL_API_BASE + "/v1/oauth2/token", method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     creds = f"{PAYPAL_CLIENT_ID}:{PAYPAL_CLIENT_SECRET}".encode()
@@ -1005,6 +1120,7 @@ def get_base_host():
         return "downloadlink.nl"
     return os.environ.get("BASE_HOST", "downloadlink.nl")
 
+# -------------- Routes (core) --------------
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
@@ -1025,7 +1141,7 @@ def login():
 def logout():
     session.clear(); return redirect(url_for("login"))
 
-# API: packages + uploads
+# -------------- Upload API --------------
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in(): abort(401)
@@ -1043,7 +1159,6 @@ def package_init():
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
 
-# Single PUT
 @app.route("/put-init", methods=["POST"])
 def put_init():
     if not logged_in(): abort(401)
@@ -1084,7 +1199,6 @@ def put_complete():
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
-# Multipart
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
     if not logged_in(): abort(401)
@@ -1157,7 +1271,7 @@ def mpu_complete():
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
 
-# Download pages/streams
+# -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
@@ -1259,7 +1373,8 @@ def stream_zip(token):
         resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
 
     try:
-        z = ZipStream()  # compat modus
+        z = ZipStream()
+
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
             def read(self, n=-1):
@@ -1272,6 +1387,7 @@ def stream_zip(token):
                     try: self._buf += next(self._it)
                     except StopIteration: self._done=True; break
                 out,self._buf=self._buf[:n],self._buf[n:]; return out
+
         def add_compat(arcname, gen_factory):
             if hasattr(z,"add_iter"):
                 try: z.add_iter(arcname, gen_factory()); return
@@ -1287,6 +1403,7 @@ def stream_zip(token):
             try: z.add(gen_factory(), arcname); return
             except Exception: pass
             raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
+
         for r in rows:
             arcname = r["path"] or r["name"]
             def reader(key=r["s3_key"]):
@@ -1294,10 +1411,13 @@ def stream_zip(token):
                 for chunk in obj["Body"].iter_chunks(1024*512):
                     if chunk: yield chunk
             add_compat(arcname, lambda: reader())
+
         def generate():
             for chunk in z: yield chunk
+
         filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
         if not filename.lower().endswith(".zip"): filename += ".zip"
+
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
@@ -1309,13 +1429,13 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
-# Contact: validatie + mail
+# -------------- Contact / Mail --------------
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
 
-def _compose_contact_mail(form, source="Formulier", subscription_id=None):
+def _send_contact_email(form):
     storage_val = form.get("storage_tb")
     if storage_val in PRICE_LABEL:
         price_label = PRICE_LABEL[storage_val]  # type: ignore[index]
@@ -1328,25 +1448,18 @@ def _compose_contact_mail(form, source="Formulier", subscription_id=None):
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
     body = (
-        f"Er is een nieuwe aanvraag binnengekomen ({source}):\n\n"
+        "Er is een nieuwe aanvraag binnengekomen:\n\n"
         f"- Gewenste inlog-e-mail: {form['login_email']}\n"
         f"{storage_line}"
         f"- Bedrijfsnaam: {form['company']}\n"
         f"- Telefoonnummer: {form['phone']}\n"
         f"- Wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
         f"- Subdomein voorbeeld: {example_link}\n"
-        f"- Opmerking: {form.get('notes') or '-'}\n"
-    )
-    if subscription_id:
-        body += f"- PayPal Subscription ID: {subscription_id}\n"
-    body += (
-        "\nLivegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
+        f"- Opmerking: {form.get('notes') or '-'}\n\n"
+        "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
         "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\n"
     )
-    return body
 
-def _send_contact_email(form, source="Formulier", subscription_id=None):
-    body = _compose_contact_mail(form, source=source, subscription_id=subscription_id)
     send_email(MAIL_TO, "Nieuwe aanvraag transfer-oplossing", body)
 
 @app.route("/contact", methods=["GET","POST"])
@@ -1406,7 +1519,7 @@ def contact():
             paypal_plan_5=PAYPAL_PLAN_5
         )
 
-    # Slug
+    # Slug voor voorbeeld subdomein
     def slugify_py(s: str) -> str:
         import unicodedata, re as _re
         s = unicodedata.normalize('NFKD', s)
@@ -1430,23 +1543,23 @@ def contact():
                 "notes": notes,
                 "company_slug": company_slug,
                 "base_host": base_host
-            }, source="Formulier")
+            })
             return render_template_string(
                 CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
             )
     except Exception:
-        log.exception("SMTP mail verzenden faalde; val terug op mailto.")
+        pass
 
     # Fallback: mailto
-    example_link = f"{company_slug}.{base_host}" if company_slug else base_host
     if storage_tb in PRICE_LABEL:
         price_label = PRICE_LABEL[storage_tb]  # type: ignore[index]
         storage_line = f"- Gewenste opslag: {storage_tb} TB (indicatie {price_label})\\n"
     else:
         storage_line = "- Gewenste opslag: meer opslag (op aanvraag)\\n"
 
+    example_link = f"{company_slug}.{base_host}" if company_slug else base_host
     body = (
-        "Er is een nieuwe aanvraag binnengekomen (Formulier):\\n\\n"
+        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
         f"- Gewenste inlog-e-mail: {login_email}\\n"
         f"{storage_line}"
         f"- Bedrijfsnaam: {company}\\n"
@@ -1461,74 +1574,41 @@ def contact():
     mailto = f"mailto:{MAIL_TO}?subject={quote('Nieuwe aanvraag transfer-oplossing')}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
-# ---------- PayPal: opslaan + mail na onApprove ----------
+# -------------- Abonnementbeheer (server) --------------
 @app.route("/billing/store", methods=["POST"])
 def paypal_store_subscription():
-    if not logged_in(): abort(401)
+    # wordt aangeroepen door PayPal onApprove javascript
     data = request.get_json(force=True, silent=True) or {}
     sub_id = (data.get("subscription_id") or "").strip()
     plan_value = (data.get("plan_value") or "").strip()
-    login_email = (data.get("login_email") or "").strip()
-    company     = (data.get("company") or "").strip()
-    phone       = (data.get("phone") or "").strip()
-    desired_pw  = (data.get("desired_password") or "").strip()
-    notes       = (data.get("notes") or "").strip()
-
     if not sub_id or plan_value not in {"0.5","1","2","5"}:
         return jsonify(ok=False, error="invalid_input"), 400
-    # Basic server-side validatie (veiligheid)
-    if not EMAIL_RE.match(login_email): return jsonify(ok=False, error="invalid_email"), 400
-    if len(company) < 2 or len(company) > 100: return jsonify(ok=False, error="invalid_company"), 400
-    if not PHONE_RE.match(phone): return jsonify(ok=False, error="invalid_phone"), 400
-    if len(desired_pw) < 6: return jsonify(ok=False, error="invalid_password"), 400
-
     c = db()
-    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, company, phone, desired_password, notes,
-                 plan_value, subscription_id, status, created_at)
-                 VALUES(?,?,?,?,?,?,?,?,?)""",
-              (login_email, company, phone, desired_pw, notes,
-               plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat()))
+    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at)
+                 VALUES(?,?,?,?,?)""",
+              (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat()))
     c.commit(); c.close()
-
-    # Mail versturen met alle gegevens (bron: PayPal) 
-    try:
-        _send_contact_email({
-            "login_email": login_email,
-            "storage_tb": float(plan_value),
-            "company": company,
-            "phone": phone,
-            "desired_password": desired_pw,
-            "notes": notes,
-            "company_slug": "",           # onbekend op dit pad
-            "base_host": get_base_host()
-        }, source="PayPal", subscription_id=sub_id)
-    except Exception:
-        log.exception("SMTP mail bij PayPal store faalde")
-
     return jsonify(ok=True)
 
-# ---------- PayPal: opzeggen ----------
 @app.route("/billing/cancel", methods=["POST"])
 def billing_cancel():
     if not logged_in(): abort(401)
     sub_id = (request.json or {}).get("subscription_id") or ""
     if not sub_id: return jsonify(ok=False, error="missing_id"), 400
     try:
-      token = paypal_access_token()
-      req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel", method="POST")
-      req.add_header("Authorization", f"Bearer {token}")
-      req.add_header("Content-Type", "application/json")
-      body = json.dumps({"reason":"Cancelled by customer via portal"}).encode()
-      with urllib.request.urlopen(req, data=body, timeout=20):
-          pass
-      c = db(); c.execute("UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?", (sub_id,))
-      c.commit(); c.close()
-      return jsonify(ok=True)
-    except Exception:
-      logging.exception("PayPal cancel failed")
-      return jsonify(ok=False, error="paypal_cancel_failed"), 502
+        token = paypal_access_token()
+        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"reason":"Cancelled by customer via portal"}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20):  # 204 expected
+            pass
+        c = db(); c.execute("UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?", (sub_id,)); c.commit(); c.close()
+        return jsonify(ok=True)
+    except Exception as e:
+        log.exception("PayPal cancel failed")
+        return jsonify(ok=False, error="paypal_cancel_failed"), 502
 
-# ---------- PayPal: plan wijzigen ----------
 @app.route("/billing/change", methods=["POST"])
 def billing_change():
     if not logged_in(): abort(401)
@@ -1539,19 +1619,29 @@ def billing_change():
     if not sub_id or not new_plan_id:
         return jsonify(ok=False, error="invalid_input"), 400
     try:
-      token = paypal_access_token()
-      req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise", method="POST")
-      req.add_header("Authorization", f"Bearer {token}")
-      req.add_header("Content-Type", "application/json")
-      body = json.dumps({"plan_id": new_plan_id}).encode()
-      with urllib.request.urlopen(req, data=body, timeout=20) as resp:
-          j = json.loads(resp.read().decode() or "{}")
-      c = db(); c.execute("UPDATE subscriptions SET plan_value=? WHERE subscription_id=?", (new_plan_value, sub_id))
-      c.commit(); c.close()
-      return jsonify(ok=True, paypal=j)
+        token = paypal_access_token()
+        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"plan_id": new_plan_id}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20) as resp:
+            _ = resp.read()
+        c = db(); c.execute("UPDATE subscriptions SET plan_value=? WHERE subscription_id=?", (new_plan_value, sub_id)); c.commit(); c.close()
+        return jsonify(ok=True)
     except Exception:
-      logging.exception("PayPal revise failed")
-      return jsonify(ok=False, error="paypal_revise_failed"), 502
+        log.exception("PayPal revise failed")
+        return jsonify(ok=False, error="paypal_revise_failed"), 502
+
+# -------------- Abonnementbeheer (UI) --------------
+@app.route("/billing")
+def billing_page():
+    if not logged_in(): return redirect(url_for("login"))
+    c = db()
+    sub = c.execute("SELECT * FROM subscriptions WHERE login_email=? ORDER BY id DESC LIMIT 1", (AUTH_EMAIL,)).fetchone()
+    c.close()
+    return render_template_string(
+        BILLING_HTML, sub=sub, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, user=session.get("user")
+    )
 
 # Healthcheck & Aliassen
 @app.route("/health-s3")
