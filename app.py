@@ -10,9 +10,11 @@
 # - iOS/iPhone: map-upload verborgen/disabled
 # - Favicon (OH) als SVG + .ico fallback
 # - Werkende voortgangsbalken (upload & download)
-# - Aangepaste prijzen (0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30)
-# - Transfer-knop NIET op uploadpagina; wel op download- en contactpagina
-# - “Kopieer” toont een inline “Gekopieerd!” i.p.v. alert
+# - Prijzen: 0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30 (p/mnd)
+# - Contact: subdomein-preview, wens-wachtwoord veld, PayPal abonnement-knop (per opslagvariant)
+# - Facturatie-tekst; livegang 1–2 dagen (langer bij maatwerk)
+# - CTA NIET op uploadpagina
+# - “Kopieer” toont inline “Gekopieerd!” i.p.v. alert
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -25,6 +27,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
+    # check_password_hash wordt gebruikt voor pakket-wachtwoord (niet voor login)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -50,8 +53,17 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
-def smtp_configured():
-    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
+# PayPal Subscriptions
+# - Client ID overridable via env (PAYPAL_CLIENT_ID)
+# - Plannen alvast ingevuld met jouw IDs; env vars overriden indien aanwezig
+PAYPAL_CLIENT_ID = os.environ.get(
+    "PAYPAL_CLIENT_ID",
+    "Ab8h88fW-hPlMAkILiefRCyXTf08ykTwPm77SSv2Oaj31rR2sicDd1WUufNhWJqy6Y7oaa_bpPlBDxta"
+)
+PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
+PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
+PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
+PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
 
 s3 = boto3.client(
     "s3",
@@ -188,7 +200,6 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
-/* CTA niet op uploadpagina */
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
@@ -548,7 +559,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         }
       }
 
-      // uploads klaar
       if (animId){ cancelAnimationFrame(animId); animId = null; }
       setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
 
@@ -564,16 +574,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
           </div>
         </div>`;
 
-      // Kopieer-knop met inline bevestiging
       const copyBtn = document.getElementById('copyBtn');
       const copyOk  = document.getElementById('copyOk');
       const input   = document.getElementById('shareLinkInput');
       copyBtn.addEventListener('click', async ()=>{
-        try{
-          await (navigator.clipboard?.writeText(input.value));
-        }catch(e){
-          input.select(); document.execCommand?.('copy');
-        }
+        try{ await (navigator.clipboard?.writeText(input.value)); }
+        catch(e){ input.select(); document.execCommand?.('copy'); }
         copyOk.style.display = 'inline';
         setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
       });
@@ -710,7 +716,7 @@ CONTACT_HTML = """
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-  <form method="post" action="{{ url_for('contact') }}" novalidate>
+  <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
@@ -727,20 +733,126 @@ CONTACT_HTML = """
         </select>
       </div>
     </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
       <div>
         <label for="company">Bedrijfsnaam</label>
         <input id="company" class="input" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{ form.company or '' }}" minlength="2" maxlength="100" required>
+        <div class="small" style="margin-top:.35rem">
+          Voorbeeld link: <code id="subPreview">{{ form.company and form.company or '' }}</code>
+        </div>
       </div>
       <div>
         <label for="phone">Telefoonnummer</label>
         <input id="phone" class="input" name="phone" type="tel" placeholder="+31 6 12345678" value="{{ form.phone or '' }}" pattern="^[0-9+()\\s-]{8,20}$" required>
       </div>
     </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+      <div>
+        <label for="desired_password">Wens-wachtwoord (voor jouw omgeving)</label>
+        <input id="desired_password" class="input" name="desired_password" type="password" placeholder="Kies een sterk wachtwoord" minlength="6" required>
+      </div>
+      <div>
+        <label for="notes">Opmerking (optioneel)</label>
+        <input id="notes" class="input" name="notes" type="text" placeholder="Eventuele wensen/opmerkingen" maxlength="200">
+      </div>
+    </div>
+
     <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
+    <div class="small" style="margin-top:.5rem">
+      We zetten je omgeving meestal binnen <strong>1–2 dagen</strong> live
+      (bij <strong>maatwerk</strong> kan dit langer duren). Na livegang ontvang je desgewenst een e-mail met link voor <strong>automatische incasso</strong>.
+    </div>
   </form>
+
+  <!-- Betaal alvast via PayPal (abonnement) -->
+  <div style="margin-top:1.5rem">
+    <h3>Direct starten met een abonnement via PayPal</h3>
+    <p class="small">De knop hieronder kiest automatisch het juiste abonnement op basis van je opslagkeuze.</p>
+    <div id="paypal-button-container" style="max-width:360px"></div>
+    <div id="paypal-hint" class="small" style="color:#991b1b; display:none; margin-top:.5rem">
+      Geen PayPal-plan geconfigureerd voor deze opslaggrootte. Kies een andere grootte of rond eerst je aanvraag af; we sturen dan een incasso-link per e-mail na livegang.
+    </div>
+  </div>
+
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+
+<!-- PayPal SDK -->
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
+
+<script>
+// Slugify bedrijfsnaam naar subdomein + voorbeeldlink
+function slugify(s){
+  return (s||"")
+    .toLowerCase()
+    .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'') // accents weg
+    .replace(/&/g,' en ')
+    .replace(/[^a-z0-9]+/g,'-')                        // niet-alfanumeriek -> '-'
+    .replace(/^-+|-+$/g,'')                            // trim '-'
+    .replace(/--+/g,'-')                               // dubbele '-'
+    .substring(0, 50);
+}
+const company = document.getElementById('company');
+const subPreview = document.getElementById('subPreview');
+const BASE_DOMAIN = "{{ base_host }}"; // bv. downloadlink.nl
+function updatePreview(){
+  const sub = slugify(company.value);
+  subPreview.textContent = sub ? (sub + "." + BASE_DOMAIN) : BASE_DOMAIN;
+}
+company?.addEventListener('input', updatePreview);
+updatePreview();
+
+// PayPal: dynamische plan selectie o.b.v. opslaggrootte
+const PLAN_MAP = {
+  "0.5": "{{ paypal_plan_0_5 }}",
+  "1":   "{{ paypal_plan_1 }}",
+  "2":   "{{ paypal_plan_2 }}",
+  "5":   "{{ paypal_plan_5 }}"
+};
+const storageSelect = document.getElementById('storage_tb');
+const paypalHint = document.getElementById('paypal-hint');
+
+function currentPlanId(){
+  const v = storageSelect?.value || "1";
+  return PLAN_MAP[v] || "";
+}
+
+function renderPaypal(){
+  const planId = currentPlanId();
+  const container = '#paypal-button-container';
+  const el = document.querySelector(container);
+  if(!window.paypal || !el){ return; }
+
+  // Clear eerder gerenderde knop
+  el.innerHTML = "";
+
+  if(!planId){
+    paypalHint.style.display = 'block';
+    return;
+  } else {
+    paypalHint.style.display = 'none';
+  }
+
+  paypal.Buttons({
+    style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: planId });
+    },
+    onApprove: function(data, actions) {
+      alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+    }
+  }).render(container);
+}
+
+if (typeof paypal !== "undefined") {
+  renderPaypal();
+} else {
+  window.addEventListener('load', renderPaypal);
+}
+storageSelect?.addEventListener('change', renderPaypal);
+</script>
 </body></html>
 """
 
@@ -748,7 +860,13 @@ CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag verstuurd</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
-<div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
+<div class="wrap"><div class="card"><h1>Dank je wel!</h1>
+<p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p>
+<p class="small" style="margin-top:.35rem">
+  We zetten je omgeving meestal binnen <strong>1–2 dagen</strong> live (bij <strong>maatwerk</strong> kan dit langer duren).
+  Je kunt desgewenst ook een abonnement starten via PayPal of je ontvangt na livegang een incasso-link per e-mail.
+</p>
+<p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
 </body></html>
 """
 
@@ -777,6 +895,8 @@ def human(n: int) -> str:
         x /= 1024
 
 def send_email(to_addr: str, subject: str, body: str):
+    if not to_addr:
+        return
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
@@ -784,6 +904,13 @@ def send_email(to_addr: str, subject: str, body: str):
     msg.set_content(body)
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+
+# --------- Basishost voor subdomein-preview ----------
+def get_base_host():
+    host = (request.host or "").split(":")[0].lower()
+    if host.endswith(".downloadlink.nl") or host == "downloadlink.nl":
+        return "downloadlink.nl"
+    return os.environ.get("BASE_HOST", "downloadlink.nl")
 
 @app.route("/")
 def index():
@@ -966,7 +1093,6 @@ def package_page(token):
     items = c.execute("SELECT id,name,path,size_bytes FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
     c.close()
 
-    share_link = url_for("package_page", token=token, _external=True)
     total_bytes = sum(int(r["size_bytes"]) for r in items)
     total_h = human(total_bytes)
     dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
@@ -977,7 +1103,7 @@ def package_page(token):
     return render_template_string(
         PACKAGE_HTML,
         token=token, title=pkg["title"],
-        items=its, share_link=share_link, total_human=total_h,
+        items=its, total_human=total_h,
         expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
 
@@ -1003,8 +1129,8 @@ def stream_file(token, item_id):
 
         resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-        resp.headers["X-Filename"] = it["name"]
         if length: resp.headers["Content-Length"] = str(length)
+        resp.headers["X-Filename"] = it["name"]
         return resp
     except Exception:
         log.exception("stream_file failed")
@@ -1096,23 +1222,53 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
-# Contact
-EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
+# Contact: validatie + mail
+EMAIL_RE  = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
+PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
+
+def _send_contact_email(form):
+    price_label = PRICE_LABEL.get(form["storage_tb"], "op aanvraag")
+    base_host = form.get("base_host") or "downloadlink.nl"
+    company_slug = form.get("company_slug") or ""
+    example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
+    body = (
+        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
+        f"- Gewenste inlog-e-mail: {form['login_email']}\\n"
+        f"- Gewenste opslag: {form['storage_tb']} TB (indicatie {price_label})\\n"
+        f"- Bedrijfsnaam: {form['company']}\\n"
+        f"- Telefoonnummer: {form['phone']}\\n"
+        f"- Wens-wachtwoord: {form.get('desired_password','(niet ingevuld)')}\\n"
+        f"- Subdomein voorbeeld: {example_link}\\n"
+        f("- Opmerking: " + (form.get('notes') or '-') + "\\n\\n")
+        + "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\\n"
+        + "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\\n"
+    )
+    send_email(MAIL_TO, "Nieuwe aanvraag transfer-oplossing", body)
 
 @app.route("/contact", methods=["GET","POST"])
 def contact():
+    base_host = get_base_host()
     if request.method == "GET":
         return render_template_string(
             CONTACT_HTML, error=None,
-            form={"login_email":"", "storage_tb":"1", "company":"", "phone":""},
-            base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+            form={"login_email":"", "storage_tb":"1", "company":"", "phone":"", "notes":""},
+            base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
+            base_host=base_host,
+            paypal_client_id=PAYPAL_CLIENT_ID,
+            paypal_plan_0_5=PAYPAL_PLAN_0_5,
+            paypal_plan_1=PAYPAL_PLAN_1,
+            paypal_plan_2=PAYPAL_PLAN_2,
+            paypal_plan_5=PAYPAL_PLAN_5
         )
+
     login_email   = (request.form.get("login_email") or "").strip()
     storage_tb_raw= (request.form.get("storage_tb") or "").strip()
     company       = (request.form.get("company") or "").strip()
     phone         = (request.form.get("phone") or "").strip()
+    desired_pw    = (request.form.get("desired_password") or "").strip()
+    notes         = (request.form.get("notes") or "").strip()
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
@@ -1123,38 +1279,71 @@ def contact():
     if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
     if not PHONE_RE.match(phone): errors.append("Vul een geldig telefoonnummer in (8–20 tekens).")
+    if len(desired_pw) < 6: errors.append("Kies een wens-wachtwoord van minimaal 6 tekens.")
+
+    form_back = {"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),
+                 "company":company,"phone":phone,"notes":notes}
 
     if errors:
         return render_template_string(
             CONTACT_HTML, error=" ".join(errors),
-            form={"login_email":login_email,"storage_tb":(storage_tb_raw or "1"),"company":company,"phone":phone},
-            base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+            form=form_back, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
+            base_host=base_host,
+            paypal_client_id=PAYPAL_CLIENT_ID,
+            paypal_plan_0_5=PAYPAL_PLAN_0_5,
+            paypal_plan_1=PAYPAL_PLAN_1,
+            paypal_plan_2=PAYPAL_PLAN_2,
+            paypal_plan_5=PAYPAL_PLAN_5
         )
 
-    subject = "Nieuwe aanvraag transfer-oplossing"
-    price_map = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
-    price    = price_map.get(storage_tb, "op aanvraag")
-    body = (
-        "Er is een nieuwe aanvraag binnengekomen:\n\n"
-        f"- Gewenste inlog-e-mail: {login_email}\n"
-        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\n"
-        f"- Bedrijfsnaam: {company}\n"
-        f"- Telefoonnummer: {phone}\n"
-    )
+    # Slug voor voorbeeld subdomein (zelfde logica als in JS)
+    def slugify_py(s: str) -> str:
+        import unicodedata, re as _re
+        s = unicodedata.normalize('NFKD', s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = s.lower().replace("&"," en ")
+        s = _re.sub(r"[^a-z0-9]+","-", s)
+        s = _re.sub(r"^-+|-+$","", s)
+        s = _re.sub(r"--+","-", s)
+        return s[:50] if s else ""
+    company_slug = slugify_py(company)
 
+    # E-mail naar beheerder
     try:
-        if smtp_configured():
-            msg = EmailMessage()
-            msg["Subject"] = subject; msg["From"] = SMTP_FROM; msg["To"] = MAIL_TO
-            msg.set_content(body)
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-                s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
-            return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
+        if SMTP_HOST and SMTP_USER and SMTP_PASS:
+            _send_contact_email({
+                "login_email": login_email,
+                "storage_tb": storage_tb,
+                "company": company,
+                "phone": phone,
+                "desired_password": desired_pw,
+                "notes": notes,
+                "company_slug": company_slug,
+                "base_host": base_host
+            })
+            return render_template_string(
+                CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+            )
     except Exception:
         pass
 
+    # Fallback: mailto
+    price_label = PRICE_LABEL.get(storage_tb, "op aanvraag")
+    example_link = f"{company_slug}.{base_host}" if company_slug else base_host
+    body = (
+        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
+        f"- Gewenste inlog-e-mail: {login_email}\\n"
+        f"- Gewenste opslag: {storage_tb} TB (indicatie {price_label})\\n"
+        f"- Bedrijfsnaam: {company}\\n"
+        f"- Telefoonnummer: {phone}\\n"
+        f"- Wens-wachtwoord: {desired_pw}\\n"
+        f"- Subdomein voorbeeld: {example_link}\\n"
+        f"- Opmerking: {notes or '-'}\\n\\n"
+        "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\\n"
+        "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\\n"
+    )
     from urllib.parse import quote
-    mailto = f"mailto:{MAIL_TO}?subject={quote(subject)}&body={quote(body)}"
+    mailto = f"mailto:{MAIL_TO}?subject={quote('Nieuwe aanvraag transfer-oplossing')}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 # Healthcheck & Aliassen
