@@ -11,7 +11,8 @@
 # - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
 # - Favicon (OH) + modern wachtwoordprompt voor pakketten
 # - Werkende voortgangsbalken (upload & download)
-# - Aangepaste prijzen voor 0,5 / 1 / 2 / 5 TB
+# - Aangepaste prijzen (0,5 TB €12 • 1 TB €15 • 2 TB €20 • 5 TB €30)
+# - Transfer-knop verplaatst onder de card, zonder fade/arcering
 # ====================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -196,8 +197,8 @@ input[type=file]::file-selector-button{
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
 }
-.cta-fixed{position:sticky; bottom:0; display:flex; justify-content:center;
-  padding:1rem; margin-top:1rem; background:linear-gradient(180deg,transparent,rgba(0,0,0,.03))}
+/* Cta is niet meer sticky en zonder fade/achtergrond */
+.cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
 # -------------- Favicon --------------
@@ -317,7 +318,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     <div class="small" id="uptext" style="display:none">0%</div>
   </form>
 
-  <div id="result"></div>
+  <div id="result" style="margin-top:1rem"></div>
+
+  <!-- TRANSFER-KNOP: onder de card, zonder fade/arcering -->
+  <div class="cta">
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+  </div>
+
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
@@ -437,7 +444,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   async function uploadSingle(token, file, relpath, totalTracker){
     const init = await singleInit(token, file.name, file.type);
     await putWithProgress(init.url, file, (loaded, total, known)=>{
-      const pctFile = known && total ? (loaded/total) : (loaded / file.size);
       const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
       const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
       setProgress(pctTotal);
@@ -501,10 +507,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       for(let attempt=1; attempt<=MAX_TRIES; attempt++){
         try{
           const url  = await signPart(key, uploadId, partNumber);
-          await putWithProgress(url, blob, (loaded, total, known)=>{
-            perPart[idx] = Math.min(loaded, blob.size);
-            refreshTotal();
-          }, `part ${partNumber}`);
+          await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, `part ${partNumber}`);
           perPart[idx] = blob.size; refreshTotal();
           return { PartNumber: partNumber, ETag: null };
         }catch(err){
@@ -643,21 +646,11 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
       </tbody>
     </table>
     {% endif %}
+  </div>
 
-    <div class="linkbox" style="margin-top:1rem">
-      <div><strong>Deelbare link</strong></div>
-      <div style="display:flex;gap:.5rem;align-items:center;">
-        <input class="input" type="text" id="shareLink" value="{{ share_link }}" readonly>
-        <button class="btn" type="button"
-          onclick="(navigator.clipboard?.writeText('{{ share_link }}')||Promise.reject()).then(()=>alert('Link gekopieerd'))">
-          Kopieer
-        </button>
-      </div>
-    </div>
-
-    <div class="cta-fixed">
-      <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-    </div>
+  <!-- TRANSFER-KNOP: onder de card, zonder fade/arcering -->
+  <div class="cta">
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
   </div>
 
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
@@ -809,8 +802,8 @@ def index():
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
-        email = (request.form.get("email") or "").lower()
-        pw    = request.form.get("password") or ""
+        email = (request.form.get("email") or "").lower().strip()
+        pw    = (request.form.get("password") or "").strip()
         if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
             session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
@@ -936,11 +929,11 @@ def mpu_complete():
         # HEAD kan bij B2 soms even haperen; probeer, anders val terug op client_size
         size = 0
         try:
-          head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-          size = int(head.get("ContentLength", 0))
+            head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+            size = int(head.get("ContentLength", 0))
         except Exception:
-          if client_size>0: size = client_size
-          else: raise
+            if client_size>0: size = client_size
+            else: raise
 
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
@@ -1114,8 +1107,8 @@ def stream_zip(token):
         return resp
 
 # Contact
-EMAIL_RE  = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
-PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
+EMAIL_RE  = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")   # gefixt: correcte \s
+PHONE_RE  = re.compile(r"^[0-9+()\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 
 @app.route("/contact", methods=["GET","POST"])
@@ -1133,8 +1126,10 @@ def contact():
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
-    try: storage_tb = float(storage_tb_raw.replace(",", ".")); 
-    except Exception: storage_tb = None
+    try:
+        storage_tb = float(storage_tb_raw.replace(",", "."))
+    except Exception:
+        storage_tb = None
     if storage_tb not in ALLOWED_TB: errors.append("Kies een geldige opslaggrootte.")
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
     if not PHONE_RE.match(phone): errors.append("Vul een geldig telefoonnummer in (8–20 tekens).")
@@ -1151,11 +1146,11 @@ def contact():
     price_map = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
     price    = price_map.get(storage_tb, "op aanvraag")
     body = (
-        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
-        f"- Gewenste inlog-e-mail: {login_email}\\n"
-        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\\n"
-        f"- Bedrijfsnaam: {company}\\n"
-        f"- Telefoonnummer: {phone}\\n"
+        "Er is een nieuwe aanvraag binnengekomen:\n\n"
+        f"- Gewenste inlog-e-mail: {login_email}\n"
+        f"- Gewenste opslag: {storage_tb} TB (indicatie {price})\n"
+        f"- Bedrijfsnaam: {company}\n"
+        f"- Telefoonnummer: {phone}\n"
     )
 
     try:
