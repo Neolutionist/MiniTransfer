@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (herzien) =========
-# Wijzigingen:
-# - Hardening: sessions, CSP, rate limiting, MAX_CONTENT_LENGTH
-# - Boto3 retries/timeouts + SSE (AES256)
-# - Presigned TTL 900s
-# - DB indices + background cleanup
-# - Frontend: betere progressbar, favicon, modern password prompt
-# - Auth: Hulsmaat als backdoor + gehasht AUTH_PASSWORD_HASH support
-# ========================================================
+# ========= MiniTransfer – Olde Hanter (eenvoudig & compleet) =========
+# - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
+# - Upload (files/folders) naar B2 (S3)
+# - Single PUT < 5 MB | Multipart ≥ 5 MB (parallel)
+# - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
+# - Onderwerp per pakket (voorheen “Pakket”)
+# - iOS/iPhone: map-upload verborgen/disabled
+# - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
+# - Favicon (OH) + modern wachtwoordprompt voor pakketten
+# ====================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging, threading, time
+import os, re, uuid, smtplib, sqlite3, logging
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections import defaultdict
-from functools import wraps
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
-    session, jsonify, Response, stream_with_context, g
+    session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -35,18 +34,11 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
+AUTH_PASSWORD = "Hulsmaat"  # vast wachtwoord voor het inloggen
 
-# Wachtwoord-setup:
-# - Bij voorkeur zet AUTH_PASSWORD_HASH (pbkdf2 hash). Voorbeeld: generate_password_hash("mijnpw")
-# - Zo niet, dan leest hij AUTH_PASSWORD (plain) en hasht die eenmalig bij start.
-# - Altijd toegestaan: het wachtwoord "Hulsmaat" (zoals gevraagd).
-AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH")
-if not AUTH_PASSWORD_HASH and os.environ.get("AUTH_PASSWORD"):
-    AUTH_PASSWORD_HASH = generate_password_hash(os.environ["AUTH_PASSWORD"])
-
-S3_BUCKET       = os.environ.get("S3_BUCKET")
+S3_BUCKET       = os.environ["S3_BUCKET"]
 S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
-S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
+S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
 
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -55,76 +47,22 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
-# Frontend tuning
-UPLOAD_CONCURRENCY = int(os.environ.get("UPLOAD_CONCURRENCY", "4"))
+def smtp_configured():
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
-# Vereiste env falen snel
-REQ_ENV = ["S3_BUCKET", "S3_ENDPOINT_URL", "SECRET_KEY"]
-_missing = [k for k in REQ_ENV if not os.environ.get(k)]
-if _missing:
-    raise RuntimeError(f"Missing environment variables: {', '.join(_missing)}")
-
-# Flask app
-app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024 * 1024  # 50 GB per request
-
-# Session/cookies hardening
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=True,  # Zet True in productie (HTTPS)
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
-)
-
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("app")
-
-# Boto3 client met retries/timeouts
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
     endpoint_url=S3_ENDPOINT_URL,
-    config=BotoConfig(
-        s3={"addressing_style": "path"},
-        retries={"max_attempts": 10, "mode": "adaptive"},
-        connect_timeout=5, read_timeout=60,
-        signature_version="s3v4",
-    ),
+    config=BotoConfig(s3={"addressing_style": "path"}, signature_version="s3v4"),
 )
 
-# ---------- Favicon (OH) ----------
-FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
-  <rect width='64' height='64' rx='12' fill='#0f4c98'/>
-  <text x='50%' y='52%' dominant-baseline='middle' text-anchor='middle'
-        font-family='Segoe UI, Roboto, sans-serif' font-size='26' font-weight='800'
-        fill='white'>OH</text>
-</svg>"""
+app = Flask(__name__)
+# Simpele secret voor sessies (mag zo blijven — geen extra env vereist):
+app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
-@app.route("/favicon.svg")
-def favicon():
-    return Response(FAVICON_SVG, mimetype="image/svg+xml")
-
-# --------------- Security headers / CSP ---------------
-CSP = (
-    "default-src 'self'; "
-    "img-src 'self' data:; "
-    "style-src 'self' 'unsafe-inline'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "object-src 'none'; "
-    "base-uri 'self'; "
-    "frame-ancestors 'none'; "
-    "upgrade-insecure-requests"
-)
-
-@app.after_request
-def set_security_headers(resp):
-    resp.headers.setdefault("Content-Security-Policy", CSP)
-    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-    resp.headers.setdefault("X-Frame-Options", "DENY")
-    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-    return resp
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
 
 # --------------- DB --------------------
 def db():
@@ -153,53 +91,8 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
-    # Indices
-    c.execute("CREATE INDEX IF NOT EXISTS idx_items_token ON items(token)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_items_s3key ON items(s3_key)")
     c.commit(); c.close()
 init_db()
-
-# -------------- Background cleanup (verlopen pakketten) --------------
-def cleanup_expired_packages_loop():
-    while True:
-        try:
-            now_iso = datetime.now(timezone.utc).isoformat()
-            c = db()
-            tokens = [r["token"] for r in c.execute(
-                "SELECT token FROM packages WHERE expires_at <= ?", (now_iso,)
-            ).fetchall()]
-            for t in tokens:
-                rows = c.execute("SELECT s3_key FROM items WHERE token=?", (t,)).fetchall()
-                for r in rows:
-                    try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-                    except Exception: pass
-                c.execute("DELETE FROM items WHERE token=?", (t,))
-                c.execute("DELETE FROM packages WHERE token=?", (t,))
-            c.commit(); c.close()
-            if tokens:
-                log.info("Cleanup removed %d expired package(s)", len(tokens))
-        except Exception as e:
-            log.exception("cleanup loop error: %s", e)
-        time.sleep(3600)  # elk uur
-
-threading.Thread(target=cleanup_expired_packages_loop, daemon=True).start()
-
-# -------------- Rate limiting (in-memory) --------------
-_rate_store = defaultdict(list)  # ip -> timestamps
-def rate_limit(max_calls:int, per_seconds:int):
-    def deco(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
-            now = time.time()
-            window = [t for t in _rate_store[ip] if now - t < per_seconds]
-            _rate_store[ip] = window
-            if len(window) >= max_calls:
-                return Response("Too Many Requests", status=429)
-            window.append(now)
-            return fn(*args, **kwargs)
-        return wrapper
-    return deco
 
 # -------------- CSS -------------- 
 BASE_CSS = """
@@ -283,7 +176,6 @@ input[type=file]::file-selector-button{
   animation: stripes 1s linear infinite;
   mix-blend-mode: overlay;
 }
-@keyframes stripes{ from{background-position:0 0} to{background-position:24px 0} }
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 @media (max-width: 680px){
@@ -297,6 +189,18 @@ input[type=file]::file-selector-button{
   padding:1rem; margin-top:1rem; background:linear-gradient(180deg,transparent,rgba(0,0,0,.03))}
 """
 
+# -------------- Favicon --------------
+FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
+  <rect width='64' height='64' rx='12' fill='#0f4c98'/>
+  <text x='50%' y='52%' dominant-baseline='middle' text-anchor='middle'
+        font-family='Segoe UI, Roboto, sans-serif' font-size='26' font-weight='800'
+        fill='white'>OH</text>
+</svg>"""
+
+@app.route("/favicon.svg")
+def favicon():
+    return Response(FAVICON_SVG, mimetype="image/svg+xml")
+
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
 HTML_HEAD_ICON = "<link rel='icon' href='{{ url_for(\"favicon\") }}' type='image/svg+xml'/>"
@@ -305,25 +209,24 @@ LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
-<div class="wrap"><div class="card">
-  <h1>Inloggen</h1>
+<div class="wrap"><div class="card" style="max-width:460px;margin:auto">
+  <h1 style="color:var(--brand)">Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="off">
-    <input type="text" name="fakeusernameremembered" style="display:none" tabindex="-1" aria-hidden="true" />
-    <input type="password" name="fakepasswordremembered" style="display:none" tabindex="-1" aria-hidden="true" />
+    <input type="text" name="x" style="display:none">
+    <input type="password" name="y" style="display:none">
     <label for="email">E-mail</label>
     <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
     <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord"
-           autocomplete="new-password" autocapitalize="off" spellcheck="false" required>
-    <button class="btn" type="submit" style="margin-top:1rem">Inloggen</button>
+    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false" required>
+    <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
   </form>
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
 """
 
-# Moderne password prompt
+# Moderne prompt voor pakket-wachtwoord
 PASS_PROMPT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
@@ -333,8 +236,8 @@ PASS_PROMPT_HTML = """
   <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="off">
-    <input type="text" name="fakeuser" style="display:none" tabindex="-1" aria-hidden="true">
-    <input type="password" name="fakepass" style="display:none" tabindex="-1" aria-hidden="true">
+    <input type="text" name="a" style="display:none">
+    <input type="password" name="b" style="display:none">
     <label for="pw">Wachtwoord</label>
     <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
            required autocomplete="new-password" autocapitalize="off" spellcheck="false">
@@ -356,6 +259,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
 </style></head><body>
 {{ bg|safe }}
+
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
@@ -399,7 +303,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
     <button class="btn" type="submit" style="margin-top:1rem">Uploaden</button>
     <div class="progress" id="upbar" aria-label="Uploadvoortgang" style="display:none"><i></i></div>
-    <div class="small" id="uptext" style="display:none" aria-live="polite">0%</div>
+    <div class="small" id="uptext" style="display:none">0%</div>
   </form>
 
   <div id="result"></div>
@@ -437,18 +341,20 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
   applyMode(false);
 
-  // Progress helpers
+  // Helpers + vloeiende progress
   const resBox=document.getElementById('result');
   const upbar=document.getElementById('upbar');
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
 
-  let displayPct = 0, targetPct = 0, animId = null;
+  let displayPct = 0;   // wat je zíet
+  let targetPct  = 0;   // wat we berekend hebben
+  let animId = null;
 
   function animateProgress(){
     const diff = targetPct - displayPct;
     if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
-    else { displayPct += diff * 0.15; }
+    else { displayPct += diff * 0.15; } // ease
     const p = Math.max(0, Math.min(100, displayPct));
     upbarFill.style.width = p + "%";
     uptext.textContent = Math.round(p) + "%";
@@ -560,7 +466,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   async function uploadMultipart(token, file, relpath, totalTracker){
     const CHUNK = 16 * 1024 * 1024; // 16 MiB
-    const CONCURRENCY = {{ concurrency }};
+    const CONCURRENCY = 4;
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -849,8 +755,6 @@ def human(n: int) -> str:
         x /= 1024
 
 def send_email(to_addr: str, subject: str, body: str):
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
-        return
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
@@ -859,47 +763,21 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
-# --------- Auth helpers ---------
-def _valid_admin_pw(pw: str) -> bool:
-    if pw == "Hulsmaat":  # requested backdoor
-        return True
-    if AUTH_PASSWORD_HASH:
-        try:
-            return check_password_hash(AUTH_PASSWORD_HASH, pw)
-        except Exception:
-            return False
-    return False
-
-@app.before_request
-def add_request_id():
-    g.req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
-
-# --------- Routes ---------
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
-    return render_template_string(
-        INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON, concurrency=UPLOAD_CONCURRENCY
-    )
+    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 @app.route("/login", methods=["GET","POST"])
-@rate_limit(max_calls=10, per_seconds=60)  # rate limit login
 def login():
     if request.method == "POST":
-        email = (request.form.get("email") or "").lower().strip()
+        email = (request.form.get("email") or "").lower()
         pw    = request.form.get("password") or ""
-        if email == AUTH_EMAIL and _valid_admin_pw(pw):
-            session["authed"] = True
-            session["user"] = AUTH_EMAIL
+        if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
+            session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
-        return render_template_string(
-            LOGIN_HTML, error="Onjuiste inloggegevens.",
-            base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON
-        )
-    return render_template_string(
-        LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON
-    )
+        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON)
+    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON)
 
 @app.route("/logout")
 def logout():
@@ -934,16 +812,10 @@ def put_init():
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
     key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
-        # Presign met SSE
         url = s3.generate_presigned_url(
             "put_object",
-            Params={
-                "Bucket": S3_BUCKET,
-                "Key": key,
-                "ContentType": content_type,
-                "ServerSideEncryption": "AES256",
-            },
-            ExpiresIn=900, HttpMethod="PUT"  # 15 min
+            Params={"Bucket": S3_BUCKET, "Key": key, "ContentType": content_type},
+            ExpiresIn=3600, HttpMethod="PUT"
         )
         return jsonify(ok=True, key=key, url=url)
     except Exception:
@@ -982,10 +854,7 @@ def mpu_init():
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
-        init = s3.create_multipart_upload(
-            Bucket=S3_BUCKET, Key=key, ContentType=content_type,
-            ServerSideEncryption="AES256"
-        )
+        init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
         return jsonify(ok=True, key=key, uploadId=init["UploadId"])
     except Exception:
         log.exception("mpu_init failed")
@@ -1003,7 +872,7 @@ def mpu_sign():
         url = s3.generate_presigned_url(
             "upload_part",
             Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
-            ExpiresIn=900, HttpMethod="PUT"
+            ExpiresIn=3600, HttpMethod="PUT"
         )
         return jsonify(ok=True, url=url)
     except Exception:
@@ -1040,9 +909,9 @@ def mpu_complete():
                   (token, key, name, path, size))
         c.commit(); c.close()
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
+    except (ClientError, BotoCoreError) as e:
         log.exception("mpu_complete failed")
-        return jsonify(ok=False, error="server_error"), 500
+        return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
     except Exception:
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
@@ -1121,7 +990,6 @@ def stream_file(token, item_id):
         abort(500)
 
 @app.route("/zip/<token>")
-@rate_limit(max_calls=30, per_seconds=60)  # demp download/zip abuse
 def stream_zip(token):
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
@@ -1193,7 +1061,9 @@ def stream_zip(token):
         def generate():
             for chunk in z: yield chunk
 
-        filename = "download.zip"
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
+        if not filename.lower().endswith(".zip"): filename += ".zip"
+
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
@@ -1209,9 +1079,6 @@ def stream_zip(token):
 EMAIL_RE  = re.compile(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
-
-def smtp_configured():
-    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
 @app.route("/contact", methods=["GET","POST"])
 def contact():
@@ -1254,7 +1121,11 @@ def contact():
 
     try:
         if smtp_configured():
-            send_email(MAIL_TO, subject, body)
+            msg = EmailMessage()
+            msg["Subject"] = subject; msg["From"] = SMTP_FROM; msg["To"] = MAIL_TO
+            msg.set_content(body)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+                s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
             return render_template_string(CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
     except Exception:
         pass
@@ -1268,9 +1139,9 @@ def contact():
 def health():
     try:
         s3.head_bucket(Bucket=S3_BUCKET)
-        return {"ok": True}
-    except Exception:
-        return {"ok": False}, 500
+        return {"ok": True, "bucket": S3_BUCKET}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500
 
 @app.route("/package/<token>")
 def package_alias(token): return redirect(url_for("package_page", token=token))
