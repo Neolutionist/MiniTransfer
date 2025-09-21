@@ -366,8 +366,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     }
   }
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-  document.getElementById('lblFiles').addEventListener('click', ()=>{ setTimeout(()=>{ try{fileInput.click();}catch(e){} },0); });
-  lblFolder.addEventListener('click', ()=>{ if(!isIOS()) setTimeout(()=>{ try{folderInput.click();}catch(e){} },0); });
   applyMode(false);
 
   // Helpers
