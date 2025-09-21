@@ -1233,18 +1233,20 @@ def _send_contact_email(form):
     base_host = form.get("base_host") or "downloadlink.nl"
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
+
     body = (
-        "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
-        f"- Gewenste inlog-e-mail: {form['login_email']}\\n"
-        f"- Gewenste opslag: {form['storage_tb']} TB (indicatie {price_label})\\n"
-        f"- Bedrijfsnaam: {form['company']}\\n"
-        f"- Telefoonnummer: {form['phone']}\\n"
-        f"- Wens-wachtwoord: {form.get('desired_password','(niet ingevuld)')}\\n"
-        f"- Subdomein voorbeeld: {example_link}\\n"
-        f("- Opmerking: " + (form.get('notes') or '-') + "\\n\\n")
-        + "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\\n"
-        + "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\\n"
+        "Er is een nieuwe aanvraag binnengekomen:\n\n"
+        f"- Gewenste inlog-e-mail: {form['login_email']}\n"
+        f"- Gewenste opslag: {form['storage_tb']} TB (indicatie {price_label})\n"
+        f"- Bedrijfsnaam: {form['company']}\n"
+        f"- Telefoonnummer: {form['phone']}\n"
+        f"- Wens-wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
+        f"- Subdomein voorbeeld: {example_link}\n"
+        f"- Opmerking: {form.get('notes') or '-'}\n\n"
+        "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
+        "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\n"
     )
+
     send_email(MAIL_TO, "Nieuwe aanvraag transfer-oplossing", body)
 
 @app.route("/contact", methods=["GET","POST"])
