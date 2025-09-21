@@ -7,10 +7,9 @@
 # - Single PUT < 5 MB | Multipart ≥ 5 MB
 # - Downloadpagina met voortgang + "alles zippen" (zipstream compat + precheck)
 # - Titel (onderwerp) per pakket
-# - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload verborgen/disabled
 # - Radio “Bestand(en)”/“Map” opent direct systeempicker (upload start NIET)
-# - Fix: retry op S3 HEAD na (MPU) complete om eventual consistency te overbruggen
+# - Fix: retry op S3 HEAD na (MPU) complete + fallback op clientSize
 # - Fix: grotere MPU-chunks (8 MiB) en langere timeouts voor stabiliteit
 # ============================================================================
 
@@ -24,6 +23,7 @@ from flask import (
     session, jsonify, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
+    # noqa
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
@@ -35,7 +35,6 @@ from zipstream import ZipStream  # zipstream-ng
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "files_multi.db"
 
-# Let de gevoelige waarden bij voorkeur via env variabelen binnenkomen.
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")
 
@@ -53,11 +52,18 @@ MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
+# Robuustere boto-config (retries + timeouts)
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
     endpoint_url=S3_ENDPOINT_URL,
-    config=BotoConfig(s3={"addressing_style": "path"}, signature_version="s3v4"),
+    config=BotoConfig(
+        s3={"addressing_style": "path"},
+        signature_version="s3v4",
+        retries={"max_attempts": 10, "mode": "standard"},
+        connect_timeout=5,
+        read_timeout=60,
+    ),
 )
 
 app = Flask(__name__)
@@ -123,7 +129,7 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
-def head_object_with_retry(bucket: str, key: str, tries: int = 6, base_ms: int = 150):
+def head_object_with_retry(bucket: str, key: str, tries: int = 10, base_ms: int = 200):
     """
     Na (multipart) uploads kan een object bij S3/B2 nog héél kort onzichtbaar zijn.
     Deze helper overbrugt dat met exponentiële backoff + jitter.
@@ -134,7 +140,6 @@ def head_object_with_retry(bucket: str, key: str, tries: int = 6, base_ms: int =
             return s3.head_object(Bucket=bucket, Key=key)
         except Exception as e:
             last_err = e
-            # 150ms, 240ms, 384ms, 614ms, 983ms, 1573ms (met jitter)
             sleep_s = (base_ms/1000.0) * (1.6 ** i) * (0.8 + 0.4*int.from_bytes(os.urandom(1), "big")/255.0)
             time.sleep(sleep_s)
     raise last_err
@@ -371,10 +376,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
 
-  function gatherFiles(){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? fileInput.files : folderInput.files;
-  }
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
@@ -429,10 +430,10 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
     return j.url;
   }
-  async function mpuComplete(token, key, name, path, parts, uploadId){
+  async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
     const r = await fetch("{{ url_for('mpu_complete') }}", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path, parts, uploadId })
+      body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
     });
     const j = await r.json();
     if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
@@ -474,7 +475,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   }
 
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 8 * 1024 * 1024; // 8 MiB — stabieler dan exact 5 MiB
+    const CHUNK = 8 * 1024 * 1024; // 8 MiB
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -516,7 +517,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       results.push(await uploadPart(pn));
     }
 
-    await mpuComplete(token, key, file.name, relpath, results, uploadId);
+    await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
     totalTracker.currentBase += file.size;
   }
 
@@ -867,24 +868,49 @@ def mpu_complete():
     token     = data.get("token"); key = data.get("key")
     name      = data.get("name");  path = data.get("path") or name
     parts_in  = data.get("parts") or []; upload_id = data.get("uploadId")
+    client_sz = data.get("clientSize")
     if not (token and key and name and parts_in and upload_id):
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
+
+    # 1) Complete MPU
     try:
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET, Key=key,
             MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
             UploadId=upload_id
         )
-        head = head_object_with_retry(S3_BUCKET, key)
+    except (ClientError, BotoCoreError) as e:
+        log.exception("MPU COMPLETE failed token=%s key=%s upload_id=%s", token, key, upload_id)
+        code = ""
+        msg  = ""
+        try:
+            code = e.response.get("Error",{}).get("Code","")
+            msg  = e.response.get("Error",{}).get("Message","")
+        except Exception:
+            pass
+        return jsonify(ok=False, error=f"mpu_complete_failed:{code or 'unknown'}:{msg or ''}"), 500
+
+    # 2) HEAD (met retry); zo niet, fallback op clientSize
+    try:
+        head = head_object_with_retry(S3_BUCKET, key, tries=10, base_ms=200)
         size = int(head.get("ContentLength", 0))
+    except (ClientError, BotoCoreError):
+        log.warning("HEAD after complete failed; fallback to clientSize. token=%s key=%s", token, key)
+        try:
+            size = int(client_sz)
+        except Exception:
+            size = 0  # als we niets weten, 0 invoeren
+
+    # 3) DB opslaan
+    try:
         c = db()
         c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-                  (token, key, name, path, size))
+                  (token, key, name, path, max(size, 0)))
         c.commit(); c.close()
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
-        log.exception("mpu_complete failed token=%s key=%s upload_id=%s", token, key, upload_id)
-        return jsonify(ok=False, error="s3_complete_or_head_failed"), 500
+    except Exception:
+        log.exception("DB insert failed token=%s key=%s", token, key)
+        return jsonify(ok=False, error="db_insert_failed"), 500
 
 # Download pages/streams
 @app.route("/p/<token>", methods=["GET","POST"])
