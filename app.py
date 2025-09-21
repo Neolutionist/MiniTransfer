@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# ========= MiniTransfer – Olde Hanter (vibrant bg + radio opens picker) =========
+# ========= MiniTransfer – Olde Hanter (vibrant bg + radio opens picker + force anim) =========
 # - Login
 # - Upload (files/folders) naar Backblaze B2 (S3)
 # - Single PUT < 5 MB (incl. 0 bytes)  | Multipart ≥ 5 MB
@@ -10,6 +10,7 @@
 # - CTA sticky onderaan de card
 # - iOS/iPhone: map-upload uitgeschakeld en verborgen
 # - Klik op "Bestand(en)" of "Map" opent direct de systeempicker (upload start NIET automatisch)
+# - Animatie geforceerd aan; mini-toggle om te pauzeren/hervatten
 # ===============================================================================
 
 import os, re, uuid, smtplib, sqlite3, logging
@@ -52,7 +53,7 @@ MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_USER and SMTP_PASS)
 
-# S3 client (SigV4 + path-style → Backblaze-proof)
+# S3 client
 s3 = boto3.client(
     "s3",
     region_name=S3_REGION,
@@ -108,7 +109,6 @@ init_db()
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  /* Levendere kleuren */
   --bg1:#5b91ff; --bg2:#a06bff; --bg3:#10d6a7; --bg4:#ffd166;
   --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
   --brand:#003366; --brand-2:#0f4c98;
@@ -203,23 +203,48 @@ input[type=file]::file-selector-button{
 @keyframes float3{0%{transform:translate3d(0,0,0)}50%{transform:translate3d(5%,-4%,0)}100%{transform:translate3d(0,0,0)}}
 @keyframes beamDrift{0%{transform:translateX(0) rotate(var(--r, -8deg))}50%{transform:translateX(4%) rotate(var(--r, -8deg))}100%{transform:translateX(0) rotate(var(--r, -8deg))}}
 
-/* Respecteer reduce motion */
-@media (prefers-reduced-motion: reduce){
-  .bg .cone,.bg .blob,.bg .beam{animation:none}
-}
+/* Forceer animaties altijd aan; toggle pauzeert via .anim-paused */
+html.force-anim .bg .cone,
+html.force-anim .bg .blob,
+html.force-anim .bg .beam { animation-play-state: running !important; }
+html.anim-paused .bg .cone,
+html.anim-paused .bg .blob,
+html.anim-paused .bg .beam { animation-play-state: paused !important; }
 """
 
 # -------------- Templates --------------
+# NOTE: elk template voegt een klein script toe om animaties te forceren en een pause-toggle weer te geven.
+ANIM_TOGGLE_SNIPPET = """
+<script>
+  // Force animations ON by default
+  document.documentElement.classList.add('force-anim');
+  // Inject mini toggle (rechtsboven)
+  (function(){
+    if(document.getElementById('animToggle')) return;
+    const btn = document.createElement('button');
+    btn.id='animToggle';
+    btn.textContent='⏯︎';
+    Object.assign(btn.style,{
+      position:'fixed',right:'10px',top:'10px',zIndex:'9999',
+      background:'rgba(0,0,0,.35)',color:'#fff',border:'0',
+      borderRadius:'10px',padding:'6px 10px',cursor:'pointer',
+      backdropFilter:'blur(6px)'
+    });
+    btn.title='Pause/Resume background animation';
+    btn.onclick=function(){
+      document.documentElement.classList.toggle('anim-paused');
+    };
+    document.body.appendChild(btn);
+  })();
+</script>
+"""
+
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Inloggen</h1>
@@ -233,6 +258,7 @@ LOGIN_HTML = """
   </form>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -247,12 +273,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
 </style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 
 <div class="wrap">
@@ -336,20 +358,13 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     fileRow.style.display  = (mode==='files')  ? '' : 'none';
     folderRow.style.display = (mode==='folder') ? '' : 'none';
-
-    // Als dit uit een klik komt → open direct de juiste picker (upload start niet automatisch)
     if(openPicker === true){
-      try{
-        (mode === 'files' ? fileInput : folderInput).click();
-      }catch(e){}
+      try{ (mode === 'files' ? fileInput : folderInput).click(); }catch(e){}
     }
   }
   modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-
-  // Ook klikken op het label opent direct de picker
   lblFiles.addEventListener('click', ()=>{ setTimeout(()=>{ try{ fileInput.click(); }catch(e){} }, 0); });
   lblFolder.addEventListener('click', ()=>{ if(!isIOS()) setTimeout(()=>{ try{ folderInput.click(); }catch(e){} }, 0); });
-
   applyMode(false);
 
   // ---- Helpers ----
@@ -369,8 +384,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 
   async function packageInit(expiryDays, password, title){
     const r = await fetch("{{ url_for('package_init') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
     });
     const j = await r.json();
@@ -381,8 +395,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   // Single PUT (<5MB)
   async function singleInit(token, filename, type){
     const r = await fetch("{{ url_for('put_init') }}", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
     });
     const j = await r.json();
@@ -507,14 +520,12 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     totalTracker.currentBase += file.size;
   }
 
-  // Handmatige submit (knop) start de upload
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     const files = Array.from((mode==='files' ? fileInput.files : folderInput.files) || []);
     if(!files.length){
       alert("Kies bestand(en)"+(isIOS()?"":" of map"));
-      // open de juiste picker als er nog niets geselecteerd is
       try { (mode==='files'? fileInput : folderInput).click(); } catch(e){}
       return;
     }
@@ -560,6 +571,7 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     }
   });
 </script>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -570,17 +582,13 @@ PACKAGE_HTML = """
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
 .meta{margin:.4rem 0 1rem;color:#374151}
-.btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
+.btn{padding:.85rem 1.15rem;border-radius:12px;background:#003366;color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 </style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 
 <div class="wrap">
@@ -679,6 +687,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     });
   {% endif %}
 </script>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -686,12 +695,8 @@ CONTACT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Eigen transfer-oplossing – Olde Hanter</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -727,6 +732,7 @@ CONTACT_HTML = """
   </form>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -734,14 +740,11 @@ CONTACT_DONE_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag verstuurd</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card"><h1>Dank je wel!</h1><p>Je aanvraag is verstuurd. We nemen zo snel mogelijk contact met je op.</p><p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -749,12 +752,8 @@ CONTACT_MAIL_FALLBACK_HTML = """
 <!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Aanvraag gereed</title><style>{{ base_css }}</style></head><body>
 <div class="bg" aria-hidden="true">
-  <i class="cone"></i>
-  <i class="blob b1"></i>
-  <i class="blob b2"></i>
-  <i class="blob b3"></i>
-  <i class="beam" style="--r:-8deg"></i>
-  <i class="beam bx" style="--r:6deg"></i>
+  <i class="cone"></i><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+  <i class="beam" style="--r:-8deg"></i><i class="beam bx" style="--r:6deg"></i>
 </div>
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
@@ -762,6 +761,7 @@ CONTACT_MAIL_FALLBACK_HTML = """
   <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
+""" + ANIM_TOGGLE_SNIPPET + """
 </body></html>
 """
 
@@ -1006,7 +1006,6 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    # ZIP-precheck + compat voor diverse zipstream-ng API's
     c = db()
     pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
     if not pkg: c.close(); abort(404)
@@ -1016,7 +1015,7 @@ def stream_zip(token):
     c.close()
     if not rows: abort(404)
 
-    # Precheck: ontbrekende S3-objecten melden i.p.v. 500
+    # Precheck: ontbrekende S3-objecten
     missing = []
     try:
       for r in rows:
@@ -1041,8 +1040,7 @@ def stream_zip(token):
       return resp
 
     try:
-        z = ZipStream()  # geen kwargs
-
+        z = ZipStream()
         class _GenReader:
             def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
             def read(self, n=-1):
@@ -1057,34 +1055,21 @@ def stream_zip(token):
                 out,self._buf=self._buf[:n],self._buf[n:]; return out
 
         methods_tried=[]
-
         def add_compat(arcname, gen_factory):
             if hasattr(z,"add_iter"):
-                try:
-                    methods_tried.append("add_iter(arcname, iterator)")
-                    z.add_iter(arcname, gen_factory()); return
+                try: methods_tried.append("add_iter"); z.add_iter(arcname, gen_factory()); return
                 except Exception: pass
-            try:
-                methods_tried.append("add(arcname=..., iterable=...)")
-                z.add(arcname=arcname, iterable=gen_factory()); return
+            try: methods_tried.append("add(iterable=)"); z.add(arcname=arcname, iterable=gen_factory()); return
             except Exception: pass
-            try:
-                methods_tried.append("add(arcname=..., stream=...)")
-                z.add(arcname=arcname, stream=gen_factory()); return
+            try: methods_tried.append("add(stream=)"); z.add(arcname=arcname, stream=gen_factory()); return
             except Exception: pass
-            try:
-                methods_tried.append("add(arcname=..., fileobj=...)")
-                z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
+            try: methods_tried.append("add(fileobj=)"); z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
             except Exception: pass
-            try:
-                methods_tried.append("add(arcname, iterator)")
-                z.add(arcname, gen_factory()); return
+            try: methods_tried.append("add(arcname, iterator)"); z.add(arcname, gen_factory()); return
             except Exception: pass
-            try:
-                methods_tried.append("add(iterator, arcname)")
-                z.add(gen_factory(), arcname); return
+            try: methods_tried.append("add(iterator, arcname)"); z.add(gen_factory(), arcname); return
             except Exception: pass
-            raise RuntimeError("Geen compatibele zipstream-ng add()-signatuur gevonden")
+            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur")
 
         for r in rows:
             arcname = r["path"] or r["name"]
