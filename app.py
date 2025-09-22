@@ -76,6 +76,24 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
+# --- Redirect config toevoegen ---
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+app.config.update(PREFERRED_URL_SCHEME="https", SESSION_COOKIE_SECURE=True)
+
+import os
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "oldehanter.downloadlink.nl").lower()
+OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
+
+@app.before_request
+def _redirect_old_host():
+    host = (request.headers.get("Host") or "").lower()
+    if host == OLD_HOST:
+        new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
+        return redirect(new_url, code=308)
+# --- Einde redirect config ---
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
 
