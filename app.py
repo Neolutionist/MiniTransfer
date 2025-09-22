@@ -30,7 +30,8 @@ from zipstream import ZipStream  # zipstream-ng
 
 # ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
-DB_PATH = BASE_DIR / "files_multi.db"
+DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
+DB_PATH  = DATA_DIR / "files_multi.db"
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
 AUTH_PASSWORD = "Hulsmaat"  # vast wachtwoord voor het inloggen
