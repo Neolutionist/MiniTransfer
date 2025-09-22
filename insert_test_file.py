@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Voeg een testpakket met één bestand toe aan de database.
-Gebruik dit om de cleanup en debug scripts te testen.
+Voeg een testpakket toe met een vervaldatum in het verleden.
+Gebruik dit om cleanup te testen.
 """
 
 import os
@@ -24,9 +24,10 @@ def main():
     # Unieke waarden
     token = str(uuid.uuid4())[:8]
     tenant_id = "test_tenant"
-    title = "Testpakket"
+    title = "ExpiredTest"
     created_at = datetime.now(timezone.utc).isoformat()
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    # Vervaldatum 1 dag geleden
+    expires_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
     # Voeg pakket toe
     conn.execute("""
@@ -40,20 +41,20 @@ def main():
         VALUES (?, ?, ?, ?, ?, ?)
     """, (
         token,
-        f"{tenant_id}/{token}/dummy.txt",
-        "dummy.txt",
+        f"{tenant_id}/{token}/expired_dummy.txt",
+        "expired_dummy.txt",
         "",
-        1234,  # bestandsgrootte in bytes
+        5678,  # bestandsgrootte in bytes
         tenant_id
     ))
 
     conn.commit()
     conn.close()
 
-    print("✅ Testpakket toegevoegd")
+    print("✅ Expired testpakket toegevoegd")
     print(f"Token      : {token}")
     print(f"Tenant ID  : {tenant_id}")
-    print(f"Vervalt op : {expires_at}")
+    print(f"Verviel op : {expires_at}")
 
 if __name__ == "__main__":
     main()
