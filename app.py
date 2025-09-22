@@ -272,12 +272,12 @@ input[type=file]::file-selector-button{
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
-# -------------- Favicon --------------
-FAVICON_SVG = """<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
-  <rect width='64' height='64' rx='12' fill='#0f4c98'/>
-  <text x='50%' y='52%' dominant-baseline='middle' text-anchor='middle'
-        font-family='Segoe UI, Roboto, sans-serif' font-size='26' font-weight='800'
-        fill='white'>OH</text>
+# ------------- Favicon -------------
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
+  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
+        font-family="Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700"
+        fill="white">OH</text>
 </svg>"""
 
 @app.route("/favicon.svg")
@@ -286,13 +286,13 @@ def favicon_svg():
 
 @app.route("/favicon.ico")
 def favicon_ico():
-    return Response(FAVICON_SVG, mimetype="image/x-icon")
+    # browsers die ico willen krijgen gewoon de svg terug
+    return Response(FAVICON_SVG, mimetype="image/svg+xml")
 
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
 HTML_HEAD_ICON = """
-<link rel='icon' href='{{ url_for("favicon_svg") }}' type='image/svg+xml'/>
-<link rel='alternate icon' href='{{ url_for("favicon_ico") }}'/>
+<link rel="icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
 """
 
 LOGIN_HTML = """
@@ -1127,7 +1127,17 @@ def get_base_host():
     # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
     return "downloadlink.nl"
 
+
+# ------------- Favicon -------------
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
+  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
+        font-family="Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700"
+        fill="white">OH</text>
+</svg>"""
+
 # -------------- Routes (core) --------------
+
 @app.route("/debug/dbcols")
 def debug_dbcols():
     c = db()
