@@ -3,30 +3,35 @@ import json
 
 DB_PATH = "/var/data/files_multi.db"
 
-def main():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
+def show_schema_and_data():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
-        # alle tabellen ophalen
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cur.fetchall()]
-        print("📦 Tabellen gevonden:", tables)
+    result = {}
 
-        schema = {}
-        for table in tables:
-            cur.execute(f"PRAGMA table_info({table});")
-            cols = [r[1] for r in cur.fetchall()]  # kolomnamen
-            schema[table] = cols
+    # Pak alle tabellen
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = [r[0] for r in cur.fetchall()]
 
-        print("\n📑 Schema overzicht:")
-        print(json.dumps(schema, indent=2))
+    for table in tables:
+        # Haal kolommen op
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = [c[1] for c in cur.fetchall()]
 
-        conn.close()
+        # Haal de eerste 5 rijen data op
+        cur.execute(f"SELECT * FROM {table} LIMIT 5")
+        rows = cur.fetchall()
 
-    except Exception as e:
-        print("❌ Fout bij openen database:", e)
+        result[table] = {
+            "columns": cols,
+            "sample_rows": rows
+        }
+
+    conn.close()
+
+    print("📊 Database overzicht:")
+    print(json.dumps(result, indent=2, default=str))
 
 
 if __name__ == "__main__":
-    main()
+    show_schema_and_data()
