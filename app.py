@@ -388,8 +388,17 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
         <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
       </div>
       <div>
-        <label for="exp">Verloopt over (dagen)</label>
-        <input id="exp" class="input" type="number" min="1" value="24">
+<label for="expDays">Verloopt na</label>
+<select id="expDays" class="input">
+  <option value="1">1 dag</option>
+  <option value="3" selected>3 dagen</option>
+  <option value="7">7 dagen</option>
+  <option value="30">30 dagen</option>
+  <option value="60">60 dagen</option>
+  <option value="365">1 jaar</option>
+  <!-- Wil je “voor altijd bewaren”? Zet deze aan en zie JS hieronder -->
+  <!-- <option value="forever">Voor altijd bewaren</option> -->
+</select>
       </div>
     </div>
 
@@ -613,7 +622,16 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
       return;
     }
 
-    const expiryDays = document.getElementById('exp').value || '24';
+const edSel = document.getElementById('expDays');
+// Standaard: pak de gekozen dagen
+let expiryDays = edSel.value;
+
+// (Optioneel) ondersteuning voor “Voor altijd bewaren”:
+// if (expiryDays === 'forever') {
+//   // Back-end verwacht dagen; geef bv. 100 jaar mee
+//   expiryDays = 36500;
+// }
+
     const password   = document.getElementById('pw').value || '';
     const title      = document.getElementById('title').value || '';
 
