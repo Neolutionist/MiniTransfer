@@ -76,6 +76,19 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
+# ---- Multi-tenant configuratie (HOST -> tenant) ----
+TENANTS = {
+    "oldehanter.downloadlink.nl": {
+        "slug": "oldehanter",
+        "mail_to": os.environ.get("MAIL_TO", "Patrick@oldehanter.nl"),
+    }
+}
+
+def current_tenant():
+    host = (request.headers.get("Host") or "").lower()
+    return TENANTS.get(host) or TENANTS["oldehanter.downloadlink.nl"]
+# ----------------------------------------------------
+
 # --- Redirect config toevoegen ---
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -136,6 +149,32 @@ def init_db():
     """)
     c.commit(); c.close()
 init_db()
+
+def _col_exists(conn, table, col):
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return any(r[1] == col for r in cur.fetchall())
+
+def migrate_add_tenant_columns():
+    conn = db()
+    try:
+        # packages
+        if not _col_exists(conn, "packages", "tenant_id"):
+            conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+        # items
+        if not _col_exists(conn, "items", "tenant_id"):
+            conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+        # subscriptions
+        if not _col_exists(conn, "subscriptions", "tenant_id"):
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE subscriptions SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_tenant_columns()
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -1121,12 +1160,14 @@ def package_init():
     token = uuid.uuid4().hex[:10]
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
+    t = current_tenant()["slug"]
     c = db()
-    c.execute("INSERT INTO packages(token,expires_at,password_hash,created_at,title) VALUES(?,?,?,?,?)",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title))
+    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id)
+                 VALUES(?,?,?,?,?,?)""",
+              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t))
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
-
+    
 @app.route("/put-init", methods=["POST"])
 def put_init():
     if not logged_in(): abort(401)
@@ -1135,7 +1176,8 @@ def put_init():
     content_type = d.get("contentType") or "application/octet-stream"
     if not token or not filename:
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
-    key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+    t = current_tenant()["slug"]
+    key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         url = s3.generate_presigned_url(
             "put_object",
@@ -1158,9 +1200,11 @@ def put_complete():
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
+        t = current_tenant()["slug"]
         c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-                  (token, key, name, path, size))
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+                     VALUES(?,?,?,?,?,?)""",
+                  (token, key, name, path, size, t))
         c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
@@ -1176,7 +1220,8 @@ def mpu_init():
     content_type = data.get("contentType") or "application/octet-stream"
     if not token or not filename:
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
-    key = f"uploads/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+    t = current_tenant()["slug"]
+    key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
         return jsonify(ok=True, key=key, uploadId=init["UploadId"])
@@ -1226,10 +1271,11 @@ def mpu_complete():
         except Exception:
             if client_size>0: size = client_size
             else: raise
-
+        t = current_tenant()["slug"]
         c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes) VALUES(?,?,?,?,?)""",
-                  (token, key, name, path, size))
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+                     VALUES(?,?,?,?,?,?)""",
+                  (token, key, name, path, size, t))
         c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError) as e:
@@ -1243,16 +1289,17 @@ def mpu_complete():
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
-    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
+    t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
     if not pkg: c.close(); abort(404)
 
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        rows = c.execute("SELECT s3_key FROM items WHERE token=?", (token,)).fetchall()
+        rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
         for r in rows:
             try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
             except Exception: pass
-        c.execute("DELETE FROM items WHERE token=?", (token,))
-        c.execute("DELETE FROM packages WHERE token=?", (token,))
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
         c.commit(); c.close(); abort(410)
 
     if pkg["password_hash"]:
@@ -1265,7 +1312,9 @@ def package_page(token):
                 return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
             session[f"allow_{token}"] = True
 
-    items = c.execute("SELECT id,name,path,size_bytes FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
+    items = c.execute("""SELECT id,name,path,size_bytes FROM items
+                         WHERE token=? AND tenant_id=?
+                         ORDER BY path""", (token, t)).fetchall()
     c.close()
 
     total_bytes = sum(int(r["size_bytes"]) for r in items)
@@ -1285,11 +1334,12 @@ def package_page(token):
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     c = db()
-    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
+    t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
     if not pkg: c.close(); abort(404)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    it = c.execute("SELECT * FROM items WHERE id=? AND token=?", (item_id, token)).fetchone()
+    it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
     c.close()
     if not it: abort(404)
 
@@ -1314,11 +1364,14 @@ def stream_file(token, item_id):
 @app.route("/zip/<token>")
 def stream_zip(token):
     c = db()
-    pkg = c.execute("SELECT * FROM packages WHERE token=?", (token,)).fetchone()
+    t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
     if not pkg: c.close(); abort(404)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    rows = c.execute("SELECT name,path,s3_key FROM items WHERE token=? ORDER BY path", (token,)).fetchall()
+    rows = c.execute("""SELECT name,path,s3_key FROM items
+                        WHERE token=? AND tenant_id=?
+                        ORDER BY path""", (token, t)).fetchall()
     c.close()
     if not rows: abort(404)
 
@@ -1545,19 +1598,18 @@ def contact():
 # -------------- Abonnementbeheer (server) --------------
 @app.route("/billing/store", methods=["POST"])
 def paypal_store_subscription():
-    # wordt aangeroepen door PayPal onApprove javascript
     data = request.get_json(force=True, silent=True) or {}
     sub_id = (data.get("subscription_id") or "").strip()
     plan_value = (data.get("plan_value") or "").strip()
     if not sub_id or plan_value not in {"0.5","1","2","5"}:
         return jsonify(ok=False, error="invalid_input"), 400
+    t = current_tenant()["slug"]
     c = db()
-    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at)
-                 VALUES(?,?,?,?,?)""",
-              (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat()))
+    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
+                 VALUES(?,?,?,?,?,?)""",
+              (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat(), t))
     c.commit(); c.close()
 
-    # Stuur bevestigingsmail aan beheerder
     try:
         plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_value+" TB")
         body = (
@@ -1618,7 +1670,11 @@ def billing_change():
 def billing_page():
     if not logged_in(): return redirect(url_for("login"))
     c = db()
-    sub = c.execute("SELECT * FROM subscriptions WHERE login_email=? ORDER BY id DESC LIMIT 1", (AUTH_EMAIL,)).fetchone()
+    t = current_tenant()["slug"]
+    sub = c.execute("""SELECT * FROM subscriptions
+                       WHERE login_email=? AND tenant_id=?
+                       ORDER BY id DESC LIMIT 1""",
+                    (AUTH_EMAIL, t)).fetchone()
     c.close()
     return render_template_string(
         BILLING_HTML, sub=sub, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, user=session.get("user")
