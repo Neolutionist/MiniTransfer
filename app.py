@@ -391,9 +391,9 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 <label for="expDays">Verloopt na</label>
 <select id="expDays" class="input">
   <option value="1">1 dag</option>
-  <option value="3" selected>3 dagen</option>
+  <option value="3">3 dagen</option>
   <option value="7">7 dagen</option>
-  <option value="30">30 dagen</option>
+  <option value="30" selected>30 dagen</option>
   <option value="60">60 dagen</option>
   <option value="365">1 jaar</option>
   <!-- Wil je “voor altijd bewaren”? Zet deze aan en zie JS hieronder -->
