@@ -1128,6 +1128,18 @@ def get_base_host():
     return "downloadlink.nl"
 
 # -------------- Routes (core) --------------
+@app.route("/debug/dbcols")
+def debug_dbcols():
+    c = db()
+    out = {}
+    for table in ["packages", "items", "subscriptions"]:
+        cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
+        out[table] = cols
+    rows = c.execute("SELECT DISTINCT tenant_id FROM packages").fetchall()
+    out["tenants_in_packages"] = [r[0] for r in rows]
+    c.close()
+    return jsonify(out)
+
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
