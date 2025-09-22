@@ -273,7 +273,7 @@ input[type=file]::file-selector-button{
 .cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
-# ------------- Favicon -------------
+# --- Favicon (SVG) ---
 FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
   <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
@@ -281,19 +281,24 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" 
         fill="white">OH</text>
 </svg>"""
 
+from urllib.parse import quote as _q
+FAVICON_DATA_URL = "data:image/svg+xml;utf8," + _q(FAVICON_SVG)
+
 @app.route("/favicon.svg")
 def favicon_svg():
     return Response(FAVICON_SVG, mimetype="image/svg+xml")
 
 @app.route("/favicon.ico")
 def favicon_ico():
-    # browsers die ico willen krijgen gewoon de svg terug
-    return Response(FAVICON_SVG, mimetype="image/svg+xml")
-
+    # browsers die /favicon.ico hardcoderen -> redirect naar svg
+    return redirect(url_for("favicon_svg"), code=302)
+    
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
-HTML_HEAD_ICON = """
-<link rel="icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
+HTML_HEAD_ICON = f"""
+<link rel="icon" href="{FAVICON_DATA_URL}" type="image/svg+xml"/>
+<link rel="alternate icon" href="{{{{ url_for('favicon_svg') }}}}" type="image/svg+xml"/>
+<link rel="shortcut icon" href="{{{{ url_for('favicon_ico') }}}}"/>
 """
 
 LOGIN_HTML = """
