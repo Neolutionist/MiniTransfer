@@ -915,11 +915,20 @@ CONTACT_HTML = """
       </div>
     </div>
 
-    <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
-    <p class="small" style="margin-top:.6rem;color:#334155">
-      Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief. Na livegang ontvang je een <strong>bevestigingsmail</strong> met alle gegevens.
-    </p>
-  </form>
+<button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
+
+<div style="display:flex;gap:.6rem;align-items:center;margin-top:.8rem;flex-wrap:wrap">
+  <a class="btn secondary small" href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
+  <span class="small" style="color:#334155">
+    Door te versturen ga je akkoord met de <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>.
+  </span>
+</div>
+
+<p class="small" style="margin-top:.6rem;color:#334155">
+  Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief. 
+  Na livegang ontvang je een <strong>bevestigingsmail</strong> met alle gegevens.
+</p>
+</form>
 
   <!-- PayPal-blok: volledig verborgen totdat formulier geldig is én plan gekozen -->
   <div id="paypalSection" style="display:none; margin-top:1.4rem">
@@ -1171,6 +1180,172 @@ document.getElementById('btnChange')?.addEventListener('click', async ()=>{
 {% endif %}
 </body></html>
 """
+TERMS_HTML = """
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Algemene Voorwaarden – Olde Hanter</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+h1{color:var(--brand);margin:.2rem 0 1rem}
+h2{margin:1.2rem 0 .4rem}
+h3{margin:1rem 0 .35rem}
+.section{margin-bottom:1.1rem}
+.small{color:#475569}
+.card p{margin:.45rem 0}
+ol,ul{margin:.4rem 0 .6rem 1.2rem}
+code{background:#eef2ff;padding:.05rem .35rem;border-radius:.3rem}
+</style></head><body>
+{{ bg|safe }}
+<div class="wrap">
+  <div class="card">
+    <h1>Algemene Voorwaarden – Olde Hanter Bestandentransfer (B2B)</h1>
+    <p class="small">Versie: 1.0 • Laatst bijgewerkt: 25-09-2025</p>
+
+    <div class="section">
+      <h2>1. Definities</h2>
+      <p><strong>Leverancier</strong>: Olde Hanter Bouwconstructies (hierna: “Olde Hanter”).<br>
+         <strong>Klant</strong>: de (rechts)persoon die de Dienst afneemt voor zakelijke doeleinden.<br>
+         <strong>Dienst</strong>: de online bestands-transfer en hostingfunctionaliteit inclusief opslag bij een cloudprovider (S3-compatibel).<br>
+         <strong>Abonnement</strong>: maandelijks terugkerende dienst tegen een vaste prijs per opslagbundel.<br>
+         <strong>Data</strong>: alle door Klant geüploade of via de Dienst verwerkte bestanden/gegegevens.</p>
+    </div>
+
+    <div class="section">
+      <h2>2. Toepasselijkheid en rangorde</h2>
+      <p>Deze voorwaarden zijn van toepassing op alle offertes, abonnementen en gebruik van de Dienst door Klant (B2B). Afwijkingen gelden alleen indien schriftelijk overeengekomen. Bij strijdigheid tussen documenten geldt de volgende rangorde: (1) schriftelijke maatwerkafspraak, (2) deze voorwaarden incl. bijlagen, (3) online documentatie/prijsinformatie.</p>
+    </div>
+
+    <div class="section">
+      <h2>3. Aanbod, totstandkoming en looptijd</h2>
+      <ol>
+        <li>Het aanbod (opslagbundels/prijzen) wordt op de website getoond of per e-mail bevestigd. Kennelijke fouten/drukfouten binden Olde Hanter niet.</li>
+        <li>De overeenkomst ontstaat bij (i) online bevestiging via de site (incl. PayPal-subscribe), of (ii) schriftelijke/e-mail acceptatie van een voorstel.</li>
+        <li>Abonnementen hebben een looptijd van één (1) maand en worden stilzwijgend verlengd, tenzij opgezegd per het einde van de lopende periode.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>4. Prijzen, betaling en facturatie</h2>
+      <ol>
+        <li>Prijzen zijn exclusief btw en overige heffingen. Eventuele transactiekosten (bijv. PayPal) kunnen in rekening worden gebracht.</li>
+        <li>Betaling gebeurt via de gekozen betaalmethode (o.a. PayPal-abonnement). Bij storno of mislukte incasso mag Olde Hanter toegang schorsen tot betaling.</li>
+        <li>Olde Hanter kan prijzen wijzigen. Bij verhoging voor een lopend maandelijks abonnement wordt Klant minimaal 30 dagen vooraf geïnformeerd; Klant mag in dat geval per einde lopende termijn opzeggen.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>5. Gebruik, Fair Use en Acceptable Use</h2>
+      <ol>
+        <li>Klant gebruikt de Dienst zorgvuldig, conform wet- en regelgeving en deze voorwaarden.</li>
+        <li><strong>Fair Use:</strong> verkeer en opslag moeten redelijk zijn binnen de afgenomen bundel. Excessief dataverkeer of oneigenlijk gebruik (bijv. public CDN-gebruik) kan worden begrensd of belast.</li>
+        <li><strong>Verboden inhoud en handelingen:</strong> onrechtmatige, inbreukmakende, bedrieglijke of schadelijke content/activiteiten (waaronder malware, phishing, haatdragende of strafbare inhoud) zijn verboden.</li>
+        <li>Olde Hanter mag content blokkeren/verwijderen en accounts schorsen bij (vermoeden van) overtreding of bij bevel van een bevoegde autoriteit.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>6. Beschikbaarheid, onderhoud en wijzigingen</h2>
+      <ol>
+        <li>Olde Hanter streeft naar hoge beschikbaarheid maar geeft geen gegarandeerde uptime, tenzij schriftelijk anders overeengekomen.</li>
+        <li>Onderhoud (gepland of spoed) kan leiden tot tijdelijke onbeschikbaarheid. Olde Hanter tracht dit te beperken en – indien redelijkerwijs mogelijk – vooraf te melden.</li>
+        <li>Olde Hanter mag de Dienst (technisch/functioneel) wijzigen om veiligheid, prestaties of kwaliteit te verbeteren. Materiële wijzigingen worden – indien relevant – gecommuniceerd.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>7. Beveiliging en back-ups</h2>
+      <ol>
+        <li>Olde Hanter treft passende technische en organisatorische maatregelen die passen bij de aard van de Dienst en de stand van de techniek.</li>
+        <li>Klant is zelf verantwoordelijk voor het kiezen van een sterk wachtwoord, het geheimhouden van inloggegevens en voor eigen externe back-ups.</li>
+        <li>Tenzij uitdrukkelijk overeengekomen, omvat de Dienst geen garantie op back-ups of herstel van individuele bestanden.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>8. Privacy en gegevensverwerking (AVG)</h2>
+      <ol>
+        <li>Voor zover Olde Hanter bij de Dienst persoonsgegevens verwerkt voor Klant, is Olde Hanter verwerker en Klant verwerkingsverantwoordelijke.</li>
+        <li>Op die verwerking is de <em>Bijlage A – Verwerkersovereenkomst</em> van toepassing en maakt deel uit van deze voorwaarden.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>9. Intellectuele eigendom</h2>
+      <ol>
+        <li>Alle rechten op de Dienst, software en documentatie berusten bij Olde Hanter of diens licentiegevers.</li>
+        <li>Data van Klant blijven eigendom van Klant. Klant verleent Olde Hanter een beperkte licentie om Data te hosten, verwerken en weer te geven voor het uitvoeren van de Dienst.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>10. Schorsing en beëindiging</h2>
+      <ol>
+        <li>Olde Hanter mag de toegang (tijdelijk) schorsen bij betalingsachterstand, veiligheidsrisico’s of (vermoeden van) overtreding.</li>
+        <li>Beëindiging kan per einde abonnementsperiode. Bij beëindiging kan Data worden verwijderd. Klant is zelf verantwoordelijk voor tijdig exporteren.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>11. Aansprakelijkheid</h2>
+      <ol>
+        <li>Aansprakelijkheid van Olde Hanter is beperkt tot directe schade en tot een bedrag gelijk aan de door Klant betaalde vergoedingen over de laatste twaalf (12) maanden voorafgaand aan de gebeurtenis (of €5.000,– indien hoger niet is betaald), per gebeurtenis en in totaal.</li>
+        <li>Uitsluiting: gevolgschade, gederfde winst/omzet, verlies van Data, reputatieschade en boetes van derden zijn uitgesloten.</li>
+        <li>Deze beperkingen gelden niet bij opzet of bewuste roekeloosheid van leidinggevenden van Olde Hanter.</li>
+      </ol>
+    </div>
+
+    <div class="section">
+      <h2>12. Overmacht</h2>
+      <p>Bij overmacht (o.a. storingen bij derden/cloudproviders, netwerk-/energie-uitval, DDoS, oorlog, overheidsmaatregelen) is Olde Hanter niet gehouden tot schadevergoeding of nakoming zolang de overmacht voortduurt.</p>
+    </div>
+
+    <div class="section">
+      <h2>13. Wijzigingen voorwaarden</h2>
+      <p>Olde Hanter mag deze voorwaarden wijzigen. Bij materiële wijzigingen wordt Klant redelijkerwijs geïnformeerd. Indien Klant niet akkoord is, kan hij per einde lopende maand opzeggen.</p>
+    </div>
+
+    <div class="section">
+      <h2>14. Toepasselijk recht en forumkeuze</h2>
+      <p>Nederlands recht is van toepassing. Geschillen worden voorgelegd aan de bevoegde rechter in het arrondissement Overijssel, locatie Almelo/Enschede.</p>
+    </div>
+
+    <div class="section">
+      <h2>Bijlage A – Verwerkersovereenkomst (B2B)</h2>
+      <h3>A1. Onderwerp en rollen</h3>
+      <p>Deze bijlage regelt de verwerking van persoonsgegevens in het kader van de Dienst. Klant is verwerkingsverantwoordelijke; Olde Hanter is verwerker.</p>
+
+      <h3>A2. Verwerkingen</h3>
+      <p>Doeleinden: leveren van bestandsopslag/transfer; beveiliging/continuïteit; support; facturatie. Categorieën betrokkenen en gegevens: door Klant bepaald. Duur: duur van de overeenkomst.</p>
+
+      <h3>A3. Verplichtingen verwerker</h3>
+      <ul>
+        <li>Alleen verwerken op gedocumenteerde instructies van Klant.</li>
+        <li>Passende beveiligingsmaatregelen (art. 32 AVG), inclusief versleutelde transportlagen en restrictieve toegang.</li>
+        <li>Medeplichtige medewerkers zijn tot vertrouwelijkheid verplicht.</li>
+        <li>Subverwerkers (o.a. S3-cloudprovider, e-mail/PayPal) mogen worden ingezet; op verzoek verstrekt Olde Hanter een actueel overzicht. Verwerker legt subverwerkers vergelijkbare verplichtingen op.</li>
+        <li>Melding van een inbreuk in verband met persoonsgegevens zonder onredelijke vertraging na constatering, met relevante informatie voor Klant.</li>
+        <li>Redelijke assistentie bij AVG-verplichtingen van Klant (o.a. rechten van betrokkenen, DPIA), tegen redelijke vergoeding indien buiten de normale dienstverlening.</li>
+        <li>Data na afloop verwijderen of retourneren, tenzij wetgeving opslag vereist.</li>
+        <li>Audits: Klant mag (max. 1× per 12 maanden) een audit laten uitvoeren, na redelijke aankondiging, tijdens kantooruren, met minimale verstoring. Geheimhouding/veiligheidseisen gelden. Redelijke kosten zijn voor Klant.</li>
+      </ul>
+
+      <h3>A4. Internationale doorgifte</h3>
+      <p>Indien doorgifte buiten de EER plaatsvindt, zorgt Olde Hanter voor passende waarborgen (zoals EU-modelclausules) of een gelijkwaardige grondslag.</p>
+
+      <h3>A5. Aansprakelijkheid</h3>
+      <p>De aansprakelijkheidsbeperkingen uit artikel 11 van de voorwaarden zijn ook op deze bijlage van toepassing, voor zover rechtens toegestaan.</p>
+    </div>
+
+    <div class="section small">
+      <p>Vragen? Neem contact op via <a href="mailto:{{ mail_to }}">{{ mail_to }}</a>.</p>
+    </div>
+  </div>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+</body></html>
+"""
+
+
 
 # -------------- Helpers --------------
 def logged_in() -> bool:
@@ -1574,7 +1749,16 @@ def stream_zip(token):
         resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
-
+        
+@app.route("/terms")
+def terms_page():
+    return render_template_string(
+        TERMS_HTML,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON,
+        mail_to=MAIL_TO
+    )
 # -------------- Contact / Mail --------------
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
