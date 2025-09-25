@@ -860,30 +860,15 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 </body></html>
 """
 
-CONTACT_HTML = """
+CONTACT_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}
-<style>
-{{ base_css }}
-/* Extra layout touches specifiek voor deze pagina */
-.form-actions{
-  display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-top:1rem;
-}
-.notice{
-  display:block; margin-top:.5rem; color:#334155;
-}
-.helper{
-  font-size:.9rem; color:#475569; margin-top:.35rem;
-}
-.section-gap{
-  margin-top:1rem;
-}
-.divider{
-  height:1px; background:#e5e7eb; margin:1.2rem 0;
-}
-@media (max-width:680px){
-  .form-actions{ gap:.5rem; }
-}
+<title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}<style>{{ base_css }}
+.form-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:1rem}
+.notice{display:block;margin-top:.5rem;color:#334155}
+.helper{font-size:.9rem;color:#475569;margin-top:.35rem}
+.section-gap{margin-top:1rem}
+.divider{height:1px;background:#e5e7eb;margin:1.2rem 0}
+@media (max-width:680px){.form-actions{gap:.5rem}}
 </style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
@@ -958,7 +943,6 @@ CONTACT_HTML = """
     </p>
   </form>
 
-  <!-- PayPal-blok: volledig verborgen totdat formulier geldig is én plan gekozen -->
   <div id="paypalSection" style="display:none; margin-top:1.4rem">
     <h3 style="margin:0 0 .4rem 0">Direct starten met een abonnement via PayPal</h3>
     <p class="small" style="margin:.15rem 0 .8rem 0">
@@ -977,7 +961,7 @@ CONTACT_HTML = """
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
 
 <script>
-/* ---------- helpers ---------- */
+// ---------- helpers ----------
 function slugify(s){
   return (s||"")
     .toLowerCase()
@@ -993,105 +977,6 @@ const subPreview = document.getElementById('subPreview');
 const BASE_DOMAIN = "{{ base_host }}";
 function updatePreview(){ const s = slugify(company.value); subPreview.textContent = s ? (s + "." + BASE_DOMAIN) : BASE_DOMAIN; }
 company?.addEventListener('input', updatePreview); updatePreview();
-
-/* ---------- plan map ---------- */
-const PLAN_MAP = {
-  "0.5": "{{ paypal_plan_0_5 }}",
-  "1":   "{{ paypal_plan_1 }}",
-  "2":   "{{ paypal_plan_2 }}",
-  "5":   "{{ paypal_plan_5 }}"
-};
-
-/* ---------- elements ---------- */
-const form = document.getElementById('contactForm');
-const paypalSection = document.getElementById('paypalSection');
-const paypalContainerSel = '#paypal-button-container';
-const paypalHint = document.getElementById('paypal-hint');
-const storageSelect = document.getElementById('storage_tb');
-const moreNote = document.getElementById('more-note');
-
-/* ---------- validatie ---------- */
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const PHONE_RE = /^[0-9+()\s-]{8,20}$/;
-
-function currentPlanId(){
-  const v = (storageSelect?.value || "");
-  if (!v || v === "more") return "";
-  return PLAN_MAP[v] || "";
-}
-function formIsValid(){
-  const email = document.getElementById('login_email').value.trim();
-  const storage = storageSelect?.value || "";
-  const comp = document.getElementById('company').value.trim();
-  const phone = document.getElementById('phone').value.trim();
-  const pw = document.getElementById('desired_password').value;
-
-  return EMAIL_RE.test(email) &&
-         storage && storage !== "more" &&
-         comp.length >= 2 && comp.length <= 100 &&
-         PHONE_RE.test(phone) &&
-         (pw || "").length >= 6;
-}
-
-/* Toon/verberg "meer" hint */
-function toggleMoreNote(){ if (moreNote) moreNote.style.display = (storageSelect?.value === "more") ? 'block' : 'none'; }
-
-/* Render of hide Paypal sectie */
-let renderedForPlan = "";
-function renderPaypalConditional(){
-  toggleMoreNote();
-  const ok = formIsValid();
-  const planId = currentPlanId();
-
-  if (!ok || !planId){
-    paypalSection.style.display = 'none';
-    const el = document.querySelector(paypalContainerSel);
-    if (el) el.innerHTML = "";
-    paypalHint.style.display = 'none';
-    renderedForPlan = "";
-    return;
-  }
-
-  paypalSection.style.display = 'block';
-  paypalHint.style.display = 'none';
-
-  if (renderedForPlan === planId) return;
-
-  const el = document.querySelector(paypalContainerSel);
-  if(!window.paypal || !el){ return; }
-  el.innerHTML = "";
-
-  paypal.Buttons({
-    style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
-    createSubscription: (data, actions) => actions.subscription.create({ plan_id: planId }),
-    onApprove: async (data) => {
-      try{
-        await fetch("{{ url_for('paypal_store_subscription') }}", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({
-            subscription_id: data.subscriptionID,
-            plan_value: (document.getElementById('storage_tb')?.value || "")
-          })
-        });
-        alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
-      }catch(e){
-        alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
-      }
-    }
-  }).render(paypalContainerSel);
-
-  renderedForPlan = planId;
-}
-
-['input','change','blur'].forEach(evt => {
-  form.addEventListener(evt, renderPaypalConditional, true);
-});
-window.addEventListener('load', renderPaypalConditional);
-</script>
-</body></html>
-"""
-
 
 // ---------- plan map ----------
 const PLAN_MAP = {
@@ -1110,8 +995,8 @@ const storageSelect = document.getElementById('storage_tb');
 const moreNote = document.getElementById('more-note');
 
 // ---------- validatie ----------
-const EMAIL_RE = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
-const PHONE_RE = /^[0-9+()\\s-]{8,20}$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const PHONE_RE = /^[0-9+()\s-]{8,20}$/;
 
 function currentPlanId(){
   const v = (storageSelect?.value || "");
@@ -1159,7 +1044,6 @@ function renderPaypalConditional(){
   // sectie tonen
   paypalSection.style.display = 'block';
 
-  // als planId ontbreekt maar formulier wel geldig is (zou zelden gebeuren)
   if (!planId){
     paypalHint.style.display = 'block';
     const el = document.querySelector(paypalContainerSel);
@@ -1170,7 +1054,6 @@ function renderPaypalConditional(){
     paypalHint.style.display = 'none';
   }
 
-  // voorkom onnodig opnieuw renderen bij elke toetsaanslag
   if (renderedForPlan === planId) return;
 
   const el = document.querySelector(paypalContainerSel);
