@@ -981,7 +981,7 @@ CONTACT_HTML = """
 function slugify(s){
   return (s||"")
     .toLowerCase()
-    .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/&/g,' en ')
     .replace(/[^a-z0-9]+/g,'-')
     .replace(/^-+|-+$/g,'')
@@ -1011,8 +1011,8 @@ const storageSelect = document.getElementById('storage_tb');
 const moreNote = document.getElementById('more-note');
 
 /* ---------- validatie ---------- */
-const EMAIL_RE = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
-const PHONE_RE = /^[0-9+()\\s-]{8,20}$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const PHONE_RE = /^[0-9+()\s-]{8,20}$/;
 
 function currentPlanId(){
   const v = (storageSelect?.value || "");
@@ -1026,29 +1026,24 @@ function formIsValid(){
   const phone = document.getElementById('phone').value.trim();
   const pw = document.getElementById('desired_password').value;
 
-  const ok =
-    EMAIL_RE.test(email) &&
-    storage && storage !== "more" &&
-    comp.length >= 2 && comp.length <= 100 &&
-    PHONE_RE.test(phone) &&
-    (pw || "").length >= 6;
-
-  return ok;
+  return EMAIL_RE.test(email) &&
+         storage && storage !== "more" &&
+         comp.length >= 2 && comp.length <= 100 &&
+         PHONE_RE.test(phone) &&
+         (pw || "").length >= 6;
 }
 
 /* Toon/verberg "meer" hint */
 function toggleMoreNote(){ if (moreNote) moreNote.style.display = (storageSelect?.value === "more") ? 'block' : 'none'; }
 
 /* Render of hide Paypal sectie */
-let renderedForPlan = ""; // onthoud voor welke plan-id de knop is gerenderd
+let renderedForPlan = "";
 function renderPaypalConditional(){
   toggleMoreNote();
-
   const ok = formIsValid();
   const planId = currentPlanId();
 
   if (!ok || !planId){
-    // verberg hele sectie + leegmaken
     paypalSection.style.display = 'none';
     const el = document.querySelector(paypalContainerSel);
     if (el) el.innerHTML = "";
@@ -1057,21 +1052,9 @@ function renderPaypalConditional(){
     return;
   }
 
-  // sectie tonen
   paypalSection.style.display = 'block';
+  paypalHint.style.display = 'none';
 
-  // als planId ontbreekt maar formulier wel geldig is (zou zelden gebeuren)
-  if (!planId){
-    paypalHint.style.display = 'block';
-    const el = document.querySelector(paypalContainerSel);
-    if (el) el.innerHTML = "";
-    renderedForPlan = "";
-    return;
-  } else {
-    paypalHint.style.display = 'none';
-  }
-
-  // voorkom onnodig opnieuw renderen bij elke toetsaanslag
   if (renderedForPlan === planId) return;
 
   const el = document.querySelector(paypalContainerSel);
@@ -1080,10 +1063,8 @@ function renderPaypalConditional(){
 
   paypal.Buttons({
     style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
-    createSubscription: function(data, actions) {
-      return actions.subscription.create({ plan_id: planId });
-    },
-    onApprove: async function(data, actions) {
+    createSubscription: (data, actions) => actions.subscription.create({ plan_id: planId }),
+    onApprove: async (data) => {
       try{
         await fetch("{{ url_for('paypal_store_subscription') }}", {
           method: "POST",
@@ -1103,7 +1084,6 @@ function renderPaypalConditional(){
   renderedForPlan = planId;
 }
 
-/* events */
 ['input','change','blur'].forEach(evt => {
   form.addEventListener(evt, renderPaypalConditional, true);
 });
@@ -1112,24 +1092,6 @@ window.addEventListener('load', renderPaypalConditional);
 </body></html>
 """
 
-
-<script>
-// ---------- helpers ----------
-function slugify(s){
-  return (s||"")
-    .toLowerCase()
-    .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
-    .replace(/&/g,' en ')
-    .replace(/[^a-z0-9]+/g,'-')
-    .replace(/^-+|-+$/g,'')
-    .replace(/--+/g,'-')
-    .substring(0, 50);
-}
-const company = document.getElementById('company');
-const subPreview = document.getElementById('subPreview');
-const BASE_DOMAIN = "{{ base_host }}";
-function updatePreview(){ const s = slugify(company.value); subPreview.textContent = s ? (s + "." + BASE_DOMAIN) : BASE_DOMAIN; }
-company?.addEventListener('input', updatePreview); updatePreview();
 
 // ---------- plan map ----------
 const PLAN_MAP = {
