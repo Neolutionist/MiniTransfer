@@ -308,46 +308,59 @@ LOGIN_HTML = """
 <div class="wrap"><div class="card" style="max-width:460px;margin:auto">
   <h1 style="color:var(--brand)">Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+<style>
+/* Masker een tekstveld als een wachtwoordveld */
+.input.pw-mask {
+  -webkit-text-security: disc;    /* Chrome/Safari */
+  text-security: disc;            /* sommige browsers */
+}
+</style>
+
 <form method="post" autocomplete="off">
-  <input type="text" name="x" style="display:none"><input type="password" name="y" style="display:none">
+  <!-- honeypots tegen autofill -->
+  <input type="text" name="x" style="display:none">
+  <input type="password" name="y" style="display:none" autocomplete="new-password">
 
   <label for="email">E-mail</label>
-  <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
+  <input id="email" class="input" name="email" type="email"
+         value="{{ auth_email }}" autocomplete="username" required>
 
-  <label for="pw">Wachtwoord</label>
-  <!-- Zichtbaar wachtwoordveld zonder 'name=password' -->
-  <input id="pw"
-         class="input"
-         type="password"
+  <label for="pw_ui">Wachtwoord</label>
+  <!-- Zichtbaar veld is GEEN password-type -> geen generator/autofill -->
+  <input id="pw_ui"
+         class="input pw-mask"
+         type="text"
          name="pw_ui"
          placeholder="Wachtwoord"
-         autocomplete="new-password"
+         autocomplete="off"
          autocapitalize="off"
+         autocorrect="off"
          spellcheck="false"
-         readonly
-         onfocus="this.removeAttribute('readonly')">
+         inputmode="text"
+         data-lpignore="true"
+         data-1p-ignore="true">
 
-  <!-- Verborgen 'echt' veld dat pas bij submit gevuld wordt -->
+  <!-- Echt verborgen password-veld voor submit naar server -->
   <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
 
   <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
 </form>
 
 <script>
-  // Blokkeer agressieve autofill; kopieer pas bij submit
-  (function(){
-    const form  = document.currentScript.previousElementSibling; // het <form> vlak boven dit script
-    const pwUI  = document.getElementById('pw');
-    const pwReal= document.getElementById('pw_real');
+(function(){
+  const form   = document.currentScript.previousElementSibling;
+  const pwUI   = document.getElementById('pw_ui');
+  const pwReal = document.getElementById('pw_real');
 
-    // Extra defensie tegen instant autofill
-    setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
+  // extra defensie
+  setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
 
-    form.addEventListener('submit', function(){
-      pwReal.value = pwUI.value || '';
-    }, {passive:true});
-  })();
+  form.addEventListener('submit', function(){
+    pwReal.value = pwUI.value || '';
+  }, {passive:true});
+})();
 </script>
+
   <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
