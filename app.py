@@ -308,14 +308,46 @@ LOGIN_HTML = """
 <div class="wrap"><div class="card" style="max-width:460px;margin:auto">
   <h1 style="color:var(--brand)">Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-  <form method="post" autocomplete="off">
-    <input type="text" name="x" style="display:none"><input type="password" name="y" style="display:none">
-    <label for="email">E-mail</label>
-    <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
-    <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false" required>
-    <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
-  </form>
+<form method="post" autocomplete="off">
+  <input type="text" name="x" style="display:none"><input type="password" name="y" style="display:none">
+
+  <label for="email">E-mail</label>
+  <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
+
+  <label for="pw">Wachtwoord</label>
+  <!-- Zichtbaar wachtwoordveld zonder 'name=password' -->
+  <input id="pw"
+         class="input"
+         type="password"
+         name="pw_ui"
+         placeholder="Wachtwoord"
+         autocomplete="new-password"
+         autocapitalize="off"
+         spellcheck="false"
+         readonly
+         onfocus="this.removeAttribute('readonly')">
+
+  <!-- Verborgen 'echt' veld dat pas bij submit gevuld wordt -->
+  <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
+
+  <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
+</form>
+
+<script>
+  // Blokkeer agressieve autofill; kopieer pas bij submit
+  (function(){
+    const form  = document.currentScript.previousElementSibling; // het <form> vlak boven dit script
+    const pwUI  = document.getElementById('pw');
+    const pwReal= document.getElementById('pw_real');
+
+    // Extra defensie tegen instant autofill
+    setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
+
+    form.addEventListener('submit', function(){
+      pwReal.value = pwUI.value || '';
+    }, {passive:true});
+  })();
+</script>
   <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
@@ -1183,7 +1215,7 @@ def index():
 def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").lower().strip()
-        pw    = (request.form.get("password") or "").strip()
+pw = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
         if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
             session["authed"] = True; session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
