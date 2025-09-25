@@ -926,11 +926,6 @@ CONTACT_HTML = r"""
 
     <button class="btn" type="submit">Verstuur aanvraag</button>
 
-    <div class="form-actions">
-      <a class="btn secondary small" href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
-      <a class="btn secondary small" href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>
-    </div>
-
     <span class="small notice">
       Door te versturen ga je akkoord met de
       <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
