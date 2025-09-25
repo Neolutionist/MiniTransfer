@@ -862,7 +862,29 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 CONTACT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+<title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+/* Extra layout touches specifiek voor deze pagina */
+.form-actions{
+  display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-top:1rem;
+}
+.notice{
+  display:block; margin-top:.5rem; color:#334155;
+}
+.helper{
+  font-size:.9rem; color:#475569; margin-top:.35rem;
+}
+.section-gap{
+  margin-top:1rem;
+}
+.divider{
+  height:1px; background:#e5e7eb; margin:1.2rem 0;
+}
+@media (max-width:680px){
+  .form-actions{ gap:.5rem; }
+}
+</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
@@ -884,17 +906,17 @@ CONTACT_HTML = """
           <option value="5"   {% if form.storage_tb=='5' %}selected{% endif %}>5 TB — €30/maand</option>
           <option value="more" {% if form.storage_tb=='more' %}selected{% endif %}>Meer opslag (op aanvraag)</option>
         </select>
-        <div id="more-note" class="small" style="display:none;margin-top:.35rem">
+        <div id="more-note" class="helper" style="display:none">
           Vul bij <strong>Opmerking</strong> de gewenste grootte of opties in.
         </div>
       </div>
     </div>
 
-    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+    <div class="cols-2 section-gap" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="company">Bedrijfsnaam</label>
         <input id="company" class="input" name="company" type="text" placeholder="Bedrijfsnaam BV" value="{{ form.company or '' }}" minlength="2" maxlength="100" required>
-        <div class="small" style="margin-top:.35rem">
+        <div class="helper">
           Voorbeeld link: <code id="subPreview">{{ form.company and form.company or '' }}</code>
         </div>
       </div>
@@ -904,7 +926,7 @@ CONTACT_HTML = """
       </div>
     </div>
 
-    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+    <div class="cols-2 section-gap" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="desired_password">Wachtwoord (voor jouw omgeving)</label>
         <input id="desired_password" class="input" name="desired_password" type="password" placeholder="Kies een sterk wachtwoord" minlength="6" required>
@@ -915,22 +937,26 @@ CONTACT_HTML = """
       </div>
     </div>
 
-<button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
-<div style="display:flex;gap:.6rem;align-items:center;margin-top:.8rem;flex-wrap:wrap">
-  <a class="btn secondary small" href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
-  <a class="btn secondary small" href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>
-  <span class="small" style="color:#334155">
-    Door te versturen ga je akkoord met de 
-    <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a> 
-    en onze <a href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>.
-  </span>
-</div>
+    <div class="divider"></div>
 
-<p class="small" style="margin-top:.6rem;color:#334155">
-  Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief. 
-  Na livegang ontvang je een <strong>bevestigingsmail</strong> met alle gegevens.
-</p>
-</form>
+    <button class="btn" type="submit">Verstuur aanvraag</button>
+
+    <div class="form-actions">
+      <a class="btn secondary small" href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
+      <a class="btn secondary small" href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>
+    </div>
+
+    <span class="small notice">
+      Door te versturen ga je akkoord met de
+      <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
+      en onze <a href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>.
+    </span>
+
+    <p class="small" style="margin-top:.8rem;color:#334155">
+      Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief.
+      Na livegang ontvang je een <strong>bevestigingsmail</strong> met alle gegevens.
+    </p>
+  </form>
 
   <!-- PayPal-blok: volledig verborgen totdat formulier geldig is én plan gekozen -->
   <div id="paypalSection" style="display:none; margin-top:1.4rem">
@@ -944,11 +970,148 @@ CONTACT_HTML = """
     </div>
   </div>
 
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer">downloadlink.nl • Bestandentransfer</p>
 </div></div>
 
 <!-- PayPal SDK -->
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
+
+<script>
+/* ---------- helpers ---------- */
+function slugify(s){
+  return (s||"")
+    .toLowerCase()
+    .normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+    .replace(/&/g,' en ')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'')
+    .replace(/--+/g,'-')
+    .substring(0, 50);
+}
+const company = document.getElementById('company');
+const subPreview = document.getElementById('subPreview');
+const BASE_DOMAIN = "{{ base_host }}";
+function updatePreview(){ const s = slugify(company.value); subPreview.textContent = s ? (s + "." + BASE_DOMAIN) : BASE_DOMAIN; }
+company?.addEventListener('input', updatePreview); updatePreview();
+
+/* ---------- plan map ---------- */
+const PLAN_MAP = {
+  "0.5": "{{ paypal_plan_0_5 }}",
+  "1":   "{{ paypal_plan_1 }}",
+  "2":   "{{ paypal_plan_2 }}",
+  "5":   "{{ paypal_plan_5 }}"
+};
+
+/* ---------- elements ---------- */
+const form = document.getElementById('contactForm');
+const paypalSection = document.getElementById('paypalSection');
+const paypalContainerSel = '#paypal-button-container';
+const paypalHint = document.getElementById('paypal-hint');
+const storageSelect = document.getElementById('storage_tb');
+const moreNote = document.getElementById('more-note');
+
+/* ---------- validatie ---------- */
+const EMAIL_RE = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
+const PHONE_RE = /^[0-9+()\\s-]{8,20}$/;
+
+function currentPlanId(){
+  const v = (storageSelect?.value || "");
+  if (!v || v === "more") return "";
+  return PLAN_MAP[v] || "";
+}
+function formIsValid(){
+  const email = document.getElementById('login_email').value.trim();
+  const storage = storageSelect?.value || "";
+  const comp = document.getElementById('company').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const pw = document.getElementById('desired_password').value;
+
+  const ok =
+    EMAIL_RE.test(email) &&
+    storage && storage !== "more" &&
+    comp.length >= 2 && comp.length <= 100 &&
+    PHONE_RE.test(phone) &&
+    (pw || "").length >= 6;
+
+  return ok;
+}
+
+/* Toon/verberg "meer" hint */
+function toggleMoreNote(){ if (moreNote) moreNote.style.display = (storageSelect?.value === "more") ? 'block' : 'none'; }
+
+/* Render of hide Paypal sectie */
+let renderedForPlan = ""; // onthoud voor welke plan-id de knop is gerenderd
+function renderPaypalConditional(){
+  toggleMoreNote();
+
+  const ok = formIsValid();
+  const planId = currentPlanId();
+
+  if (!ok || !planId){
+    // verberg hele sectie + leegmaken
+    paypalSection.style.display = 'none';
+    const el = document.querySelector(paypalContainerSel);
+    if (el) el.innerHTML = "";
+    paypalHint.style.display = 'none';
+    renderedForPlan = "";
+    return;
+  }
+
+  // sectie tonen
+  paypalSection.style.display = 'block';
+
+  // als planId ontbreekt maar formulier wel geldig is (zou zelden gebeuren)
+  if (!planId){
+    paypalHint.style.display = 'block';
+    const el = document.querySelector(paypalContainerSel);
+    if (el) el.innerHTML = "";
+    renderedForPlan = "";
+    return;
+  } else {
+    paypalHint.style.display = 'none';
+  }
+
+  // voorkom onnodig opnieuw renderen bij elke toetsaanslag
+  if (renderedForPlan === planId) return;
+
+  const el = document.querySelector(paypalContainerSel);
+  if(!window.paypal || !el){ return; }
+  el.innerHTML = "";
+
+  paypal.Buttons({
+    style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'subscribe' },
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: planId });
+    },
+    onApprove: async function(data, actions) {
+      try{
+        await fetch("{{ url_for('paypal_store_subscription') }}", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({
+            subscription_id: data.subscriptionID,
+            plan_value: (document.getElementById('storage_tb')?.value || "")
+          })
+        });
+        alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+      }catch(e){
+        alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
+      }
+    }
+  }).render(paypalContainerSel);
+
+  renderedForPlan = planId;
+}
+
+/* events */
+['input','change','blur'].forEach(evt => {
+  form.addEventListener(evt, renderPaypalConditional, true);
+});
+window.addEventListener('load', renderPaypalConditional);
+</script>
+</body></html>
+"""
+
 
 <script>
 // ---------- helpers ----------
