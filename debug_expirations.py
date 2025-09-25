@@ -2,23 +2,52 @@
 # -*- coding: utf-8 -*-
 
 """
-Debug-tool: toon vervaldatums van pakketten en bijbehorende bestanden.
+Debug-tool: toon vervaldatums van pakketten, bijbehorende bestanden en links.
 
 Gebruik:
   python3 debug_expirations.py
-  python3 debug_expirations.py --details     # toont alle files per pakket
+  python3 debug_expirations.py --details     # toont alle files per pakket + downloadlinks
+
+Omgevingsvariabelen:
+  DATA_DIR        (default: /var/data)
+  CANONICAL_HOST  (default: ol dehanter.downloadlink.nl)
+  TENANT_HOSTS    (optioneel, mapping 'tenant=host,tenant2=host2')
+                   voorbeeld: "oldehanter=oldehanter.downloadlink.nl, klantx=klantx.downloadlink.nl"
 """
 
 import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple
+from urllib.parse import quote
+import argparse
 
-# Locatie DB: zelfde logica als je app
+# -------------------- Config --------------------
 DATA_DIR = os.environ.get("DATA_DIR", "/var/data")
 DB_PATH  = os.path.join(DATA_DIR, "files_multi.db")
 
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "oldehanter.downloadlink.nl").strip().lower()
 
+def _parse_tenant_hosts(envval: str) -> Dict[str, str]:
+    """
+    Verwacht bv.: "oldehanter=oldehanter.downloadlink.nl, foo=foo.downloadlink.nl"
+    """
+    out: Dict[str, str] = {}
+    for part in (envval or "").split(","):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k = (k or "").strip().lower()
+        v = (v or "").strip().lower()
+        if k and v:
+            out[k] = v
+    return out
+
+TENANT_HOSTS = _parse_tenant_hosts(os.environ.get("TENANT_HOSTS", ""))
+
+
+# -------------------- Helpers --------------------
 def human_bytes(n: int) -> str:
     x = float(n)
     for u in ["B", "KB", "MB", "GB", "TB"]:
@@ -28,7 +57,7 @@ def human_bytes(n: int) -> str:
 
 
 def parse_iso(dt: str) -> datetime:
-    # In je app wordt expires_at gezet met datetime.now(timezone.utc).isoformat()
+    # In de app wordt expires_at gezet met datetime.now(timezone.utc).isoformat()
     # Dat levert een string met timezone offset (bv. ...+00:00). fromisoformat kan dit direct parsen.
     return datetime.fromisoformat(dt)
 
@@ -56,7 +85,7 @@ def package_stats(conn: sqlite3.Connection, token: str, tenant_id: str) -> Tuple
 def list_items(conn: sqlite3.Connection, token: str, tenant_id: str) -> List[Dict[str, Any]]:
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""
-        SELECT name, path, size_bytes
+        SELECT id, name, path, size_bytes
         FROM items
         WHERE token = ? AND tenant_id = ?
         ORDER BY path, name
@@ -64,6 +93,26 @@ def list_items(conn: sqlite3.Connection, token: str, tenant_id: str) -> List[Dic
     return [dict(r) for r in rows]
 
 
+def host_for_tenant(tenant_id: str) -> str:
+    """Bepaal hostnaam voor tenant; val terug op CANONICAL_HOST."""
+    return TENANT_HOSTS.get((tenant_id or "").lower(), CANONICAL_HOST)
+
+
+def build_package_url(tenant_id: str, token: str) -> str:
+    """Maak publieke pakket-URL zoals de Flask-app: https://<host>/p/<token>"""
+    host = host_for_tenant(tenant_id)
+    tok  = quote(token or "", safe="")
+    return f"https://{host}/p/{tok}"
+
+
+def build_file_url(tenant_id: str, token: str, item_id: int) -> str:
+    """Directe download-URL voor één item: https://<host>/file/<token>/<id>"""
+    host = host_for_tenant(tenant_id)
+    tok  = quote(token or "", safe="")
+    return f"https://{host}/file/{tok}/{int(item_id)}"
+
+
+# -------------------- Main --------------------
 def main(show_details: bool = False) -> None:
     if not os.path.exists(DB_PATH):
         print(f"🚫 Database niet gevonden op: {DB_PATH}")
@@ -101,28 +150,35 @@ def main(show_details: bool = False) -> None:
             rem = "(ongeldige datum)"
 
         cnt, total = package_stats(conn, token, tenant_id)
+        link = build_package_url(tenant_id, token)
 
-        print("—"*70)
+        print("—"*86)
         print(f"Tenant       : {tenant_id}")
         print(f"Token        : {token}")
         print(f"Title        : {title}")
         print(f"Aangemaakt   : {created_at}")
         print(f"Vervalt op   : {expires_at}   (remaining: {rem})")
         print(f"Files        : {cnt}  (totaal {human_bytes(total)})")
+        print(f"Link         : {link}")
 
         if show_details and cnt:
             items = list_items(conn, token, tenant_id)
             for it in items:
+                item_id = it["id"]
                 name = it["name"]
                 path = it["path"]
                 size = human_bytes(int(it["size_bytes"] or 0))
+                file_url = build_file_url(tenant_id, token, item_id)
                 print(f"   - {path or name}   [{size}]")
+                print(f"       ↳ {file_url}")
 
-    print("—"*70)
+    print("—"*86)
     print("Klaar.\n")
     conn.close()
 
 
 if __name__ == "__main__":
-    import sys
-    main(show_details=("--details" in sys.argv))
+    parser = argparse.ArgumentParser(description="Toon pakketvervaldata en links.")
+    parser.add_argument("--details", action="store_true", help="Toon per bestand details + downloadlink")
+    args = parser.parse_args()
+    main(show_details=args.details)
