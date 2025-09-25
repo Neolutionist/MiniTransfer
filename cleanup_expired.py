@@ -1,78 +1,69 @@
-import os
-import sqlite3
+#!/usr/bin/env python3
+import os, sqlite3
 from datetime import datetime, timezone
 import boto3
-import traceback
+from botocore.exceptions import ClientError, BotoCoreError
 
-# Constants
-DB_PATH = "/var/data/files_multi.db"
-B2_BUCKET_NAME = "MiniTransfer"
-B2_ENDPOINT_URL = "https://s3.eu-central-003.backblazeb2.com"
+# ---- S3 config uit je bestaande env ----
+S3_BUCKET       = os.environ["S3_BUCKET"]
+S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
+S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
 
-def cleanup():
-    # Check if the database exists
-    print(f"🔍 Checking DB path: {DB_PATH}")
-    if not os.path.exists(DB_PATH):
-        raise FileNotFoundError(f"❌ Database file not found at {DB_PATH}")
+s3 = boto3.client(
+    "s3",
+    region_name=S3_REGION,
+    endpoint_url=S3_ENDPOINT_URL,
+)
 
-    # Log environment (for debugging cron context)
-    print("🔐 AWS_ACCESS_KEY_ID:", os.getenv("AWS_ACCESS_KEY_ID"))
-    print("🔐 AWS_SECRET_ACCESS_KEY:", ("*" * 4) + os.getenv("AWS_SECRET_ACCESS_KEY")[-4:] if os.getenv("AWS_SECRET_ACCESS_KEY") else None)
+# Jouw DB op de Render-disk
+DB_PATH = os.environ.get("DATA_DIR", "/var/data") + "/files_multi.db"
 
-    # Create S3 client
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=B2_ENDPOINT_URL,
-    )
+def utcnow_iso():
+    return datetime.now(timezone.utc).isoformat()
 
+def cleanup_expired(dry_run=False):
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
-    now = datetime.now(timezone.utc)
-    print(f"🕒 Current UTC time: {now.isoformat()}")
+    # Zoek verlopen pakketten
+    now = utcnow_iso()
+    pkgs = c.execute("""
+        SELECT token, tenant_id FROM packages
+        WHERE expires_at < ?
+    """, (now,)).fetchall()
 
-    # Fetch tokens with expiration
-    c.execute("SELECT token, expires_at FROM packages WHERE expires_at IS NOT NULL")
-    rows = c.fetchall()
-    print(f"📦 Found {len(rows)} expirable packages")
+    total_deleted = 0
+    for pkg in pkgs:
+        token = pkg["token"]
+        tenant = pkg["tenant_id"]
 
-    for token, expires_at in rows:
-        try:
-            expires_at_dt = datetime.fromisoformat(expires_at)
-        except Exception as e:
-            print(f"⚠️ Skipping token '{token}' - invalid expires_at: {expires_at}")
-            continue
+        # Alle items (S3 objecten) bij dit pakket
+        items = c.execute("""
+            SELECT id, s3_key FROM items
+            WHERE token=? AND tenant_id=?
+        """, (token, tenant)).fetchall()
 
-        if expires_at_dt < now:
-            prefix = f"uploads/{token}/"
-            print(f"🧹 Cleaning up expired token: {token}")
+        for it in items:
+            key = it["s3_key"]
+            print(f"[DELETE] s3://{S3_BUCKET}/{key}")
+            if not dry_run:
+                try:
+                    s3.delete_object(Bucket=S3_BUCKET, Key=key)
+                except (ClientError, BotoCoreError) as e:
+                    print(f"  -> S3 delete failed: {e}")
 
-            try:
-                resp = s3.list_objects_v2(Bucket=B2_BUCKET_NAME, Prefix=prefix)
-                if "Contents" in resp:
-                    for obj in resp["Contents"]:
-                        key = obj["Key"]
-                        print(f" - 🗑 Deleting: {key}")
-                        s3.delete_object(Bucket=B2_BUCKET_NAME, Key=key)
-                else:
-                    print(" - (No objects found to delete)")
+        if not dry_run:
+            # DB opruimen
+            c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, tenant))
+            c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, tenant))
+            conn.commit()
 
-                # Clean up DB
-                c.execute("DELETE FROM items WHERE token=?", (token,))
-                c.execute("DELETE FROM packages WHERE token=?", (token,))
-                conn.commit()
-                print("✅ Deleted from database")
-
-            except Exception as s3_error:
-                print(f"❌ S3 Error for token {token}: {s3_error}")
+        total_deleted += len(items)
 
     conn.close()
-    print("✅ Cleanup completed")
+    print(f"Klaar. Verwijderde objecten: {total_deleted} (dry_run={dry_run})")
 
 if __name__ == "__main__":
-    try:
-        cleanup()
-    except Exception as e:
-        print("❌ Unhandled exception occurred:")
-        traceback.print_exc()
-        exit(1)
+    # Zet dry_run=True om eerst te testen zonder echte deletes
+    cleanup_expired(dry_run=False)
