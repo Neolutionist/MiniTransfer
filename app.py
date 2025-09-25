@@ -1522,7 +1522,6 @@ def index():
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 @app.route("/login", methods=["GET","POST"])
-@app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").lower().strip()
