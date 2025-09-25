@@ -1212,15 +1212,33 @@ def index():
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 @app.route("/login", methods=["GET","POST"])
+@app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").lower().strip()
-pw = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
+        # accept either the hidden 'password' or the UI field 'pw_ui'
+        pw    = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
+
         if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
-            session["authed"] = True; session["user"] = AUTH_EMAIL
+            session["authed"] = True
+            session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
-        return render_template_string(LOGIN_HTML, error="Onjuiste inloggegevens.", base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON)
-    return render_template_string(LOGIN_HTML, error=None, base_css=BASE_CSS, bg=BG_DIV, auth_email=AUTH_EMAIL, head_icon=HTML_HEAD_ICON)
+
+        return render_template_string(
+            LOGIN_HTML,
+            error="Onjuiste inloggegevens.",
+            base_css=BASE_CSS, bg=BG_DIV,
+            auth_email=AUTH_EMAIL,
+            head_icon=HTML_HEAD_ICON
+        )
+
+    return render_template_string(
+        LOGIN_HTML,
+        error=None,
+        base_css=BASE_CSS, bg=BG_DIV,
+        auth_email=AUTH_EMAIL,
+        head_icon=HTML_HEAD_ICON
+    )
 
 @app.route("/logout")
 def logout():
