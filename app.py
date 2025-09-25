@@ -916,11 +916,13 @@ CONTACT_HTML = """
     </div>
 
 <button class="btn" type="submit" style="margin-top:1rem">Verstuur aanvraag</button>
-
 <div style="display:flex;gap:.6rem;align-items:center;margin-top:.8rem;flex-wrap:wrap">
   <a class="btn secondary small" href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>
+  <a class="btn secondary small" href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>
   <span class="small" style="color:#334155">
-    Door te versturen ga je akkoord met de <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a>.
+    Door te versturen ga je akkoord met de 
+    <a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Algemene voorwaarden</a> 
+    en onze <a href="{{ url_for('privacy_page') }}" target="_blank" rel="noopener">Privacyverklaring</a>.
   </span>
 </div>
 
@@ -1341,6 +1343,107 @@ code{background:#eef2ff;padding:.05rem .35rem;border-radius:.3rem}
     </div>
   </div>
   <p class="footer">downloadlink.nl • Bestandentransfer</p>
+</div>
+</body></html>
+"""
+
+PRIVACY_HTML = """
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Privacyverklaring – downloadlink.nl</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+h1{color:var(--brand);margin:.2rem 0 1rem}
+h2{margin:1.2rem 0 .4rem}
+.section{margin-bottom:1.1rem}
+.small{color:#475569}
+.card p{margin:.45rem 0}
+ul{margin:.4rem 0 .6rem 1.2rem}
+</style></head><body>
+{{ bg|safe }}
+<div class="wrap">
+  <div class="card">
+    <h1>Privacyverklaring – downloadlink.nl</h1>
+    <p class="small">Versie: 1.0 • Laatst bijgewerkt: 25-09-2025</p>
+
+    <div class="section">
+      <h2>1. Wie zijn wij?</h2>
+      <p>downloadlink.nl is verantwoordelijk voor de verwerking van persoonsgegevens zoals beschreven in deze verklaring. 
+         Voor vragen kun je ons bereiken via <a href="mailto:{{ mail_to }}">{{ mail_to }}</a>.</p>
+    </div>
+
+    <div class="section">
+      <h2>2. Welke gegevens verwerken wij?</h2>
+      <ul>
+        <li><strong>Contactgegevens</strong>: naam, e-mailadres, bedrijfsnaam (via het aanvraagformulier).</li>
+        <li><strong>Account- en betaalgegevens</strong>: klantnummer, gekozen plan, PayPal-transactiegegevens (geen creditcardnummers).</li>
+        <li><strong>Gebruiksgegevens</strong>: logbestanden, IP-adressen, browserinformatie, bestandsuploads.</li>
+        <li><strong>Communicatie</strong>: e-mails of supportvragen.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>3. Waarvoor gebruiken wij deze gegevens?</h2>
+      <ul>
+        <li>Uitvoering van de overeenkomst (hosting & bestandsuitwisseling, facturatie, support).</li>
+        <li>Beveiliging en beschikbaarheid van de dienst (monitoring, misbruikdetectie).</li>
+        <li>Wettelijke verplichtingen (administratie, belastingregels).</li>
+        <li>Contact en klantenservice.</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>4. Op welke grondslagen?</h2>
+      <ul>
+        <li>Uitvoering van een overeenkomst (dienstverlening en betalingen).</li>
+        <li>Wettelijke verplichting (bewaarplicht administratie).</li>
+        <li>Gerechtvaardigd belang (veiligheid, misbruikpreventie, zakelijke communicatie).</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h2>5. Hoe lang bewaren wij gegevens?</h2>
+      <p>Wij bewaren persoonsgegevens niet langer dan noodzakelijk. Administratieve en facturatiegegevens: <strong>7 jaar</strong> (wettelijke bewaarplicht). 
+         Account- en gebruiksgegevens: maximaal <strong>12 maanden</strong> na beëindiging van de dienst, tenzij langer vereist door wetgeving.</p>
+    </div>
+
+    <div class="section">
+      <h2>6. Met wie delen wij gegevens?</h2>
+      <p>Wij delen gegevens uitsluitend indien noodzakelijk met:</p>
+      <ul>
+        <li>Onze hostingprovider (S3-compatibele opslag, serverbeheer).</li>
+        <li>Onze betaalprovider (PayPal) voor verwerking van betalingen.</li>
+        <li>Onze mailprovider voor transactieberichten en support.</li>
+      </ul>
+      <p>Met deze partijen zijn verwerkersovereenkomsten gesloten. 
+         Buiten de EU zorgen wij voor passende waarborgen (zoals EU-modelclausules).</p>
+    </div>
+
+    <div class="section">
+      <h2>7. Jouw rechten</h2>
+      <p>Je hebt het recht om:</p>
+      <ul>
+        <li>Inzage te vragen in jouw persoonsgegevens.</li>
+        <li>Correctie of verwijdering te verzoeken.</li>
+        <li>Bezwaar te maken tegen verwerking of beperking te vragen.</li>
+        <li>Gegevensoverdracht te vragen (dataportabiliteit).</li>
+        <li>Een klacht in te dienen bij de Autoriteit Persoonsgegevens.</li>
+      </ul>
+      <p>Verzoeken kun je sturen naar <a href="mailto:{{ mail_to }}">{{ mail_to }}</a>. 
+         Wij reageren binnen 30 dagen.</p>
+    </div>
+
+    <div class="section">
+      <h2>8. Beveiliging</h2>
+      <p>Wij nemen passende technische en organisatorische maatregelen om persoonsgegevens te beveiligen tegen misbruik, verlies, onbevoegde toegang, 
+         ongewenste openbaarmaking en ongeoorloofde wijziging.</p>
+    </div>
+
+    <div class="section small">
+      <p>Vragen? Neem gerust contact op via <a href="mailto:{{ mail_to }}">{{ mail_to }}</a>.</p>
+    </div>
+  </div>
+  <p class="footer">downloadlink.nl • Privacyverklaring</p>
 </div>
 </body></html>
 """
@@ -1903,6 +2006,16 @@ def contact():
     from urllib.parse import quote
     mailto = f"mailto:{MAIL_TO}?subject={quote('Nieuwe aanvraag transfer-oplossing')}&body={quote(body)}"
     return render_template_string(CONTACT_MAIL_FALLBACK_HTML, mailto_link=mailto, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template_string(
+        PRIVACY_HTML,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON,
+        mail_to=MAIL_TO
+    )    
 
 # -------------- Abonnementbeheer (server) --------------
 @app.route("/billing/store", methods=["POST"])
