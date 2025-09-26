@@ -28,6 +28,9 @@ from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError, BotoCoreError
 from zipstream import ZipStream  # zipstream-ng
 
+# --- Internal cleanup endpoint (cron -> webservice) ---
+from cleanup_expired import cleanup_expired, resolve_data_dir
+
 # ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
@@ -1689,6 +1692,39 @@ def mpu_complete():
     except Exception:
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
+        
+@app.post("/internal/cleanup")
+def internal_cleanup():
+    """
+    Interne route voor cron. Verwijdert verlopen pakketten + S3-objecten.
+    Auth via header: X-Task-Token  (zet TASK_TOKEN als secret in Render).
+    Opties:
+      - ?dry=1  -> dry-run (niets echt verwijderen)
+      - ?tenant=slug  -> alleen die tenant (bijv. 'oldehanter')
+      - ?verbose=1 -> extra logging in response
+    """
+    task_token = os.environ.get("TASK_TOKEN")
+    if not task_token or request.headers.get("X-Task-Token") != task_token:
+        return ("Forbidden", 403)
+
+    dry = request.args.get("dry") in {"1", "true", "yes"}
+    only_tenant = request.args.get("tenant") or None
+    verbose = request.args.get("verbose") in {"1", "true", "yes"}
+
+    # Prefer de DB die de app zelf gebruikt; fallback naar resolver
+    db_path = DB_PATH if DB_PATH.exists() else (resolve_data_dir(verbose=verbose) / "files_multi.db")
+
+    try:
+        deleted = cleanup_expired(
+            db_path=db_path,
+            dry_run=dry,
+            only_tenant=only_tenant,
+            verbose=verbose,
+        )
+        return jsonify(ok=True, deleted=deleted, db=str(db_path), dry=dry, tenant=only_tenant)
+    except Exception as e:
+        logging.exception("internal_cleanup failed")
+        return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
