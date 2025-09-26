@@ -408,11 +408,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-  <!-- Aanvraag-link verwijderd -->
-  <div class="nav" style="margin-bottom:1rem">
-    <a href="{{ url_for('billing_page') }}">Beheer abonnement</a>
-  </div>
-
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
     <div class="toggle">
@@ -1120,74 +1115,6 @@ CONTACT_MAIL_FALLBACK_HTML = """
 </body></html>
 """
 
-BILLING_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
-{{ bg|safe }}
-<div class="wrap">
-  <div class="topbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-    <h1 style="color:var(--brand)">Beheer abonnement</h1>
-    <div>Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-  </div>
-
-  <div class="card">
-    {% if sub %}
-      <div class="small" style="margin-bottom:.8rem">
-        <div><strong>Subscription ID:</strong> <code id="subid">{{ sub['subscription_id'] }}</code></div>
-        <div><strong>Status:</strong> <span id="status">{{ sub['status'] }}</span></div>
-        <div><strong>Huidig plan:</strong> <span id="plan">{{ sub['plan_value'] }}</span> TB</div>
-      </div>
-      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:end">
-        <div>
-          <label for="newPlan">Nieuw plan</label>
-          <select id="newPlan" class="input" style="min-width:180px">
-            <option value="0.5">0,5 TB</option>
-            <option value="1">1 TB</option>
-            <option value="2">2 TB</option>
-            <option value="5">5 TB</option>
-          </select>
-        </div>
-        <button class="btn" id="btnChange">Wijzig plan</button>
-        <button class="btn secondary" id="btnCancel">Opzeggen</button>
-      </div>
-    {% else %}
-      <p class="small">Geen actief abonnement gevonden voor {{ user }}. Start een abonnement via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.</p>
-    {% endif %}
-  </div>
-
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
-
-{% if sub %}
-<script>
-async function api(url, body){
-  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok){ throw new Error(j.error || ('HTTP '+r.status)); }
-  return j;
-}
-document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid').textContent.trim();
-  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
-  try{
-    await api("{{ url_for('billing_cancel') }}", {subscription_id: id});
-    alert('Opgezegd.');
-    location.reload();
-  }catch(e){ alert('Mislukt: ' + e.message); }
-});
-document.getElementById('btnChange')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid').textContent.trim();
-  const val = document.getElementById('newPlan').value;
-  try{
-    await api("{{ url_for('billing_change') }}", {subscription_id: id, new_plan_value: val});
-    alert('Plan gewijzigd.');
-    location.reload();
-  }catch(e){ alert('Mislukt: ' + e.message); }
-});
-</script>
-{% endif %}
-</body></html>
-"""
 TERMS_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -2083,62 +2010,6 @@ def paypal_store_subscription():
     except Exception:
         log.exception("Kon bevestigingsmail niet versturen")
     return jsonify(ok=True)
-
-@app.route("/billing/cancel", methods=["POST"])
-def billing_cancel():
-    if not logged_in(): abort(401)
-    sub_id = (request.json or {}).get("subscription_id") or ""
-    if not sub_id: return jsonify(ok=False, error="missing_id"), 400
-    try:
-        token = paypal_access_token()
-        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel", method="POST")
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        body = json.dumps({"reason":"Cancelled by customer via portal"}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20):
-            pass
-        c = db(); c.execute("UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?", (sub_id,)); c.commit(); c.close()
-        return jsonify(ok=True)
-    except Exception:
-        log.exception("PayPal cancel failed")
-        return jsonify(ok=False, error="paypal_cancel_failed"), 502
-
-@app.route("/billing/change", methods=["POST"])
-def billing_change():
-    if not logged_in(): abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    sub_id = (data.get("subscription_id") or "").strip()
-    new_plan_value = (data.get("new_plan_value") or "").strip()
-    new_plan_id = PLAN_MAP.get(new_plan_value)
-    if not sub_id or not new_plan_id:
-        return jsonify(ok=False, error="invalid_input"), 400
-    try:
-        token = paypal_access_token()
-        req = urllib.request.Request(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise", method="POST")
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        body = json.dumps({"plan_id": new_plan_id}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20):
-            pass
-        c = db(); c.execute("UPDATE subscriptions SET plan_value=? WHERE subscription_id=?", (new_plan_value, sub_id)); c.commit(); c.close()
-        return jsonify(ok=True)
-    except Exception:
-        log.exception("PayPal revise failed")
-        return jsonify(ok=False, error="paypal_revise_failed"), 502
-
-@app.route("/billing")
-def billing_page():
-    if not logged_in(): return redirect(url_for("login"))
-    c = db()
-    t = current_tenant()["slug"]
-    sub = c.execute("""SELECT * FROM subscriptions
-                       WHERE login_email=? AND tenant_id=?
-                       ORDER BY id DESC LIMIT 1""",
-                    (AUTH_EMAIL, t)).fetchone()
-    c.close()
-    return render_template_string(
-        BILLING_HTML, sub=sub, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, user=session.get("user")
-    )
 
 # -------------- PayPal Webhook --------------
 def paypal_verify_webhook_sig(headers, body_text: str) -> bool:
