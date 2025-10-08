@@ -323,6 +323,7 @@ LOGIN_HTML = """
   <!-- honeypots tegen autofill -->
   <input type="text" name="x" style="display:none">
   <input type="password" name="y" style="display:none" autocomplete="new-password">
+
   <label for="email">E-mail</label>
   <input id="email" class="input" name="email" type="email"
          value="{{ auth_email }}" autocomplete="username" required>
@@ -462,11 +463,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
-
-const MAX_PAR_FILES = 2; // begin met 2; later evt. 3 of 4
-
-
-
 function sanitizePath(p){
   const parts = p.split('/').map(n=>{
     const dot = n.lastIndexOf('.');
@@ -704,29 +700,15 @@ let expiryDays = edSel.value;
     setProgress(0);
 
     try{
-const token = await packageInit(expiryDays, password, title);
-
-// Zet de balk tijdelijk op "indeterminate" tijdens parallelle uploads
-if (files.length > 1 && MAX_PAR_FILES > 1) {
-  upbar.classList.add('indet');
-}
-
-for (let i = 0; i < files.length; i += MAX_PAR_FILES) {
-  const batch = files.slice(i, i + MAX_PAR_FILES);
-  await Promise.all(batch.map(async (f) => {
-    const rel = relPath(f);
-    if (f.size < 5 * 1024 * 1024) {
-      await uploadSingle(token, f, rel, tracker);
-    } else {
-      await uploadMultipart(token, f, rel, tracker);
-    }
-  }));
-}
-
-// Na alles klaar: indeterminate uit + 100%
-upbar.classList.remove('indet');
-setProgress(100);
-
+      const token = await packageInit(expiryDays, password, title);
+      for(const f of files){
+        const rel = sanitizePath(relPath(f));
+        if(f.size < 5 * 1024 * 1024){
+          await uploadSingle(token, f, rel, tracker);
+        }else{
+          await uploadMultipart(token, f, rel, tracker);
+        }
+      }
 
       if (animId){ cancelAnimationFrame(animId); animId = null; }
       setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
