@@ -604,8 +604,8 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
     return j;
   }
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 16 * 1024 * 1024;
-    const CONCURRENCY = 4;
+const CHUNK = 8 * 1024 * 1024;   // 8 MiB (>=5 MiB vereist)
+const CONCURRENCY = 2;           // minder parallel
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
