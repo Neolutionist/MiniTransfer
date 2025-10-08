@@ -463,6 +463,20 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 </div>
 
 <script>
+function sanitizePath(p){
+  const parts = p.split('/').map(n=>{
+    const dot = n.lastIndexOf('.');
+    const base = dot>=0 ? n.slice(0,dot) : n;
+    const ext  = dot>=0 ? n.slice(dot) : '';
+    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,''); // diacritics weg
+    s = s.replace(/[^\w.\-]+/g, '_');   // vervang + [ ] spaties etc.
+    s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,''); // opschonen
+    if (s.length > 160) s = s.slice(0,160);          // korter maken
+    return (s || 'file') + ext.replace(/[^.\w-]/g,'');
+  });
+  return parts.join('/');
+}
+
   function isIOS(){
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     const iOSUA = /iPad|iPhone|iPod/.test(ua);
@@ -688,7 +702,7 @@ let expiryDays = edSel.value;
     try{
       const token = await packageInit(expiryDays, password, title);
       for(const f of files){
-        const rel = relPath(f);
+        const rel = sanitizePath(relPath(f));
         if(f.size < 5 * 1024 * 1024){
           await uploadSingle(token, f, rel, tracker);
         }else{
