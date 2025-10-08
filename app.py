@@ -618,8 +618,8 @@ function sanitizePath(p){
     return j;
   }
   async function uploadMultipart(token, file, relpath, totalTracker){
-const CHUNK = 8 * 1024 * 1024;   // 8 MiB (>=5 MiB vereist)
-const CONCURRENCY = 2;           // minder parallel
+const CHUNK = 24 * 1024 * 1024;  // 24 MiB
+const CONCURRENCY = 6;           // 6 parallelle parts
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
