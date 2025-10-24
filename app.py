@@ -184,96 +184,182 @@ migrate_add_tenant_columns()
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  --c1:#84b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
-  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  /* Kleuren */
+  --c1:#86b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
   --brand:#0f4c98; --brand-2:#003366;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
   --surface:#ffffff; --surface-2:#f1f5f9;
+  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  /* Animatie snelheden */
+  --t-slow: 28s;
+  --t-med:  18s;
+  --t-fast:  8s;
 }
+/* Dark mode (volgt OS) */
+@media (prefers-color-scheme: dark){
+  :root{
+    --brand:#7db4ff; --brand-2:#4a7fff;
+    --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
+    --surface:#0b1020; --surface-2:#0f172a;
+    --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
+  }
+}
+
 html,body{height:100%}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-.bg{position:fixed; inset:0; z-index:-2; overflow:hidden;
-  background:
-    radial-gradient(40vmax 40vmax at 15% 25%, var(--c1) 0%, transparent 60%),
-    radial-gradient(38vmax 38vmax at 85% 30%, var(--c2) 0%, transparent 60%),
-    radial-gradient(50vmax 50vmax at 50% 90%, var(--c3) 0%, transparent 60%),
-    linear-gradient(180deg,#edf3ff 0%, #eef4fb 100%);
-  filter: saturate(1.05);
+body{
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--text); margin:0; position:relative; overflow-x:hidden;
+  background: var(--surface);
 }
-.bg::before,.bg::after{content:""; position:absolute; inset:-10%;
+
+/* ======= Nieuwe achtergrond ======= */
+.bg{
+  position:fixed; inset:0; z-index:-2; overflow:hidden;
+  /* Basismix (zachte radialen + subtiele vertical fade) */
   background:
-    radial-gradient(45vmax 45vmax at 20% 70%, rgba(255,255,255,.35), transparent 60%),
-    radial-gradient(50vmax 50vmax at 80% 20%, rgba(255,255,255,.25), transparent 60%),
-    radial-gradient(35vmax 35vmax at 60% 45%, rgba(255,255,255,.22), transparent 60%);
+    radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
+    radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
+    radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
+    linear-gradient(180deg, #edf3ff 0%, #eef4fb 100%);
+  filter:saturate(1.06);
+  animation: hueShift var(--t-slow) linear infinite;
+}
+
+/* Aurora laag */
+.bg::before,
+.bg::after{
+  content:""; position:absolute; inset:-10%;
+  /* Aurora met conic-gradients; de mask maakt vloeiende vormen */
+  background:
+    conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
+    conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);
+  mix-blend-mode: overlay;
   will-change: transform, opacity;
-  animation: driftA 26s ease-in-out infinite;
 }
-.bg::after{mix-blend-mode: overlay; opacity:.55; animation: driftB 30s ease-in-out infinite}
-@keyframes driftA{0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(.6%,1.4%,0)} 100%{transform:translate3d(0,0,0)}}
-@keyframes driftB{0%{transform:rotate(0deg)} 50%{transform:rotate(180deg)} 100%{transform:rotate(360deg)}}
+.bg::before{
+  animation: driftA var(--t-med) ease-in-out infinite alternate;
+  opacity:.85;
+  -webkit-mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+}
+.bg::after{
+  animation: driftB var(--t-slow) ease-in-out infinite;
+  opacity:.65;
+  -webkit-mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+}
+
+/* Subtiele korrel / film grain (zonder externe asset) */
+.bg::marker{display:none}
+.bg > i{display:none}
+.bg::before, .bg::after { backdrop-filter: saturate(1.05) blur(2px); }
+.bg + .grain{ /* aparte overlay via pseudo-element lukt niet overal; gebruik extra div niet nodig – we faken ruis met gradients */
+  display:none;
+}
+
+/* Glass kaarten en UI */
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-.card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
-      border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
+.card{
+  padding:1.5rem; background:var(--panel); border:1px solid var(--panel-b);
+  border-radius:18px; box-shadow:0 18px 40px rgba(0,0,0,.12);
+  backdrop-filter: blur(10px) saturate(1.05);
+}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
+
+/* Forms/Buttons */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
   width:100%; display:block; appearance:none;
-  padding: .85rem 1rem; border-radius:12px; border:1px solid var(--line);
-  background:#f0f6ff; color:var(--text);
-  outline: none; transition: box-shadow .15s, border-color .15s, background .15s;
+  padding:.85rem 1rem; border-radius:12px; border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface-2) 90%, white 10%); color:var(--text);
+  outline:none; transition: box-shadow .15s, border-color .15s, background .15s;
 }
 input:focus, .input:focus, select:focus, textarea:focus{
-  border-color: var(--ring); box-shadow: 0 0 0 4px rgba(37,99,235,.15);
+  border-color: var(--ring); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
 }
-input[type=file]{padding:.55rem 1rem; background:#f0f6ff; cursor:pointer}
+input[type=file]{padding:.55rem 1rem; background:var(--surface-2); cursor:pointer}
 input[type=file]::file-selector-button{
   margin-right:.75rem; border:1px solid var(--line);
-  background:var(--surface-2); color:var(--text);
+  background:var(--surface); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
-  background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
+  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
+  color:#fff;font-weight:700;cursor:pointer;
   box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
   font-size:.95rem; line-height:1;
 }
 .btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
-.btn.secondary{background:var(--brand-2)}
+.btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
+
+/* Progress */
 .progress{
-  height:14px;background:#e5ecf6;border-radius:999px;overflow:hidden;margin-top:.75rem;
-  border:1px solid #dbe5f4; position:relative;
+  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
+  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
 }
 .progress > i{
   display:block;height:100%;width:0%;
   background:linear-gradient(90deg,#0f4c98,#1e90ff);
-  transition:width .12s ease;
-  position:relative;
+  transition:width .12s ease; position:relative;
 }
 .progress > i::after{
   content:""; position:absolute; inset:0;
   background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
-  background-size: 24px 24px;
-  animation: stripes 1s linear infinite;
-  mix-blend-mode: overlay;
+  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
 }
 .progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
-@keyframes indet-move{ 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }
+
+@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
+
+/* Tabel */
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
+
+/* Responsive tabel */
 @media (max-width: 680px){
   .table thead{display:none}
   .table, .table tbody, .table tr, .table td{display:block;width:100%}
   .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+  .cols-2{ grid-template-columns: 1fr !important; }
 }
-@media (max-width: 680px){ .cols-2{ grid-template-columns: 1fr !important; } }
-.cta{display:flex;justify-content:center;margin-top:1rem}
+
+/* ZIP lijst kolombreedte */
+.table th.col-size,
+.table td.col-size,
+.table td[data-label="Grootte"]{
+  white-space:nowrap; text-align:right; min-width:72px;
+}
+
+/* Aurora animaties */
+@keyframes driftA{
+  0%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
+  100%{transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes driftB{
+  0%{transform:rotate(0deg) translateY(0)}
+  50%{transform:rotate(180deg) translateY(-1%)}
+  100%{transform:rotate(360deg) translateY(0)}
+}
+/* Kleurverschuiving over tijd */
+@keyframes hueShift{
+  0%{filter:hue-rotate(0deg) saturate(1.06)}
+  100%{filter:hue-rotate(360deg) saturate(1.06)}
+}
+
+/* Respecteer reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .bg, .bg::before, .bg::after{ animation: none !important; }
+}
 """
 
 # --- Favicon (SVG) ---
