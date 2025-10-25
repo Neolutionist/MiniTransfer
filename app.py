@@ -1088,6 +1088,8 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   opacity:0; transform:translateY(8px);
   pointer-events:none;
   transition:opacity .2s, transform .2s;
+    max-width: min(220px, calc(100vw - 40px));
+  will-change: transform, opacity;
 }
 #snakeBubble.show{ opacity:1; transform:translateY(0); }
 #snakeBubble:after{
@@ -1138,71 +1140,25 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   transition: background .18s ease, transform .18s ease;
 }
 
-/* === Nieuwe dynamische zwarte slang =================================== */
-#snake {
-  position: fixed;
-  bottom: 90px;
-  left: 40px;
-  width: 95px;
-  height: 65px;
-  z-index: 999;
-  cursor: pointer;
-  user-select: none;
-  transition: transform 0.9s cubic-bezier(.4,1.3,.4,1);
+/* Zichtbaarheid/contrast slang */
+#snakeWrap { 
+  z-index: 2147483647; /* boven ALLES */
 }
 
-/* elke animatie is een nét andere slither/kronkel */
-@keyframes slither1 {
-  0%{ transform: rotate(0deg) translateY(0px); }
-  50%{ transform: rotate(4deg) translateY(3px); }
-  100%{ transform: rotate(-3deg) translateY(-1px); }
-}
-@keyframes slither2 {
-  0%{ transform: rotate(2deg) translateX(0px); }
-  50%{ transform: rotate(-6deg) translateX(-3px); }
-  100%{ transform: rotate(3deg) translateX(2px); }
-}
-@keyframes slither3 {
-  0%{ transform: scale(1) }
-  50%{ transform: scale(1.05) rotate(5deg) }
-  100%{ transform: scale(1) rotate(-3deg) }
+#snakeWrap svg { 
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.65))
+          drop-shadow(0 2px 10px rgba(0,0,0,.35));
 }
 
-#snake.slither1 svg { animation: slither1 .20s infinite alternate; }
-#snake.slither2 svg { animation: slither2 .18s infinite alternate; }
-#snake.slither3 svg { animation: slither3 .22s infinite alternate; }
+#snakeWrap #body { 
+  stroke: #000; 
+  stroke-width: 14; 
+}
 
-/* Tekstballon */
-#snakeBubble{
-  position:absolute;
-  bottom:60px;
-  left:-20px;
-  background:white;
-  border-radius:10px;
-  padding:.45rem .7rem;
-  font-size:.85rem;
-  border:1px solid rgba(0,0,0,.15);
-  box-shadow:0 8px 20px rgba(0,0,0,.25);
-  white-space:normal;
-  width:160px;
-  opacity:0;
-  pointer-events:none;
-  transform:translateY(8px);
-  transition:opacity .2s, transform .2s;
+#snakeWrap #head > circle:first-child {
+  fill: #000;
 }
-#snakeBubble.show{
-  opacity:1;
-  transform:translateY(0);
-}
-#snakeBubble:after{
-  content:"";
-  position:absolute;
-  bottom:-10px;
-  left:24px;
-  border-width:10px 8px 0 8px;
-  border-color:white transparent transparent transparent;
-  border-style:solid;
-}
+
 
 </style></head><body>
 {{ bg|safe }}
