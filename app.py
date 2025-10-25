@@ -1150,60 +1150,71 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   transition: background .18s ease, transform .18s ease;
 }
 
-/* --- Mini-slang (downloadpagina) ----------------------------------------- */
-#snakeWrap{
+/* === Nieuwe dynamische zwarte slang =================================== */
+#snake {
   position: fixed;
-  top: 0; left: 0;               /* we verplaatsen 'm met transform */
-  transform: translate(28px, calc(100vh - 120px));
-  width: 84px; height: 54px;
-  z-index: 40;
+  bottom: 90px;
+  left: 40px;
+  width: 95px;
+  height: 65px;
+  z-index: 999;
   cursor: pointer;
-  transition: transform .75s cubic-bezier(.22,.65,.22,1.05);
   user-select: none;
+  transition: transform 0.9s cubic-bezier(.4,1.3,.4,1);
 }
-#snakeWrap svg{ display:block; width:100%; height:100%; }
 
-#snakeWrap.moving .slither {      /* tijdens bewegen “slither” animatie */
-  animation: snakeWiggle .22s ease-in-out infinite alternate;
+/* elke animatie is een nét andere slither/kronkel */
+@keyframes slither1 {
+  0%{ transform: rotate(0deg) translateY(0px); }
+  50%{ transform: rotate(4deg) translateY(3px); }
+  100%{ transform: rotate(-3deg) translateY(-1px); }
 }
-@keyframes snakeWiggle{
-  from{ transform: translateY(-1px) rotate(-2deg); }
-  to  { transform: translateY( 1px) rotate( 2deg); }
+@keyframes slither2 {
+  0%{ transform: rotate(2deg) translateX(0px); }
+  50%{ transform: rotate(-6deg) translateX(-3px); }
+  100%{ transform: rotate(3deg) translateX(2px); }
 }
+@keyframes slither3 {
+  0%{ transform: scale(1) }
+  50%{ transform: scale(1.05) rotate(5deg) }
+  100%{ transform: scale(1) rotate(-3deg) }
+}
+
+#snake.slither1 svg { animation: slither1 .20s infinite alternate; }
+#snake.slither2 svg { animation: slither2 .18s infinite alternate; }
+#snake.slither3 svg { animation: slither3 .22s infinite alternate; }
 
 /* Tekstballon */
-#snakeWrap .bubble{
-  position: absolute;
-  bottom: 58px; left: -8px;
-  max-width: 220px;
-  padding: .55rem .7rem;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: .9rem;
-  line-height: 1.25;
-  box-shadow: 0 8px 22px rgba(0,0,0,.18);
-  opacity: 0;
-  transform: translateY(6px);
-  pointer-events: none;
-  transition: opacity .18s ease, transform .18s ease;
-  border: 1px solid rgba(0,0,0,.08);
+#snakeBubble{
+  position:absolute;
+  bottom:60px;
+  left:-20px;
+  background:white;
+  border-radius:10px;
+  padding:.45rem .7rem;
+  font-size:.85rem;
+  border:1px solid rgba(0,0,0,.15);
+  box-shadow:0 8px 20px rgba(0,0,0,.25);
+  white-space:normal;
+  width:160px;
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(8px);
+  transition:opacity .2s, transform .2s;
 }
-#snakeWrap .bubble:after{
+#snakeBubble.show{
+  opacity:1;
+  transform:translateY(0);
+}
+#snakeBubble:after{
   content:"";
   position:absolute;
-  bottom:-8px; left:18px;
-  border-width:8px 8px 0 8px;
+  bottom:-10px;
+  left:24px;
+  border-width:10px 8px 0 8px;
+  border-color:white transparent transparent transparent;
   border-style:solid;
-  border-color:#ffffff transparent transparent transparent;
-  filter: drop-shadow(0 -1px 0 rgba(0,0,0,.08));
 }
-#snakeWrap .bubble.show{
-  opacity:1;
-  transform: translateY(0);
-}
-
-
 
 </style></head><body>
 {{ bg|safe }}
@@ -1437,63 +1448,64 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 </script>
 
-<!-- Mini snake mascot -->
-<div id="snake-mascot" aria-label="slangetje" title="klik op mij!">
-  <!-- eenvoudige vector-slang (SVG) -->
-  <svg viewBox="0 0 64 64" role="img" aria-hidden="true">
-    <!-- lichaam -->
-    <path d="M10 46
-             C 22 50, 28 42, 32 36
-             C 36 30, 40 26, 46 26
-             C 53 26, 54 18, 47 16
-             C 41 14, 36 18, 35 22
-             C 33 28, 28 34, 22 38
-             C 16 42, 12 43, 8 42" 
-          fill="none"
-          stroke="#2da67a"
-          stroke-width="6"
-          stroke-linecap="round"
-          stroke-linejoin="round"/>
-    <!-- kop -->
-    <circle cx="48" cy="18" r="9" fill="#35c78f" />
-    <!-- oogjes -->
-    <circle cx="45.2" cy="16.5" r="1.4" fill="#102a43"/>
-    <circle cx="50.8" cy="16.5" r="1.4" fill="#102a43"/>
-    <!-- tong -->
-    <path d="M56 19 l6 2 -6 2" stroke="#e94b4b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
+<!-- Nieuwe mini slang -->
+<div id="snake">
+<svg viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- lijf -->
+  <path d="M10,60 C40,30 60,90 90,60 C115,35 140,60 140,60"
+        fill="none" stroke="#000" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- kop -->
+  <circle cx="148" cy="60" r="12" fill="#000"/>
+  <!-- oog -->
+  <circle cx="152" cy="56" r="2.6" fill="#fff"/>
+  <!-- tong -->
+  <path d="M156 64 l10 1 -10 3" stroke="#000" stroke-width="2"
+        stroke-linecap="round" fill="none"/>
+</svg>
+  <div id="snakeBubble">laat mij met rust, ik ben maar een lief slangetje xxx</div>
 </div>
 
-<!-- Tekstballon -->
-<div id="snake-bubble" role="status" aria-live="polite">
-  laat mij met rust, ik ben maar een lief slangetje xxx
-</div>
+<script>
+(function(){
+  const snake  = document.getElementById("snake");
+  const bubble = document.getElementById("snakeBubble");
+  let clicks = 0;
 
-<!-- Klein zwart slangetje (SVG) -->
-<div id="snakeWrap" aria-label="Klik-slangetje">
-  <svg viewBox="0 0 140 90" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
-    <!-- Schaduw voor leesbaarheid op lichte/donkere achtergronden -->
-    <g opacity=".16" transform="translate(2,2)">
-      <path d="M10,70 C30,60 45,80 60,70 C75,60 95,60 110,70"
-            fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="118" cy="68" r="11" fill="#000"/>
-    </g>
+  const slithers = ["slither1","slither2","slither3"];
 
-    <!-- Zwarte slang -->
-    <g class="slither">
-      <!-- lijf -->
-      <path d="M10,70 C30,60 45,80 60,70 C75,60 95,60 110,70"
-            fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-      <!-- kop -->
-      <circle cx="118" cy="68" r="11" fill="#000"/>
-      <!-- oogje (wit) -->
-      <circle cx="121" cy="65" r="2.2" fill="#fff"/>
-      <!-- mini tong (heel subtiel) -->
-      <path d="M129 70 l8 2 -8 2" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
-    </g>
-  </svg>
-  <div class="bubble" id="snakeBubble">laat mij met rust, ik ben maar een lief slangetje xxx</div>
-</div>
+  function randomSlither(){
+    // eerst alles verwijderen
+    slithers.forEach(c => snake.classList.remove(c));
+    // dan 1 willekeurige animatie toevoegen
+    snake.classList.add(slithers[Math.floor(Math.random()*slithers.length)]);
+  }
+
+  function randomMove(){
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const x = Math.random() * (vw - 140);
+    const y = Math.random() * (vh - 140);
+    snake.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  function talk(){
+    bubble.classList.add("show");
+    setTimeout(() => bubble.classList.remove("show"), 2500);
+  }
+
+  snake.addEventListener("click", () => {
+    clicks++;
+    randomSlither();
+    randomMove();
+    if(clicks >= 3){
+      talk();
+      clicks = 0;
+    }
+  });
+})();
+</script>
+
 
 <script>
 (function(){
