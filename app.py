@@ -1110,6 +1110,46 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   }
 }
 
+/* --- Mooie afgeronde rijen voor bestandslijst --- */
+.table tbody tr {
+  background: color-mix(in oklab, var(--surface-2) 88%, black 12%);
+  border: 1px solid color-mix(in oklab, var(--line) 70%, black 10%);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.table tbody td {
+  padding: .75rem .9rem;
+  border-bottom: none !important;
+}
+
+/* Ruimte tussen de rijen */
+.table tbody tr + tr {
+  margin-top: .55rem;
+}
+
+/* Scheiding header ↔ rijen */
+.table {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+/* Download-knop beter in stijl */
+.table .btn.mini {
+  padding: .45rem .7rem;
+  font-size: .85rem;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
+  white-space: nowrap;
+}
+
+/* Subtiele hover animatie */
+.table tbody tr:hover {
+  background: color-mix(in oklab, var(--surface-2) 82%, black 18%);
+  transform: translateY(-1px);
+  transition: background .18s ease, transform .18s ease;
+}
+
 
 </style></head><body>
 {{ bg|safe }}
