@@ -907,6 +907,51 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 /* Zorg dat CTA nooit onder de kaart schuift */
 .cta{margin-top:1.2rem; position:relative; z-index:2}
+
+
+/* ============================================
+   Compacte downloadknoppen in de tabel
+   ============================================ */
+.table .btn.mini {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:.42rem .72rem !important;
+  font-size:.82rem !important;
+  line-height:1 !important;
+  font-weight:600 !important;
+  border-radius:10px !important;
+  white-space:nowrap;
+
+  /* Nieuwe stijl (licht + zacht) */
+  background: color-mix(in oklab, var(--brand) 70%, white 30%);
+  color:#fff;
+  border:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.12);
+
+  transition:filter .15s, transform .12s, background .2s;
+}
+
+.table .btn.mini:hover {
+  filter:brightness(1.06);
+}
+.table .btn.mini:active {
+  transform:translateY(1px);
+}
+
+/* Geschikt voor dark mode */
+@media (prefers-color-scheme: dark){
+  .table .btn.mini {
+    background: color-mix(in oklab, var(--brand) 85%, black 15%);
+    box-shadow:0 2px 7px rgba(0,0,0,.4);
+  }
+}
+
+/* tabeluitlijnen subtiel verbeteren */
+.table td[data-label="Grootte"]{
+  padding-right:.4rem;
+}
+
 </style></head><body>
 {{ bg|safe }}
 
