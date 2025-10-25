@@ -487,46 +487,50 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
+
+/* ====== Topbar & layout fixes ====== */
 .topbar{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1rem;
+  margin-bottom:1rem;
 }
+.topbar .title{ flex:1; }
+h1{ margin:.25rem 0 1rem; color:var(--brand); font-size:2.1rem; }
 
-/* titel blok links moet niet over het midden heen zweven */
-.topbar .title{
-  flex: 1;
-}
-
-/* login tekst rechts moet compact blijven */
 .logout{
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: .15rem;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:.2rem;
+  line-height:1.15;
 }
-
+/* Dynamische per-letter leesbaarheid op elke achtergrond */
 .login-status{
-  font-weight: 700;
-  mix-blend-mode: difference; /* ✨ dynamisch leesbaar */
-  color: #fff;
+  font-weight:700;
+  color:#fff;                    /* basis – blend past dit aan */
+  mix-blend-mode:difference;     /* ✨ per letter dynamisch contrast */
+  letter-spacing:.2px;
 }
 
+/* overige bestaande stijlen */
+.logout a{ color:var(--brand); text-decoration:none; font-weight:700 }
+.toggle{ display:flex; gap:.75rem; align-items:center; margin:.4rem 0 1rem }
+.nav a{ color:var(--brand); text-decoration:none; font-weight:700 }
 </style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
-<div class="topbar">
-  <div class="title">
-    <h1>Bestanden delen met Olde Hanter</h1>
+  <div class="topbar">
+    <div class="title">
+      <h1>Bestanden delen met Olde Hanter</h1>
+    </div>
+    <div class="logout">
+      <span class="login-status">Ingelogd als {{ user }}</span>
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
+    </div>
   </div>
-  <div class="logout">
-    <span class="login-status">Ingelogd als {{ user }}</span>
-    <a href="{{ url_for('logout') }}">Uitloggen</a>
-  </div>
-</div>
-
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
@@ -589,10 +593,10 @@ function sanitizePath(p){
     const base = dot>=0 ? n.slice(0,dot) : n;
     const ext  = dot>=0 ? n.slice(dot) : '';
     let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,''); // diacritics weg
-    s = s.replace(/[^\w.\-]+/g, '_');   // vervang + [ ] spaties etc.
+    s = s.replace(/[^\w.\\-]+/g, '_');   // vervang + [ ] spaties etc.
     s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,''); // opschonen
     if (s.length > 160) s = s.slice(0,160);          // korter maken
-    return (s || 'file') + ext.replace(/[^.\w-]/g,'');
+    return (s || 'file') + ext.replace(/[^.\\w-]/g,'');
   });
   return parts.join('/');
 }
@@ -671,7 +675,7 @@ function sanitizePath(p){
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : null);
+          resolve(etag ? etag.replaceAll('\\"','') : null);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -681,32 +685,21 @@ function sanitizePath(p){
       xhr.send(blob);
     });
   }
-  async function singleInit(token, filename, type){
-    const r = await fetch("{{ url_for('put_init') }}", {
+  async function singleInit(token, file, relpath, totalTracker){
+    const init = await fetch("{{ url_for('put_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j;
-  }
-  async function singleComplete(token, key, name, path){
-    const r = await fetch("{{ url_for('put_complete') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
-    return j;
-  }
-  async function uploadSingle(token, file, relpath, totalTracker){
-    const init = await singleInit(token, file.name, file.type);
+      body: JSON.stringify({ token, filename: file.name, contentType: file.type || "application/octet-stream" })
+    }).then(r=>r.json());
+    if(!init.ok) throw new Error(init.error || "Init (PUT) mislukt");
     await putWithProgress(init.url, file, (loaded)=>{
       const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
       const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
       setProgress(pctTotal);
     }, 'PUT object');
-    await singleComplete(token, init.key, file.name, relpath);
+    await fetch("{{ url_for('put_complete') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key: init.key, name: file.name, path: relpath })
+    }).then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error || "Afronden (PUT) mislukt"); });
     totalTracker.currentBase += file.size;
   }
 
@@ -738,8 +731,8 @@ function sanitizePath(p){
     return j;
   }
   async function uploadMultipart(token, file, relpath, totalTracker){
-const CHUNK = 24 * 1024 * 1024;  // 24 MiB
-const CONCURRENCY = 6;           // 6 parallelle parts
+    const CHUNK = 24 * 1024 * 1024;  // 24 MiB
+    const CONCURRENCY = 6;           // 6 parallelle parts
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -824,7 +817,7 @@ let expiryDays = edSel.value;
       for(const f of files){
         const rel = sanitizePath(relPath(f));
         if(f.size < 5 * 1024 * 1024){
-          await uploadSingle(token, f, rel, tracker);
+          await singleInit(token, f, rel, tracker);
         }else{
           await uploadMultipart(token, f, rel, tracker);
         }
@@ -839,7 +832,7 @@ let expiryDays = edSel.value;
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
+            <input id="shareLinkInput" class="input" style="flex:1" value="\${link}" readonly>
             <button class="btn" type="button" id="copyBtn">Kopieer</button>
             <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
           </div>
@@ -864,6 +857,7 @@ let expiryDays = edSel.value;
 </script>
 </body></html>
 """
+
 
 PACKAGE_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
