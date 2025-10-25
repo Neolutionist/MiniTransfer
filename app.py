@@ -852,20 +852,28 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
       <div><strong>Bestanden:</strong> {{ items|length }}</div>
     </div>
 
-    {% if items|length == 1 %}
-      <button class="btn" id="dlBtn">Download</button>
-    {% else %}
-<a
-  class="btn"
-  id="zipAll"
-  href="{{ url_for('stream_zip', token=token) }}"
-  download
-  rel="noopener"
->
-  Alles downloaden (zip)
-</a>
+{% if items|length == 1 %}
+  <a
+    class="btn"
+    id="dlSingle"
+    href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
+    download="{{ items[0]['name'] }}"
+    rel="noopener"
+  >
+    Download
+  </a>
+{% else %}
+  <a
+    class="btn"
+    id="zipAll"
+    href="{{ url_for('stream_zip', token=token) }}"
+    download
+    rel="noopener"
+  >
+    Alles downloaden (zip)
+  </a>
+{% endif %}
 
-    {% endif %}
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
 
