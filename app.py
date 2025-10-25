@@ -528,41 +528,18 @@ label{color:var(--text)}
 /* Buttons */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 
-/* ===== Contrastfix voor topbar-login info ===== */
+/* zachter glas-effect achter login chip */
 .topbar .logout{
-  display:inline-flex;
-  gap:.35rem;
-  align-items:center;
-  font-size:.95rem;
-  font-weight:600;
-  color:var(--text) !important;
-
-  /* “pill” met adaptieve glaslaag voor leesbaarheid op elke achtergrond */
-  padding:.35rem .6rem;
-  border-radius:999px;
-  background: color-mix(in oklab, var(--surface) 92%, white 8%);
-  border:1px solid var(--panel-b);
-  backdrop-filter: blur(6px) saturate(1.08);
-  box-shadow: 0 1px 8px rgba(0,0,0,.10);
+  background: color-mix(in oklab, var(--surface) 75%, rgba(0,0,0,0) 25%);
+  border: 1px solid color-mix(in oklab, var(--line) 80%, transparent 20%);
+  box-shadow: 0 2px 16px rgba(0,0,0,.12);
 }
-
-.topbar .logout a{
-  color: var(--brand) !important;
-  font-weight:700;
-  text-decoration:none;
-  opacity:.95;
-  transition: opacity .15s, text-decoration .15s, color .15s;
-}
-.topbar .logout a:hover{ text-decoration:underline; opacity:1; }
-
-/* Dark mode varianten */
-@media (prefers-color-scheme: dark){
+@media(prefers-color-scheme: dark){
   .topbar .logout{
-    background: color-mix(in oklab, var(--surface) 88%, black 12%);
-    border-color: rgba(255,255,255,.14);
-    box-shadow: 0 2px 12px rgba(0,0,0,.45);
+    background: color-mix(in oklab, var(--surface) 65%, transparent 35%);
+    border-color: rgba(255,255,255,.12);
+    box-shadow: 0 2px 16px rgba(0,0,0,.42);
   }
-  .topbar .logout a{ color: var(--brand-2) !important; }
 }
 
 /* ================== File input strak uitgelijnd ================== */
