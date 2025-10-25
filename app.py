@@ -688,6 +688,42 @@ document.querySelectorAll('input[name="upmode"]').forEach(r=>r.addEventListener(
 applyMode(false);
 
 // ===== State =====
+
+// ===== reset helper =====
+function resetUploadUI(){
+  // lijst + resultaat leeg
+  fileList.innerHTML = '';
+  fileList.style.display = 'none';
+  resBox.innerHTML = '';
+  // progress terug naar begin
+  setTotal(0, 'Nog niet gestart');
+  totalSpeed.textContent = '–';
+  totalEta.textContent = '–';
+  // state terugzetten
+  state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
+}
+
+async function runUpload(){
+  resetUploadUI();  // <<< voeg deze regel toe
+  const filesRaw = currentFiles();
+  if(!filesRaw.length){
+    alert("Kies eerst bestand(en) of map");
+    try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){}
+    return;
+  }
+  // ... rest ongewijzigd
+}
+
+function maybeResetOnNewSelection(){
+  // alleen resetten als we niet aan het uploaden zijn
+  if (btnPause.disabled) resetUploadUI();
+}
+fileInput.addEventListener('change', maybeResetOnNewSelection);
+folderInput.addEventListener('change', maybeResetOnNewSelection);
+document.querySelectorAll('input[name="upmode"]').forEach(r=>{
+  r.addEventListener('change', maybeResetOnNewSelection);
+});
+
 let state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
 
 // ===== UI helpers =====
