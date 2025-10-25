@@ -305,15 +305,29 @@ input[type=file]::file-selector-button{
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
 
-/* Progress */
+/* --- Progress bar: robuuster tekenen en duidelijker --- */
 .progress{
-  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
-  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
+  height: 12px;                           /* iets hoger voor zichtbaarheid */
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.75);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;                      /* los van backdrop-filter stacks, belangrijk */
 }
+
 .progress > i{
-  display:block;height:100%;width:0%;
-  background:linear-gradient(90deg,#0f4c98,#1e90ff);
-  transition:width .12s ease; position:relative;
+  display:block;
+  height:100%;
+  width:0%;
+  /* vaste fallback-kleur + gradient samen (sommige GPU’s negeren pure gradient bij animatie) */
+  background-color: #5aa3ff;
+  background-image: linear-gradient(90deg,#5aa3ff,#9fc5ff);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.25),
+    0 0 8px rgba(80,150,255,.45);
+  will-change: width, transform;          /* forceer compositor */
+  transform-origin: left center;
 }
 .progress > i::after{
   content:""; position:absolute; inset:0;
