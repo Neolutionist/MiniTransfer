@@ -485,14 +485,50 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
 .nav a{color:var(--brand);text-decoration:none;font-weight:700}
+.login-badge{
+  position:relative;
+  display:inline-block;
+  padding:.15rem .5rem;            /* compact chipje */
+  border-radius:999px;
+  background:transparent;          /* moet transparant blijven voor blending */
+  isolation:isolate;               /* eigen stacking context, stabielere blending */
+  line-height:1.1;
+}
+.login-badge .ink{
+  color:#fff;                      /* wordt “verschil” t.o.v. bg */
+  font-weight:800;
+  letter-spacing:.2px;
+  mix-blend-mode:difference;       /* 🔥 dynamische, per-letter contrastkleur */
+  -webkit-text-stroke:.35px rgba(0,0,0,.15);  /* dun randje voor extra leesbaarheid */
+  text-shadow:0 0 1px rgba(0,0,0,.25);
+}
+
+/* Fallback als difference niet wordt ondersteund */
+@supports not (mix-blend-mode: difference){
+  .login-badge .ink{
+    color:var(--surface);
+    text-shadow:0 1px 2px rgba(0,0,0,.45);
+  }
+}
+
+/* Optioneel: hoog contrast modus nog wat dikker randje */
+@media (prefers-contrast: more){
+  .login-badge .ink{
+    -webkit-text-stroke:.6px rgba(0,0,0,.35);
+    text-shadow:0 0 0 rgba(0,0,0,0);
+  }
+}
+
 </style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-  </div>
+<div class="logout">
+  <span class="login-badge"><span class="ink">Ingelogd als {{ user }}</span></span>
+  • <a href="{{ url_for('logout') }}">Uitloggen</a>
+</div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
