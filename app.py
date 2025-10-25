@@ -582,52 +582,60 @@ label{color:var(--text)}
 /* Buttons */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 
-/* ================== File input PERFECT uitlijnen ================== */
-:root{ --field-h: 48px; }
-
-/* Zorg dat blok 100% breed is zodat het inline uitlijnt met rechts */
-#fileRow, #folderRow{ width:100%; margin-top:.35rem }
-
-/* Alle standaard velden dezelfde hoogte */
-input.input, select.input, .input,
-input[type=text], input[type=password], input[type=email],
-input[type=number], textarea{
-  height:var(--field-h);
-  padding:0 1rem;
-  line-height:1.2;
+/* ✅ Perfecte uitlijning Choose File (desktop + mobiel) */
+:root{
+  --field-h: 50px; /* hoogte van alle inputs tegelijk */
 }
 
-/* File input – één horizontaal gecentreerd blok */
+/* Alle standaard velden: zelfde hoogte en padding */
+.input,
+input[type=text],
+input[type=password],
+input[type=email],
+input[type=number],
+select,
+textarea{
+  height: var(--field-h);
+  padding: 0 1rem;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+
+/* FILE INPUT – één horizontale lijn: knop + bestandsnaam */
 input[type=file]{
-  display:flex; align-items:center;
-  width:100%; height:var(--field-h);
-  padding:0 .9rem;
-  border-radius:12px; border:1px solid var(--line);
-  background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color:var(--text);
-  text-align:left; justify-content:flex-start;
-  overflow:hidden; white-space:nowrap;
+  height: var(--field-h);
+  width: 100%;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;   /* ✅ verticale centrering */
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color: var(--text);
+  overflow: hidden;      /* ✅ voorkomt dat knopelement eruit steekt */
+  box-sizing: border-box;
 }
 
-/* De knop zelf */
+/* De knop “Choose files” */
 input[type=file]::file-selector-button{
-  height:calc(var(--field-h) - 14px);
-  margin-right:.75rem;
-  padding:.45rem .95rem;
-  font-size:.9rem;
-  background:var(--surface);
-  border:1px solid var(--line);
-  border-radius:10px;
-  cursor:pointer; white-space:nowrap;
+  height: calc(var(--field-h) - 16px);
+  padding: 0 .9rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  margin-right: .75rem;
+  display: inline-flex;
+  align-items: center;
 }
-input[type=file]::file-selector-button:hover{ filter:brightness(1.07) }
-input[type=file]::file-selector-button:active{ transform:translateY(1px) }
 
-/* Dark variant */
+/* Donkere modus */
 @media (prefers-color-scheme: dark){
-  input[type=file]{ background:color-mix(in oklab, var(--surface-2) 92%, black 8%); border-color:#374151 }
-  input[type=file]::file-selector-button{ background:var(--surface); border-color:#374151 }
+  input[type=file]{ background: color-mix(in oklab, var(--surface-2) 92%, black 8%); border-color:#374151; }
+  input[type=file]::file-selector-button{ background:var(--surface); border-color:#374151; }
 }
+
 
 /* Mobiel polish */
 @media (max-width:460px){
@@ -1109,7 +1117,13 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 /* Geen ‘spook’ scrollbars – alles netjes binnen het viewport */
 .wrap{ max-width:980px; margin:6vh auto; padding:0 1rem }
-.card{ position:relative; z-index:1 }
+
+.card{
+  position:relative;
+  z-index:1;
+  margin-bottom:1.2rem; /* ruimte onder de kaart → CTA schuift eronder */
+}
+
 
 /* Donkere modus */
 @media (prefers-color-scheme: dark){
