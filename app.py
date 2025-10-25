@@ -502,6 +502,7 @@ h1{
 .topbar{
   display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem
 }
+
 .topbar .logout{
   background:
     linear-gradient(
@@ -537,6 +538,7 @@ h1{
   }
   .topbar .logout a{ color:var(--brand-2)!important }
 }
+
 
 /* Grid helpers */
 .grid{display:grid;gap:1rem}
@@ -581,6 +583,25 @@ label{color:var(--text)}
 
 /* Buttons */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
+
+/* ===== Download-knop animatie ===== */
+.btn{
+  position: relative;
+  transform: translateY(0);
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+}
+.btn:hover{
+  transform: translateY(-2px);
+  filter: brightness(1.04);
+  box-shadow: 0 10px 24px rgba(0,0,0,.22);
+}
+.btn:active{
+  transform: translateY(0);
+  filter: brightness(0.98);
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+}
+
 
 /* ✅ Perfecte uitlijning Choose File (desktop + mobiel) */
 :root{
@@ -653,7 +674,8 @@ input[type=file]::file-selector-button{
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+<div class="logout">Ingelogd als <span class="mail">{{ user }}</span> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+
   </div>
 
   <div class="card">
@@ -941,22 +963,6 @@ form.addEventListener('submit', async (e)=>{
 });
 </script>
 
-<!-- Slang -->
-<div id="snakeWrap" aria-label="speels slangetje">
-  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
-    <g id="snakeGroup">
-      <path id="spine" d="" fill="none" stroke="none"></path>
-      <path id="body"  d="" fill="none"></path>
-      <g id="head">
-        <circle cx="0" cy="0" r="12"></circle>
-        <circle cx="4" cy="-4" r="2.6" fill="#fff"></circle>
-        <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"></path>
-      </g>
-    </g>
-  </svg>
-  <div id="snakeBubble">…</div>
-</div>
-
 <script>
 (() => {
   const QUOTES = [
@@ -1101,6 +1107,24 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
+
+/* ===== Download-knop animatie ===== */
+.btn{
+  position: relative;
+  transform: translateY(0);
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+}
+.btn:hover{
+  transform: translateY(-2px);
+  filter: brightness(1.04);
+  box-shadow: 0 10px 24px rgba(0,0,0,.22);
+}
+.btn:active{
+  transform: translateY(0);
+  filter: brightness(0.98);
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+}
 
 .table{width:100%;border-collapse:separate;border-spacing:0 6px}
 .table thead th{font-weight:700;color:var(--text);opacity:.9;padding:.4rem .7rem}
