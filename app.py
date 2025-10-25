@@ -663,18 +663,23 @@ function setTotal(pct,label){const p=Math.max(0,Math.min(100,pct||0)); totalBar.
 function setSpeedAndEta(uploaded,total,startedAt){const dt=(performance.now()-startedAt)/1000; const speed=dt>0?uploaded/dt:0; const remain=Math.max(0,total-uploaded); const eta=speed>0?remain/speed:0; totalSpeed.textContent=speed?fmtBytes(speed)+'/s':'–'; totalEta.textContent=speed?(eta>3600?(eta/3600).toFixed(1)+' u':(eta/60).toFixed(1)+' min'):'–';}
 function addFileRow(file, path){
   fileList.style.display='';
-  const card=document.createElement('div');
-  card.className='filecard';
-  card.innerHTML=`
-    <div class="name" title="\${path}">\${path}</div>
+  const card = document.createElement('div');
+  card.className = 'filecard';
+  card.innerHTML = `
+    <div class="name" title="${path}">${path}</div>
     <div class="act"><span class="badge warn" data-role="badge">Wacht…</span></div>
-    <div class="meta">\${fmtBytes(file.size)} • \${file.type||'octet-stream'}</div><div></div>
+    <div class="meta">${fmtBytes(file.size)} • ${file.type || 'octet-stream'}</div><div></div>
     <div class="progress"><i style="width:0%"></i></div>
-    <div class="smallmuted" data-role="label">Nog niet gestart</div>`;
+    <div class="smallmuted" data-role="label">Nog niet gestart</div>
+  `;
   fileList.appendChild(card);
-  return { el:card, fill:card.querySelector('.progress i'), badge:card.querySelector('[data-role=badge]'), label:card.querySelector('[data-role=label]') };
+  return {
+    el: card,
+    fill: card.querySelector('.progress i'),
+    badge: card.querySelector('[data-role=badge]'),
+    label: card.querySelector('[data-role=label]')
+  };
 }
-
 // ===== server calls =====
 async function packageInit(expiryDays,password,title){
   const r = await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password:password||"",title:title||""})});
