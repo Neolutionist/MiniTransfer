@@ -481,202 +481,198 @@ INDEX_HTML = """
 
 
 <style>
-/* ---- basis uit je template ---- */
-{{ base_css }}
+  /* ---- basis uit je template ---- */
+  {{ base_css }}
 
-/* =========================================================
-   UPLOADPAGINA – UI polish + mobile typografie + file input
-   ========================================================= */
+  /* =========================================================
+     UPLOADPAGINA – compacte, consistente UI + nette filepicker
+     ========================================================= */
 
-/* Kleuren voor badges */
-:root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; }
+  /* Kleuren voor badges */
+  :root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; --field-h:50px; }
 
-/* Titel kleiner op mobiel, groot maar niet overdreven op desktop */
-h1{
-  margin:.25rem 0 1rem;
-  color:var(--brand);
-  font-size:clamp(1.6rem, 2.5vw + 1.2rem, 2.1rem);
-}
+  /* Titel */
+  h1{
+    margin:.25rem 0 1rem;
+    color:var(--brand);
+    font-size:clamp(1.6rem, 2.5vw + 1.2rem, 2.1rem);
+  }
 
-/* Topbar */
-.topbar{
-  display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem
-}
-
-.topbar .logout{
-  background:
-    linear-gradient(
-      to right,
-      color-mix(in oklab, var(--surface) 70%, transparent 30%),
-      color-mix(in oklab, var(--surface) 55%, transparent 45%)
-    );
-  backdrop-filter: blur(10px) saturate(1.2);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
-  border:1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
-  border-radius:999px;
-  box-shadow:0 4px 18px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.06);
-  padding:.38rem .75rem;
-  display:inline-flex;gap:.35rem;align-items:center;
-  color:var(--text)!important;
-  max-width:100%;
-}
-.topbar .logout a{
-  color:var(--brand)!important;font-weight:700;text-decoration:none;opacity:.95
-}
-.topbar .logout a:hover{ text-decoration:underline; opacity:1 }
-
-@media (prefers-color-scheme: dark){
+  /* Topbar (rechts: ingelogd + uitloggen) */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;
+  }
   .topbar .logout{
     background:
       linear-gradient(
         to right,
-        color-mix(in oklab, var(--surface) 50%, transparent 50%),
-        color-mix(in oklab, var(--surface) 35%, transparent 65%)
+        color-mix(in oklab, var(--surface) 70%, transparent 30%),
+        color-mix(in oklab, var(--surface) 55%, transparent 45%)
       );
-    border-color:rgba(255,255,255,.10);
-    box-shadow:0 4px 18px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.05);
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    border:1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
+    border-radius:999px;
+    box-shadow:0 4px 18px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.06);
+    padding:.38rem .75rem;
+    display:inline-flex;gap:.35rem;align-items:center;
+    color:var(--text)!important;
+    max-width:100%;
   }
-  .topbar .logout a{ color:var(--brand-2)!important }
-}
-
-
-/* Grid helpers */
-.grid{display:grid;gap:1rem}
-.cols-2{grid-template-columns:1fr 1fr}
-@media (max-width:760px){ .cols-2{grid-template-columns:1fr} }
-
-/* Labels en subtitels */
-.card{color:var(--text)}
-label{color:var(--text)}
-.smallmuted{color:var(--muted)}
-
-/* Toggle (bestanden/map) */
-.toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
-.toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
-.toggle input{accent-color:var(--brand)}
-
-/* File list cards */
-.filelist{margin-top:.8rem}
-.filecard{
-  display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
-  padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
-  background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
-}
-.filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.filecard .meta{color:var(--muted);font-size:.9rem}
-.filecard .act{display:flex;gap:.4rem}
-.badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
-.badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
-.badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
-.badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
-.row{display:flex;align-items:center;gap:.6rem}
-
-/* Progress */
-.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
-.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
-
-/* Total box */
-.totalbox{margin-top:1rem}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
-.kv strong{font-weight:700;color:var(--text)}
-.kv span{color:var(--muted)}
-
-/* Buttons */
-.btn.icon{display:inline-flex;align-items:center;gap:.4rem}
-
-/* ===== Download-knop animatie ===== */
-.btn{
-  position: relative;
-  transform: translateY(0);
-  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
-  box-shadow: 0 6px 16px rgba(0,0,0,.18);
-}
-.btn:hover{
-  transform: translateY(-2px);
-  filter: brightness(1.04);
-  box-shadow: 0 10px 24px rgba(0,0,0,.22);
-}
-.btn:active{
-  transform: translateY(0);
-  filter: brightness(0.98);
-  box-shadow: 0 6px 16px rgba(0,0,0,.18);
-}
-
-
-/* ✅ Perfecte uitlijning Choose File (desktop + mobiel) */
-:root{
-  --field-h: 50px; /* hoogte van alle inputs tegelijk */
-}
-
-/* Alle standaard velden: zelfde hoogte en padding */
-.input,
-input[type=text],
-input[type=password],
-input[type=email],
-input[type=number],
-select,
-textarea{
-  height: var(--field-h);
-  padding: 0 1rem;
-  line-height: 1.2;
-  box-sizing: border-box;
-}
-
-/* ✅ Perfect verticaal gecentreerde Choose-file knop (Chrome/Edge/Firefox/Safari) */
-
-input[type=file] {
-  width: 100%;
-  height: var(--field-h);
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color: var(--text);
-  padding: 0 0.4rem;
-
-  /* CRUCIAAL → zorgt dat inhoud van het input-element gecentreerd blijft */
-  display: flex;
-  align-items: center;
-}
-
-/* De button zelf */
-input[type=file]::file-selector-button {
-  height: calc(var(--field-h) - 12px);
-  display: flex;               /* ✅ zorgt voor middel-uitlijning van tekst */
-  align-items: center;         /* ✅ */
-  justify-content: center;     /* ✅ */
-  
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-
-  padding: 0 1rem;
-  margin-right: .75rem;
-  line-height: 1;              /* ✅ extra fix */
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark){
-  input[type=file] {
-    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    border-color:#374151;
+  .topbar .logout a{
+    color:var(--brand)!important;font-weight:700;text-decoration:none;opacity:.95
   }
-  input[type=file]::file-selector-button{
-    background:var(--surface);
-    border-color:#374151;
+  .topbar .logout a:hover{ text-decoration:underline; opacity:1 }
+
+  @media (prefers-color-scheme: dark){
+    .topbar .logout{
+      background:
+        linear-gradient(
+          to right,
+          color-mix(in oklab, var(--surface) 50%, transparent 50%),
+          color-mix(in oklab, var(--surface) 35%, transparent 65%)
+        );
+      border-color:rgba(255,255,255,.10);
+      box-shadow:0 4px 18px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+    .topbar .logout a{ color:var(--brand-2)!important }
   }
-}
 
+  /* Grid helpers */
+  .grid{display:grid;gap:1rem}
+  .cols-2{grid-template-columns:1fr 1fr}
+  @media (max-width:760px){ .cols-2{grid-template-columns:1fr} }
 
-/* Mobiel polish */
-@media (max-width:460px){
-  .topbar{ align-items:flex-start }
-  .topbar .logout{ font-size:.95rem }
-  input[type=file]::file-selector-button{ padding:.35rem .7rem; font-size:.8rem }
-}
+  /* Labels en subtitels */
+  .card{color:var(--text)}
+  label{color:var(--text)}
+  .smallmuted{color:var(--muted)}
+
+  /* Toggle (bestanden/map) */
+  .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
+  .toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
+  .toggle input{accent-color:var(--brand)}
+
+  /* Invoervelden – uniforme hoogte */
+  .input,
+  input[type=text],
+  input[type=password],
+  input[type=email],
+  input[type=number],
+  select,
+  textarea{
+    height: var(--field-h);
+    padding: 0 1rem;
+    line-height: 1.2;
+    box-sizing: border-box;
+  }
+
+  /* ===== Mooie FILEPICKER (knop + bestandsnamen) ===== */
+  .filepicker{ margin-bottom:.6rem; }
+  .filepicker__control{
+    position: relative;
+    height: var(--field-h);
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: .75rem;
+    padding: 0 .75rem 0 .6rem; /* ruimte voor knop + tekst */
+    overflow: hidden;
+  }
+  /* onzichtbare native input bovenop – klikt overal */
+  .filepicker__control > input[type=file]{
+    position:absolute; inset:0; opacity:0; cursor:pointer;
+  }
+  /* knopje links */
+  .btn.ghost{
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--line);
+    box-shadow: none;
+    padding: .55rem .9rem;
+    border-radius: 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  /* bestandsnamen rechts */
+  .filepicker__name{
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Dark mode filepicker */
+  @media (prefers-color-scheme: dark){
+    .filepicker__control{
+      background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+      border-color:#374151;
+    }
+    .btn.ghost{ background: var(--surface); border-color:#374151; }
+  }
+
+  /* File list (na selectie) */
+  .filelist{margin-top:.8rem}
+  .filecard{
+    display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
+    padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
+    background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
+  }
+  .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filecard .meta{color:var(--muted);font-size:.9rem}
+  .filecard .act{display:flex;gap:.4rem}
+  .badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
+  .badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
+  .badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
+  .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
+  .row{display:flex;align-items:center;gap:.6rem}
+
+  /* Progress */
+  .progress{
+    height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4
+  }
+  .progress > i{
+    display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,#0f4c98,#1e90ff);
+    transition:width .12s ease
+  }
+
+  /* Total box */
+  .totalbox{margin-top:1rem}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
+  .kv strong{font-weight:700;color:var(--text)}
+  .kv span{color:var(--muted)}
+
+  /* Buttons */
+  .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
+
+  /* Knoppen-animatie */
+  .btn{
+    position: relative;
+    transform: translateY(0);
+    transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+    box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  }
+  .btn:hover{
+    transform: translateY(-2px);
+    filter: brightness(1.04);
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+  }
+  .btn:active{
+    transform: translateY(0);
+    filter: brightness(0.98);
+    box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  }
+
+  /* Mobiel */
+  @media (max-width:460px){
+    .topbar{ align-items:flex-start }
+    .topbar .logout{ font-size:.95rem }
+    .btn.ghost{ padding:.4rem .7rem; font-size:.9rem }
+  }
 </style>
-
 
 
 </head><body>
@@ -698,15 +694,24 @@ input[type=file]::file-selector-button {
           <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
         </div>
 
-        <div id="fileRow">
-          <label for="fileInput">Kies bestand(en)</label>
-          <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
-        </div>
+<div id="fileRow" class="filepicker">
+  <label for="fileInput">Kies bestand(en)</label>
+  <div class="filepicker__control">
+    <button type="button" class="btn ghost" aria-hidden="true">Kies bestanden</button>
+    <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
+    <input id="fileInput" type="file" multiple>
+  </div>
+</div>
 
-        <div id="folderRow" style="display:none">
-          <label for="folderInput">Kies een map</label>
-          <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
-        </div>
+<div id="folderRow" class="filepicker" style="display:none">
+  <label for="folderInput">Kies een map</label>
+  <div class="filepicker__control">
+    <button type="button" class="btn ghost" aria-hidden="true">Kies map</button>
+    <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
+    <input id="folderInput" type="file" multiple webkitdirectory directory>
+  </div>
+</div>
+
 
         <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
       </div>
