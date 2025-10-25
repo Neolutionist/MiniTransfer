@@ -639,60 +639,56 @@ INDEX_HTML = """
   </div>
 
   <div class="card">
-  <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
-  <!-- FULL-WIDTH: Onderwerp -->
-  <div style="grid-column:1 / -1">
-    <label for="title">Onderwerp (optioneel)</label>
-    <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
-  </div>
-
-  <!-- LINKER KOLOM -->
-  <div>
-    <label>Uploadtype</label>
-    <div class="toggle">
-      <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-      <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
-    </div>
-
-    <div id="fileRow">
-      <label for="fileInput">Kies bestand(en)</label>
-      <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
-    </div>
-
-    <div id="folderRow" style="display:none">
-      <label for="folderInput">Kies een map</label>
-      <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
-    </div>
-
-    <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
-  </div>
-
-  <!-- RECHTER KOLOM -->
-  <div class="grid">
-    <div class="grid cols-2">
+    <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
-        <label for="expDays">Verloopt na</label>
-        <select id="expDays" class="input">
-          <option value="1">1 dag</option>
-          <option value="3">3 dagen</option>
-          <option value="7">7 dagen</option>
-          <option value="30" selected>30 dagen</option>
-          <option value="60">60 dagen</option>
-          <option value="365">1 jaar</option>
-        </select>
-      </div>
-      <div>
-        <label for="pw">Wachtwoord (optioneel)</label>
-        <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-      </div>
-    </div>
+        <label>Uploadtype</label>
+        <div class="toggle">
+          <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+          <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+        </div>
 
-    <div class="row" style="gap:.6rem; flex-wrap:wrap">
-      <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
-    </div>
-  </div>
-</form>
+        <div id="fileRow">
+          <label for="fileInput">Kies bestand(en)</label>
+          <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
+        </div>
 
+        <div id="folderRow" style="display:none">
+          <label for="folderInput">Kies een map</label>
+          <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
+        </div>
+
+        <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="title">Onderwerp (optioneel)</label>
+          <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+        </div>
+        <div class="grid cols-2">
+          <div>
+            <label for="expDays">Verloopt na</label>
+            <select id="expDays" class="input">
+              <option value="1">1 dag</option>
+              <option value="3">3 dagen</option>
+              <option value="7">7 dagen</option>
+              <option value="30" selected>30 dagen</option>
+              <option value="60">60 dagen</option>
+              <option value="365">1 jaar</option>
+            </select>
+          </div>
+          <div>
+            <label for="pw">Wachtwoord (optioneel)</label>
+            <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+          </div>
+        </div>
+
+        <!-- Alleen nog de Uploaden-knop (Pauzeer/Annuleer verwijderd) -->
+        <div class="row" style="gap:.6rem;flex-wrap:wrap">
+          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
+        </div>
+      </div>
+    </form>
 
     <div class="totalbox">
       <div class="row" style="justify-content:space-between">
@@ -1066,6 +1062,265 @@ form.addEventListener('submit', async (e)=>{
 """
 
 
+PACKAGE_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Download – Olde Hanter</title>{{ head_icon|safe }}
+
+<style>
+{{ base_css }}
+
+h1{margin:.2rem 0 1rem;color:var(--brand)}
+.meta{margin:.6rem 0 1rem;color:var(--muted)}
+.meta strong{color:var(--text)}
+.btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
+.btn.secondary{background:#0f4c98}
+.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
+
+/* Tabel-kolom 'Grootte' vast & rechts */
+.table th.col-size,
+.table td.col-size,
+.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px}
+
+/* CTA blok */
+.cta{margin-top:1.2rem; position:relative; z-index:2}
+
+/* Tabelstijl (compact & modern) */
+.table{ width:100%; border-collapse:separate; border-spacing:0 6px; }
+.table thead th{ font-weight:700; color:var(--text); opacity:.9; padding:.4rem .7rem; }
+.table tbody tr{
+  background: color-mix(in oklab, var(--surface-2) 80%, white 20%);
+  box-shadow: 0 1px 0 rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.05);
+  border-radius:12px;
+}
+.table tbody td{ padding:.6rem .7rem; border-bottom:0; }
+.table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 70%, white 30%); }
+.table td[data-label="Pad"]{ max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Download-knoppen in tabel */
+.table .btn.mini{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:.42rem .72rem !important; font-size:.82rem !important; line-height:1 !important; font-weight:600 !important;
+  border-radius:10px !important; white-space:nowrap;
+  background: color-mix(in oklab, var(--brand) 74%, white 26%); color:#fff; border:0; box-shadow:0 2px 6px rgba(0,0,0,.12);
+  transition:filter .15s, transform .12s, background .2s;
+}
+.table .btn.mini:hover{ filter:brightness(1.06); }
+.table .btn.mini:active{ transform:translateY(1px); }
+
+/* Vooruitgangsbalk onder grote Download-knop */
+.progress#bar{ height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.75rem; }
+.progress#bar > i{ display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff); }
+
+/* ========= GEEN SCROLLBAR OP DEZE PAGINA ========= */
+html, body{ height:100%; overflow:hidden; }     /* voorkomt scrollen */
+.wrap{ max-width:980px; margin:4vh auto; padding:0 1rem; } /* iets compacter zodat alles past */
+.card{ position:relative; z-index:1; }          /* boven achtergrond/snake */
+
+/* Dark mode */
+@media (prefers-color-scheme: dark){
+  .table tbody tr{
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 86%, black 14%); }
+}
+
+/* ====== Slang: zichtbaar op downloadpagina ====== */
+#snakeWrap{
+  position:fixed; left:0; top:0;
+  width:150px; height:100px;
+  transform:translate3d(24px, 64vh, 0);  /* start in beeld */
+  z-index:2147483647;                    /* boven alles */
+  will-change:transform;
+  cursor:pointer; user-select:none;
+}
+#snakeWrap svg{ width:100%; height:100%; overflow:visible; }
+
+/* Tekstballon */
+#snakeBubble{
+  position:absolute; bottom:72px; left:-10px;
+  max-width:min(220px, calc(100vw - 40px));
+  background:#fff; color:#111; border:1px solid rgba(0,0,0,.15);
+  padding:.5rem .7rem; border-radius:10px; box-shadow:0 10px 24px rgba(0,0,0,.25);
+  font-size:.85rem; line-height:1.25; opacity:0; transform:translateY(8px);
+  pointer-events:none; transition:opacity .2s, transform .2s;
+}
+#snakeBubble.show{ opacity:1; transform:translateY(0); }
+#snakeBubble:after{ content:""; position:absolute; left:26px; bottom:-10px; border-width:10px 8px 0 8px; border-style:solid; border-color:#fff transparent transparent transparent; }
+
+/* Zichtbaarheid/contrast slang */
+#snakeWrap svg{
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.65)) drop-shadow(0 2px 10px rgba(0,0,0,.35));
+}
+#snakeWrap #body{ stroke:#000; stroke-width:14; }
+#snakeWrap #head > circle:first-child{ fill:#000; }
+</style>
+
+
+</head><body>
+{{ bg|safe }}
+
+<div class="wrap">
+  <div class="card" style="position:relative; z-index:1">
+    <h1>Download</h1>
+    <div class="meta">
+      <div><strong>Onderwerp:</strong> {{ title or token }}</div>
+      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
+      <div><strong>Totaal:</strong> {{ total_human }}</div>
+      <div><strong>Bestanden:</strong> {{ items|length }}</div>
+    </div>
+
+{% if items|length == 1 %}
+  <a
+    class="btn"
+    id="dlSingle"
+    href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
+    download="{{ items[0]['name'] }}"
+    rel="noopener"
+  >
+    Download
+  </a>
+{% else %}
+  <a
+    class="btn"
+    id="zipAll"
+    href="{{ url_for('stream_zip', token=token) }}"
+    download
+    rel="noopener"
+  >
+    Alles downloaden (zip)
+  </a>
+{% endif %}
+
+    <div class="progress" id="bar" style="display:none"><i></i></div>
+    <div class="small" id="txt" style="display:none">Starten…</div>
+
+    {% if items|length > 1 %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Bestand</th>
+          <th>Pad</th>
+          <th class="col-size">Grootte</th>
+          <th style="width:1%"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td data-label="Bestand">{{ it["name"] }}</td>
+          <td class="small" data-label="Pad">{{ it["path"] }}</td>
+          <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
+          <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <div class="cta">
+    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+  </div>
+
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
+<!-- ================= START DOWNLOADPAGE SCRIPT BLOCK ================= -->
+<script>
+  /* ===== Progress download functionaliteit ===== */
+  const bar  = document.getElementById('bar');
+  const fill = bar?.querySelector('i');
+  const txt  = document.getElementById('txt');
+
+  function nativeDownload(url, suggestedName){
+    try{
+      const a = document.createElement('a');
+      a.href = url;
+      if (suggestedName) a.download = suggestedName;
+      a.rel = 'noopener';
+      a.target = '_self';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }catch(_){
+      window.location.href = url;
+    }
+  }
+
+  async function streamToBlob(url, fallbackName){
+    try{
+      if (bar && txt && fill){
+        bar.style.display='block';
+        txt.style.display='block';
+        fill.style.width='0%';
+        txt.textContent='Starten…';
+      }
+      const res = await fetch(url, { credentials: 'same-origin' });
+      if(!res.ok){
+        const xerr = res.headers.get('X-Error') || '';
+        let body=''; try{ body = await res.text(); }catch(e){}
+        alert(`Fout ${res.status}${xerr ? ' – ' + xerr : ''}${body ? '\n\n' + body : ''}`);
+        if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+        return;
+      }
+      const total = parseInt(res.headers.get('Content-Length')||'0',10);
+      const name  = res.headers.get('X-Filename') || fallbackName || 'download';
+
+      if (bar){
+        total ? bar.classList.remove('indet') : bar.classList.add('indet');
+      }
+
+      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+      if (reader){
+        const chunks=[]; let received=0;
+        while(true){
+          const {done,value} = await reader.read();
+          if(done) break;
+          chunks.push(value); received += value.length;
+          if (fill && txt){
+            if (total){
+              const p = Math.round(received/total*100);
+              fill.style.width = p+'%'; txt.textContent = p+'%';
+            }else{
+              txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
+            }
+          }
+        }
+        if (bar){ bar.classList.remove('indet'); }
+        if (fill){ fill.style.width='100%'; }
+        if (txt){ txt.textContent='Klaar'; }
+
+        const blob = new Blob(chunks);
+        const u = URL.createObjectURL(blob);
+        nativeDownload(u, name);
+        URL.revokeObjectURL(u);
+        if (bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
+        return;
+      }
+
+      const blob = await res.blob();
+      const u = URL.createObjectURL(blob);
+      nativeDownload(u, name);
+      URL.revokeObjectURL(u);
+      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+    }catch(err){
+      console.error('Stream fallback naar native:', err);
+      nativeDownload(url, null);
+      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+    }
+  }
+
+  /* Single file download progress */
+  const dlBtn = document.getElementById('dlSingle');
+  if(dlBtn){
+    dlBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
+    });
+  }
+</script>
+
 <!-- Slang (alleen op de downloadpagina) -->
 <div id="snakeWrap" aria-label="speels slangetje" style="position:fixed;z-index:2147483647;width:150px;height:100px;left:0;top:0;transform:translate3d(24px,72vh,0);will-change:transform;cursor:pointer;user-select:none;display:block">
   <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
@@ -1196,10 +1451,7 @@ try{ document.documentElement.style.overflowX = 'hidden'; document.body.style.ov
   }, {passive:true});
 })();
 </script>
-
-
-
-</body></html>
+</html>
 """
 
 CONTACT_HTML = r"""
