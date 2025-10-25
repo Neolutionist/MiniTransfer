@@ -804,24 +804,29 @@ PACKAGE_HTML = """
 <style>
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.4rem 0 1rem;color:#374151}
+/* Meta-informatie: gebruik thema-kleuren zodat het in light én dark goed leesbaar is */
+.meta{margin:.6rem 0 1rem;color:var(--muted)}
+.meta strong{color:var(--text)}
 .btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 
-/* Kolom 'Grootte' nooit laten afbreken (ook in mobile layout) */
+/* Tabel-kolom 'Grootte' blijft op één regel (ook mobiel) */
 .table th.col-size,
 .table td.col-size,
 .table td[data-label="Grootte"]{
   white-space: nowrap;
   text-align: right;
-  min-width: 72px; /* naar smaak aanpassen */
+  min-width: 72px;
 }
+
+/* Zorg dat CTA nooit onder de kaart schuift */
+.cta{margin-top:1.2rem; position:relative; z-index:2}
 </style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
-  <div class="card">
+  <div class="card" style="position:relative; z-index:1">
     <h1>Download</h1>
     <div class="meta">
       <div><strong>Onderwerp:</strong> {{ title or token }}</div>
@@ -840,24 +845,24 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
     {% if items|length > 1 %}
     <table class="table">
-<thead>
-  <tr>
-    <th>Bestand</th>
-    <th>Pad</th>
-    <th class="col-size">Grootte</th>
-    <th style="width:1%"></th>
-  </tr>
-</thead>
-<tbody>
-  {% for it in items %}
-  <tr>
-    <td data-label="Bestand">{{ it["name"] }}</td>
-    <td class="small" data-label="Pad">{{ it["path"] }}</td>
-    <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
-    <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-  </tr>
-  {% endfor %}
-</tbody>
+      <thead>
+        <tr>
+          <th>Bestand</th>
+          <th>Pad</th>
+          <th class="col-size">Grootte</th>
+          <th style="width:1%"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td data-label="Bestand">{{ it["name"] }}</td>
+          <td class="small" data-label="Pad">{{ it["path"] }}</td>
+          <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
+          <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
     {% endif %}
   </div>
@@ -882,7 +887,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     if(!res.ok){
       const xerr = res.headers.get('X-Error') || '';
       let body=''; try{ body = await res.text(); }catch(e){}
-      alert(`Fout ${res.status}${xerr?' – '+xerr:''}${body?'\\n\\n'+body:''}`);
+      alert(\`Fout \${res.status}\${xerr?' – '+xerr:''}\${body?'\\n\\n'+body:''}\`);
       return;
     }
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
