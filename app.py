@@ -1006,6 +1006,55 @@ CONTACT_HTML = r"""
 .section-gap{margin-top:1rem}
 .divider{height:1px;background:#e5e7eb;margin:1.2rem 0}
 @media (max-width:680px){.form-actions{gap:.5rem}}
+
+/* --- CONTRAST FIX FOR CONTACT CARD --- */
+.card {
+  background: rgba(255,255,255,0.12) !important;
+  border: 1px solid rgba(255,255,255,0.25) !important;
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+
+.card, 
+.card h1, 
+label, 
+.input, 
+.footer, 
+.small, 
+.helper, 
+.notice {
+  color: #e8ecf7 !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255,255,255,0.55) !important;
+}
+
+.helper code {
+  background: rgba(255,255,255,0.2) !important;
+  color: #fff !important;
+  padding: .15rem .45rem;
+  border-radius: .4rem;
+}
+
+a {
+  color: #a1d2ff !important;
+  text-decoration: underline;
+}
+
+.divider {
+  background: rgba(255,255,255,0.35) !important;
+}
+
+input.input, select.input {
+  border: 1px solid rgba(255,255,255,0.35) !important;
+  background: rgba(0,0,0,0.3) !important;
+}
+
+.btn {
+  background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
+}
+
 </style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card">
