@@ -1058,6 +1058,58 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   .table thead th{ opacity:.95; }
 }
 
+/* --- Mini Snake mascot --- */
+#snake-mascot{
+  position:fixed;            /* blijft op het scherm */
+  width:56px; height:56px;
+  inset:auto auto 18px 18px; /* start linksonder */
+  z-index:50;                /* boven de kaart, onder modals */
+  cursor:pointer;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,.25));
+  transition: transform .55s cubic-bezier(.18,.9,.24,1.1);
+  will-change: transform;
+  user-select:none;
+}
+#snake-mascot svg{ display:block; width:100%; height:100%; }
+
+#snake-bubble{
+  position:fixed;
+  max-width: 260px;
+  padding:.55rem .7rem;
+  background: color-mix(in oklab, var(--surface) 92%, white 8%);
+  color: var(--text);
+  border:1px solid color-mix(in oklab, var(--line) 90%, black 10%);
+  border-radius:12px;
+  box-shadow:0 10px 26px rgba(0,0,0,.18);
+  font-size:.95rem;
+  line-height:1.25;
+  z-index:51;
+  transform: translateY(8px);
+  opacity:0; pointer-events:none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+#snake-bubble.show{
+  opacity:1; transform: translateY(0);
+}
+#snake-bubble::after{
+  content:"";
+  position:absolute; left:14px; bottom:-8px;
+  border:8px solid transparent;
+  border-top-color: color-mix(in oklab, var(--surface) 92%, white 8%);
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.12));
+}
+/* Dark mode bubble */
+@media (prefers-color-scheme: dark){
+  #snake-bubble{
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    color: var(--text);
+    border-color: color-mix(in oklab, var(--line) 30%, white 10%);
+  }
+  #snake-bubble::after{
+    border-top-color: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+  }
+}
+
 
 </style></head><body>
 {{ bg|safe }}
@@ -1231,8 +1283,97 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   });
 })();
 
+/* --- Snake mascot logic --- */
+(function(){
+  const snake = document.getElementById('snake-mascot');
+  const bubble = document.getElementById('snake-bubble');
+  if(!snake || !bubble) return;
+
+  let clicks = 0;
+  let bubbleTimer = null;
+
+  // verplaats slang naar een willekeurige plek op het scherm
+  function moveSnake(){
+    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
+    const w = snake.offsetWidth || 56;
+    const h = snake.offsetHeight || 56;
+
+    // veilige marges zodat hij niet over knoppen/voettekst valt
+    const margin = 16;
+    const topMin = 80;                 // niet in de titel plakken
+    const topMax = vh - h - margin - 40;
+    const leftMin = margin;
+    const leftMax = vw - w - margin;
+
+    const top = Math.floor(Math.random() * (topMax - topMin + 1)) + topMin;
+    const left = Math.floor(Math.random() * (leftMax - leftMin + 1)) + leftMin;
+
+    // we animeren via translate zodat layout niet triggert
+    snake.style.transform = `translate(${left - 18}px, ${top - (vh - h - 18)}px)`; 
+    // ^ basispositie is left:18px; bottom:18px → we rekenen om naar translate(x,y)
+  }
+
+  function showBubble(){
+    // positioneer de ballon boven het slangetje
+    const rect = snake.getBoundingClientRect();
+    const x = rect.left + 6;
+    const y = rect.top - 8; // net erboven
+
+    bubble.style.left = `${x}px`;
+    bubble.style.top  = `${y - bubble.offsetHeight}px`;
+    bubble.classList.add('show');
+
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(()=> bubble.classList.remove('show'), 2600);
+  }
+
+  snake.addEventListener('click', () => {
+    clicks += 1;
+    moveSnake();
+    if(clicks >= 3){
+      clicks = 0;
+      showBubble();
+    }
+  });
+
+  // initiale subtiele offset (past het translate-systeem aan de start aan)
+  requestAnimationFrame(()=>{ snake.style.transform = 'translate(0,0)'; });
+})();
 
 </script>
+
+<!-- Mini snake mascot -->
+<div id="snake-mascot" aria-label="slangetje" title="klik op mij!">
+  <!-- eenvoudige vector-slang (SVG) -->
+  <svg viewBox="0 0 64 64" role="img" aria-hidden="true">
+    <!-- lichaam -->
+    <path d="M10 46
+             C 22 50, 28 42, 32 36
+             C 36 30, 40 26, 46 26
+             C 53 26, 54 18, 47 16
+             C 41 14, 36 18, 35 22
+             C 33 28, 28 34, 22 38
+             C 16 42, 12 43, 8 42" 
+          fill="none"
+          stroke="#2da67a"
+          stroke-width="6"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+    <!-- kop -->
+    <circle cx="48" cy="18" r="9" fill="#35c78f" />
+    <!-- oogjes -->
+    <circle cx="45.2" cy="16.5" r="1.4" fill="#102a43"/>
+    <circle cx="50.8" cy="16.5" r="1.4" fill="#102a43"/>
+    <!-- tong -->
+    <path d="M56 19 l6 2 -6 2" stroke="#e94b4b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</div>
+
+<!-- Tekstballon -->
+<div id="snake-bubble" role="status" aria-live="polite">
+  laat mij met rust, ik ben maar een lief slangetje xxx
+</div>
 
 </body></html>
 """
