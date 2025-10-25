@@ -887,51 +887,105 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 </div>
 
 <script>
-  const bar = document.getElementById('bar');
+  const bar  = document.getElementById('bar');
   const fill = bar?.querySelector('i');
-  const txt = document.getElementById('txt');
+  const txt  = document.getElementById('txt');
+
+  function triggerDirectDownload(url, suggestedName){
+    // Fallback: native download zonder progress (meest compatibel)
+    const a = document.createElement('a');
+    a.href = url;
+    if (suggestedName) a.download = suggestedName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   async function streamToBlob(url, fallbackName){
-    bar.style.display='block'; txt.style.display='block';
-    fill.style.width='0%'; txt.textContent='Starten…';
-
-    const res = await fetch(url);
-    if(!res.ok){
-      const xerr = res.headers.get('X-Error') || '';
-      let body=''; try{ body = await res.text(); }catch(e){}
-      alert(\`Fout \${res.status}\${xerr?' – '+xerr:''}\${body?'\\n\\n'+body:''}\`);
-      return;
-    }
-    const total = parseInt(res.headers.get('Content-Length')||'0',10);
-    const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
-
-    if (!total){ bar.classList.add('indet'); } else { bar.classList.remove('indet'); }
-
-    const reader = res.body.getReader(); const chunks=[]; let received=0;
-    while(true){
-      const {done,value} = await reader.read();
-      if(done) break;
-      chunks.push(value); received += value.length;
-      if(total){
-        const p=Math.round(received/total*100);
-        fill.style.width=p+'%'; txt.textContent=p+'%';
-      }else{
-        txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
+    try{
+      if (bar && txt && fill){
+        bar.style.display='block';
+        txt.style.display='block';
+        fill.style.width='0%';
+        txt.textContent='Starten…';
       }
+
+      const res = await fetch(url, { credentials: 'same-origin' });
+      if(!res.ok){
+        const xerr = res.headers.get('X-Error') || '';
+        let body=''; try{ body = await res.text(); }catch(e){}
+        alert(`Fout ${res.status}${xerr ? ' – ' + xerr : ''}${body ? '\n\n' + body : ''}`);
+        if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+        return;
+      }
+
+      const total = parseInt(res.headers.get('Content-Length')||'0', 10);
+      const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
+
+      if (bar){
+        if (!total){ bar.classList.add('indet'); }
+        else { bar.classList.remove('indet'); }
+      }
+
+      // ========== 1) streaming met voortgang ==========
+      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+      if (reader){
+        const chunks = [];
+        let received = 0;
+
+        while(true){
+          const {done, value} = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+
+          if (fill && txt){
+            if(total){
+              const p = Math.round(received/total*100);
+              fill.style.width = p+'%';
+              txt.textContent  = p+'%';
+            }else{
+              txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
+            }
+          }
+        }
+
+        if (bar){ bar.classList.remove('indet'); }
+        if (fill){ fill.style.width='100%'; }
+        if (txt){ txt.textContent='Klaar'; }
+
+        const blob = new Blob(chunks);
+        const u = URL.createObjectURL(blob);
+        triggerDirectDownload(u, name);
+        URL.revokeObjectURL(u);
+
+        if (bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
+        return;
+      }
+
+      // ========== 2) fallback: hele blob in één keer ==========
+      const blob = await res.blob();
+      const u = URL.createObjectURL(blob);
+      triggerDirectDownload(u, name);
+      URL.revokeObjectURL(u);
+      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+    }catch(err){
+      // ========== 3) laatste redmiddel: native download zonder fetch ==========
+      console.error('Download fout / stream niet ondersteund:', err);
+      try{
+        triggerDirectDownload(url, null);
+      }catch(e){}
+      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }
-    bar.classList.remove('indet');
-    fill.style.width='100%'; txt.textContent='Klaar';
-
-    const blob = new Blob(chunks);
-    const u = URL.createObjectURL(blob); const a = document.createElement('a');
-    a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
-
-    setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
   }
+
+  // ===== Koppeling met de knoppen =====
+  // (Deze code verwacht dezelfde HTML-IDs als in jouw template.)
 
   {% if items|length == 1 %}
     document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}", "{{ items[0]['name'] }}");
+      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+                   "{{ items[0]['name'] }}");
     });
   {% else %}
     document.getElementById('zipAll')?.addEventListener('click', ()=>{
@@ -939,6 +993,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     });
   {% endif %}
 </script>
+
 </body></html>
 """
 
