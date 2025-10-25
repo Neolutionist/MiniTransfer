@@ -622,39 +622,50 @@ textarea{
   box-sizing: border-box;
 }
 
-/* FILE INPUT – één horizontale lijn: knop + bestandsnaam */
-input[type=file]{
-  height: var(--field-h);
+/* ✅ Perfect verticaal gecentreerde Choose-file knop (Chrome/Edge/Firefox/Safari) */
+
+input[type=file] {
   width: 100%;
-  padding: 0 1rem;
-  display: flex;
-  align-items: center;   /* ✅ verticale centrering */
+  height: var(--field-h);
   border-radius: 12px;
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
   color: var(--text);
-  overflow: hidden;      /* ✅ voorkomt dat knopelement eruit steekt */
-  box-sizing: border-box;
+  padding: 0 0.4rem;
+
+  /* CRUCIAAL → zorgt dat inhoud van het input-element gecentreerd blijft */
+  display: flex;
+  align-items: center;
 }
 
-/* De knop “Choose files” */
-input[type=file]::file-selector-button{
-  height: calc(var(--field-h) - 16px);
-  padding: 0 .9rem;
+/* De button zelf */
+input[type=file]::file-selector-button {
+  height: calc(var(--field-h) - 12px);
+  display: flex;               /* ✅ zorgt voor middel-uitlijning van tekst */
+  align-items: center;         /* ✅ */
+  justify-content: center;     /* ✅ */
+  
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+
+  padding: 0 1rem;
   margin-right: .75rem;
-  display: inline-flex;
-  align-items: center;
+  line-height: 1;              /* ✅ extra fix */
 }
 
-/* Donkere modus */
+/* Dark mode */
 @media (prefers-color-scheme: dark){
-  input[type=file]{ background: color-mix(in oklab, var(--surface-2) 92%, black 8%); border-color:#374151; }
-  input[type=file]::file-selector-button{ background:var(--surface); border-color:#374151; }
+  input[type=file] {
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    border-color:#374151;
+  }
+  input[type=file]::file-selector-button{
+    background:var(--surface);
+    border-color:#374151;
+  }
 }
 
 
@@ -1345,7 +1356,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   }
 </script>
 
-<!-- Slang (alleen op de downloadpagina) -->
+<!-- Slang (downloadpagina) — 60% kleiner + 3D twist movement -->
 <div id="snakeWrap" aria-label="speels slangetje" style="position:fixed;z-index:2147483647;width:150px;height:100px;left:0;top:0;transform:translate3d(24px,72vh,0);will-change:transform;cursor:pointer;user-select:none;display:block">
   <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
     <g id="snakeGroup">
@@ -1363,112 +1374,137 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 <script>
 (function(){
-  // geen horizontale scroll op downloadpagina
-  try{
-    document.documentElement.style.overflowX = 'hidden';
-    document.body.style.overflowX = 'hidden';
-  }catch(_){}
+  document.documentElement.style.overflowX = 'hidden';
+  document.body.style.overflowX = 'hidden';
 
   const wrap = document.getElementById('snakeWrap');
-  const group  = wrap.querySelector('#snakeGroup');
-  const body   = wrap.querySelector('#body');
-  const head   = wrap.querySelector('#head');
+  const group = wrap.querySelector('#snakeGroup');
+  const body = wrap.querySelector('#body');
+  const head = wrap.querySelector('#head');
   const bubble = document.getElementById('snakeBubble');
 
   const QUOTES = [
-    "Ga jij nou es weg joh… ik ben ff bezig.",
-    "Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
-    "Ja doei! Ik ben een slang, geen helpdesk.",
-    "Hee lekker hoor… maar niet aankomen!",
-    "Wil jij een broodje kaas ofzo?",
-    "Ik ben niet gek, ik ben een slang!",
-    "Kom op joh… ik heb ook maar twee handen!",
-    "Ben jij los ofzo?",
-    "Moet dat nou steeds?",
-    "Ja hallo zeg… ik heb weekend!"
+    "Niet aaien! Ik ben aan het werk!",
+    "Ja hallo, ik slinger hier!",
+    "Denk je dat ik voor de lol beweeg?",
+    "Slangen leven ook!",
+    "Ik ben in 3D joh!"
   ];
 
-  const L = 120, N = 22;
-  let amp = 6, freq = 0.13, phase = 0, speed = 140;
-  let lastT = performance.now();
+  /* 📌 Formaat 60% kleiner */
+  wrap.style.width = '90px';
+  wrap.style.height = '60px';
 
-  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const rand =(a,b)=>a+Math.random()*(b-a);
+  const LENGTH = 80;
+  const SEGMENTS = 30;
+  let amp = 4;
+  let wave = 0.14;
+  let twist = 0;
+  let twistSpeed = 2;
+  let phase = 0;
+  let speed = 200;
 
-  function pickSafeTarget(){
-    const m = 18;
+  let last = performance.now();
+  let clicks = 0;
+
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const rnd   = (a,b)=>a+Math.random()*(b-a);
+
+  let pos = safeSpot();
+  let target = safeSpot();
+
+  function safeSpot(){
+    const m=12;
     return {
-      x: rand(m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m)),
-      y: rand(m, Math.max(m, window.innerHeight - wrap.clientHeight - m))
+      x: rnd(m, innerWidth - 90 - m),
+      y: rnd(m, innerHeight - 60 - m)
     };
   }
 
-  let pos = pickSafeTarget(), target = pickSafeTarget();
-  const applyTransform = ()=>{ wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`; };
-  applyTransform();
+  function updatePosition(dt){
+    const dx=target.x-pos.x, dy=target.y-pos.y;
+    const dist=Math.hypot(dx,dy);
+    if(dist<2){
+      target = safeSpot();
+      return;
+    }
+    const mv = Math.min(dist, speed*dt);
+    pos.x += (dx/dist)*mv;
+    pos.y += (dy/dist)*mv;
 
-  function moveTowards(dt){
-    const dx = target.x - pos.x, dy = target.y - pos.y;
-    const dist = Math.hypot(dx,dy); if(dist<1) return;
-    const step = Math.min(dist, speed*dt);
-    pos.x += (dx/dist)*step; pos.y += (dy/dist)*step;
-    const m=18;
-    pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
-    pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
-    applyTransform();
+    const m=12;
+    pos.x = clamp(pos.x,m,innerWidth - 90 - m);
+    pos.y = clamp(pos.y,m,innerHeight - 60 - m);
+    wrap.style.transform = `translate(${pos.x}px,${pos.y}px)`;
   }
 
-  function spine(){
-    const pts=[]; for(let i=0;i<N;i++){ const x=(L/(N-1))*i; const y=amp*Math.sin(freq*x+phase); pts.push([x,y]); }
+  function generateSpine(){
+    const pts=[];
+    for(let i=0;i<SEGMENTS;i++){
+      const x = (LENGTH/(SEGMENTS-1))*i;
+      const y = amp*Math.sin(wave*x + phase);
+      /* z-as voor ‘twist’ → projecteren door lichte amplitudevariatie */
+      const z = amp*0.8*Math.sin(wave*x + phase + twist);
+      pts.push([x,y,z]);
+    }
     return pts;
   }
-  function catmullRom2bezier(points){
-    if(points.length<2) return "";
-    const d=[];
-    for(let i=0;i<points.length-1;i++){
-      const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
-      const cp1x=p1[0]+(p2[0]-p0[0])/6, cp1y=p1[1]+(p2[1]-p0[1])/6;
-      const cp2x=p2[0]-(p3[0]-p1[0])/6, cp2y=p2[1]-(p3[1]-p1[1])/6;
-      if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
-      d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
-    }
-    return d.join(" ");
-  }
-  function orientHead(points){
-    const pLast=points[points.length-1], pPrev=points[points.length-2];
-    const ang=Math.atan2(pLast[1]-pPrev[1], pLast[0]-pPrev[0])*180/Math.PI;
-    head.setAttribute('transform', `translate(${pLast[0]} ${pLast[1]}) rotate(${ang})`);
-  }
-  function rotateGroup(angleRad){ group.setAttribute('transform', `rotate(${angleRad*180/Math.PI})`); }
 
-  let clicks=0;
-  wrap.addEventListener('click', ()=>{
-    clicks++; target = pickSafeTarget();
-    amp = rand(5,8); freq = rand(0.11,0.16);
+  function toPath(pts){
+    let d="";
+    for(let i=0;i<pts.length-1;i++){
+      const p1=pts[i], p2=pts[i+1];
+      const cx = (p1[0]+p2[0])/2;
+      const cy = (p1[1]+p2[1])/2;
+      if(i===0) d+=`M ${p1[0]} ${p1[1]}`;
+      d+=` Q ${cx} ${cy}, ${p2[0]} ${p2[1]}`;
+    }
+    return d;
+  }
+
+  function updateHead(pts){
+    const p1 = pts[pts.length-1];
+    const p0 = pts[pts.length-2];
+    const ang = Math.atan2(p1[1]-p0[1], p1[0]-p0[0]) * 180/Math.PI;
+    head.setAttribute('transform', `translate(${p1[0]} ${p1[1]}) rotate(${ang})`);
+  }
+
+  function animate(t){
+    const dt=(t-last)/1000; last=t;
+    phase += 6*dt;
+    twist += twistSpeed*dt;
+
+    updatePosition(dt);
+
+    const pts = generateSpine();
+    body.setAttribute('d', toPath(pts));
+    updateHead(pts);
+
+    requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+
+  wrap.addEventListener('click',()=>{
+    clicks++;
+    target=safeSpot();
+    amp=rnd(3,6); wave=rnd(0.1,0.2); twistSpeed=rnd(1,4);
     if(clicks>=3){
-      bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
-      bubble.style.opacity = '1'; bubble.style.transform = 'translateY(0)';
-      setTimeout(()=>{ bubble.style.opacity='0'; bubble.style.transform='translateY(8px)'; }, 2400);
-      clicks = 0;
+      bubble.textContent=QUOTES[Math.floor(Math.random()*QUOTES.length)];
+      bubble.style.opacity='1'; bubble.style.transform='translateY(0)';
+      setTimeout(()=>{bubble.style.opacity='0';bubble.style.transform='translateY(8px)';},2200);
+      clicks=0;
     }
-  }, {passive:true});
+  });
 
-  function tick(t){
-    const dt=(t-lastT)/1000; lastT=t; phase += 6.5*dt;
-    const dx=target.x-pos.x, dy=target.y-pos.y; rotateGroup(Math.atan2(dy,dx));
-    const sp = spine(); body.setAttribute('d', catmullRom2bezier(sp)); orientHead(sp);
-    moveTowards(dt); requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-
-  window.addEventListener('resize', ()=>{
-    const m=18;
-    pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
-    pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
-    applyTransform(); target = pickSafeTarget();
-  }, {passive:true});
+  addEventListener('resize', ()=>{
+    pos.x = clamp(pos.x,12,innerWidth - 90 - 12);
+    pos.y = clamp(pos.y,12,innerHeight - 60 - 12);
+    wrap.style.transform=`translate(${pos.x}px,${pos.y}px)`;
+  });
 })();
 </script>
+
 </body></html>
 """
 
