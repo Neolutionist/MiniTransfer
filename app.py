@@ -970,6 +970,142 @@ form.addEventListener('submit', async (e)=>{
   finally { btnStart.disabled = false; }
 });
 </script>
+
+<!-- Slang -->
+<div id="snakeWrap" aria-label="speels slangetje">
+  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
+    <g id="snakeGroup">
+      <path id="spine" d="" fill="none" stroke="none"></path>
+      <path id="body"  d="" fill="none"></path>
+      <g id="head">
+        <circle cx="0" cy="0" r="12"></circle>
+        <circle cx="4" cy="-4" r="2.6" fill="#fff"></circle>
+        <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"></path>
+      </g>
+    </g>
+  </svg>
+  <div id="snakeBubble">…</div>
+</div>
+
+<script>
+(() => {
+  const QUOTES = [
+    "Ga jij nou es weg joh… ik ben ff bezig.",
+    "Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
+    "Ja doei! Ik ben een slang, geen helpdesk.",
+    "Hee lekker hoor… maar niet aankomen!",
+    "Ik ben niet gek, ik ben een slang!"
+  ];
+
+  const wrap   = document.getElementById('snakeWrap');
+  const group  = document.getElementById('snakeGroup');
+  const body   = document.getElementById('body');
+  const head   = document.getElementById('head');
+  const bubble = document.getElementById('snakeBubble');
+
+  // parameters
+  const L = 120, N = 22;
+  let amp = 6, freq = 0.13, phase = 0;
+  let speed = 140; // px/s
+  let last = performance.now();
+
+  // startpositie altijd in beeld
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function rand(a,b){ return a + Math.random()*(b-a); }
+  function safeTarget(){
+    const m=18, W=Math.max(0, innerWidth  - wrap.clientWidth  - m),
+                 H=Math.max(0, innerHeight - wrap.clientHeight - m);
+    return { x: rand(m, W), y: rand(m, H) };
+  }
+  let pos = safeTarget();
+  let target = safeTarget();
+  function place(){ wrap.style.transform=`translate(${pos.x}px,${pos.y}px)`; }
+  place();
+
+  // curve helpers
+  function computeSpine(){
+    const pts=[];
+    for(let i=0;i<N;i++){
+      const x = (L/(N-1))*i;
+      const y = amp * Math.sin(freq*x + phase);
+      pts.push([x,y]);
+    }
+    return pts;
+  }
+  function catmullRom2bezier(points){
+    if(points.length<2) return "";
+    const d=[];
+    for(let i=0;i<points.length-1;i++){
+      const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
+      const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
+      const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
+      if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
+      d.push(`C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2[0]} ${p2[1]}`);
+    }
+    return d.join(" ");
+  }
+  function orientHead(points){
+    const a=points[points.length-2], b=points[points.length-1];
+    const ang = Math.atan2(b[1]-a[1], b[0]-a[0])*180/Math.PI;
+    head.setAttribute('transform', `translate(${b[0]} ${b[1]}) rotate(${ang})`);
+  }
+  function rotateGroup(dx,dy){
+    const ang = Math.atan2(dy,dx)*180/Math.PI;
+    group.setAttribute('transform', `rotate(${ang})`);
+  }
+
+  // animatie
+  function step(t){
+    const dt=(t-last)/1000; last=t;
+    phase += 6.5*dt;
+
+    const dx=target.x-pos.x, dy=target.y-pos.y;
+    rotateGroup(dx,dy);
+
+    const dist=Math.hypot(dx,dy);
+    if(dist>0){
+      const mv=Math.min(dist, speed*dt);
+      pos.x += dx/dist*mv; pos.y += dy/dist*mv;
+      const m=18;
+      pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
+      pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
+      place();
+    }
+
+    const spine=computeSpine();
+    body.setAttribute('d', catmullRom2bezier(spine));
+    orientHead(spine);
+
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+
+  // interactie
+  let clicks=0;
+  wrap.addEventListener('click', () => {
+    clicks++;
+    target=safeTarget();
+    amp = rand(5,8); freq = rand(0.11,0.16);
+    if(clicks>=3){
+      bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+      bubble.classList.add('show');
+      setTimeout(()=>bubble.classList.remove('show'), 2200);
+      clicks=0;
+    }
+  }, {passive:true});
+
+  // bij resize binnen beeld houden
+  addEventListener('resize', () => {
+    const m=18;
+    pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
+    pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
+    place();
+    target=safeTarget();
+  }, {passive:true});
+})();
+</script>
+
+
 </body></html>
 """
 
@@ -1149,46 +1285,44 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   .table thead th{ opacity:.95; }
 }
 
-/* ==== Dynamische zwarte slang (downloadpagina) ====================== */
+/* ==== Slang: altijd zichtbaar, boven alles, niet door layout verstopt ==== */
 #snakeWrap{
   position:fixed;
-  z-index:9999;
-  width:150px;              /* totale grootte slang */
+  z-index:2147483647;          /* boven ALLES */
+  width:150px;
   height:100px;
-  left:0; top:0;            /* we positioneren ALLES met translate(...) */
-  transform:translate3d(24px, 72vh, 0);
+  left:0; top:0;               /* we sturen met translate(...) */
+  transform:translate(24px, 72vh);
   will-change:transform;
   cursor:pointer;
   user-select:none;
+  pointer-events:auto;
 }
 #snakeWrap svg{ width:100%; height:100%; overflow:visible; }
 
-/* Tekstballon */
+/* Tekstballonnetje */
 #snakeBubble{
   position:absolute;
-  bottom:72px;
-  left:-10px;
-  width:190px;
-  background:#fff;
-  color:#111;
+  bottom:72px; left:-10px;
+  max-width:min(220px, calc(100vw - 40px));
+  background:#fff; color:#111;
   border:1px solid rgba(0,0,0,.15);
-  padding:.5rem .7rem;
-  border-radius:10px;
+  padding:.5rem .7rem; border-radius:10px;
   box-shadow:0 10px 24px rgba(0,0,0,.25);
   font-size:.85rem; line-height:1.25;
   opacity:0; transform:translateY(8px);
   pointer-events:none;
   transition:opacity .2s, transform .2s;
-    max-width: min(220px, calc(100vw - 40px));
-  will-change: transform, opacity;
 }
 #snakeBubble.show{ opacity:1; transform:translateY(0); }
-#snakeBubble:after{
-  content:"";
-  position:absolute; left:26px; bottom:-10px;
-  border-width:10px 8px 0 8px; border-style:solid;
-  border-color:#fff transparent transparent transparent;
+
+/* Zichtbaarheid/contrast */
+#snakeWrap svg{
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.65))
+          drop-shadow(0 2px 10px rgba(0,0,0,.35));
 }
+#snakeWrap #body{ stroke:#000; stroke-width:14; stroke-linecap:round; stroke-linejoin:round; }
+#snakeWrap #head > circle:first-child{ fill:#000; }
 
 
 /* --- Mooie afgeronde rijen voor bestandslijst --- */
