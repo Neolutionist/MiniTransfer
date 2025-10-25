@@ -480,215 +480,152 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 
 <style>
-{{ base_css }}
+  {{ base_css }}
 
-/* =========================================================
-   Basis kleurtjes & tekst
-========================================================= */
-:root{
-  --ok:#16a34a;
-  --warn:#eab308;
-  --err:#dc2626;
-  --field-h:48px; /* uniforme veldhoogte */
-}
+  :root{
+    --ok:#16a34a; --warn:#eab308; --err:#dc2626;
+    /* uniforme veldhoogte voor perfecte uitlijning */
+    --field-h: 48px;
+  }
 
-h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
-.card{color:var(--text)}
-label{color:var(--text)}
-.smallmuted{color:var(--muted)}
+  /* ================== algemene layout ================== */
+  h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+  .card{color:var(--text)}
+  label{color:var(--text)}
+  .smallmuted{color:var(--muted)}
 
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+  .grid{display:grid;gap:1rem}
+  .cols-2{grid-template-columns:1fr 1fr}
+  @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
 
-.grid{display:grid;gap:1rem}
-.cols-2{grid-template-columns:1fr 1fr}
-@media(max-width:760px){.cols-2{grid-template-columns:1fr}}
+  /* ================== toggle ================== */
+  .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
+  .toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
+  .toggle input{accent-color:var(--brand)}
 
-/* =========================================================
-   Geen scroll op uploadpagina
-========================================================= */
-html, body{
-  height:100%;
-  overflow:hidden;
-}
-
-/* Bg-lagen altijd full-screen, niet scrollbaar */
-.bg,.bg::before,.bg::after{
-  position:fixed;
-  inset:0;
-  pointer-events:none;
-}
-
-/* =========================================================
-   Toggle
-========================================================= */
-.toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
-.toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
-.toggle input{accent-color:var(--brand)}
-
-/* =========================================================
-   File cards
-========================================================= */
-.filelist{margin-top:.8rem}
-.filecard{
-  display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
-  padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
-  background:color-mix(in oklab, var(--surface) 86%, white 14%);
-  color:var(--text)
-}
-.filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.filecard .meta{color:var(--muted);font-size:.9rem}
-.filecard .act{display:flex;gap:.4rem}
-
-.badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
-.badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
-.badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
-.badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
-
-.row{display:flex;align-items:center;gap:.6rem}
-
-/* =========================================================
-   Progress
-========================================================= */
-.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
-.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
-
-/* =========================================================
-   Total sectie
-========================================================= */
-.totalbox{margin-top:1rem}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
-.kv strong{font-weight:700;color:var(--text)}
-.kv span{color:var(--muted)}
-
-/* =========================================================
-   Buttons
-========================================================= */
-.btn.icon{display:inline-flex;align-items:center;gap:.4rem}
-
-/* =========================================================
-   LOGIN-CHIP (fade glass)
-========================================================= */
-.topbar .logout{
-  display:inline-flex;
-  gap:.35rem;
-  align-items:center;
-  padding:.38rem .75rem;
-  border-radius:999px;
-  color:var(--text)!important;
-
-  background:
-    linear-gradient(
-      to right,
-      color-mix(in oklab, var(--surface) 70%, transparent 30%),
-      color-mix(in oklab, var(--surface) 55%, transparent 45%)
-    );
-  border:1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
-  backdrop-filter:blur(10px) saturate(1.2);
-  -webkit-backdrop-filter:blur(10px) saturate(1.2);
-  box-shadow:
-    0 4px 18px rgba(0,0,0,.12),
-    inset 0 0 0 1px rgba(255,255,255,.06);
-}
-
-.topbar .logout a{
-  color:var(--brand)!important;
-  font-weight:700;
-  text-decoration:none;
-  opacity:.95;
-}
-.topbar .logout a:hover{
-  text-decoration:underline;
-  opacity:1;
-}
-
-/* Dark mode */
-@media(prefers-color-scheme:dark){
+  /* ================== topbar login-chip (glass + fade) ================== */
   .topbar .logout{
+    display:inline-flex; align-items:center; gap:.35rem;
+    padding:.38rem .75rem; border-radius:999px;
+    color:var(--text)!important; text-wrap:balance;
+
     background:
       linear-gradient(
         to right,
-        color-mix(in oklab, var(--surface) 50%, transparent 50%),
-        color-mix(in oklab, var(--surface) 35%, transparent 65%)
+        color-mix(in oklab, var(--surface) 62%, transparent 38%),
+        color-mix(in oklab, var(--surface) 48%, transparent 52%)
       );
-    border-color:rgba(255,255,255,.10);
-    box-shadow:
-      0 4px 18px rgba(0,0,0,.5),
-      inset 0 0 0 1px rgba(255,255,255,.05);
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+
+    border:1px solid color-mix(in oklab, var(--surface) 80%, transparent 20%);
+    box-shadow:0 4px 18px rgba(0,0,0,.18), inset 0 0 0 1px rgba(255,255,255,.05);
   }
   .topbar .logout a{
-    color:var(--brand-2)!important;
+    color:var(--brand)!important; font-weight:700; text-decoration:none; opacity:.95;
+    transition:opacity .15s, text-decoration .15s, color .15s;
   }
-}
+  .topbar .logout a:hover{ text-decoration:underline; opacity:1; }
+  @media (prefers-color-scheme: dark){
+    .topbar .logout{
+      background:
+        linear-gradient(
+          to right,
+          color-mix(in oklab, var(--surface) 46%, transparent 54%),
+          color-mix(in oklab, var(--surface) 34%, transparent 66%)
+        );
+      border-color: rgba(255,255,255,.10);
+      box-shadow:0 4px 18px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+    .topbar .logout a{ color:var(--brand-2)!important; }
+  }
 
-/* ================== File input perfect uitlijnen (vervangt oude blok) ================== */
-:root{
-  /* gebruik dezelfde veldhoogte overal */
-  --field-h: 48px;
-}
+  /* ================== bestandslijst cards ================== */
+  .filelist{margin-top:.8rem}
+  .filecard{
+    display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
+    padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
+    background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
+  }
+  .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filecard .meta{color:var(--muted);font-size:.9rem}
+  .filecard .act{display:flex;gap:.4rem}
+  .badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
+  .badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
+  .badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
+  .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
+  .row{display:flex;align-items:center;gap:.6rem}
 
-/* Alle ‘gewone’ velden */
-input.input,
-select.input,
-.input,
-input[type=text],
-input[type=password],
-input[type=email],
-input[type=number],
-textarea{
-  height: var(--field-h);
-  padding: 0 1rem;               /* horizontaal; verticaal via vaste hoogte */
-  line-height: 1.2;
-}
+  /* ================== progress (totaal + per file) ================== */
+  .progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
+  .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 
-/* Het file-veld zelf */
-input[type=file]{
-  -webkit-appearance: none;
-  appearance: none;
-  height: var(--field-h);
-  width: 100%;
-  padding: 0 1rem;               /* zelfde padding als andere inputs */
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color: var(--text);
-  display: inline-flex;          /* centreert button + tekst netjes verticaal */
-  align-items: center;           /* ← zorgt voor perfecte uitlijning */
-  gap: .75rem;
-  vertical-align: middle;
-}
+  .totalbox{margin-top:1rem}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
+  .kv strong{font-weight:700;color:var(--text)}
+  .kv span{color:var(--muted)}
 
-/* De “Choose files” knop binnen het file-veld */
-input[type=file]::file-selector-button{
-  font: inherit;
-  line-height: 1;
-  height: 36px;                  /* visueel gelijk aan de tekst in andere velden */
-  padding: .5rem .9rem;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  margin: 0 .5rem 0 0;           /* nette ruimte tussen knop en bestandsnaam */
-  cursor: pointer;
-  align-self: center;            /* exact centreren in het veld */
-}
+  /* ================== knoppen ================== */
+  .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 
-/* Firefox kleine correctie (pseudo-button hoogte verschilt daar) */
-@-moz-document url-prefix(){
-  input[type=file]{ padding-block: .4rem; }
-  input[type=file]::file-selector-button{ height: auto; padding: .45rem .8rem; }
-}
+  /* =========================================================
+     PERFECTE UITLIJNING: alle invoervelden exact even hoog,
+     incl. <input type="file"> (zowel bestanden als map)
+     ========================================================= */
+  /* standaard inputs */
+  input.input,
+  select.input,
+  .input,
+  input[type=text],
+  input[type=password],
+  input[type=email],
+  input[type=number],
+  textarea{
+    height:var(--field-h);
+    padding:0 1rem;
+    line-height:1.2;
+  }
 
-/* Dark mode varianten */
-@media (prefers-color-scheme: dark){
+  /* file inputs (bestanden + map) */
   input[type=file]{
-    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    border-color: #374151;
+    height:var(--field-h);
+    padding:0 1rem;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
+    color:var(--text);
+    display:inline-block;
+    vertical-align:middle;
   }
+  /* knop in file input */
   input[type=file]::file-selector-button{
-    background: var(--surface);
-    border-color: #374151;
+    font:inherit; line-height:1;
+    height:calc(var(--field-h) - 14px);        /* centreren in het veld */
+    padding:.48rem .9rem;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--surface);
+    color:var(--text);
+    margin-right:.75rem;
+    cursor:pointer;
   }
-}
+  /* dark mode varianten */
+  @media (prefers-color-scheme: dark){
+    input[type=file]{ background:color-mix(in oklab, var(--surface-2) 92%, black 8%); border-color:#374151; }
+    input[type=file]::file-selector-button{ background:var(--surface); border-color:#374151; }
+  }
+
+  /* =========================================================
+     Fijne spacing & small polish
+     ========================================================= */
+  /* maak de “Uploaden” rij compact en breekbaar op kleine schermen */
+  .row.actions{ gap:.6rem; flex-wrap:wrap; }
+
+  /* optioneel: minimaliseer kans op verticale scroll door kaartmarges */
+  @media (min-height:780px){
+    .wrap{ margin-top:5vh; margin-bottom:5vh; }
+  }
 </style>
 
 
@@ -1128,279 +1065,99 @@ form.addEventListener('submit', async (e)=>{
 PACKAGE_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>{{ head_icon|safe }}
+
 <style>
 {{ base_css }}
+
 h1{margin:.2rem 0 1rem;color:var(--brand)}
-/* Meta-informatie: gebruik thema-kleuren zodat het in light én dark goed leesbaar is */
 .meta{margin:.6rem 0 1rem;color:var(--muted)}
 .meta strong{color:var(--text)}
 .btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 
-/* Tabel-kolom 'Grootte' blijft op één regel (ook mobiel) */
+/* Tabel-kolom 'Grootte' vast & rechts */
 .table th.col-size,
 .table td.col-size,
-.table td[data-label="Grootte"]{
-  white-space: nowrap;
-  text-align: right;
-  min-width: 72px;
-}
+.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px}
 
-/* Zorg dat CTA nooit onder de kaart schuift */
+/* CTA blok */
 .cta{margin-top:1.2rem; position:relative; z-index:2}
 
-
-/* ============================================
-   Compacte downloadknoppen in de tabel
-   ============================================ */
-.table .btn.mini {
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:.42rem .72rem !important;
-  font-size:.82rem !important;
-  line-height:1 !important;
-  font-weight:600 !important;
-  border-radius:10px !important;
-  white-space:nowrap;
-
-  /* Nieuwe stijl (licht + zacht) */
-  background: color-mix(in oklab, var(--brand) 70%, white 30%);
-  color:#fff;
-  border:0;
-  box-shadow:0 2px 6px rgba(0,0,0,.12);
-
-  transition:filter .15s, transform .12s, background .2s;
-}
-
-.table .btn.mini:hover {
-  filter:brightness(1.06);
-}
-.table .btn.mini:active {
-  transform:translateY(1px);
-}
-
-/* Geschikt voor dark mode */
-@media (prefers-color-scheme: dark){
-  .table .btn.mini {
-    background: color-mix(in oklab, var(--brand) 85%, black 15%);
-    box-shadow:0 2px 7px rgba(0,0,0,.4);
-  }
-}
-
-/* tabeluitlijnen subtiel verbeteren */
-.table td[data-label="Grootte"]{
-  padding-right:.4rem;
-}
-
-/* ===== POLISH: tabel, knoppen, kleuren, spacing ===== */
-
-/* Rustiger, modern CTA (alleen op deze pagina) */
-.btn{
-  padding:.85rem 1.05rem;
-  border:0;
-  border-radius:12px;
-  font-weight:700;
-  color:#fff;
-  text-decoration:none;
-  background:linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--brand) 88%, white 12%) 0%,
-    color-mix(in oklab, var(--brand) 80%, black 20%) 100%
-  );
-  box-shadow:0 8px 20px rgba(15,76,152,.22);
-  transition:filter .15s, transform .12s, background .2s;
-}
-.btn:hover{ filter:brightness(1.06); }
-.btn:active{ transform:translateY(1px); }
-
-/* Secundaire CTA (onder de kaart) */
-.btn.secondary{
-  background:linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--brand) 70%, black 10%) 0%,
-    color-mix(in oklab, var(--brand) 60%, black 28%) 100%
-  );
-  box-shadow:0 6px 16px rgba(15,76,152,.20);
-}
-
-/* Compacte mini-downloadknoppen in de tabel */
-.table .btn.mini{
-  display:inline-flex; align-items:center; justify-content:center;
-  padding:.42rem .72rem !important;
-  font-size:.82rem !important; line-height:1 !important; font-weight:600 !important;
-  border-radius:10px !important; white-space:nowrap;
-  background: color-mix(in oklab, var(--brand) 74%, white 26%);
-  color:#fff; border:0; box-shadow:0 2px 6px rgba(0,0,0,.12);
-  transition:filter .15s, transform .12s, background .2s;
-}
-.table .btn.mini:hover{ filter:brightness(1.06); }
-.table .btn.mini:active{ transform:translateY(1px); }
-
-/* Tabelpolish: iets meer ademruimte en subtiele lijnen */
+/* Tabelstijl (compact & modern) */
 .table{ width:100%; border-collapse:separate; border-spacing:0 6px; }
-.table thead th{
-  font-weight:700; color:var(--text); opacity:.9; padding:.4rem .7rem;
-}
+.table thead th{ font-weight:700; color:var(--text); opacity:.9; padding:.4rem .7rem; }
 .table tbody tr{
   background: color-mix(in oklab, var(--surface-2) 80%, white 20%);
   box-shadow: 0 1px 0 rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.05);
   border-radius:12px;
 }
-.table tbody td{
-  padding:.6rem .7rem;
-  border-bottom:0;
+.table tbody td{ padding:.6rem .7rem; border-bottom:0; }
+.table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 70%, white 30%); }
+.table td[data-label="Pad"]{ max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Download-knoppen in tabel */
+.table .btn.mini{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:.42rem .72rem !important; font-size:.82rem !important; line-height:1 !important; font-weight:600 !important;
+  border-radius:10px !important; white-space:nowrap;
+  background: color-mix(in oklab, var(--brand) 74%, white 26%); color:#fff; border:0; box-shadow:0 2px 6px rgba(0,0,0,.12);
+  transition:filter .15s, transform .12s, background .2s;
 }
-.table tbody tr:hover{
-  background: color-mix(in oklab, var(--surface-2) 70%, white 30%);
-}
+.table .btn.mini:hover{ filter:brightness(1.06); }
+.table .btn.mini:active{ transform:translateY(1px); }
 
-/* Kolom 'Grootte' netjes rechts + smal */
-.table th.col-size,
-.table td.col-size,
-.table td[data-label="Grootte"]{ white-space:nowrap; text-align:right; min-width:72px; padding-right:.4rem; }
+/* Vooruitgangsbalk onder grote Download-knop */
+.progress#bar{ height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.75rem; }
+.progress#bar > i{ display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff); }
 
-/* Pad-kolom: ellipsis en vaste max-breedte — JS verkort straks tot laatste 2 mappen */
-.table td[data-label="Pad"]{
-  max-width: 520px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
+/* ========= GEEN SCROLLBAR OP DEZE PAGINA ========= */
+html, body{ height:100%; overflow:hidden; }     /* voorkomt scrollen */
+.wrap{ max-width:980px; margin:4vh auto; padding:0 1rem; } /* iets compacter zodat alles past */
+.card{ position:relative; z-index:1; }          /* boven achtergrond/snake */
 
-/* Progressbalk onder de ZIP-knop: kleine marge */
-.progress#bar{ margin-top:.75rem; }
-
-/* Dark mode-varianten */
+/* Dark mode */
 @media (prefers-color-scheme: dark){
-  .btn{
-    background:linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--brand) 92%, black 12%) 0%,
-      color-mix(in oklab, var(--brand) 78%, black 28%) 100%
-    );
-    box-shadow:0 10px 24px rgba(0,0,0,.45);
-  }
-  .btn.secondary{
-    background:linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--brand) 80%, black 22%) 0%,
-      color-mix(in oklab, var(--brand) 68%, black 40%) 100%
-    );
-    box-shadow:0 8px 20px rgba(0,0,0,.42);
-  }
   .table tbody tr{
     background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
     box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px rgba(255,255,255,.06);
   }
-  .table tbody tr:hover{
-    background: color-mix(in oklab, var(--surface-2) 86%, black 14%);
-  }
-  .table thead th{ opacity:.95; }
+  .table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 86%, black 14%); }
 }
 
-/* ==== Slang: altijd zichtbaar, boven alles, niet door layout verstopt ==== */
+/* ====== Slang: zichtbaar op downloadpagina ====== */
 #snakeWrap{
-  position:fixed;
-  z-index:2147483647;          /* boven ALLES */
-  width:150px;
-  height:100px;
-  left:0; top:0;               /* we sturen met translate(...) */
-  transform:translate(24px, 72vh);
+  position:fixed; left:0; top:0;
+  width:150px; height:100px;
+  transform:translate3d(24px, 64vh, 0);  /* start in beeld */
+  z-index:2147483647;                    /* boven alles */
   will-change:transform;
-  cursor:pointer;
-  user-select:none;
-  pointer-events:auto;
+  cursor:pointer; user-select:none;
 }
 #snakeWrap svg{ width:100%; height:100%; overflow:visible; }
 
-/* Tekstballonnetje */
+/* Tekstballon */
 #snakeBubble{
-  position:absolute;
-  bottom:72px; left:-10px;
+  position:absolute; bottom:72px; left:-10px;
   max-width:min(220px, calc(100vw - 40px));
-  background:#fff; color:#111;
-  border:1px solid rgba(0,0,0,.15);
-  padding:.5rem .7rem; border-radius:10px;
-  box-shadow:0 10px 24px rgba(0,0,0,.25);
-  font-size:.85rem; line-height:1.25;
-  opacity:0; transform:translateY(8px);
-  pointer-events:none;
-  transition:opacity .2s, transform .2s;
+  background:#fff; color:#111; border:1px solid rgba(0,0,0,.15);
+  padding:.5rem .7rem; border-radius:10px; box-shadow:0 10px 24px rgba(0,0,0,.25);
+  font-size:.85rem; line-height:1.25; opacity:0; transform:translateY(8px);
+  pointer-events:none; transition:opacity .2s, transform .2s;
 }
 #snakeBubble.show{ opacity:1; transform:translateY(0); }
-
-/* Zichtbaarheid/contrast */
-#snakeWrap svg{
-  filter: drop-shadow(0 0 6px rgba(255,255,255,.65))
-          drop-shadow(0 2px 10px rgba(0,0,0,.35));
-}
-#snakeWrap #body{ stroke:#000; stroke-width:14; stroke-linecap:round; stroke-linejoin:round; }
-#snakeWrap #head > circle:first-child{ fill:#000; }
-
-
-/* --- Mooie afgeronde rijen voor bestandslijst --- */
-.table tbody tr {
-  background: color-mix(in oklab, var(--surface-2) 88%, black 12%);
-  border: 1px solid color-mix(in oklab, var(--line) 70%, black 10%);
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-.table tbody td {
-  padding: .75rem .9rem;
-  border-bottom: none !important;
-}
-
-/* Ruimte tussen de rijen */
-.table tbody tr + tr {
-  margin-top: .55rem;
-}
-
-/* Scheiding header ↔ rijen */
-.table {
-  border-collapse: separate;
-  border-spacing: 0 8px;
-}
-
-/* Download-knop beter in stijl */
-.table .btn.mini {
-  padding: .45rem .7rem;
-  font-size: .85rem;
-  border-radius: 10px;
-  background: linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
-  white-space: nowrap;
-}
-
-/* Subtiele hover animatie */
-.table tbody tr:hover {
-  background: color-mix(in oklab, var(--surface-2) 82%, black 18%);
-  transform: translateY(-1px);
-  transition: background .18s ease, transform .18s ease;
-}
+#snakeBubble:after{ content:""; position:absolute; left:26px; bottom:-10px; border-width:10px 8px 0 8px; border-style:solid; border-color:#fff transparent transparent transparent; }
 
 /* Zichtbaarheid/contrast slang */
-#snakeWrap { 
-  z-index: 2147483647; /* boven ALLES */
+#snakeWrap svg{
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.65)) drop-shadow(0 2px 10px rgba(0,0,0,.35));
 }
-
-#snakeWrap svg { 
-  filter: drop-shadow(0 0 6px rgba(255,255,255,.65))
-          drop-shadow(0 2px 10px rgba(0,0,0,.35));
-}
-
-#snakeWrap #body { 
-  stroke: #000; 
-  stroke-width: 14; 
-}
-
-#snakeWrap #head > circle:first-child {
-  fill: #000;
-}
+#snakeWrap #body{ stroke:#000; stroke-width:14; }
+#snakeWrap #head > circle:first-child{ fill:#000; }
+</style>
 
 
-</style></head><body>
+</head><body>
 {{ bg|safe }}
 
 <div class="wrap">
@@ -1469,7 +1226,9 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
+<!-- ================= START DOWNLOADPAGE SCRIPT BLOCK ================= -->
 <script>
+  /* ===== Progress download functionaliteit ===== */
   const bar  = document.getElementById('bar');
   const fill = bar?.querySelector('i');
   const txt  = document.getElementById('txt');
@@ -1508,7 +1267,9 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
       const total = parseInt(res.headers.get('Content-Length')||'0',10);
       const name  = res.headers.get('X-Filename') || fallbackName || 'download';
 
-      if (bar){ total ? bar.classList.remove('indet') : bar.classList.add('indet'); }
+      if (bar){
+        total ? bar.classList.remove('indet') : bar.classList.add('indet');
+      }
 
       const reader = res.body && res.body.getReader ? res.body.getReader() : null;
       if (reader){
@@ -1550,45 +1311,126 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     }
   }
 
-  // Alleen voor het geval er maar één bestand is: progress aan
-{% if items|length == 1 %}
-  document.getElementById('dlSingle')?.addEventListener('click', (e)=>{
-    e.preventDefault();
-    streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
-                 "{{ items[0]['name'] }}");
-  });
-{% endif %}
+  /* Single file download progress */
+  const dlBtn = document.getElementById('dlSingle');
+  if(dlBtn){
+    dlBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
+    });
+  }
+</script>
 
-/* ===== POLISH: Pad-kolom inkorten tot laatste 2 segmenten + title op volledig pad ===== */
-(function(){
-  const cells = document.querySelectorAll('td[data-label="Pad"]');
-  cells.forEach(td => {
-    const full = (td.textContent || '').trim();
-    if (!full) return;
-    td.setAttribute('title', full);                // volledige pad als tooltip
-    const parts = full.split('/').filter(Boolean);
-    if (parts.length <= 2) return;
-    td.textContent = parts.slice(-2).join('/');    // toon alleen laatste 2 segmenten
-  });
-})();
-
-<!-- ====== Slang: klein, zwart, dynamisch ====== -->
-<div id="snakeWrap" aria-label="speels slangetje">
-  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
+<!-- ================= SNAKE ================= -->
+<div id="snakeWrap" aria-label="speels slangetje"
+     style="position:fixed;left:0;top:0;width:150px;height:100px;transform:translate(24px,64vh);z-index:2147483647;will-change:transform;cursor:pointer;user-select:none;">
+  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">
     <g id="snakeGroup">
-      <path id="spine" d="" fill="none" stroke="none"/>
-      <path id="body"  d="" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>
+      <path id="spine" d="" fill="none" stroke="none"></path>
+      <path id="body"  d="" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"></path>
       <g id="head">
-        <circle cx="0" cy="0" r="12" fill="#000"/>
-        <circle cx="4" cy="-4" r="2.6" fill="#fff"/>
-        <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="0" cy="0" r="12" fill="#000"></circle>
+        <circle cx="4" cy="-4" r="2.6" fill="#fff"></circle>
+        <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"></path>
       </g>
     </g>
   </svg>
-  <div id="snakeBubble">…</div>
+  <div id="snakeBubble"
+       style="position:absolute;bottom:72px;left:-10px;max-width:min(220px,calc(100vw - 40px));background:#fff;color:#111;border:1px solid rgba(0,0,0,.15);padding:.5rem .7rem;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.25);font-size:.85rem;line-height:1.25;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s;">
+    …
+  </div>
 </div>
 
 <script>
+(function(){
+  const QUOTES=[
+    "Ga jij nou es weg joh… ik ben ff bezig.","Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
+    "Ja doei! Ik ben een slang, geen helpdesk.","Hee lekker hoor… maar niet aankomen!",
+    "Ik ben niet gek, ik ben een slang!","Moet dat nou steeds?","Ben jij los ofzo?",
+    "Wil jij een broodje kaas ofzo?","Kom op joh… ik heb ook maar twee handen!"
+  ];
+  const wrap=document.getElementById('snakeWrap'),
+        group=document.getElementById('snakeGroup'),
+        body=document.getElementById('body'),
+        head=document.getElementById('head'),
+        bubble=document.getElementById('snakeBubble');
+
+  const L=120, N=22;
+  let amp=6, freq=0.13, phase=0, speed=140, last=performance.now();
+
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  function rand(a,b){return a+Math.random()*(b-a);}
+
+  function safeTarget(){
+    const m=18,W=Math.max(0,innerWidth-wrap.clientWidth-m),
+              H=Math.max(0,innerHeight-wrap.clientHeight-m);
+    return {x:rand(m,W),y:rand(m,H)};
+  }
+  let pos={x:clamp(innerWidth*0.06,18,innerWidth-180),
+           y:clamp(innerHeight*0.64,18,innerHeight-140)},
+      target=safeTarget();
+  function place(){wrap.style.transform=`translate(${pos.x}px,${pos.y}px)`;}
+  place();
+
+  function move(dt){
+    const dx=target.x-pos.x,dy=target.y-pos.y,dist=Math.hypot(dx,dy);
+    if(dist<1)return;
+    const mv=Math.min(dist,speed*dt);
+    pos.x+=dx/dist*mv;pos.y+=dy/dist*mv;
+    const m=18;
+    pos.x=clamp(pos.x,m,Math.max(m,innerWidth-wrap.clientWidth-m));
+    pos.y=clamp(pos.y,m,Math.max(m,innerHeight-wrap.clientHeight-m));
+    place();
+  }
+  function spine(){
+    const a=[];
+    for(let i=0;i<N;i++){
+      const x=(L/(N-1))*i,y=amp*Math.sin(freq*x+phase);
+      a.push([x,y]);
+    }
+    return a;
+  }
+  function bezier(p){
+    if(p.length<2)return"";
+    const d=[];
+    for(let i=0;i<p.length-1;i++){
+      const P0=p[i-1]||p[i],P1=p[i],P2=p[i+1],P3=p[i+2]||P2;
+      const c1=[P1[0]+(P2[0]-P0[0])/6,P1[1]+(P2[1]-P0[1])/6],
+            c2=[P2[0]-(P3[0]-P1[0])/6,P2[1]-(P3[1]-P1[1])/6];
+      if(i===0)d.push(`M ${P1[0]} ${P1[1]}`);
+      d.push(`C ${c1[0]} ${c1[1]}, ${c2[0]} ${c2[1]}, ${P2[0]} ${P2[1]}`);
+    }
+    return d.join(" ");
+  }
+  function orient(p){
+    const a=p[p.length-2],b=p[p.length-1],
+          ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
+    head.setAttribute('transform',`translate(${b[0]} ${b[1]}) rotate(${ang})`);
+  }
+  function rotate(r){group.setAttribute('transform',`rotate(${r*180/Math.PI})`);}
+
+  wrap.addEventListener('click',()=>{
+    target=safeTarget();
+    amp=rand(5,8);freq=rand(0.11,0.16);
+    bubble.textContent=QUOTES[Math.floor(Math.random()*QUOTES.length)];
+    bubble.style.opacity=1;bubble.style.transform='translateY(0)';
+    setTimeout(()=>{bubble.style.opacity=0;bubble.style.transform='translateY(8px)';},2000);
+  });
+
+  function tick(t){
+    const dt=(t-last)/1000;last=t;
+    phase+=6.5*dt;
+    const dx=target.x-pos.x,dy=target.y-pos.y;
+    rotate(Math.atan2(dy,dx));
+    const s=spine();body.setAttribute('d',bezier(s));orient(s);
+    move(dt);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+<!-- ============== END DOWNLOADPAGE SCRIPT BLOCK ============== -->
+
 (function(){
   /* ---------- Jiskefet one-liners ---------- */
   const QUOTES = [
