@@ -481,19 +481,29 @@ INDEX_HTML = """
 <style>
 {{ base_css }}
 :root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; }
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+
+/* Titel/teksten met hoog contrast op donkere kaart */
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+.card{color:var(--text)}
+label{color:var(--text)}
+.smallmuted{color:var(--muted)}
+
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
 .grid{display:grid;gap:1rem}
 .cols-2{grid-template-columns:1fr 1fr}
 @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
 
 .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
-.toggle label{display:inline-flex;gap:.5rem;align-items:center; font-weight:600; cursor:pointer}
+.toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
 .toggle input{accent-color:var(--brand)}
 
 .filelist{margin-top:.8rem}
-.filecard{display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab, var(--surface) 86%, white 14%)}
+.filecard{
+  display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
+  padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
+  background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
+}
 .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .filecard .meta{color:var(--muted);font-size:.9rem}
 .filecard .act{display:flex;gap:.4rem}
@@ -502,16 +512,22 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
 .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
 .row{display:flex;align-items:center;gap:.6rem}
-.smallmuted{font-size:.88rem;color:var(--muted)}
-.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4;position:relative}
+
+.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
 .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
+
 .totalbox{margin-top:1rem}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem;color:#334155}
-.kv strong{font-weight:700}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
+.kv strong{font-weight:700;color:var(--text)}
+.kv span{color:var(--muted)}
+
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 .btn.gray{background:linear-gradient(180deg,#64748b,#475569)}
 .btn.ghost{border:1px solid var(--line);background:color-mix(in oklab, var(--surface) 92%, white 8%);color:var(--text);font-weight:600}
-input[type=file]::-webkit-file-upload-button{cursor:pointer}
+
+/* Zorg dat inputs op donkere kaart goed leesbaar blijven */
+input.input, select.input, .input{color:var(--text)}
+input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 85%, white 15%)}
 </style>
 </head><body>
 {{ bg|safe }}
@@ -577,7 +593,7 @@ input[type=file]::-webkit-file-upload-button{cursor:pointer}
 
     <div class="totalbox">
       <div class="row" style="justify-content:space-between">
-        <strong>Totaalvoortgang</strong>
+        <strong style="color:var(--text)">Totaalvoortgang</strong>
         <span id="totalPct" class="badge warn">0%</span>
       </div>
       <div class="progress" id="totalBar"><i></i></div>
@@ -650,9 +666,9 @@ function addFileRow(file, path){
   const card=document.createElement('div');
   card.className='filecard';
   card.innerHTML=`
-    <div class="name" title="${path}">${path}</div>
+    <div class="name" title="\${path}">\${path}</div>
     <div class="act"><span class="badge warn" data-role="badge">Wacht…</span></div>
-    <div class="meta">${fmtBytes(file.size)} • ${file.type||'octet-stream'}</div><div></div>
+    <div class="meta">\${fmtBytes(file.size)} • \${file.type||'octet-stream'}</div><div></div>
     <div class="progress"><i style="width:0%"></i></div>
     <div class="smallmuted" data-role="label">Nog niet gestart</div>`;
   fileList.appendChild(card);
@@ -700,6 +716,10 @@ function putWithProgress(url,blob,onProgress,onAbortSetter){
 }
 
 // ===== uploader =====
+function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
+function currentFiles(){ const m=selectedMode(); return Array.from(m==='files'?(fileInput.files||[]):(folderInput.files||[])); }
+function relP(file){ return selectedMode()==='folder' ? (file.webkitRelativePath || file.name) : file.name; }
+
 async function uploadOneSmall(token,file,rel,ui){
   const init=await putInit(token,file.name,file.type);
   ui.badge.textContent="Uploaden…"; ui.label.textContent="Directe upload";
@@ -729,20 +749,11 @@ async function uploadOneMPU(token,file,rel,ui){
   ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok'; ui.label.textContent="Opgeslagen";
 }
 
-function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
-function currentFiles(){
-  const mode = selectedMode();
-  return Array.from(mode==='files' ? (fileInput.files||[]) : (folderInput.files||[]));
-}
-function relPath(file){
-  return selectedMode()==='folder' ? (file.webkitRelativePath || file.name) : file.name;
-}
-
 async function runUpload(){
   const filesRaw=currentFiles();
   if(!filesRaw.length){ alert("Kies eerst bestand(en) of map"); try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){} return; }
 
-  state.files = filesRaw.map(f=>{ const rp=sanitizePath(relPath(f)); const ui=addFileRow(f,rp); return {file:f, rel:rp, ui}; });
+  state.files = filesRaw.map(f=>{ const rp=sanitizePath(relP(f)); const ui=addFileRow(f,rp); return {file:f, rel:rp, ui}; });
   state.totalBytes = state.files.reduce((a,x)=>a+x.file.size,0)||1; state.uploadedBytes=0; state.startedAt=performance.now();
   setTotal(0,"Voorbereiden…"); totalSpeed.textContent='–'; totalEta.textContent='–'; resBox.innerHTML="";
 
@@ -797,6 +808,7 @@ btnCancel.addEventListener('click', ()=>{ if(!confirm('Upload annuleren?')) retu
 </script>
 </body></html>
 """
+
 
 PACKAGE_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
