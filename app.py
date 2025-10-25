@@ -1150,6 +1150,60 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   transition: background .18s ease, transform .18s ease;
 }
 
+/* --- Mini-slang (downloadpagina) ----------------------------------------- */
+#snakeWrap{
+  position: fixed;
+  top: 0; left: 0;               /* we verplaatsen 'm met transform */
+  transform: translate(28px, calc(100vh - 120px));
+  width: 84px; height: 54px;
+  z-index: 40;
+  cursor: pointer;
+  transition: transform .75s cubic-bezier(.22,.65,.22,1.05);
+  user-select: none;
+}
+#snakeWrap svg{ display:block; width:100%; height:100%; }
+
+#snakeWrap.moving .slither {      /* tijdens bewegen “slither” animatie */
+  animation: snakeWiggle .22s ease-in-out infinite alternate;
+}
+@keyframes snakeWiggle{
+  from{ transform: translateY(-1px) rotate(-2deg); }
+  to  { transform: translateY( 1px) rotate( 2deg); }
+}
+
+/* Tekstballon */
+#snakeWrap .bubble{
+  position: absolute;
+  bottom: 58px; left: -8px;
+  max-width: 220px;
+  padding: .55rem .7rem;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: .9rem;
+  line-height: 1.25;
+  box-shadow: 0 8px 22px rgba(0,0,0,.18);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  border: 1px solid rgba(0,0,0,.08);
+}
+#snakeWrap .bubble:after{
+  content:"";
+  position:absolute;
+  bottom:-8px; left:18px;
+  border-width:8px 8px 0 8px;
+  border-style:solid;
+  border-color:#ffffff transparent transparent transparent;
+  filter: drop-shadow(0 -1px 0 rgba(0,0,0,.08));
+}
+#snakeWrap .bubble.show{
+  opacity:1;
+  transform: translateY(0);
+}
+
+
 
 </style></head><body>
 {{ bg|safe }}
@@ -1414,6 +1468,105 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 <div id="snake-bubble" role="status" aria-live="polite">
   laat mij met rust, ik ben maar een lief slangetje xxx
 </div>
+
+<!-- Klein zwart slangetje (SVG) -->
+<div id="snakeWrap" aria-label="Klik-slangetje">
+  <svg viewBox="0 0 140 90" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+    <!-- Schaduw voor leesbaarheid op lichte/donkere achtergronden -->
+    <g opacity=".16" transform="translate(2,2)">
+      <path d="M10,70 C30,60 45,80 60,70 C75,60 95,60 110,70"
+            fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="118" cy="68" r="11" fill="#000"/>
+    </g>
+
+    <!-- Zwarte slang -->
+    <g class="slither">
+      <!-- lijf -->
+      <path d="M10,70 C30,60 45,80 60,70 C75,60 95,60 110,70"
+            fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- kop -->
+      <circle cx="118" cy="68" r="11" fill="#000"/>
+      <!-- oogje (wit) -->
+      <circle cx="121" cy="65" r="2.2" fill="#fff"/>
+      <!-- mini tong (heel subtiel) -->
+      <path d="M129 70 l8 2 -8 2" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </g>
+  </svg>
+  <div class="bubble" id="snakeBubble">laat mij met rust, ik ben maar een lief slangetje xxx</div>
+</div>
+
+<script>
+(function(){
+  const wrap   = document.getElementById('snakeWrap');
+  const bubble = document.getElementById('snakeBubble');
+  if(!wrap) return;
+
+  let clicks = 0;
+  let moving = false;
+
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function randomTarget(){
+    // Houd marge zodat hij niet buiten beeld valt
+    const margin = 24;
+    const vw = Math.max(document.documentElement.clientWidth,  window.innerWidth  || 0);
+    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
+    const w  = wrap.offsetWidth  || 84;
+    const h  = wrap.offsetHeight || 54;
+
+    const x = Math.random() * (vw - w - margin*2) + margin;
+    const y = Math.random() * (vh - h - margin*2) + margin;
+
+    return { x: clamp(x, margin, vw - w - margin), y: clamp(y, margin, vh - h - margin) };
+  }
+
+  function moveSnake(){
+    if(moving) return;
+    moving = true;
+    wrap.classList.add('moving');
+
+    const {x,y} = randomTarget();
+    wrap.style.transform = `translate(${x}px, ${y}px)`;
+
+    const onDone = () => {
+      wrap.classList.remove('moving');
+      wrap.removeEventListener('transitionend', onDone);
+      moving = false;
+    };
+    wrap.addEventListener('transitionend', onDone, { once:true });
+  }
+
+  function showBubble(){
+    bubble.classList.add('show');
+    setTimeout(()=> bubble.classList.remove('show'), 2600);
+  }
+
+  wrap.addEventListener('click', () => {
+    clicks++;
+    moveSnake();
+    if(clicks >= 3){
+      showBubble();
+      clicks = 0; // opnieuw tellen
+    }
+  });
+
+  // Optioneel: verplaats bij resize als hij buiten beeld zou raken
+  window.addEventListener('resize', () => {
+    const rect = wrap.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const w = wrap.offsetWidth, h = wrap.offsetHeight;
+    let x = rect.left, y = rect.top;
+    let fix = false;
+    if(x + w > vw) { x = vw - w - 24; fix = true; }
+    if(y + h > vh) { y = vh - h - 24; fix = true; }
+    if(x < 24) { x = 24; fix = true; }
+    if(y < 24) { y = 24; fix = true; }
+    if(fix){
+      wrap.style.transform = `translate(${x}px, ${y}px)`;
+    }
+  });
+})();
+</script>
 
 </body></html>
 """
