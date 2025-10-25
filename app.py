@@ -299,24 +299,51 @@ input[type=file]::file-selector-button{
 .btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
 
 /* Progress */
-.progress{
-  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
-  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
-}
-.progress > i{
-  display:block;height:100%;width:0%;
-  background:linear-gradient(90deg,#0f4c98,#1e90ff);
-  transition:width .12s ease; position:relative;
-}
-.progress > i::after{
-  content:""; position:absolute; inset:0;
-  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
-  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
-}
-.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
+/* ─── Upload Progressbar Visual Upgrade ────────────────────────────── */
 
-@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
+/* Achtergrond van de balk: subtiel transparant */
+.progress{
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.25);
+  overflow:hidden;
+  margin-top:1rem;
+  position:relative;
+}
+
+/* Vulling: modern blauw-gradient met lichte glow */
+.progress > i{
+  height:100%;
+  width:0%;
+  background: linear-gradient(90deg,#1570ef,#4aa3ff);
+  box-shadow: 0 0 16px rgba(33,132,255,.45);
+  border-radius: inherit;
+  transition: width .15s ease;
+}
+
+/* Donker thema */
+@media (prefers-color-scheme: dark){
+  .progress{
+    background: rgba(255,255,255,.07);
+    border-color: rgba(255,255,255,.12);
+  }
+  .progress > i{
+    background: linear-gradient(90deg,#1f8fff,#69c1ff);
+    box-shadow: 0 0 18px rgba(115,200,255,.55);
+  }
+}
+
+/* Indeterminate (voor onbekende grootte) */
+.progress.indet > i{
+  width:35%;
+  animation: indet-slide 1.2s infinite ease-in-out;
+}
+@keyframes indet-slide{
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(25%); }
+  100% { transform: translateX(250%); }
+}
 
 /* Tabel */
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
