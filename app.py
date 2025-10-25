@@ -478,94 +478,131 @@ PASS_PROMPT_HTML = """
 INDEX_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
+
 <style>
 {{ base_css }}
-:root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; }
 
-/* Titel/teksten met hoog contrast op donkere kaart */
+/* =========================================================
+   Basis kleurtjes & tekst
+========================================================= */
+:root{
+  --ok:#16a34a;
+  --warn:#eab308;
+  --err:#dc2626;
+  --field-h:48px; /* uniforme veldhoogte */
+}
+
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .card{color:var(--text)}
 label{color:var(--text)}
 .smallmuted{color:var(--muted)}
 
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-.logout a{color:var(--brand);text-decoration:none;font-weight:700}
+
 .grid{display:grid;gap:1rem}
 .cols-2{grid-template-columns:1fr 1fr}
-@media (max-width:760px){.cols-2{grid-template-columns:1fr}}
+@media(max-width:760px){.cols-2{grid-template-columns:1fr}}
 
-/* Toggle */
+/* =========================================================
+   Geen scroll op uploadpagina
+========================================================= */
+html, body{
+  height:100%;
+  overflow:hidden;
+}
+
+/* Bg-lagen altijd full-screen, niet scrollbaar */
+.bg,.bg::before,.bg::after{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+}
+
+/* =========================================================
+   Toggle
+========================================================= */
 .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
 .toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
 .toggle input{accent-color:var(--brand)}
 
-/* File list cards */
+/* =========================================================
+   File cards
+========================================================= */
 .filelist{margin-top:.8rem}
 .filecard{
   display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
   padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
-  background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
+  background:color-mix(in oklab, var(--surface) 86%, white 14%);
+  color:var(--text)
 }
 .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .filecard .meta{color:var(--muted);font-size:.9rem}
 .filecard .act{display:flex;gap:.4rem}
+
 .badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
 .badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
 .badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
 .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
+
 .row{display:flex;align-items:center;gap:.6rem}
 
-/* Progress */
+/* =========================================================
+   Progress
+========================================================= */
 .progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
 .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 
-/* Total */
+/* =========================================================
+   Total sectie
+========================================================= */
 .totalbox{margin-top:1rem}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
 .kv strong{font-weight:700;color:var(--text)}
 .kv span{color:var(--muted)}
 
-/* Buttons */
+/* =========================================================
+   Buttons
+========================================================= */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 
-/* Mooie fade + glass achtergrond achter login status */
+/* =========================================================
+   LOGIN-CHIP (fade glass)
+========================================================= */
 .topbar .logout{
+  display:inline-flex;
+  gap:.35rem;
+  align-items:center;
+  padding:.38rem .75rem;
+  border-radius:999px;
+  color:var(--text)!important;
+
   background:
     linear-gradient(
       to right,
       color-mix(in oklab, var(--surface) 70%, transparent 30%),
       color-mix(in oklab, var(--surface) 55%, transparent 45%)
     );
-  backdrop-filter: blur(10px) saturate(1.2);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
-
-  border: 1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
-  border-radius: 999px;
-
+  border:1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
+  backdrop-filter:blur(10px) saturate(1.2);
+  -webkit-backdrop-filter:blur(10px) saturate(1.2);
   box-shadow:
     0 4px 18px rgba(0,0,0,.12),
     inset 0 0 0 1px rgba(255,255,255,.06);
-
-  padding: .38rem .75rem;
-  display: inline-flex;
-  gap: .35rem;
-  align-items: center;
-  color: var(--text) !important;
 }
 
 .topbar .logout a{
-  color: var(--brand) !important;
-  font-weight: 700;
-  text-decoration: none;
-  opacity: .95;
+  color:var(--brand)!important;
+  font-weight:700;
+  text-decoration:none;
+  opacity:.95;
 }
 .topbar .logout a:hover{
-  text-decoration: underline;
-  opacity: 1;
+  text-decoration:underline;
+  opacity:1;
 }
 
 /* Dark mode */
-@media (prefers-color-scheme: dark){
+@media(prefers-color-scheme:dark){
   .topbar .logout{
     background:
       linear-gradient(
@@ -573,20 +610,19 @@ label{color:var(--text)}
         color-mix(in oklab, var(--surface) 50%, transparent 50%),
         color-mix(in oklab, var(--surface) 35%, transparent 65%)
       );
-    border-color: rgba(255,255,255,.10);
+    border-color:rgba(255,255,255,.10);
     box-shadow:
       0 4px 18px rgba(0,0,0,.5),
       inset 0 0 0 1px rgba(255,255,255,.05);
   }
   .topbar .logout a{
-    color: var(--brand-2) !important;
+    color:var(--brand-2)!important;
   }
 }
 
-
-/* ================== File input perfect uitlijnen ================== */
-:root{ --field-h: 48px; } /* één uniforme veldhoogte */
-
+/* =========================================================
+   File input perfect uitgelijnd
+========================================================= */
 input.input,
 select.input,
 .input,
@@ -595,51 +631,52 @@ input[type=password],
 input[type=email],
 input[type=number],
 textarea{
-  height: var(--field-h);
-  padding: 0 1rem;               /* horizontale padding, verticaal via height */
-  line-height: 1.2;
+  height:var(--field-h);
+  padding:0 1rem;
+  line-height:1.2;
 }
 
-/* Het echte file-veld */
+/* hoofdelement */
 input[type=file]{
-  height: var(--field-h);
-  padding: 0 1rem;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color: var(--text);
-  vertical-align: middle;
-  position: relative;
-  top: -1px;                     /* micro-nudge voor perfecte uitlijning */
+  height:var(--field-h);
+  padding:0 1rem;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color:var(--text);
+  vertical-align:middle;
+  position:relative;
+  top:-1px;
 }
 
-/* De “Choose files” knop binnen het file-veld */
+/* knop erin */
 input[type=file]::file-selector-button{
-  font: inherit;
-  line-height: 1;
-  padding: .50rem .90rem;
-  height: calc(var(--field-h) - 18px); /* centreert de knop in het veld */
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  margin-right: .75rem;
-  cursor: pointer;
+  font:inherit;
+  line-height:1;
+  height:calc(var(--field-h) - 18px);
+  padding:.50rem .90rem;
+  margin-right:.75rem;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--text);
+  cursor:pointer;
 }
 
-/* Dark mode varianten */
-@media (prefers-color-scheme: dark){
+/* dark mode */
+@media(prefers-color-scheme:dark){
   input[type=file]{
-    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    border-color: #374151;
+    background:color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    border-color:#374151;
   }
   input[type=file]::file-selector-button{
-    background: var(--surface);
-    border-color: #374151;
+    background:var(--surface);
+    border-color:#374151;
   }
 }
-
 </style>
+
+
 </head><body>
 {{ bg|safe }}
 
