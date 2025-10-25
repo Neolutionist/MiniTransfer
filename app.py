@@ -212,6 +212,13 @@ body{
   background: var(--surface);
 }
 
+/* Dynamische zichtbaarheid login-status tekst */
+.login-status {
+  font-weight: 700;
+  mix-blend-mode: difference; /* per-letter dynamische contrast magie */
+  color: #fff; /* basis, wordt automatisch aangepast */
+}
+
 /* ======= Nieuwe achtergrond ======= */
 .bg{
   position:fixed; inset:0; z-index:-2; overflow:hidden;
@@ -491,8 +498,11 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 <div class="wrap">
   <div class="topbar">
     <h1>Bestanden delen met Olde Hanter</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-  </div>
+<div class="logout">
+  <span class="login-status">Ingelogd als {{ user }}</span>
+  • <a href="{{ url_for('logout') }}">Uitloggen</a>
+</div>
+
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
