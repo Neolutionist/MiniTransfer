@@ -401,32 +401,24 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
-.logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
-.nav a{color:var(--brand);text-decoration:none;font-weight:700}
-/* Zichtbare per-letter rand (werkt overal, geen blend-mode) */
-.login-status{
-  font-weight:700;
-  letter-spacing:.2px;
-  color:#0f172a; /* licht thema tekstkleur */
-  text-shadow:
-     1px 0 0 #fff, -1px 0 0 #fff, 0 1px 0 #fff, 0 -1px 0 #fff,
-     1px 1px 0 #fff, -1px 1px 0 #fff, 1px -1px 0 #fff, -1px -1px 0 #fff;
+
+/* ====== Topbar & layout (solide en simpel) ====== */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1rem;
+  margin-bottom:1rem;
 }
-/* Donker thema: inverse omlijning */
-@media (prefers-color-scheme: dark){
-  .login-status{
-    color:#e5e7eb;
-    text-shadow:
-       1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000,
-       1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
-  }
-}
-/* Subtiele “glass” achtergrond achter de H1 voor contrast */
+.topbar .title{ flex:1; }
+
+/* H1 altijd leesbaar met subtiele glass-achtergrond */
 .topbar h1{
   display:inline-block;
+  margin:.25rem 0 1rem;
+  color:var(--brand);
+  font-size:2.1rem;
+  font-weight:800;
   padding:.1rem .5rem;
   border-radius:14px;
   background: color-mix(in oklab, var(--panel) 78%, transparent);
@@ -435,21 +427,79 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 }
 @media (prefers-color-scheme: dark){
   .topbar h1{
-    text-shadow: 0 1px 0 rgba(0,0,0,.6);
+    text-shadow: 0 1px 0 rgba(0,0,0,.7);
     background: color-mix(in oklab, var(--panel) 86%, transparent);
   }
 }
+
+/* Loginblok rechts */
+.logout{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:.2rem;
+  line-height:1.15;
+}
+/* “Ingelogd als …” met per-letter omlijning (geen blend-modes) */
+.login-status{
+  font-weight:700;
+  letter-spacing:.2px;
+  color:#0f172a;
+  text-shadow:
+     1px 0 0 #fff, -1px 0 0 #fff, 0 1px 0 #fff, 0 -1px 0 #fff,
+     1px 1px 0 #fff, -1px 1px 0 #fff, 1px -1px 0 #fff, -1px -1px 0 #fff;
+}
+@media (prefers-color-scheme: dark){
+  .login-status{
+    color:#e5e7eb;
+    text-shadow:
+       1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000,
+       1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+  }
+}
+.logout a{ color:var(--brand); text-decoration:none; font-weight:700 }
+
+/* Form toggles */
+.toggle{ display:flex; gap:.75rem; align-items:center; margin:.4rem 0 1rem }
+.nav a{ color:var(--brand); text-decoration:none; font-weight:700 }
+
+/* ====== Robuuste progressbar (altijd zichtbaar) ====== */
+.progress{
+  height:12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.75);
+  position:relative;
+  overflow:hidden;
+  margin-top:.75rem;
+}
+.progress > i{
+  display:block;
+  height:100%;
+  width:0%;
+  background-color:#5aa3ff; /* fallback */
+  background-image:linear-gradient(90deg,#5aa3ff,#9fc5ff);
+  transition:width .12s ease;
+}
+/* Indeterminate modus blijft werken */
+.progress.indet > i{
+  width:40%;
+  animation: indet-move 1.2s linear infinite;
+}
+@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 </style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
   <div class="topbar">
-    <h1>Bestanden delen met Olde Hanter</h1>
-<div class="logout">
-  <span class="login-status">Ingelogd als {{ user }}</span>
-  • <a href="{{ url_for('logout') }}">Uitloggen</a>
-</div>
-
+    <div class="title">
+      <h1>Bestanden delen met Olde Hanter</h1>
+    </div>
+    <div class="logout">
+      <span class="login-status">Ingelogd als {{ user }}</span>
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
+    </div>
+  </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
@@ -482,8 +532,6 @@ h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
   <option value="30" selected>30 dagen</option>
   <option value="60">60 dagen</option>
   <option value="365">1 jaar</option>
-  <!-- Wil je “voor altijd bewaren”? Zet deze aan en zie JS hieronder -->
-  <!-- <option value="forever">Voor altijd bewaren</option> -->
 </select>
       </div>
     </div>
@@ -511,279 +559,261 @@ function sanitizePath(p){
     const dot = n.lastIndexOf('.');
     const base = dot>=0 ? n.slice(0,dot) : n;
     const ext  = dot>=0 ? n.slice(dot) : '';
-    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,''); // diacritics weg
-    s = s.replace(/[^\w.\-]+/g, '_');   // vervang + [ ] spaties etc.
-    s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,''); // opschonen
-    if (s.length > 160) s = s.slice(0,160);          // korter maken
+    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
+    s = s.replace(/[^\w.\-]+/g, '_');
+    s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,'');
+    if (s.length > 160) s = s.slice(0,160);
     return (s || 'file') + ext.replace(/[^.\w-]/g,'');
   });
   return parts.join('/');
 }
 
-  function isIOS(){
-    const ua = navigator.userAgent || navigator.vendor || window.opera;
-    const iOSUA = /iPad|iPhone|iPod/.test(ua);
-    const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    return iOSUA || iPadOS;
+function isIOS(){
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  const iOSUA = /iPad|iPhone|iPod/.test(ua);
+  const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return iOSUA || iPadOS;
+}
+const modeFiles = document.getElementById('modeFiles');
+const modeFolder = document.getElementById('modeFolder');
+const lblFolder = document.getElementById('lblFolder');
+if(isIOS()){ modeFolder.disabled = true; lblFolder.style.display='none'; modeFiles.checked = true; }
+
+const modeRadios = document.querySelectorAll('input[name="upmode"]');
+const fileRow = document.getElementById('fileRow');
+const folderRow = document.getElementById('folderRow');
+const fileInput = document.getElementById('fileInput');
+const folderInput = document.getElementById('folderInput');
+
+function applyMode(openPicker){
+  const mode = document.querySelector('input[name="upmode"]:checked').value;
+  fileRow.style.display  = (mode==='files')  ? '' : 'none';
+  folderRow.style.display = (mode==='folder') ? '' : 'none';
+  if(openPicker===true){
+    try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
   }
-  const modeFiles = document.getElementById('modeFiles');
-  const modeFolder = document.getElementById('modeFolder');
-  const lblFolder = document.getElementById('lblFolder');
-  if(isIOS()){ modeFolder.disabled = true; lblFolder.style.display='none'; modeFiles.checked = true; }
+}
+modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
+applyMode(false);
 
-  const modeRadios = document.querySelectorAll('input[name="upmode"]');
-  const fileRow = document.getElementById('fileRow');
-  const folderRow = document.getElementById('folderRow');
-  const fileInput = document.getElementById('fileInput');
-  const folderInput = document.getElementById('folderInput');
+const resBox=document.getElementById('result');
+const upbar=document.getElementById('upbar');
+const upbarFill=upbar.querySelector('i');
+const uptext=document.getElementById('uptext');
 
-  function applyMode(openPicker){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    fileRow.style.display  = (mode==='files')  ? '' : 'none';
-    folderRow.style.display = (mode==='folder') ? '' : 'none';
-    if(openPicker===true){
-      try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
-    }
-  }
-  modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-  applyMode(false);
+let displayPct = 0; let targetPct  = 0; let animId = null;
 
-  const resBox=document.getElementById('result');
-  const upbar=document.getElementById('upbar');
-  const upbarFill=upbar.querySelector('i');
-  const uptext=document.getElementById('uptext');
+function animateProgress(){
+  const diff = targetPct - displayPct;
+  if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
+  else { displayPct += diff * 0.15; }
+  const p = Math.max(0, Math.min(100, displayPct));
+  upbarFill.style.width = p + "%";
+  uptext.textContent = Math.round(p) + "%";
+  if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
+}
+function setProgress(pct, forceText){
+  targetPct = Math.max(0, Math.min(100, pct || 0));
+  if (!animId) animId = requestAnimationFrame(animateProgress);
+  if (forceText){ uptext.textContent = forceText; }
+}
+function relPath(f){
+  const mode = document.querySelector('input[name="upmode"]:checked').value;
+  return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
+}
 
-  let displayPct = 0; let targetPct  = 0; let animId = null;
-
-  function animateProgress(){
-    const diff = targetPct - displayPct;
-    if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
-    else { displayPct += diff * 0.15; }
-    const p = Math.max(0, Math.min(100, displayPct));
-    upbarFill.style.width = p + "%";
-    uptext.textContent = Math.round(p) + "%";
-    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
-  }
-  function setProgress(pct, forceText){
-    targetPct = Math.max(0, Math.min(100, pct || 0));
-    if (!animId) animId = requestAnimationFrame(animateProgress);
-    if (forceText){ uptext.textContent = forceText; }
-  }
-  function relPath(f){
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
-  }
-
-  async function packageInit(expiryDays, password, title){
-    const r = await fetch("{{ url_for('package_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
-    return j.token;
-  }
-
-  function putWithProgress(url, blob, updateCb, label){
-    return new Promise((resolve,reject)=>{
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url, true);
-      xhr.timeout = 900000;
-      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
-      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
-      xhr.onload = ()=>{
-        if(xhr.status>=200 && xhr.status<300){
-          const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\"','') : null);
-        } else {
-          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
-        }
-      };
-      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
-      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
-      xhr.send(blob);
-    });
-  }
-  async function singleInit(token, filename, type){
-    const r = await fetch("{{ url_for('put_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
-    return j;
-  }
-  async function singleComplete(token, key, name, path){
-    const r = await fetch("{{ url_for('put_complete') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
-    return j;
-  }
-  async function uploadSingle(token, file, relpath, totalTracker){
-    const init = await singleInit(token, file.name, file.type);
-    await putWithProgress(init.url, file, (loaded)=>{
-      const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
-      const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
-      setProgress(pctTotal);
-    }, 'PUT object');
-    await singleComplete(token, init.key, file.name, relpath);
-    totalTracker.currentBase += file.size;
-  }
-
-  async function mpuInit(token, filename, type){
-    const r = await fetch("{{ url_for('mpu_init') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
-    return j;
-  }
-  async function signPart(key, uploadId, partNumber){
-    const r = await fetch("{{ url_for('mpu_sign') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ key, uploadId, partNumber })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
-    return j.url;
-  }
-  async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
-    const r = await fetch("{{ url_for('mpu_complete') }}", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
-    });
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
-    return j;
-  }
-  async function uploadMultipart(token, file, relpath, totalTracker){
-const CHUNK = 24 * 1024 * 1024;  // 24 MiB
-const CONCURRENCY = 6;           // 6 parallelle parts
-    const init = await mpuInit(token, file.name, file.type);
-    const key = init.key, uploadId = init.uploadId;
-
-    const partCount = Math.ceil(Math.max(1, file.size) / CHUNK);
-    const perPart = new Array(partCount).fill(0);
-
-    function refreshTotal(){
-      const uploadedThis = perPart.reduce((a,b)=>a+b,0);
-      const total = totalTracker.currentBase + uploadedThis;
-      const pct = (total / totalTracker.totalBytes) * 100;
-      setProgress(pct);
-    }
-
-    async function uploadPart(partNumber){
-      const idx = partNumber - 1;
-      const start = idx * CHUNK;
-      const end = Math.min(start + CHUNK, file.size);
-      const blob = file.slice(start, end);
-
-      const MAX_TRIES = 6;
-      for(let attempt=1; attempt<=MAX_TRIES; attempt++){
-        try{
-          const url  = await signPart(key, uploadId, partNumber);
-          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, `part ${partNumber}`);
-          perPart[idx] = blob.size; refreshTotal();
-          return { PartNumber: partNumber, ETag: etag };
-        }catch(err){
-          if(attempt===MAX_TRIES) throw err;
-          const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
-          await new Promise(r=>setTimeout(r, backoff));
-        }
-      }
-    }
-
-    const results = new Array(partCount);
-    let next = 1;
-    async function worker(){
-      while(true){
-        const my = next++; if(my > partCount) break;
-        results[my-1] = await uploadPart(my);
-      }
-    }
-    const workers = Array.from({length: Math.min(CONCURRENCY, partCount)}, ()=>worker());
-    await Promise.all(workers);
-
-    await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
-    totalTracker.currentBase += file.size;
-  }
-
-  document.getElementById('f').addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const mode = document.querySelector('input[name="upmode"]:checked').value;
-    const files = Array.from((mode==='files'?fileInput.files:folderInput.files)||[]);
-    if(!files.length){
-      alert("Kies bestand(en)" + (isIOS() ? "" : " of map"));
-      try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
-      return;
-    }
-
-const edSel = document.getElementById('expDays');
-// Standaard: pak de gekozen dagen
-let expiryDays = edSel.value;
-
-// (Optioneel) ondersteuning voor “Voor altijd bewaren”:
-// if (expiryDays === 'forever') {
-//   // Back-end verwacht dagen; geef bv. 100 jaar mee
-//   expiryDays = 36500;
-// }
-
-    const password   = document.getElementById('pw').value || '';
-    const title      = document.getElementById('title').value || '';
-
-    const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
-    const tracker = { totalBytes, currentBase: 0 };
-
-    upbar.style.display='block'; uptext.style.display='block';
-    displayPct = 0; targetPct = 0; if (animId){ cancelAnimationFrame(animId); animId = null; }
-    setProgress(0);
-
-    try{
-      const token = await packageInit(expiryDays, password, title);
-      for(const f of files){
-        const rel = sanitizePath(relPath(f));
-        if(f.size < 5 * 1024 * 1024){
-          await uploadSingle(token, f, rel, tracker);
-        }else{
-          await uploadMultipart(token, f, rel, tracker);
-        }
-      }
-
-      if (animId){ cancelAnimationFrame(animId); animId = null; }
-      setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
-
-      const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-
-      resBox.innerHTML = `
-        <div class="card" style="margin-top:1rem">
-          <strong>Deelbare link</strong>
-          <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
-            <button class="btn" type="button" id="copyBtn">Kopieer</button>
-            <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
-          </div>
-        </div>`;
-
-      const copyBtn = document.getElementById('copyBtn');
-      const copyOk  = document.getElementById('copyOk');
-      const input   = document.getElementById('shareLinkInput');
-      copyBtn.addEventListener('click', async ()=>{
-        try{ await (navigator.clipboard?.writeText(input.value)); }
-        catch(e){ input.select(); document.execCommand?.('copy'); }
-        copyOk.style.display = 'inline';
-        setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
-      });
-
-      setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
-
-    }catch(err){
-      alert(err.message || 'Onbekende fout');
-    }
+async function packageInit(expiryDays, password, title){
+  const r = await fetch("{{ url_for('package_init') }}", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
   });
+  const j = await r.json();
+  if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
+  return j.token;
+}
+
+function putWithProgress(url, blob, updateCb, label){
+  return new Promise((resolve,reject)=>{
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    xhr.timeout = 900000;
+    xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
+    xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
+    xhr.onload = ()=>{
+      if(xhr.status>=200 && xhr.status<300){
+        const etag = xhr.getResponseHeader("ETag");
+        resolve(etag ? etag.replaceAll('\"','') : null);
+      } else {
+        reject(new Error(\`HTTP \${xhr.status} \${xhr.statusText||''} bij \${label||'upload'}: \${xhr.responseText||''}\`));
+      }
+    };
+    xhr.onerror   = ()=> reject(new Error(\`Netwerkfout bij \${label||'upload'} (CORS/endpoint?)\`));
+    xhr.ontimeout = ()=> reject(new Error(\`Timeout bij \${label||'upload'}\`));
+    xhr.send(blob);
+  });
+}
+async function singleInit(token, file, relpath, totalTracker){
+  const init = await fetch("{{ url_for('put_init') }}", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ token, filename: file.name, contentType: file.type || "application/octet-stream" })
+  }).then(r=>r.json());
+  if(!init.ok) throw new Error(init.error || "Init (PUT) mislukt");
+  await putWithProgress(init.url, file, (loaded)=>{
+    const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
+    const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
+    setProgress(pctTotal);
+  }, 'PUT object');
+  await fetch("{{ url_for('put_complete') }}", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ token, key: init.key, name: file.name, path: relpath })
+  }).then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error || "Afronden (PUT) mislukt"); });
+  totalTracker.currentBase += file.size;
+}
+
+async function mpuInit(token, filename, type){
+  const r = await fetch("{{ url_for('mpu_init') }}", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
+  });
+  const j = await r.json();
+  if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
+  return j;
+}
+async function signPart(key, uploadId, partNumber){
+  const r = await fetch("{{ url_for('mpu_sign') }}", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ key, uploadId, partNumber })
+  });
+  const j = await r.json();
+  if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
+  return j.url;
+}
+async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
+  const r = await fetch("{{ url_for('mpu_complete') }}", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
+  });
+  const j = await r.json();
+  if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
+  return j;
+}
+async function uploadMultipart(token, file, relpath, totalTracker){
+  const CHUNK = 24 * 1024 * 1024;
+  const CONCURRENCY = 6;
+  const init = await mpuInit(token, file.name, file.type);
+  const key = init.key, uploadId = init.uploadId;
+
+  const partCount = Math.ceil(Math.max(1, file.size) / CHUNK);
+  const perPart = new Array(partCount).fill(0);
+
+  function refreshTotal(){
+    const uploadedThis = perPart.reduce((a,b)=>a+b,0);
+    const total = totalTracker.currentBase + uploadedThis;
+    const pct = (total / totalTracker.totalBytes) * 100;
+    setProgress(pct);
+  }
+
+  async function uploadPart(partNumber){
+    const idx = partNumber - 1;
+    const start = idx * CHUNK;
+    const end = Math.min(start + CHUNK, file.size);
+    const blob = file.slice(start, end);
+
+    const MAX_TRIES = 6;
+    for(let attempt=1; attempt<=MAX_TRIES; attempt++){
+      try{
+        const url  = await signPart(key, uploadId, partNumber);
+        const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, \`part \${partNumber}\`);
+        perPart[idx] = blob.size; refreshTotal();
+        return { PartNumber: partNumber, ETag: etag };
+      }catch(err){
+        if(attempt===MAX_TRIES) throw err;
+        const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
+        await new Promise(r=>setTimeout(r, backoff));
+      }
+    }
+  }
+
+  const results = new Array(partCount);
+  let next = 1;
+  async function worker(){
+    while(true){
+      const my = next++; if(my > partCount) break;
+      results[my-1] = await uploadPart(my);
+    }
+  }
+  const workers = Array.from({length: Math.min(CONCURRENCY, partCount)}, ()=>worker());
+  await Promise.all(workers);
+
+  await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
+  totalTracker.currentBase += file.size;
+}
+
+document.getElementById('f').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const mode = document.querySelector('input[name="upmode"]:checked').value;
+  const files = Array.from((mode==='files'?fileInput.files:folderInput.files)||[]);
+  if(!files.length){
+    alert("Kies bestand(en)" + (isIOS() ? "" : " of map"));
+    try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
+    return;
+  }
+
+  const edSel = document.getElementById('expDays');
+  let expiryDays = edSel.value;
+
+  const password   = document.getElementById('pw').value || '';
+  const title      = document.getElementById('title').value || '';
+
+  const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
+  const tracker = { totalBytes, currentBase: 0 };
+
+  upbar.style.display='block'; uptext.style.display='block';
+  displayPct = 0; targetPct = 0; if (animId){ cancelAnimationFrame(animId); animId = null; }
+  setProgress(0);
+
+  try{
+    const token = await packageInit(expiryDays, password, title);
+    for(const f of files){
+      const rel = sanitizePath(relPath(f));
+      if(f.size < 5 * 1024 * 1024){
+        await singleInit(token, f, rel, tracker);
+      }else{
+        await uploadMultipart(token, f, rel, tracker);
+      }
+    }
+
+    if (animId){ cancelAnimationFrame(animId); animId = null; }
+    setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
+
+    const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+
+    resBox.innerHTML = `
+      <div class="card" style="margin-top:1rem">
+        <strong>Deelbare link</strong>
+        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
+          <input id="shareLinkInput" class="input" style="flex:1" value="\${link}" readonly>
+          <button class="btn" type="button" id="copyBtn">Kopieer</button>
+          <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
+        </div>
+      </div>`;
+
+    const copyBtn = document.getElementById('copyBtn');
+    const copyOk  = document.getElementById('copyOk');
+    const input   = document.getElementById('shareLinkInput');
+    copyBtn.addEventListener('click', async ()=>{
+      try{ await (navigator.clipboard?.writeText(input.value)); }
+      catch(e){ input.select(); document.execCommand?.('copy'); }
+      copyOk.style.display = 'inline';
+      setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
+    });
+
+    setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
+
+  }catch(err){
+    alert(err.message || 'Onbekende fout');
+  }
+});
 </script>
 </body></html>
 """
@@ -800,19 +830,18 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 
-/* Kolom 'Grootte' nooit laten afbreken (ook in mobile layout) */
+/* Kolom 'Grootte' niet laten afbreken (ook mobiel) */
 .table th.col-size,
 .table td.col-size,
 .table td[data-label="Grootte"]{
   white-space: nowrap;
   text-align: right;
-  min-width: 72px; /* naar smaak aanpassen */
+  min-width: 72px;
 }
 
-/* Zet CTA netjes los onder de kaart */
+/* Geen overlap met CTA: kaart boven, CTA eronder met ruimte */
 .card{ position:relative; z-index:0; }
 .cta{ margin-top:1.25rem; }
-
 </style></head><body>
 {{ bg|safe }}
 
@@ -878,7 +907,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     if(!res.ok){
       const xerr = res.headers.get('X-Error') || '';
       let body=''; try{ body = await res.text(); }catch(e){}
-      alert(`Fout ${res.status}${xerr?' – '+xerr:''}${body?'\\n\\n'+body:''}`);
+      alert(\`Fout \${res.status}\${xerr?' – '+xerr:''}\${body?'\\n\\n'+body:''}\`);
       return;
     }
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
