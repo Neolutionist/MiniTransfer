@@ -538,7 +538,7 @@ input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 8
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-  <div class="card">
+<div class="card contact-card">
     <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
         <label>Uploadtype</label>
@@ -1062,6 +1062,85 @@ input.input, select.input {
 .btn {
   background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
 }
+
+/* ===== Contact page: solid card + high contrast ===== */
+.contact-card{
+  /* OPAQUE in light mode */
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: 0 18px 40px rgba(0,0,0,.18);
+  backdrop-filter: none; /* geen glas */
+}
+
+/* Teksten in de kaart */
+.contact-card h1,
+.contact-card label,
+.contact-card .small,
+.contact-card .helper,
+.contact-card .notice {
+  color: #0f172a !important;
+}
+.contact-card .small,
+.contact-card .helper,
+.contact-card .notice {
+  color: #334155 !important;  /* subtieler maar nog goed leesbaar */
+}
+
+/* Input/Select velden */
+.contact-card .input,
+.contact-card input[type=text],
+.contact-card input[type=email],
+.contact-card input[type=tel],
+.contact-card input[type=password],
+.contact-card select,
+.contact-card textarea{
+  color: #0f172a !important;
+  background: #f8fafc !important;   /* bijna wit, geen transparantie */
+  border: 1px solid #cbd5e1 !important;
+}
+.contact-card input::placeholder,
+.contact-card textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Divider/links/knoppen */
+.contact-card .divider{ background:#e5e7eb !important; }
+.contact-card a{ color:#0f4c98 !important; text-decoration: underline; }
+.contact-card .btn{ background: linear-gradient(180deg,#4a9fff,#1c62d2) !important; color:#fff !important; }
+
+/* ---- Dark mode variant ---- */
+@media (prefers-color-scheme: dark){
+  .contact-card{
+    background: #0b1020 !important;
+    color: #e5e7eb !important;
+    border: 1px solid #1f2937 !important;
+    box-shadow: 0 18px 40px rgba(0,0,0,.4);
+  }
+  .contact-card h1,
+  .contact-card label{ color:#e5e7eb !important; }
+  .contact-card .small,
+  .contact-card .helper,
+  .contact-card .notice{ color:#9aa3b2 !important; }
+
+  .contact-card .input,
+  .contact-card input[type=text],
+  .contact-card input[type=email],
+  .contact-card input[type=tel],
+  .contact-card input[type=password],
+  .contact-card select,
+  .contact-card textarea{
+    background: #0f172a !important;
+    border: 1px solid #374151 !important;
+    color:#e5e7eb !important;
+  }
+  .contact-card input::placeholder,
+  .contact-card textarea::placeholder{ color:#9aa3b2 !important; }
+
+  .contact-card .divider{ background:#1f2937 !important; }
+  .contact-card a{ color:#7db4ff !important; }
+}
+
 
 </style></head><body>
 {{ bg|safe }}
