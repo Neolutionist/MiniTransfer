@@ -538,7 +538,7 @@ input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 8
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-<div class="card contact-card">
+<div class="card">
     <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
         <label>Uploadtype</label>
@@ -990,12 +990,14 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   }
 
   // Alleen voor het geval er maar één bestand is: progress aan
-  {% if items|length == 1 %}
-    document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
-                   "{{ items[0]['name'] }}");
-    });
-  {% endif %}
+{% if items|length == 1 %}
+  document.getElementById('dlSingle')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+                 "{{ items[0]['name'] }}");
+  });
+{% endif %}
+
 </script>
 
 </body></html>
@@ -1003,144 +1005,116 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 
 CONTACT_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}<style>{{ base_css }}
-.form-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:1rem}
-.notice{display:block;margin-top:.5rem;color:#334155}
-.helper{font-size:.9rem;color:#475569;margin-top:.35rem}
-.section-gap{margin-top:1rem}
-.divider{height:1px;background:#e5e7eb;margin:1.2rem 0}
-@media (max-width:680px){.form-actions{gap:.5rem}}
+<title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}
 
-/* --- CONTRAST FIX FOR CONTACT CARD --- */
-.card {
-  background: rgba(255,255,255,0.12) !important;
-  border: 1px solid rgba(255,255,255,0.25) !important;
-  backdrop-filter: blur(20px) saturate(1.5);
-}
+<style>
+  {{ base_css }}
 
-.card, 
-.card h1, 
-label, 
-.input, 
-.footer, 
-.small, 
-.helper, 
-.notice {
-  color: #e8ecf7 !important;
-}
+  /* ---------- Page-specific base styles ---------- */
+  .form-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:1rem}
+  .notice{display:block;margin-top:.5rem;color:#334155}
+  .helper{font-size:.9rem;color:#475569;margin-top:.35rem}
+  .section-gap{margin-top:1rem}
+  .divider{height:1px;background:#e5e7eb;margin:1.2rem 0}
+  @media (max-width:680px){.form-actions{gap:.5rem}}
 
-input::placeholder,
-textarea::placeholder {
-  color: rgba(255,255,255,0.55) !important;
-}
-
-.helper code {
-  background: rgba(255,255,255,0.2) !important;
-  color: #fff !important;
-  padding: .15rem .45rem;
-  border-radius: .4rem;
-}
-
-a {
-  color: #a1d2ff !important;
-  text-decoration: underline;
-}
-
-.divider {
-  background: rgba(255,255,255,0.35) !important;
-}
-
-input.input, select.input {
-  border: 1px solid rgba(255,255,255,0.35) !important;
-  background: rgba(0,0,0,0.3) !important;
-}
-
-.btn {
-  background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
-}
-
-/* ===== Contact page: solid card + high contrast ===== */
-.contact-card{
-  /* OPAQUE in light mode */
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid #e5e7eb !important;
-  box-shadow: 0 18px 40px rgba(0,0,0,.18);
-  backdrop-filter: none; /* geen glas */
-}
-
-/* Teksten in de kaart */
-.contact-card h1,
-.contact-card label,
-.contact-card .small,
-.contact-card .helper,
-.contact-card .notice {
-  color: #0f172a !important;
-}
-.contact-card .small,
-.contact-card .helper,
-.contact-card .notice {
-  color: #334155 !important;  /* subtieler maar nog goed leesbaar */
-}
-
-/* Input/Select velden */
-.contact-card .input,
-.contact-card input[type=text],
-.contact-card input[type=email],
-.contact-card input[type=tel],
-.contact-card input[type=password],
-.contact-card select,
-.contact-card textarea{
-  color: #0f172a !important;
-  background: #f8fafc !important;   /* bijna wit, geen transparantie */
-  border: 1px solid #cbd5e1 !important;
-}
-.contact-card input::placeholder,
-.contact-card textarea::placeholder {
-  color: #6b7280 !important;
-}
-
-/* Divider/links/knoppen */
-.contact-card .divider{ background:#e5e7eb !important; }
-.contact-card a{ color:#0f4c98 !important; text-decoration: underline; }
-.contact-card .btn{ background: linear-gradient(180deg,#4a9fff,#1c62d2) !important; color:#fff !important; }
-
-/* ---- Dark mode variant ---- */
-@media (prefers-color-scheme: dark){
-  .contact-card{
-    background: #0b1020 !important;
-    color: #e5e7eb !important;
-    border: 1px solid #1f2937 !important;
-    box-shadow: 0 18px 40px rgba(0,0,0,.4);
+  /* =====================================================
+     CONTACT PAGE — SOLID, READABLE CARD (light & dark)
+     ===================================================== */
+  .card.contact-card{
+    /* light mode: bijna opaak */
+    background: rgba(255,255,255,0.9) !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+    border-radius: 20px;
+    box-shadow: 0 18px 40px rgba(0,0,0,.18);
+    backdrop-filter: blur(12px) saturate(1.2);
   }
-  .contact-card h1,
-  .contact-card label{ color:#e5e7eb !important; }
-  .contact-card .small,
-  .contact-card .helper,
-  .contact-card .notice{ color:#9aa3b2 !important; }
 
-  .contact-card .input,
-  .contact-card input[type=text],
-  .contact-card input[type=email],
-  .contact-card input[type=tel],
-  .contact-card input[type=password],
-  .contact-card select,
-  .contact-card textarea{
-    background: #0f172a !important;
-    border: 1px solid #374151 !important;
-    color:#e5e7eb !important;
+  /* Koppen en labels */
+  .card.contact-card h1,
+  .card.contact-card label{
+    color:#0f172a !important;
   }
-  .contact-card input::placeholder,
-  .contact-card textarea::placeholder{ color:#9aa3b2 !important; }
 
-  .contact-card .divider{ background:#1f2937 !important; }
-  .contact-card a{ color:#7db4ff !important; }
-}
+  /* Subteksten */
+  .card.contact-card .small,
+  .card.contact-card .helper,
+  .card.contact-card .notice{
+    color:#334155 !important;
+  }
+
+  /* Invoervelden (goed contrast, geen transparantie) */
+  .card.contact-card .input,
+  .card.contact-card input[type=text],
+  .card.contact-card input[type=email],
+  .card.contact-card input[type=tel],
+  .card.contact-card input[type=password],
+  .card.contact-card select,
+  .card.contact-card textarea{
+    color:#0f172a !important;
+    background:#f8fafc !important;
+    border:1px solid #cbd5e1 !important;
+  }
+  .card.contact-card input::placeholder,
+  .card.contact-card textarea::placeholder{
+    color:#6b7280 !important;
+  }
+  .card.contact-card .input:focus,
+  .card.contact-card input:focus,
+  .card.contact-card select:focus,
+  .card.contact-card textarea:focus{
+    border-color:#2563eb !important;
+    box-shadow:0 0 0 4px color-mix(in oklab, #2563eb 25%, transparent) !important;
+    outline:0;
+  }
+
+  /* Divider, links en knoppen */
+  .card.contact-card .divider{ background:#e5e7eb !important; }
+  .card.contact-card a{ color:#0f4c98 !important; text-decoration: underline; }
+  .card.contact-card .btn{
+    background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
+    color:#fff !important;
+  }
+
+  /* ---------------- Dark mode variant ---------------- */
+  @media (prefers-color-scheme: dark){
+    .card.contact-card{
+      background: rgba(15,23,42,0.92) !important; /* bijna opaak donker */
+      color:#e5e7eb !important;
+      border:1px solid rgba(255,255,255,0.14) !important;
+      box-shadow: 0 18px 40px rgba(0,0,0,.42);
+    }
+    .card.contact-card h1,
+    .card.contact-card label{ color:#e5e7eb !important; }
+
+    .card.contact-card .small,
+    .card.contact-card .helper,
+    .card.contact-card .notice{ color:#9aa3b2 !important; }
+
+    .card.contact-card .input,
+    .card.contact-card input[type=text],
+    .card.contact-card input[type=email],
+    .card.contact-card input[type=tel],
+    .card.contact-card input[type=password],
+    .card.contact-card select,
+    .card.contact-card textarea{
+      background:#0f172a !important;
+      border:1px solid #374151 !important;
+      color:#e5e7eb !important;
+    }
+    .card.contact-card input::placeholder,
+    .card.contact-card textarea::placeholder{ color:#9aa3b2 !important; }
+
+    .card.contact-card .divider{ background:#1f2937 !important; }
+    .card.contact-card a{ color:#7db4ff !important; }
+  }
+</style>
 
 
-</style></head><body>
+</head><body>
 {{ bg|safe }}
-<div class="wrap"><div class="card">
+<div class="wrap"><div class="card contact-card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
 
