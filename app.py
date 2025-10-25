@@ -1058,57 +1058,55 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   .table thead th{ opacity:.95; }
 }
 
-/* --- Mini Snake mascot --- */
-#snake-mascot{
-  position:fixed;            /* blijft op het scherm */
-  width:56px; height:56px;
-  inset:auto auto 18px 18px; /* start linksonder */
-  z-index:50;                /* boven de kaart, onder modals */
+/* ==== Dynamische zwarte slang (downloadpagina) ====================== */
+#snakeWrap{
+  position:fixed;
+  z-index:9999;
+  width:150px;               /* totale grootte slang */
+  height:100px;
+  left:24px;                 /* startplek */
+  bottom:96px;
+  transform:translate3d(0,0,0);
+  will-change:transform;
   cursor:pointer;
-  filter: drop-shadow(0 3px 6px rgba(0,0,0,.25));
-  transition: transform .55s cubic-bezier(.18,.9,.24,1.1);
-  will-change: transform;
   user-select:none;
 }
-#snake-mascot svg{ display:block; width:100%; height:100%; }
 
-#snake-bubble{
-  position:fixed;
-  max-width: 260px;
-  padding:.55rem .7rem;
-  background: color-mix(in oklab, var(--surface) 92%, white 8%);
-  color: var(--text);
-  border:1px solid color-mix(in oklab, var(--line) 90%, black 10%);
-  border-radius:12px;
-  box-shadow:0 10px 26px rgba(0,0,0,.18);
-  font-size:.95rem;
+#snakeWrap svg{
+  width:100%;
+  height:100%;
+  overflow:visible;
+}
+
+/* Tekstballon */
+#snakeBubble{
+  position:absolute;
+  bottom:72px;
+  left:-10px;
+  width:190px;
+  background:#fff;
+  color:#111;
+  border:1px solid rgba(0,0,0,.15);
+  padding:.5rem .7rem;
+  border-radius:10px;
+  box-shadow:0 10px 24px rgba(0,0,0,.25);
+  font-size:.85rem;
   line-height:1.25;
-  z-index:51;
-  transform: translateY(8px);
-  opacity:0; pointer-events:none;
-  transition: opacity .18s ease, transform .18s ease;
+  opacity:0;
+  transform:translateY(8px);
+  pointer-events:none;
+  transition:opacity .2s, transform .2s;
 }
-#snake-bubble.show{
-  opacity:1; transform: translateY(0);
-}
-#snake-bubble::after{
+#snakeBubble.show{ opacity:1; transform:translateY(0); }
+#snakeBubble:after{
   content:"";
-  position:absolute; left:14px; bottom:-8px;
-  border:8px solid transparent;
-  border-top-color: color-mix(in oklab, var(--surface) 92%, white 8%);
-  filter: drop-shadow(0 2px 2px rgba(0,0,0,.12));
+  position:absolute;
+  left:26px; bottom:-10px;
+  border-width:10px 8px 0 8px;
+  border-style:solid;
+  border-color:#fff transparent transparent transparent;
 }
-/* Dark mode bubble */
-@media (prefers-color-scheme: dark){
-  #snake-bubble{
-    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    color: var(--text);
-    border-color: color-mix(in oklab, var(--line) 30%, white 10%);
-  }
-  #snake-bubble::after{
-    border-top-color: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-  }
-}
+
 
 /* --- Mooie afgeronde rijen voor bestandslijst --- */
 .table tbody tr {
@@ -1388,197 +1386,185 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   });
 })();
 
-/* --- Snake mascot logic --- */
-(function(){
-  const snake = document.getElementById('snake-mascot');
-  const bubble = document.getElementById('snake-bubble');
-  if(!snake || !bubble) return;
-
-  let clicks = 0;
-  let bubbleTimer = null;
-
-  // verplaats slang naar een willekeurige plek op het scherm
-  function moveSnake(){
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
-    const w = snake.offsetWidth || 56;
-    const h = snake.offsetHeight || 56;
-
-    // veilige marges zodat hij niet over knoppen/voettekst valt
-    const margin = 16;
-    const topMin = 80;                 // niet in de titel plakken
-    const topMax = vh - h - margin - 40;
-    const leftMin = margin;
-    const leftMax = vw - w - margin;
-
-    const top = Math.floor(Math.random() * (topMax - topMin + 1)) + topMin;
-    const left = Math.floor(Math.random() * (leftMax - leftMin + 1)) + leftMin;
-
-    // we animeren via translate zodat layout niet triggert
-    snake.style.transform = `translate(${left - 18}px, ${top - (vh - h - 18)}px)`; 
-    // ^ basispositie is left:18px; bottom:18px → we rekenen om naar translate(x,y)
-  }
-
-  function showBubble(){
-    // positioneer de ballon boven het slangetje
-    const rect = snake.getBoundingClientRect();
-    const x = rect.left + 6;
-    const y = rect.top - 8; // net erboven
-
-    bubble.style.left = `${x}px`;
-    bubble.style.top  = `${y - bubble.offsetHeight}px`;
-    bubble.classList.add('show');
-
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(()=> bubble.classList.remove('show'), 2600);
-  }
-
-  snake.addEventListener('click', () => {
-    clicks += 1;
-    moveSnake();
-    if(clicks >= 3){
-      clicks = 0;
-      showBubble();
-    }
-  });
-
-  // initiale subtiele offset (past het translate-systeem aan de start aan)
-  requestAnimationFrame(()=>{ snake.style.transform = 'translate(0,0)'; });
-})();
-
-</script>
-
-<!-- Nieuwe mini slang -->
-<div id="snake">
-<svg viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg">
-  <!-- lijf -->
-  <path d="M10,60 C40,30 60,90 90,60 C115,35 140,60 140,60"
-        fill="none" stroke="#000" stroke-width="14"
-        stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- kop -->
-  <circle cx="148" cy="60" r="12" fill="#000"/>
-  <!-- oog -->
-  <circle cx="152" cy="56" r="2.6" fill="#fff"/>
-  <!-- tong -->
-  <path d="M156 64 l10 1 -10 3" stroke="#000" stroke-width="2"
-        stroke-linecap="round" fill="none"/>
-</svg>
+<!-- ====== Slang: klein, zwart, dynamisch ====== -->
+<div id="snakeWrap" aria-label="speels slangetje">
+  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
+    <!-- groep die we roteren met de vliegrichting -->
+    <g id="snakeGroup">
+      <!-- ruggengraat (onzichtbaar, handig voor debug) -->
+      <path id="spine" d="" fill="none" stroke="none"/>
+      <!-- lichaam -->
+      <path id="body" d="" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>
+      <!-- kop (op de punt) -->
+      <g id="head">
+        <circle id="headFill" cx="0" cy="0" r="12" fill="#000"/>
+        <circle id="eye" cx="4" cy="-4" r="2.6" fill="#fff"/>
+        <!-- simpel tongetje -->
+        <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </g>
+    </g>
+  </svg>
   <div id="snakeBubble">laat mij met rust, ik ben maar een lief slangetje xxx</div>
 </div>
 
 <script>
 (function(){
-  const snake  = document.getElementById("snake");
-  const bubble = document.getElementById("snakeBubble");
-  let clicks = 0;
+  // --- basis elementen
+  const wrap  = document.getElementById('snakeWrap');
+  const group = document.getElementById('snakeGroup');
+  const body  = document.getElementById('body');
+  const head  = document.getElementById('head');
+  const bubble= document.getElementById('snakeBubble');
 
-  const slithers = ["slither1","slither2","slither3"];
+  // --- instellingen
+  const L = 120;                // lengte van de slang-as in SVG eenheden
+  const N = 22;                 // aantal samplepunten
+  let   amp = 6;                // amplitude van kronkel
+  let   freq = 0.13;            // golf-frequentie
+  let   phase = 0;              // lopende fase (animeren)
+  let   speed = 140;            // pixels/s (schermverplaatsing)
+  let   lastT = performance.now();
 
-  function randomSlither(){
-    // eerst alles verwijderen
-    slithers.forEach(c => snake.classList.remove(c));
-    // dan 1 willekeurige animatie toevoegen
-    snake.classList.add(slithers[Math.floor(Math.random()*slithers.length)]);
-  }
+  // positie + doel (schermcoördinaten)
+  let pos = { x: wrap.offsetLeft, y: wrap.offsetTop };
+  let target = { x: pos.x, y: pos.y };
+  let clickCount = 0;
 
-  function randomMove(){
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const x = Math.random() * (vw - 140);
-    const y = Math.random() * (vh - 140);
-    snake.style.transform = `translate(${x}px, ${y}px)`;
-  }
+  // handige utils
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function rand(a,b){ return a + Math.random()*(b-a); }
 
-  function talk(){
-    bubble.classList.add("show");
-    setTimeout(() => bubble.classList.remove("show"), 2500);
-  }
-
-  snake.addEventListener("click", () => {
-    clicks++;
-    randomSlither();
-    randomMove();
-    if(clicks >= 3){
-      talk();
-      clicks = 0;
+  // bereken een polyline (as) en bouw daar een "smooth" path van
+  function computeSpinePoints(){
+    const pts = [];
+    for(let i=0;i<N;i++){
+      const x = (L/(N-1))*i;
+      const y = amp * Math.sin(freq * x + phase);
+      pts.push([x, y]);
     }
-  });
-})();
-</script>
-
-
-<script>
-(function(){
-  const wrap   = document.getElementById('snakeWrap');
-  const bubble = document.getElementById('snakeBubble');
-  if(!wrap) return;
-
-  let clicks = 0;
-  let moving = false;
-
-  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-
-  function randomTarget(){
-    // Houd marge zodat hij niet buiten beeld valt
-    const margin = 24;
-    const vw = Math.max(document.documentElement.clientWidth,  window.innerWidth  || 0);
-    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
-    const w  = wrap.offsetWidth  || 84;
-    const h  = wrap.offsetHeight || 54;
-
-    const x = Math.random() * (vw - w - margin*2) + margin;
-    const y = Math.random() * (vh - h - margin*2) + margin;
-
-    return { x: clamp(x, margin, vw - w - margin), y: clamp(y, margin, vh - h - margin) };
+    return pts;
   }
 
-  function moveSnake(){
-    if(moving) return;
-    moving = true;
-    wrap.classList.add('moving');
+  // Catmull-Rom → cubic Bezier conversie (soepeler dan L-segmenten)
+  function catmullRom2bezier(points){
+    if(points.length < 2) return '';
+    const d = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i-1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i+1];
+      const p3 = points[i+2] || p2;
 
-    const {x,y} = randomTarget();
-    wrap.style.transform = `translate(${x}px, ${y}px)`;
+      const cp1x = p1[0] + (p2[0]-p0[0]) / 6;
+      const cp1y = p1[1] + (p2[1]-p0[1]) / 6;
+      const cp2x = p2[0] - (p3[0]-p1[0]) / 6;
+      const cp2y = p2[1] - (p3[1]-p1[1]) / 6;
 
-    const onDone = () => {
-      wrap.classList.remove('moving');
-      wrap.removeEventListener('transitionend', onDone);
-      moving = false;
-    };
-    wrap.addEventListener('transitionend', onDone, { once:true });
-  }
-
-  function showBubble(){
-    bubble.classList.add('show');
-    setTimeout(()=> bubble.classList.remove('show'), 2600);
-  }
-
-  wrap.addEventListener('click', () => {
-    clicks++;
-    moveSnake();
-    if(clicks >= 3){
-      showBubble();
-      clicks = 0; // opnieuw tellen
+      if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
+      d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
     }
-  });
+    return d.join(' ');
+  }
 
-  // Optioneel: verplaats bij resize als hij buiten beeld zou raken
+  // update oriëntatie kop (naar +X in groepcoördinaat)
+  function placeHead(points){
+    // kop op laatste punt
+    const pLast = points[points.length-1];
+    const pPrev = points[points.length-2];
+    const dx = pLast[0]-pPrev[0], dy = pLast[1]-pPrev[1];
+    const ang = Math.atan2(dy, dx) * 180/Math.PI;
+    head.setAttribute('transform', `translate(${pLast[0]} ${pLast[1]}) rotate(${ang})`);
+  }
+
+  // rotatie hele slang naar vliegrichting
+  function rotateGroupTo(angleRad){
+    const angDeg = angleRad * 180/Math.PI;
+    // we willen dat de slang naar +X wijst in z'n eigen local space;
+    // roteer rond het "staart"-begin (0,0) iets naar linksonder op onze viewBox
+    group.setAttribute('transform', `translate(0 0) rotate(${angDeg})`);
+  }
+
+  // beweeg container naar target (met begrenzing binnen viewport)
+  function moveContainer(dt){
+    const dx = target.x - pos.x;
+    const dy = target.y - pos.y;
+    const dist = Math.hypot(dx,dy);
+    if (dist < 1) return;
+
+    const step = Math.min(dist, speed * dt);
+    const nx = pos.x + dx/dist * step;
+    const ny = pos.y + dy/dist * step;
+    pos.x = nx; pos.y = ny;
+    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+  }
+
+  // een veilig doelpunt binnen beeld (met marge t.o.v. slang-grootte)
+  function pickSafeTarget(){
+    const margin = 18;
+    const W = window.innerWidth  - wrap.clientWidth  - margin;
+    const H = window.innerHeight - wrap.clientHeight - margin;
+    const x = clamp(rand(margin, W), margin, W);
+    const y = clamp(rand(margin, H), margin, H);
+    return {x,y};
+  }
+
+  // klik → nieuw doel + variatie in kronkel
+  function onClick(){
+    clickCount++;
+    target = pickSafeTarget();
+    amp = rand(5, 8);
+    freq = rand(0.11, 0.16);
+
+    if(clickCount >= 3){
+      bubble.classList.add('show');
+      setTimeout(()=> bubble.classList.remove('show'), 2400);
+      clickCount = 0;
+    }
+  }
+  wrap.addEventListener('click', onClick, {passive:true});
+
+  // start met een veilig doel (zodat hij binnen beeld blijft)
+  target = pickSafeTarget();
+
+  // animatielus
+  function tick(t){
+    const dt = (t - lastT)/1000; lastT = t;
+
+    // fase laten lopen (levend kronkelen)
+    phase += 6.5 * dt;
+
+    // richting naar doel
+    const vx = target.x - pos.x, vy = target.y - pos.y;
+    const angle = Math.atan2(vy, vx);
+    rotateGroupTo(angle);
+
+    // body tekenen
+    const spine = computeSpinePoints();
+    const d = catmullRom2bezier(spine);
+    body.setAttribute('d', d);
+    placeHead(spine);
+
+    // container verplaatsen
+    moveContainer(dt);
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // her-bereken target veiligheid bij resize/orientation
   window.addEventListener('resize', () => {
-    const rect = wrap.getBoundingClientRect();
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const w = wrap.offsetWidth, h = wrap.offsetHeight;
-    let x = rect.left, y = rect.top;
-    let fix = false;
-    if(x + w > vw) { x = vw - w - 24; fix = true; }
-    if(y + h > vh) { y = vh - h - 24; fix = true; }
-    if(x < 24) { x = 24; fix = true; }
-    if(y < 24) { y = 24; fix = true; }
-    if(fix){
-      wrap.style.transform = `translate(${x}px, ${y}px)`;
-    }
-  });
+    // klem huidige positie ook meteen binnen beeld
+    const margin = 18;
+    pos.x = clamp(pos.x, margin, Math.max(margin, window.innerWidth  - wrap.clientWidth  - margin));
+    pos.y = clamp(pos.y, margin, Math.max(margin, window.innerHeight - wrap.clientHeight - margin));
+    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+    target = pickSafeTarget();
+  }, {passive:true});
 })();
 </script>
+
+
+
 
 </body></html>
 """
