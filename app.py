@@ -542,47 +542,50 @@ label{color:var(--text)}
   }
 }
 
-/* ================== File input strak uitgelijnd ================== */
-/* Zelfde hoogte als andere .input velden */
-:root { --input-h: 48px; }
+/* ================== File input perfect uitlijnen ================== */
+:root{ --field-h: 48px; } /* één uniforme veldhoogte */
 
-input[type=file]{
-  appearance:none;
-  -webkit-appearance:none;
-  font: inherit;
-  width:100%;
-  display:block;
-
-  /* exact dezelfde “kast” als .input */
-  height: var(--input-h);
-  padding: 0 1rem;                 /* verticaal 0 → echte hoogte via height */
-  border-radius:12px;
-  border:1px solid var(--line);
-  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color: var(--text);
-
-  /* zorgt dat tekst + knop netjes centreren */
-  line-height: calc(var(--input-h) - 2px);
-  vertical-align: middle;
-  cursor: pointer;
+input.input,
+select.input,
+.input,
+input[type=text],
+input[type=password],
+input[type=email],
+input[type=number],
+textarea{
+  height: var(--field-h);
+  padding: 0 1rem;               /* horizontale padding, verticaal via height */
+  line-height: 1.2;
 }
 
+/* Het echte file-veld */
+input[type=file]{
+  height: var(--field-h);
+  padding: 0 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color: var(--text);
+  vertical-align: middle;
+  position: relative;
+  top: -1px;                     /* micro-nudge voor perfecte uitlijning */
+}
+
+/* De “Choose files” knop binnen het file-veld */
 input[type=file]::file-selector-button{
   font: inherit;
   line-height: 1;
-  /* zelfde visuele hoogte als andere buttons binnen de input */
-  height: calc(var(--input-h) - 16px);
-  padding: 0 .9rem;
-  margin-right: .75rem;
-
-  border-radius:10px;
-  border:1px solid var(--line);
+  padding: .50rem .90rem;
+  height: calc(var(--field-h) - 18px); /* centreert de knop in het veld */
+  border-radius: 10px;
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
+  margin-right: .75rem;
   cursor: pointer;
 }
 
-/* Dark mode */
+/* Dark mode varianten */
 @media (prefers-color-scheme: dark){
   input[type=file]{
     background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
@@ -593,6 +596,7 @@ input[type=file]::file-selector-button{
     border-color: #374151;
   }
 }
+
 </style>
 </head><body>
 {{ bg|safe }}
