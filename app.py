@@ -952,6 +952,113 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   padding-right:.4rem;
 }
 
+/* ===== POLISH: tabel, knoppen, kleuren, spacing ===== */
+
+/* Rustiger, modern CTA (alleen op deze pagina) */
+.btn{
+  padding:.85rem 1.05rem;
+  border:0;
+  border-radius:12px;
+  font-weight:700;
+  color:#fff;
+  text-decoration:none;
+  background:linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--brand) 88%, white 12%) 0%,
+    color-mix(in oklab, var(--brand) 80%, black 20%) 100%
+  );
+  box-shadow:0 8px 20px rgba(15,76,152,.22);
+  transition:filter .15s, transform .12s, background .2s;
+}
+.btn:hover{ filter:brightness(1.06); }
+.btn:active{ transform:translateY(1px); }
+
+/* Secundaire CTA (onder de kaart) */
+.btn.secondary{
+  background:linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--brand) 70%, black 10%) 0%,
+    color-mix(in oklab, var(--brand) 60%, black 28%) 100%
+  );
+  box-shadow:0 6px 16px rgba(15,76,152,.20);
+}
+
+/* Compacte mini-downloadknoppen in de tabel */
+.table .btn.mini{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:.42rem .72rem !important;
+  font-size:.82rem !important; line-height:1 !important; font-weight:600 !important;
+  border-radius:10px !important; white-space:nowrap;
+  background: color-mix(in oklab, var(--brand) 74%, white 26%);
+  color:#fff; border:0; box-shadow:0 2px 6px rgba(0,0,0,.12);
+  transition:filter .15s, transform .12s, background .2s;
+}
+.table .btn.mini:hover{ filter:brightness(1.06); }
+.table .btn.mini:active{ transform:translateY(1px); }
+
+/* Tabelpolish: iets meer ademruimte en subtiele lijnen */
+.table{ width:100%; border-collapse:separate; border-spacing:0 6px; }
+.table thead th{
+  font-weight:700; color:var(--text); opacity:.9; padding:.4rem .7rem;
+}
+.table tbody tr{
+  background: color-mix(in oklab, var(--surface-2) 80%, white 20%);
+  box-shadow: 0 1px 0 rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.05);
+  border-radius:12px;
+}
+.table tbody td{
+  padding:.6rem .7rem;
+  border-bottom:0;
+}
+.table tbody tr:hover{
+  background: color-mix(in oklab, var(--surface-2) 70%, white 30%);
+}
+
+/* Kolom 'Grootte' netjes rechts + smal */
+.table th.col-size,
+.table td.col-size,
+.table td[data-label="Grootte"]{ white-space:nowrap; text-align:right; min-width:72px; padding-right:.4rem; }
+
+/* Pad-kolom: ellipsis en vaste max-breedte — JS verkort straks tot laatste 2 mappen */
+.table td[data-label="Pad"]{
+  max-width: 520px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* Progressbalk onder de ZIP-knop: kleine marge */
+.progress#bar{ margin-top:.75rem; }
+
+/* Dark mode-varianten */
+@media (prefers-color-scheme: dark){
+  .btn{
+    background:linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--brand) 92%, black 12%) 0%,
+      color-mix(in oklab, var(--brand) 78%, black 28%) 100%
+    );
+    box-shadow:0 10px 24px rgba(0,0,0,.45);
+  }
+  .btn.secondary{
+    background:linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--brand) 80%, black 22%) 0%,
+      color-mix(in oklab, var(--brand) 68%, black 40%) 100%
+    );
+    box-shadow:0 8px 20px rgba(0,0,0,.42);
+  }
+  .table tbody tr{
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .table tbody tr:hover{
+    background: color-mix(in oklab, var(--surface-2) 86%, black 14%);
+  }
+  .table thead th{ opacity:.95; }
+}
+
+
 </style></head><body>
 {{ bg|safe }}
 
@@ -1110,6 +1217,20 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
                  "{{ items[0]['name'] }}");
   });
 {% endif %}
+
+/* ===== POLISH: Pad-kolom inkorten tot laatste 2 segmenten + title op volledig pad ===== */
+(function(){
+  const cells = document.querySelectorAll('td[data-label="Pad"]');
+  cells.forEach(td => {
+    const full = (td.textContent || '').trim();
+    if (!full) return;
+    td.setAttribute('title', full);                // volledige pad als tooltip
+    const parts = full.split('/').filter(Boolean);
+    if (parts.length <= 2) return;
+    td.textContent = parts.slice(-2).join('/');    // toon alleen laatste 2 segmenten
+  });
+})();
+
 
 </script>
 
