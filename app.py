@@ -528,6 +528,38 @@ label{color:var(--text)}
 /* Zorg dat inputs op donkere kaart goed leesbaar blijven */
 input.input, select.input, .input{color:var(--text)}
 input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 85%, white 15%)}
+
+
+/* ===== Contrastfix voor topbar-login info ===== */
+.topbar .logout {
+  font-size: .95rem;
+  font-weight: 500;
+  color: var(--text) !important; /* automatisch donker/licht afhankelijk van thema */
+}
+
+.topbar .logout a {
+  color: var(--brand) !important;
+  font-weight: 700;
+  text-decoration: none;
+  opacity: .95;
+  transition: opacity .15s, text-decoration .15s, color .15s;
+}
+
+.topbar .logout a:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
+@media (prefers-color-scheme: dark){
+  .topbar .logout {
+    color: var(--text) !important; /* automatisch licht */
+  }
+  .topbar .logout a {
+    color: var(--brand-2) !important; /* lichter blauw in dark mode */
+  }
+}
+
+
 </style>
 </head><body>
 {{ bg|safe }}
