@@ -1101,410 +1101,462 @@ form.addEventListener('submit', async (e)=>{
 </body></html>
 """
 
-
 PACKAGE_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Download – Olde Hanter</title>{{ head_icon|safe }}
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Download – Olde Hanter</title>
+  {{ head_icon|safe }}
 
-<style>
-/* ---- basis uit je template ---- */
-{{ base_css }}
+  <style>
+    /* ====== Basis uit je template ====== */
+    {{ base_css }}
 
-/* =================== DOWNLOADPAGINA =================== */
+    /* ====== Downloadpagina (layout) ====== */
+    html,body{height:100%;overflow-x:hidden}
+    body{margin:0}
+    .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
+    .card{position:relative;z-index:1;margin-bottom:1.2rem}
+    h1{margin:.2rem 0 1rem;color:var(--brand)}
+    .meta{margin:.6rem 0 1rem;color:var(--muted)}
+    .meta strong{color:var(--text)}
+    .footer{margin-top:.8rem}
 
-html,body{height:100%; overflow-x:hidden}
-body{ margin:0 }
+    /* ====== Knoppen ====== */
+    .btn{
+      padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);
+      color:#fff;text-decoration:none;font-weight:700;border:0;display:inline-block
+    }
+    .btn.secondary{background:#0f4c98}
+    .btn.mini{padding:.42rem .72rem;font-size:.82rem;border-radius:10px;line-height:1}
+    .btn{
+      position:relative;transform:translateY(0);
+      transition:transform .15s ease,filter .15s ease,box-shadow .15s ease;
+      box-shadow:0 6px 16px rgba(0,0,0,.18)
+    }
+    .btn:hover{
+      transform:translateY(-2px);filter:brightness(1.04);
+      box-shadow:0 10px 24px rgba(0,0,0,.22)
+    }
+    .btn:active{transform:translateY(0);filter:brightness(.98)}
+    .table .btn.mini{background:color-mix(in oklab, var(--brand) 74%, white 26%);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+    .table .btn.mini:hover{filter:brightness(1.06)}
+    .table .btn.mini:active{transform:translateY(1px)}
 
-/* Kaart + typografie */
-h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.6rem 0 1rem;color:var(--muted)}
-.meta strong{color:var(--text)}
+    /* ====== Tabel (mooie 'card'-rijen) ====== */
+    .table{width:100%;border-collapse:separate;border-spacing:0 10px}
+    .table thead th{font-weight:700;color:var(--text);opacity:.9;padding:.4rem .7rem}
+    .table tbody tr{position:relative}
+    .table tbody tr::before{
+      content:"";position:absolute;inset:0;border-radius:14px;
+      background:color-mix(in oklab, var(--surface-2) 90%, black 10%);
+      border:1px solid color-mix(in oklab, var(--surface-2) 65%, black 35%);
+      box-shadow:0 6px 14px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04);
+      z-index:0;transition:transform .15s ease,background .15s ease,box-shadow .15s ease
+    }
+    .table tbody tr:hover::before{
+      background:color-mix(in oklab, var(--surface-2) 84%, black 16%);
+      transform:translateY(-1px);
+      box-shadow:0 10px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.05)
+    }
+    .table tbody td{position:relative;z-index:1;padding:.7rem .8rem;border-bottom:0}
+    .table td[data-label="Pad"]{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .table th.col-size,.table td.col-size,.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px;padding-right:.4rem}
+    .progress#bar{margin-top:.75rem}
 
-.btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
-.btn.secondary{background:#0f4c98}
-.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
+    /* ====== CTA ====== */
+    .cta{margin-top:.6rem}
 
-/* ===== Download-knop animatie ===== */
-.btn{
-  position: relative;
-  transform: translateY(0);
-  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
-  box-shadow: 0 6px 16px rgba(0,0,0,.18);
-}
-.btn:hover{
-  transform: translateY(-2px);
-  filter: brightness(1.04);
-  box-shadow: 0 10px 24px rgba(0,0,0,.22);
-}
-.btn:active{
-  transform: translateY(0);
-  filter: brightness(0.98);
-  box-shadow: 0 6px 16px rgba(0,0,0,.18);
-}
+    /* ====== Dark mode finetuning ====== */
+    @media (prefers-color-scheme: dark){
+      .table tbody tr::before{
+        background:color-mix(in oklab, var(--surface-2) 94%, black 6%);
+        border-color:rgba(255,255,255,.12);
+        box-shadow:0 10px 26px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.03)
+      }
+      .table tbody tr:hover::before{
+        background:color-mix(in oklab, var(--surface-2) 90%, black 10%)
+      }
+    }
 
-.table{width:100%;border-collapse:separate;border-spacing:0 6px}
-.table thead th{font-weight:700;color:var(--text);opacity:.9;padding:.4rem .7rem}
-.table tbody tr{background:color-mix(in oklab, var(--surface-2) 80%, white 20%);box-shadow:0 1px 0 rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.05);border-radius:12px}
-.table tbody td{padding:.6rem .7rem;border-bottom:0}
-.table tbody tr:hover{background:color-mix(in oklab, var(--surface-2) 70%, white 30%)}
-.table th.col-size,.table td.col-size,.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px;padding-right:.4rem}
-.table td[data-label="Pad"]{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.table .btn.mini{display:inline-flex;align-items:center;justify-content:center;padding:.42rem .72rem;font-size:.82rem;line-height:1;font-weight:600;border-radius:10px;white-space:nowrap;background:color-mix(in oklab, var(--brand) 74%, white 26%);color:#fff;border:0;box-shadow:0 2px 6px rgba(0,0,0,.12)}
-.table .btn.mini:hover{filter:brightness(1.06)}
-.table .btn.mini:active{transform:translateY(1px)}
+    /* ====== Slang (behouden, kleiner en rustiger) ====== */
+    #snakeWrap{
+      position:fixed;z-index:2147483647;width:90px;height:60px;
+      left:0;top:0;transform:translate3d(24px,72vh,0);
+      will-change:transform;cursor:pointer;user-select:none
+    }
+    #snakeWrap svg{
+      width:100%;height:100%;overflow:visible;
+      filter:drop-shadow(0 1px 2px rgba(0,0,0,.25)) drop-shadow(0 6px 14px rgba(0,0,0,.25))
+    }
+    #snakeBubble{
+      position:absolute;bottom:64px;left:-6px;width:180px;
+      max-width:min(220px,calc(100vw - 40px));
+      background:#fff;color:#111;border:1px solid rgba(0,0,0,.12);
+      padding:.5rem .7rem;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.22);
+      font-size:.85rem;line-height:1.25;opacity:0;transform:translateY(6px);
+      pointer-events:none;transition:opacity .18s ease,transform .18s ease
+    }
+    #snakeBubble.show{opacity:1;transform:translateY(0)}
+    #snakeBubble:after{
+      content:"";position:absolute;left:26px;bottom:-10px;
+      border-width:10px 8px 0 8px;border-style:solid;border-color:#fff transparent transparent transparent
+    }
+    @media (prefers-color-scheme: dark){
+      #snakeBubble{background:#0b1324;color:#e5e7eb;border-color:rgba(255,255,255,.15)}
+      #snakeBubble:after{border-color:#0b1324 transparent transparent transparent}
+    }
+  </style>
+</head>
+<body>
+  {{ bg|safe }}
 
-.progress#bar{margin-top:.75rem}
+  <div class="wrap">
+    <div class="card">
+      <h1>Download</h1>
+      <div class="meta">
+        <div><strong>Onderwerp:</strong> {{ title or token }}</div>
+        <div><strong>Verloopt:</strong> {{ expires_human }}</div>
+        <div><strong>Totaal:</strong> {{ total_human }}</div>
+        <div><strong>Bestanden:</strong> {{ items|length }}</div>
+      </div>
 
-/* Geen ‘spook’ scrollbars – alles netjes binnen het viewport */
-.wrap{ max-width:980px; margin:6vh auto; padding:0 1rem }
+      {% if items|length == 1 %}
+        <a
+          class="btn"
+          id="dlSingle"
+          href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
+          download="{{ items[0]['name'] }}"
+          rel="noopener"
+        >Download</a>
+      {% else %}
+        <a
+          class="btn"
+          id="zipAll"
+          href="{{ url_for('stream_zip', token=token) }}"
+          download
+          rel="noopener"
+        >Alles downloaden (zip)</a>
+      {% endif %}
 
-.card{
-  position:relative;
-  z-index:1;
-  margin-bottom:1.2rem; /* ruimte onder de kaart → CTA schuift eronder */
-}
+      <div class="progress" id="bar" style="display:none"><i></i></div>
+      <div class="small" id="txt" style="display:none">Starten…</div>
 
-
-/* Donkere modus */
-@media (prefers-color-scheme: dark){
-  .table tbody tr{background:color-mix(in oklab, var(--surface-2) 92%, black 8%);box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px rgba(255,255,255,.06)}
-  .table tbody tr:hover{background:color-mix(in oklab, var(--surface-2) 86%, black 14%)}
-}
-
-
-
-</head><body>
-{{ bg|safe }}
-
-<div class="wrap">
-  <div class="card" style="position:relative; z-index:1">
-    <h1>Download</h1>
-    <div class="meta">
-      <div><strong>Onderwerp:</strong> {{ title or token }}</div>
-      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
-      <div><strong>Totaal:</strong> {{ total_human }}</div>
-      <div><strong>Bestanden:</strong> {{ items|length }}</div>
+      {% if items|length > 1 %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Bestand</th>
+            <th>Pad</th>
+            <th class="col-size">Grootte</th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td data-label="Bestand">{{ it["name"] }}</td>
+            <td class="small" data-label="Pad">{{ it["path"] }}</td>
+            <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
+            <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </div>
 
-{% if items|length == 1 %}
-  <a
-    class="btn"
-    id="dlSingle"
-    href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
-    download="{{ items[0]['name'] }}"
-    rel="noopener"
-  >
-    Download
-  </a>
-{% else %}
-  <a
-    class="btn"
-    id="zipAll"
-    href="{{ url_for('stream_zip', token=token) }}"
-    download
-    rel="noopener"
-  >
-    Alles downloaden (zip)
-  </a>
-{% endif %}
+    <div class="cta">
+      <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+    </div>
 
-    <div class="progress" id="bar" style="display:none"><i></i></div>
-    <div class="small" id="txt" style="display:none">Starten…</div>
-
-    {% if items|length > 1 %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Bestand</th>
-          <th>Pad</th>
-          <th class="col-size">Grootte</th>
-          <th style="width:1%"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for it in items %}
-        <tr>
-          <td data-label="Bestand">{{ it["name"] }}</td>
-          <td class="small" data-label="Pad">{{ it["path"] }}</td>
-          <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
-          <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
+    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 
-  <div class="cta">
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-  </div>
+  <!-- ====== Download-progress script ====== -->
+  <script>
+    const bar  = document.getElementById('bar');
+    const fill = bar ? bar.querySelector('i') : null;
+    const txt  = document.getElementById('txt');
 
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
-
-<!-- ================= START DOWNLOADPAGE SCRIPT BLOCK ================= -->
-<script>
-  /* ===== Progress download functionaliteit ===== */
-  const bar  = document.getElementById('bar');
-  const fill = bar?.querySelector('i');
-  const txt  = document.getElementById('txt');
-
-  function nativeDownload(url, suggestedName){
-    try{
-      const a = document.createElement('a');
-      a.href = url;
-      if (suggestedName) a.download = suggestedName;
-      a.rel = 'noopener';
-      a.target = '_self';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }catch(_){
-      window.location.href = url;
+    function nativeDownload(url, suggestedName){
+      try{
+        const a=document.createElement('a');
+        a.href=url; if(suggestedName) a.download=suggestedName;
+        a.rel='noopener'; a.target='_self'; document.body.appendChild(a);
+        a.click(); a.remove();
+      }catch(_){ window.location.href=url; }
     }
-  }
 
-  async function streamToBlob(url, fallbackName){
-    try{
-      if (bar && txt && fill){
-        bar.style.display='block';
-        txt.style.display='block';
-        fill.style.width='0%';
-        txt.textContent='Starten…';
-      }
-      const res = await fetch(url, { credentials: 'same-origin' });
-      if(!res.ok){
-        const xerr = res.headers.get('X-Error') || '';
-        let body=''; try{ body = await res.text(); }catch(e){}
-        alert(`Fout ${res.status}${xerr ? ' – ' + xerr : ''}${body ? '\n\n' + body : ''}`);
-        if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
-        return;
-      }
-      const total = parseInt(res.headers.get('Content-Length')||'0',10);
-      const name  = res.headers.get('X-Filename') || fallbackName || 'download';
+    async function streamToBlob(url, fallbackName){
+      try{
+        if(bar && txt && fill){ bar.style.display='block'; txt.style.display='block'; fill.style.width='0%'; txt.textContent='Starten…'; }
+        const res = await fetch(url, { credentials: 'same-origin' });
+        if(!res.ok){
+          const xerr=res.headers.get('X-Error')||''; let body='';
+          try{ body=await res.text(); }catch(e){}
+          alert(`Fout ${res.status}${xerr?' – '+xerr:''}${body? '\\n\\n'+body : ''}`);
+          if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+          return;
+        }
+        const total = parseInt(res.headers.get('Content-Length')||'0',10);
+        const name  = res.headers.get('X-Filename') || fallbackName || 'download';
 
-      if (bar){
-        total ? bar.classList.remove('indet') : bar.classList.add('indet');
-      }
+        if(bar){ total ? bar.classList.remove('indet') : bar.classList.add('indet'); }
 
-      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-      if (reader){
-        const chunks=[]; let received=0;
-        while(true){
-          const {done,value} = await reader.read();
-          if(done) break;
-          chunks.push(value); received += value.length;
-          if (fill && txt){
-            if (total){
-              const p = Math.round(received/total*100);
-              fill.style.width = p+'%'; txt.textContent = p+'%';
-            }else{
-              txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
+        const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+        if(reader){
+          const chunks=[]; let received=0;
+          while(true){
+            const {done,value}=await reader.read(); if(done) break;
+            chunks.push(value); received+=value.length;
+            if(fill && txt){
+              if(total){
+                const p=Math.round(received/total*100);
+                fill.style.width=p+'%'; txt.textContent=p+'%';
+              }else{
+                txt.textContent=(received/1024/1024).toFixed(1)+' MB…';
+              }
             }
           }
-        }
-        if (bar){ bar.classList.remove('indet'); }
-        if (fill){ fill.style.width='100%'; }
-        if (txt){ txt.textContent='Klaar'; }
+          if(bar){ bar.classList.remove('indet'); }
+          if(fill){ fill.style.width='100%'; }
+          if(txt){ txt.textContent='Klaar'; }
 
-        const blob = new Blob(chunks);
-        const u = URL.createObjectURL(blob);
-        nativeDownload(u, name);
+          const blob=new Blob(chunks);
+          const u=URL.createObjectURL(blob);
+          nativeDownload(u,name);
+          URL.revokeObjectURL(u);
+          if(bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; },800);
+          return;
+        }
+
+        const blob=await res.blob();
+        const u=URL.createObjectURL(blob);
+        nativeDownload(u,name);
         URL.revokeObjectURL(u);
-        if (bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
-        return;
+        if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+      }catch(err){
+        console.error('Stream fallback naar native:', err);
+        nativeDownload(url,null);
+        if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
       }
-
-      const blob = await res.blob();
-      const u = URL.createObjectURL(blob);
-      nativeDownload(u, name);
-      URL.revokeObjectURL(u);
-      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
-    }catch(err){
-      console.error('Stream fallback naar native:', err);
-      nativeDownload(url, null);
-      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }
-  }
 
-  /* Single file download progress */
-  const dlBtn = document.getElementById('dlSingle');
-  if(dlBtn){
-    dlBtn.addEventListener('click', (e)=>{
-      e.preventDefault();
-      streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
-    });
-  }
-</script>
-
-<script>
-(() => {
-  const wrap   = document.getElementById('snakeWrap');
-  if (!wrap) return; // geen slang op deze pagina
-
-  const group  = wrap.querySelector('#snakeGroup');
-  const body   = wrap.querySelector('#body');
-  const head   = wrap.querySelector('#head');
-  const bubble = document.getElementById('snakeBubble');
-
-  // --- Config (veel trager & rustiger) ---
-  const L = 120, N = 24;
-  const BASE_SPEED = 32;          // px/s (was 140)
-  const TURN_RATE  = 1.4;         // rad/s max draaien
-  const WAVE_SPEED = 2.0;         // golf-fase snelheid (lager = rustiger)
-  const AMP_MIN = 3.8, AMP_MAX = 5.8;
-  const FREQ_MIN = 0.09, FREQ_MAX = 0.12;
-  const TARGET_HOLD_MIN = 3.5, TARGET_HOLD_MAX = 6.0; // sec
-  const PAUSE_CHANCE = 0.18;      // kans op korte pauze op nieuw doel
-  const PAUSE_MIN = 0.6, PAUSE_MAX = 1.2; // sec
-
-  // Respecteer reduced motion
-  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  // --- State ---
-  let amp = 4.8, freq = 0.105, phase = 0;
-  let speed = prefersReduced ? 0 : BASE_SPEED;
-  let last = performance.now();
-  let active = false; // pas bewegen na eerste klik
-  let heading = Math.random()*Math.PI*2;
-  let pos = { x: 24, y: innerHeight*0.72 };
-  let target = pickSafeTarget();
-  let nextTargetAt = 0;
-  let pauseUntil = 0;
-
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-  function rand(a,b){ return a + Math.random()*(b-a); }
-  function pickSafeTarget(){
-    const m=16;
-    const W=Math.max(0, innerWidth  - wrap.clientWidth  - m);
-    const H=Math.max(0, innerHeight - wrap.clientHeight - m);
-    return { x: rand(m, W), y: rand(m, H) };
-  }
-  function place(){ wrap.style.transform = `translate(${pos.x}px,${pos.y}px)`; }
-
-  function computeSpine(){
-    const pts=[];
-    for(let i=0;i<N;i++){
-      const x=(L/(N-1))*i;
-      const y=amp*Math.sin(freq*x + phase);
-      pts.push([x,y]);
+    const dlBtn=document.getElementById('dlSingle');
+    if(dlBtn){
+      dlBtn.addEventListener('click',(e)=>{
+        e.preventDefault();
+        streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
+      });
     }
-    return pts;
-  }
-  function catmullRom2bezier(points){
-    if(points.length<2) return "";
-    const d=[];
-    for(let i=0;i<points.length-1;i++){
-      const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
-      const cp1x=p1[0]+(p2[0]-p0[0])/6, cp1y=p1[1]+(p2[1]-p0[1])/6;
-      const cp2x=p2[0]-(p3[0]-p1[0])/6, cp2y=p2[1]-(p3[1]-p1[1])/6;
-      if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
-      d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
-    }
-    return d.join(" ");
-  }
-  function orientHead(points){
-    const a=points[points.length-2], b=points[points.length-1];
-    const ang = Math.atan2(b[1]-a[1], b[0]-a[0])*180/Math.PI;
-    head.setAttribute('transform', `translate(${b[0]} ${b[1]}) rotate(${ang})`);
-  }
-  function rotateGroupTowards(dx,dy){
-    const ang = Math.atan2(dy,dx);
-    group.setAttribute('transform', `rotate(${ang*180/Math.PI})`);
-  }
+  </script>
 
-  // Init
-  place();
-  const pts0 = computeSpine();
-  body.setAttribute('d', catmullRom2bezier(pts0));
-  orientHead(pts0);
+  <!-- ====== Slang (één exemplaar, trager & realistischer) ====== -->
+  <div id="snakeWrap" aria-label="speels slangetje">
+    <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="snakeLine" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#0b0b0b"/>
+          <stop offset="0.6" stop-color="#1a1a1a"/>
+          <stop offset="1" stop-color="#262626"/>
+        </linearGradient>
+      </defs>
+      <g id="snakeGroup">
+        <path id="spine" d="" fill="none" stroke="none"></path>
+        <path id="body" d="" fill="none" stroke="url(#snakeLine)" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"></path>
+        <g id="head">
+          <ellipse cx="0" cy="0" rx="11" ry="12" fill="#101010"/>
+          <circle cx="4" cy="-4" r="2.6" fill="#fff"/>
+          <circle cx="4" cy="-4" r="1.2" fill="#111"/>
+          <path d="M12 4 l9 1 -9 3" stroke="#b91c1c" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </g>
+      </g>
+    </svg>
+    <div id="snakeBubble">Klik me om me wakker te maken 🐍</div>
+  </div>
 
-  // Interactie — eerste klik activeert
-  const QUOTES = [
-    "Oké, rustig aan… ik beweeg mee 🐍",
-    "Ik ga op pad — langzaam maar zeker.",
-    "Sssst… realistische modus geactiveerd.",
-    "Wie tikt? Ik kom er aan."
-  ];
-  wrap.addEventListener('click', () => {
-    if(!active){
-      active = true;
-      if (bubble){
-        bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
-        bubble.classList.add('show');
-        setTimeout(()=>bubble.classList.remove('show'), 2000);
+  <script>
+    (() => {
+      const wrap=document.getElementById('snakeWrap');
+      if(!wrap) return;
+      const group=wrap.querySelector('#snakeGroup');
+      const body=wrap.querySelector('#body');
+      const head=wrap.querySelector('#head');
+      const bubble=document.getElementById('snakeBubble');
+
+      // Config: trager & rustiger
+      const L=120,N=24;
+      const BASE_SPEED=32;          // px/s (veel rustiger)
+      const TURN_RATE=1.4;          // rad/s max draaing
+      const WAVE_SPEED=2.0;         // golf-fase snelheid
+      const AMP_MIN=3.8, AMP_MAX=5.8;
+      const FREQ_MIN=0.09, FREQ_MAX=0.12;
+      const TARGET_HOLD_MIN=3.5, TARGET_HOLD_MAX=6.0; // s
+      const PAUSE_CHANCE=0.18, PAUSE_MIN=0.6, PAUSE_MAX=1.2; // s
+      const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      let amp=4.8, freq=0.105, phase=0;
+      let last=performance.now();
+      let active=false;
+      let heading=Math.random()*Math.PI*2;
+      let pos={x:24, y: innerHeight*0.72};
+      let target=pickSafeTarget();
+      let nextTargetAt=0, pauseUntil=0;
+
+      function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+      function rand(a,b){ return a + Math.random()*(b-a); }
+      function pickSafeTarget(){
+        const m=16;
+        const W=Math.max(0, innerWidth - wrap.clientWidth - m);
+        const H=Math.max(0, innerHeight - wrap.clientHeight - m);
+        return {x:rand(m,W), y:rand(m,H)};
       }
-      nextTargetAt = performance.now() + rand(TARGET_HOLD_MIN, TARGET_HOLD_MAX)*1000;
-      requestAnimationFrame(tick);
-      return;
-    }
-    target = pickSafeTarget();
-    amp = rand(AMP_MIN, AMP_MAX);
-    freq = rand(FREQ_MIN, FREQ_MAX);
-  }, {passive:true});
+      function place(){ wrap.style.transform=`translate(${pos.x}px,${pos.y}px)`; }
 
-  function tick(t){
-    const dt = Math.min(0.05, (t-last)/1000); // cap dt
-    last = t;
-
-    if(active && !prefersReduced){
-      phase += WAVE_SPEED*dt;
-
-      if (t >= nextTargetAt){
-        target = pickSafeTarget();
-        nextTargetAt = t + rand(TARGET_HOLD_MIN, TARGET_HOLD_MAX)*1000;
-        amp = rand(AMP_MIN, AMP_MAX);
-        freq = rand(FREQ_MIN, FREQ_MAX);
-        // af en toe even pauzeren
-        if (Math.random() < PAUSE_CHANCE){
-          pauseUntil = t + rand(PAUSE_MIN, PAUSE_MAX)*1000;
+      function computeSpine(){
+        const pts=[];
+        for(let i=0;i<N;i++){
+          const x=(L/(N-1))*i;
+          const y=amp*Math.sin(freq*x + phase);
+          pts.push([x,y]);
         }
+        return pts;
+      }
+      function catmullRom2bezier(points){
+        if(points.length<2) return "";
+        const d=[];
+        for(let i=0;i<points.length-1;i++){
+          const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
+          const cp1x=p1[0]+(p2[0]-p0[0])/6, cp1y=p1[1]+(p2[1]-p0[1])/6;
+          const cp2x=p2[0]-(p3[0]-p1[0])/6, cp2y=p2[1]-(p3[1]-p1[1])/6;
+          if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
+          d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
+        }
+        return d.join(" ");
+      }
+      function orientHead(points){
+        const a=points[points.length-2], b=points[points.length-1];
+        const ang=Math.atan2(b[1]-a[1], b[0]-a[0])*180/Math.PI;
+        head.setAttribute('transform', `translate(${b[0]} ${b[1]}) rotate(${ang})`);
+      }
+      function rotateGroupTowards(dx,dy){
+        const ang=Math.atan2(dy,dx);
+        group.setAttribute('transform', `rotate(${ang*180/Math.PI})`);
       }
 
-      // glijdend sturen richting doel
-      const dx = target.x - pos.x, dy = target.y - pos.y;
-      const desired = Math.atan2(dy, dx);
-      let dAng = ((desired - heading + Math.PI) % (2*Math.PI)) - Math.PI;
-      const maxTurn = TURN_RATE*dt;
-      if (dAng >  maxTurn) dAng =  maxTurn;
-      if (dAng < -maxTurn) dAng = -maxTurn;
-      heading += dAng;
-
-      // bewegen (of pauze)
-      const moving = (t >= pauseUntil);
-      const v = moving ? BASE_SPEED : 0;
-      pos.x += Math.cos(heading) * v * dt;
-      pos.y += Math.sin(heading) * v * dt;
-
-      // in het viewport houden
-      const m=16;
-      pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
-      pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
-
-      rotateGroupTowards(Math.cos(heading), Math.sin(heading));
+      // Init pose
       place();
+      const pts0=computeSpine();
+      body.setAttribute('d', catmullRom2bezier(pts0));
+      orientHead(pts0);
 
-      const spine = computeSpine();
-      body.setAttribute('d', catmullRom2bezier(spine));
-      orientHead(spine);
-    }
+      // Interactie – start na eerste klik
+const QUOTES = [
+  "Hallo? We zijn hier niet bij Verzuimloket BV hè.",
+  "Kun je misschien even normaal aankloppen? Ik ben aan het *acquireren*.",
+  "Sorry hoor, ik ben de sláng. Niet de stagiair.",
+  "Ik verleen alleen service aan premium-klanten met aktetas.",
+  "Kom jij uit de buitendienst? Dat verklaart een hoop.",
+  "Heb jij überhaupt wel een agenda? Of doe je maar wat?",
+  "Sorry, ik doe niks onder de 500 MB — beleid.",
+  "Dit is geen Helpdesk. Dit is een instituut.",
+  "Beetje afstand graag, ik ben van middenmanagement.",
+  "Ik lunch van half één tot kwart voor drie. Elke dag.",
+  "Ik ga *niet* tot mijn recht in fluorescent licht.",
+  "Kun je niet lezen? Ik ben bezig met een intern traject.",
+  "We werken hier met protocollen. Helaas voor jou.",
+  "Ik factureer je zo meteen voor dit oogcontact.",
+  "Efficiënt? Nee. Maar wel stijlvol.",
+  "Ik heet Bert. Bert de Slang. Noteer dat even.",
+  "Ga jij even ergens anders onprofessioneel staan doen?",
+  "Je ruikt naar een bureaustoel uit 1998.",
+  "Weet je wat? Ik maak een ticket van je probleem. Niet dat ik het oplos.",
+  "Ik ben *S-s-senior*. Jij niet."
+];
+      wrap.addEventListener('click', ()=>{
+        if(!active){
+          active=true;
+          if(bubble){
+            bubble.textContent=QUOTES[Math.floor(Math.random()*QUOTES.length)];
+            bubble.classList.add('show');
+            setTimeout(()=>bubble.classList.remove('show'), 2000);
+          }
+          nextTargetAt=performance.now()+rand(TARGET_HOLD_MIN,TARGET_HOLD_MAX)*1000;
+          requestAnimationFrame(tick);
+          return;
+        }
+        target=pickSafeTarget();
+        amp=rand(AMP_MIN,AMP_MAX);
+        freq=rand(FREQ_MIN,FREQ_MAX);
+      }, {passive:true});
 
-    requestAnimationFrame(tick);
-  }
+      function tick(t){
+        const dt=Math.min(0.05,(t-last)/1000); last=t;
 
-  addEventListener('resize', () => {
-    const m=16;
-    pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
-    pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
-    place();
-    if(active) target = pickSafeTarget();
-  }, {passive:true});
-})();
-</script>
+        if(active && !prefersReduced){
+          phase += WAVE_SPEED*dt;
 
+          if(t>=nextTargetAt){
+            target=pickSafeTarget();
+            nextTargetAt=t+rand(TARGET_HOLD_MIN,TARGET_HOLD_MAX)*1000;
+            amp=rand(AMP_MIN,AMP_MAX);
+            freq=rand(FREQ_MIN,FREQ_MAX);
+            if(Math.random()<PAUSE_CHANCE){
+              pauseUntil=t+rand(PAUSE_MIN,PAUSE_MAX)*1000;
+            }
+          }
 
-</body></html>
+          const dx=target.x-pos.x, dy=target.y-pos.y;
+          const desired=Math.atan2(dy,dx);
+          let dAng=((desired - heading + Math.PI) % (2*Math.PI)) - Math.PI;
+          const maxTurn=TURN_RATE*dt;
+          if(dAng> maxTurn) dAng=maxTurn;
+          if(dAng<-maxTurn) dAng=-maxTurn;
+          heading += dAng;
+
+          const moving = (t >= pauseUntil);
+          const v = moving ? BASE_SPEED : 0;
+          pos.x += Math.cos(heading)*v*dt;
+          pos.y += Math.sin(heading)*v*dt;
+
+          const m=16;
+          pos.x=clamp(pos.x,m,Math.max(m, innerWidth - wrap.clientWidth - m));
+          pos.y=clamp(pos.y,m,Math.max(m, innerHeight - wrap.clientHeight - m));
+
+          rotateGroupTowards(Math.cos(heading), Math.sin(heading));
+          place();
+
+          const spine=computeSpine();
+          body.setAttribute('d', catmullRom2bezier(spine));
+          orientHead(spine);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      addEventListener('resize', ()=>{
+        const m=16;
+        pos.x=clamp(pos.x,m,Math.max(m, innerWidth - wrap.clientWidth - m));
+        pos.y=clamp(pos.y,m,Math.max(m, innerHeight - wrap.clientHeight - m));
+        place();
+        if(active) target=pickSafeTarget();
+      }, {passive:true});
+    })();
+  </script>
+</body>
+</html>
 """
+
+
+
+
+
+
+
+
 
 CONTACT_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
