@@ -626,6 +626,84 @@ INDEX_HTML = """
   @media (min-height:780px){
     .wrap{ margin-top:5vh; margin-bottom:5vh; }
   }
+
+  /* === File Input Perfect Alignment (desktop + mobile) === */
+
+:root { --field-h: 48px; }
+
+/* Zorg dat het file-input blok de volledige breedte vult */
+#fileRow,
+#folderRow {
+  width: 100%;
+  margin-top: .35rem;
+}
+
+/* Het file input element zelf */
+input[type=file] {
+  display: flex;
+  align-items: center;
+
+  width: 100%;
+  height: var(--field-h);
+
+  padding: 0 .9rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color: var(--text);
+
+  /* centreren van de bestandsnaam-tekst */
+  text-align: left;
+  justify-content: flex-start;
+
+  /* voorkomt rare interne layouts op Safari/Chrome */
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* File-select knop */
+input[type=file]::file-selector-button {
+  height: calc(var(--field-h) - 14px);
+  margin-right: .75rem;
+  padding: .45rem .95rem;
+  font-size: .9rem;
+
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Hover/active mooi consistent */
+input[type=file]::file-selector-button:hover {
+  filter: brightness(1.07);
+}
+input[type=file]::file-selector-button:active {
+  transform: translateY(1px);
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark){
+  input[type=file] {
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    border-color:#374151;
+  }
+  input[type=file]::file-selector-button {
+    background: var(--surface);
+    border-color:#374151;
+  }
+}
+
+/* Super-small devices */
+@media (max-width:460px) {
+  input[type=file]::file-selector-button {
+    padding: .35rem .7rem;
+    font-size: .8rem;
+  }
+}
+
+  
 </style>
 
 
