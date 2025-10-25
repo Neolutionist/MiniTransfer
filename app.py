@@ -528,19 +528,61 @@ label{color:var(--text)}
 /* Buttons */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 
-/* zachter glas-effect achter login chip */
+/* Mooie fade + glass achtergrond achter login status */
 .topbar .logout{
-  background: color-mix(in oklab, var(--surface) 75%, rgba(0,0,0,0) 25%);
-  border: 1px solid color-mix(in oklab, var(--line) 80%, transparent 20%);
-  box-shadow: 0 2px 16px rgba(0,0,0,.12);
+  background:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--surface) 70%, transparent 30%),
+      color-mix(in oklab, var(--surface) 55%, transparent 45%)
+    );
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+
+  border: 1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
+  border-radius: 999px;
+
+  box-shadow:
+    0 4px 18px rgba(0,0,0,.12),
+    inset 0 0 0 1px rgba(255,255,255,.06);
+
+  padding: .38rem .75rem;
+  display: inline-flex;
+  gap: .35rem;
+  align-items: center;
+  color: var(--text) !important;
 }
-@media(prefers-color-scheme: dark){
+
+.topbar .logout a{
+  color: var(--brand) !important;
+  font-weight: 700;
+  text-decoration: none;
+  opacity: .95;
+}
+.topbar .logout a:hover{
+  text-decoration: underline;
+  opacity: 1;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark){
   .topbar .logout{
-    background: color-mix(in oklab, var(--surface) 65%, transparent 35%);
-    border-color: rgba(255,255,255,.12);
-    box-shadow: 0 2px 16px rgba(0,0,0,.42);
+    background:
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--surface) 50%, transparent 50%),
+        color-mix(in oklab, var(--surface) 35%, transparent 65%)
+      );
+    border-color: rgba(255,255,255,.10);
+    box-shadow:
+      0 4px 18px rgba(0,0,0,.5),
+      inset 0 0 0 1px rgba(255,255,255,.05);
+  }
+  .topbar .logout a{
+    color: var(--brand-2) !important;
   }
 }
+
 
 /* ================== File input perfect uitlijnen ================== */
 :root{ --field-h: 48px; } /* één uniforme veldhoogte */
