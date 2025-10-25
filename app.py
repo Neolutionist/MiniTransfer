@@ -855,7 +855,16 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     {% if items|length == 1 %}
       <button class="btn" id="dlBtn">Download</button>
     {% else %}
-<button class="btn" id="zipAll" type="button">Alles downloaden (zip)</button>
+<a
+  class="btn"
+  id="zipAll"
+  href="{{ url_for('stream_zip', token=token) }}"
+  download
+  rel="noopener"
+>
+  Alles downloaden (zip)
+</a>
+
     {% endif %}
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
@@ -897,24 +906,21 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   const txt  = document.getElementById('txt');
 
   function nativeDownload(url, suggestedName){
-    // Meest compatibel: directe navigatie of anchor-click
     try{
       const a = document.createElement('a');
       a.href = url;
-      if (suggestedName) a.download = suggestedName; // hint; server Content-Disposition blijft leidend
+      if (suggestedName) a.download = suggestedName;
       a.rel = 'noopener';
       a.target = '_self';
       document.body.appendChild(a);
       a.click();
       a.remove();
     }catch(_){
-      // laatste redmiddel
       window.location.href = url;
     }
   }
 
   async function streamToBlob(url, fallbackName){
-    // Voor single file: probeer progress, anders native
     try{
       if (bar && txt && fill){
         bar.style.display='block';
@@ -922,7 +928,6 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
         fill.style.width='0%';
         txt.textContent='Starten…';
       }
-
       const res = await fetch(url, { credentials: 'same-origin' });
       if(!res.ok){
         const xerr = res.headers.get('X-Error') || '';
@@ -931,28 +936,22 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
         if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
         return;
       }
-
-      const total = parseInt(res.headers.get('Content-Length')||'0', 10);
+      const total = parseInt(res.headers.get('Content-Length')||'0',10);
       const name  = res.headers.get('X-Filename') || fallbackName || 'download';
 
-      if (bar){
-        if (!total){ bar.classList.add('indet'); } else { bar.classList.remove('indet'); }
-      }
+      if (bar){ total ? bar.classList.remove('indet') : bar.classList.add('indet'); }
 
       const reader = res.body && res.body.getReader ? res.body.getReader() : null;
       if (reader){
-        const chunks = [];
-        let received = 0;
+        const chunks=[]; let received=0;
         while(true){
-          const {done, value} = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
+          const {done,value} = await reader.read();
+          if(done) break;
+          chunks.push(value); received += value.length;
           if (fill && txt){
-            if(total){
+            if (total){
               const p = Math.round(received/total*100);
-              fill.style.width = p+'%';
-              txt.textContent  = p+'%';
+              fill.style.width = p+'%'; txt.textContent = p+'%';
             }else{
               txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
             }
@@ -970,37 +969,26 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
         return;
       }
 
-      // Fallback: zonder stream-API
       const blob = await res.blob();
       const u = URL.createObjectURL(blob);
       nativeDownload(u, name);
       URL.revokeObjectURL(u);
       if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }catch(err){
-      // Laatste redmiddel: native naar de URL
-      console.error('Stream download fallback naar native:', err);
+      console.error('Stream fallback naar native:', err);
       nativeDownload(url, null);
       if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }
   }
 
-  // ===== Koppeling met knoppen =====
-  // Single file: progress mogelijk
+  // Alleen voor het geval er maar één bestand is: progress aan
   {% if items|length == 1 %}
     document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob(
-        "{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
-        "{{ items[0]['name'] }}"
-      );
-    });
-  {% else %}
-    // ZIP: altijd native (betrouwbaar en geen geheugenpiek)
-    document.getElementById('zipAll')?.addEventListener('click', ()=>{
-      nativeDownload("{{ url_for('stream_zip', token=token) }}", "download.zip");
+      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+                   "{{ items[0]['name'] }}");
     });
   {% endif %}
 </script>
-
 
 </body></html>
 """
