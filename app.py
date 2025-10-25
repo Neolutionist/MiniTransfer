@@ -559,6 +559,46 @@ input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 8
   }
 }
 
+/* ================== File input uitlijnen ================== */
+input[type=file]{
+  appearance:none;
+  -webkit-appearance:none;
+  font: inherit;
+  line-height:1.2;
+  height:auto;
+
+  width:100%;
+  display:block;
+  padding:.85rem 1rem;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color:var(--text);
+}
+
+input[type=file]::file-selector-button{
+  font: inherit;
+  line-height:1;
+  padding:.55rem .9rem;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--text);
+  margin-right:.75rem;
+  cursor:pointer;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark){
+  input[type=file]{
+    background:color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    border-color:#374151;
+  }
+  input[type=file]::file-selector-button{
+    background:var(--surface);
+    border-color:#374151;
+  }
+}
 
 </style>
 </head><body>
@@ -615,11 +655,10 @@ input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 8
           </div>
         </div>
 
-        <div class="row" style="gap:.6rem; flex-wrap:wrap">
-          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
-          <button id="btnPause" class="btn gray icon" type="button" disabled>Pauzeer</button>
-          <button id="btnCancel" class="btn ghost icon" type="button" disabled>Annuleer</button>
-        </div>
+<div class="row" style="gap:.6rem; flex-wrap:wrap">
+  <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
+</div>
+
       </div>
     </form>
 
@@ -873,11 +912,17 @@ async function runUpload(){
 
 // ===== controls =====
 form.addEventListener('submit', async (e)=>{
-  e.preventDefault(); btnStart.disabled=true; btnPause.disabled=false; btnCancel.disabled=false; state.paused=false;
-  try{ await runUpload(); }catch(_){ totalStatus.textContent='Geannuleerd'; }finally{ btnStart.disabled=false; btnPause.disabled=true; btnCancel.disabled=true; }
+  e.preventDefault();
+  btnStart.disabled = true;
+  try {
+    await runUpload();
+  } catch(_) {
+    totalStatus.textContent = 'Geannuleerd';
+  } finally {
+    btnStart.disabled = false;
+  }
 });
-btnPause.addEventListener('click', ()=>{ state.paused=!state.paused; btnPause.textContent=state.paused?'Hervat':'Pauzeer'; totalStatus.textContent=state.paused?'Gepauzeerd':'Uploaden…'; });
-btnCancel.addEventListener('click', ()=>{ if(!confirm('Upload annuleren?')) return; state.files.forEach(f=>{try{f.ui.abort&&f.ui.abort();}catch(_){}}); totalStatus.textContent='Geannuleerd'; });
+
 </script>
 </body></html>
 """
