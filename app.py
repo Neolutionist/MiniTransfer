@@ -184,103 +184,182 @@ migrate_add_tenant_columns()
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  --c1:#84b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
-  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  /* Kleuren */
+  --c1:#86b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
   --brand:#0f4c98; --brand-2:#003366;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
   --surface:#ffffff; --surface-2:#f1f5f9;
+  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  /* Animatie snelheden */
+  --t-slow: 28s;
+  --t-med:  18s;
+  --t-fast:  8s;
 }
+/* Dark mode (volgt OS) */
+@media (prefers-color-scheme: dark){
+  :root{
+    --brand:#7db4ff; --brand-2:#4a7fff;
+    --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
+    --surface:#0b1020; --surface-2:#0f172a;
+    --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
+  }
+}
+
 html,body{height:100%}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
-.bg{position:fixed; inset:0; z-index:-2; overflow:hidden;
-  background:
-    radial-gradient(40vmax 40vmax at 15% 25%, var(--c1) 0%, transparent 60%),
-    radial-gradient(38vmax 38vmax at 85% 30%, var(--c2) 0%, transparent 60%),
-    radial-gradient(50vmax 50vmax at 50% 90%, var(--c3) 0%, transparent 60%),
-    linear-gradient(180deg,#edf3ff 0%, #eef4fb 100%);
-  filter: saturate(1.05);
+body{
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--text); margin:0; position:relative; overflow-x:hidden;
+  background: var(--surface);
 }
-.bg::before,.bg::after{content:""; position:absolute; inset:-10%;
+
+/* ======= Nieuwe achtergrond ======= */
+.bg{
+  position:fixed; inset:0; z-index:-2; overflow:hidden;
+  /* Basismix (zachte radialen + subtiele vertical fade) */
   background:
-    radial-gradient(45vmax 45vmax at 20% 70%, rgba(255,255,255,.35), transparent 60%),
-    radial-gradient(50vmax 50vmax at 80% 20%, rgba(255,255,255,.25), transparent 60%),
-    radial-gradient(35vmax 35vmax at 60% 45%, rgba(255,255,255,.22), transparent 60%);
+    radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
+    radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
+    radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
+    linear-gradient(180deg, #edf3ff 0%, #eef4fb 100%);
+  filter:saturate(1.06);
+  animation: hueShift var(--t-slow) linear infinite;
+}
+
+/* Aurora laag */
+.bg::before,
+.bg::after{
+  content:""; position:absolute; inset:-10%;
+  /* Aurora met conic-gradients; de mask maakt vloeiende vormen */
+  background:
+    conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
+    conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);
+  mix-blend-mode: overlay;
   will-change: transform, opacity;
-  animation: driftA 26s ease-in-out infinite;
 }
-.bg::after{mix-blend-mode: overlay; opacity:.55; animation: driftB 30s ease-in-out infinite}
-@keyframes driftA{0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(.6%,1.4%,0)} 100%{transform:translate3d(0,0,0)}}
-@keyframes driftB{0%{transform:rotate(0deg)} 50%{transform:rotate(180deg)} 100%{transform:rotate(360deg)}}
+.bg::before{
+  animation: driftA var(--t-med) ease-in-out infinite alternate;
+  opacity:.85;
+  -webkit-mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+}
+.bg::after{
+  animation: driftB var(--t-slow) ease-in-out infinite;
+  opacity:.65;
+  -webkit-mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+}
+
+/* Subtiele korrel / film grain (zonder externe asset) */
+.bg::marker{display:none}
+.bg > i{display:none}
+.bg::before, .bg::after { backdrop-filter: saturate(1.05) blur(2px); }
+.bg + .grain{ /* aparte overlay via pseudo-element lukt niet overal; gebruik extra div niet nodig – we faken ruis met gradients */
+  display:none;
+}
+
+/* Glass kaarten en UI */
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-.card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
-      border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
+.card{
+  padding:1.5rem; background:var(--panel); border:1px solid var(--panel-b);
+  border-radius:18px; box-shadow:0 18px 40px rgba(0,0,0,.12);
+  backdrop-filter: blur(10px) saturate(1.05);
+}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
+
+/* Forms/Buttons */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
   width:100%; display:block; appearance:none;
-  padding: .85rem 1rem; border-radius:12px; border:1px solid var(--line);
-  background:#f0f6ff; color:var(--text);
-  outline: none; transition: box-shadow .15s, border-color .15s, background .15s;
+  padding:.85rem 1rem; border-radius:12px; border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface-2) 90%, white 10%); color:var(--text);
+  outline:none; transition: box-shadow .15s, border-color .15s, background .15s;
 }
 input:focus, .input:focus, select:focus, textarea:focus{
-  border-color: var(--ring); box-shadow: 0 0 0 4px rgba(37,99,235,.15);
+  border-color: var(--ring); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
 }
-input[type=file]{padding:.55rem 1rem; background:#f0f6ff; cursor:pointer}
+input[type=file]{padding:.55rem 1rem; background:var(--surface-2); cursor:pointer}
 input[type=file]::file-selector-button{
   margin-right:.75rem; border:1px solid var(--line);
-  background:var(--surface-2); color:var(--text);
+  background:var(--surface); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
-  background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
+  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
+  color:#fff;font-weight:700;cursor:pointer;
   box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
   font-size:.95rem; line-height:1;
 }
 .btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
-.btn.secondary{background:var(--brand-2)}
-/* Robuuste progressbar (altijd zichtbaar) */
+.btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
+
+/* Progress */
 .progress{
-  height:12px;
-  border-radius:999px;
-  background:rgba(255,255,255,.18);
-  border:1px solid rgba(255,255,255,.75);
-  position:relative;
-  overflow:hidden;
-  margin-top:.75rem;
+  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
+  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
 }
-
 .progress > i{
-  display:block;
-  height:100%;
-  width:0%;
-  background-color:#5aa3ff; /* fallback */
-  background-image:linear-gradient(90deg,#5aa3ff,#9fc5ff);
-  transition:width .12s ease;
+  display:block;height:100%;width:0%;
+  background:linear-gradient(90deg,#0f4c98,#1e90ff);
+  transition:width .12s ease; position:relative;
 }
+.progress > i::after{
+  content:""; position:absolute; inset:0;
+  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
+  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
+}
+.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
 
-/* Indeterminate blijft werken */
-.progress.indet > i{
-  width:40%;
-  animation: indet-move 1.2s linear infinite;
-}
-@keyframes indet-move{ 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }
+@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
+
+/* Tabel */
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
+
+/* Responsive tabel */
 @media (max-width: 680px){
   .table thead{display:none}
   .table, .table tbody, .table tr, .table td{display:block;width:100%}
   .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+  .cols-2{ grid-template-columns: 1fr !important; }
 }
-@media (max-width: 680px){ .cols-2{ grid-template-columns: 1fr !important; } }
-.cta{display:flex;justify-content:center;margin-top:1rem}
+
+/* ZIP lijst kolombreedte */
+.table th.col-size,
+.table td.col-size,
+.table td[data-label="Grootte"]{
+  white-space:nowrap; text-align:right; min-width:72px;
+}
+
+/* Aurora animaties */
+@keyframes driftA{
+  0%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
+  100%{transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes driftB{
+  0%{transform:rotate(0deg) translateY(0)}
+  50%{transform:rotate(180deg) translateY(-1%)}
+  100%{transform:rotate(360deg) translateY(0)}
+}
+/* Kleurverschuiving over tijd */
+@keyframes hueShift{
+  0%{filter:hue-rotate(0deg) saturate(1.06)}
+  100%{filter:hue-rotate(360deg) saturate(1.06)}
+}
+
+/* Respecteer reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .bg, .bg::before, .bg::after{ animation: none !important; }
+}
 """
 
 # --- Favicon (SVG) ---
@@ -401,136 +480,18 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
-
-/* ====== Topbar & layout (solide en simpel) ====== */
-.topbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:1rem;
-  margin-bottom:1rem;
-}
-.topbar .title{ flex:1; }
-
-/* H1 altijd leesbaar met subtiele glass-achtergrond */
-/* H1 altijd leesbaar, maar zonder achtergrond of rand */
-.topbar h1{
-  margin:.25rem 0 1rem;
-  color:var(--brand);
-  font-size:2.1rem;
-  font-weight:800;
-  padding:0;                 /* geen padding */
-  background:transparent;    /* geen kaartje */
-  border:0;                  /* geen rand */
-  text-shadow: 0 1px 0 rgba(255,255,255,.55);
-}
-@media (prefers-color-scheme: dark){
-  .topbar h1{
-    text-shadow: 0 1px 0 rgba(0,0,0,.7);
-  }
-}
-
-/* Loginblok rechts */
-.logout{
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  gap:.2rem;
-  line-height:1.15;
-}
-/* “Ingelogd als …” met per-letter omlijning (geen blend-modes) */
-.login-status{
-  font-weight:700;
-  letter-spacing:.2px;
-  color:#0f172a;
-  text-shadow:
-     1px 0 0 #fff, -1px 0 0 #fff, 0 1px 0 #fff, 0 -1px 0 #fff,
-     1px 1px 0 #fff, -1px 1px 0 #fff, 1px -1px 0 #fff, -1px -1px 0 #fff;
-}
-@media (prefers-color-scheme: dark){
-  .login-status{
-    color:#e5e7eb;
-    text-shadow:
-       1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000,
-       1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
-  }
-}
-.logout a{ color:var(--brand); text-decoration:none; font-weight:700 }
-
-/* Form toggles */
-.toggle{ display:flex; gap:.75rem; align-items:center; margin:.4rem 0 1rem }
-.nav a{ color:var(--brand); text-decoration:none; font-weight:700 }
-
-/* ====== Robuuste progressbar (altijd zichtbaar) ====== */
-.progress{
-  height:12px;
-  border-radius:999px;
-  background:rgba(255,255,255,.18);
-  border:1px solid rgba(255,255,255,.75);
-  position:relative;
-  overflow:hidden;
-  margin-top:.75rem;
-}
-.progress > i{
-  display:block;
-  height:100%;
-  width:0%;
-  background-color:#5aa3ff; /* fallback */
-  background-image:linear-gradient(90deg,#5aa3ff,#9fc5ff);
-  transition:width .12s ease;
-}
-/* Indeterminate modus blijft werken */
-.progress.indet > i{
-  width:40%;
-  animation: indet-move 1.2s linear infinite;
-}
-/* 🌙 Avondmodus — donker thema */
-.night .card{
-  background: rgba(13,20,40,.78) !important;
-  border-color: rgba(13,20,40,.45) !important;
-  color:#e5e7eb;
-}
-
-.night .input,
-.night input[type=text], .night input[type=password], .night input[type=email],
-.night select, .night textarea{
-  background: #1f2937 !important;
-  color:#e5e7eb !important;
-  border-color:#374151 !important;
-}
-
-.night label,
-.night .meta,
-.night .topbar h1{
-  color:#e5e7eb !important;
-}
-
-.night .btn{
-  box-shadow:0 6px 22px rgba(0,0,0,.35);
-}
-
-@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-</style>
-<script>
-(function(){
-  const h = new Date().getHours();
-  const isNight = (h >= 18 || h < 7);
-  document.documentElement.classList.toggle('night', isNight);
-})();
-</script>
-</head>
-<body>
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+.logout a{color:var(--brand);text-decoration:none;font-weight:700}
+.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+.nav a{color:var(--brand);text-decoration:none;font-weight:700}
+</style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
   <div class="topbar">
-    <div class="title">
-      <h1>Bestanden delen met Olde Hanter</h1>
-    </div>
-    <div class="logout">
-      <span class="login-status">Ingelogd als {{ user }}</span>
-      <a href="{{ url_for('logout') }}">Uitloggen</a>
-    </div>
+    <h1>Bestanden delen met Olde Hanter</h1>
+    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
@@ -564,6 +525,8 @@ INDEX_HTML = """
   <option value="30" selected>30 dagen</option>
   <option value="60">60 dagen</option>
   <option value="365">1 jaar</option>
+  <!-- Wil je “voor altijd bewaren”? Zet deze aan en zie JS hieronder -->
+  <!-- <option value="forever">Voor altijd bewaren</option> -->
 </select>
       </div>
     </div>
@@ -591,261 +554,279 @@ function sanitizePath(p){
     const dot = n.lastIndexOf('.');
     const base = dot>=0 ? n.slice(0,dot) : n;
     const ext  = dot>=0 ? n.slice(dot) : '';
-    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
-    s = s.replace(/[^\w.\-]+/g, '_');
-    s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,'');
-    if (s.length > 160) s = s.slice(0,160);
+    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,''); // diacritics weg
+    s = s.replace(/[^\w.\-]+/g, '_');   // vervang + [ ] spaties etc.
+    s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,''); // opschonen
+    if (s.length > 160) s = s.slice(0,160);          // korter maken
     return (s || 'file') + ext.replace(/[^.\w-]/g,'');
   });
   return parts.join('/');
 }
 
-function isIOS(){
-  const ua = navigator.userAgent || navigator.vendor || window.opera;
-  const iOSUA = /iPad|iPhone|iPod/.test(ua);
-  const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  return iOSUA || iPadOS;
-}
-const modeFiles = document.getElementById('modeFiles');
-const modeFolder = document.getElementById('modeFolder');
-const lblFolder = document.getElementById('lblFolder');
-if(isIOS()){ modeFolder.disabled = true; lblFolder.style.display='none'; modeFiles.checked = true; }
-
-const modeRadios = document.querySelectorAll('input[name="upmode"]');
-const fileRow = document.getElementById('fileRow');
-const folderRow = document.getElementById('folderRow');
-const fileInput = document.getElementById('fileInput');
-const folderInput = document.getElementById('folderInput');
-
-function applyMode(openPicker){
-  const mode = document.querySelector('input[name="upmode"]:checked').value;
-  fileRow.style.display  = (mode==='files')  ? '' : 'none';
-  folderRow.style.display = (mode==='folder') ? '' : 'none';
-  if(openPicker===true){
-    try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
+  function isIOS(){
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+    const iOSUA = /iPad|iPhone|iPod/.test(ua);
+    const iPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return iOSUA || iPadOS;
   }
-}
-modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
-applyMode(false);
+  const modeFiles = document.getElementById('modeFiles');
+  const modeFolder = document.getElementById('modeFolder');
+  const lblFolder = document.getElementById('lblFolder');
+  if(isIOS()){ modeFolder.disabled = true; lblFolder.style.display='none'; modeFiles.checked = true; }
 
-const resBox=document.getElementById('result');
-const upbar=document.getElementById('upbar');
-const upbarFill=upbar.querySelector('i');
-const uptext=document.getElementById('uptext');
+  const modeRadios = document.querySelectorAll('input[name="upmode"]');
+  const fileRow = document.getElementById('fileRow');
+  const folderRow = document.getElementById('folderRow');
+  const fileInput = document.getElementById('fileInput');
+  const folderInput = document.getElementById('folderInput');
 
-let displayPct = 0; let targetPct  = 0; let animId = null;
-
-function animateProgress(){
-  const diff = targetPct - displayPct;
-  if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
-  else { displayPct += diff * 0.15; }
-  const p = Math.max(0, Math.min(100, displayPct));
-  upbarFill.style.width = p + "%";
-  uptext.textContent = Math.round(p) + "%";
-  if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
-}
-function setProgress(pct, forceText){
-  targetPct = Math.max(0, Math.min(100, pct || 0));
-  if (!animId) animId = requestAnimationFrame(animateProgress);
-  if (forceText){ uptext.textContent = forceText; }
-}
-function relPath(f){
-  const mode = document.querySelector('input[name="upmode"]:checked').value;
-  return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
-}
-
-async function packageInit(expiryDays, password, title){
-  const r = await fetch("{{ url_for('package_init') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
-  });
-  const j = await r.json();
-  if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
-  return j.token;
-}
-
-function putWithProgress(url, blob, updateCb, label){
-  return new Promise((resolve,reject)=>{
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.timeout = 900000;
-    xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
-    xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
-    xhr.onload = ()=>{
-      if(xhr.status>=200 && xhr.status<300){
-        const etag = xhr.getResponseHeader("ETag");
-        resolve(etag ? etag.replaceAll('\"','') : null);
-      } else {
-        reject(new Error(\`HTTP \${xhr.status} \${xhr.statusText||''} bij \${label||'upload'}: \${xhr.responseText||''}\`));
-      }
-    };
-    xhr.onerror   = ()=> reject(new Error(\`Netwerkfout bij \${label||'upload'} (CORS/endpoint?)\`));
-    xhr.ontimeout = ()=> reject(new Error(\`Timeout bij \${label||'upload'}\`));
-    xhr.send(blob);
-  });
-}
-async function singleInit(token, file, relpath, totalTracker){
-  const init = await fetch("{{ url_for('put_init') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ token, filename: file.name, contentType: file.type || "application/octet-stream" })
-  }).then(r=>r.json());
-  if(!init.ok) throw new Error(init.error || "Init (PUT) mislukt");
-  await putWithProgress(init.url, file, (loaded)=>{
-    const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
-    const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
-    setProgress(pctTotal);
-  }, 'PUT object');
-  await fetch("{{ url_for('put_complete') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ token, key: init.key, name: file.name, path: relpath })
-  }).then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error || "Afronden (PUT) mislukt"); });
-  totalTracker.currentBase += file.size;
-}
-
-async function mpuInit(token, filename, type){
-  const r = await fetch("{{ url_for('mpu_init') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
-  });
-  const j = await r.json();
-  if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
-  return j;
-}
-async function signPart(key, uploadId, partNumber){
-  const r = await fetch("{{ url_for('mpu_sign') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ key, uploadId, partNumber })
-  });
-  const j = await r.json();
-  if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
-  return j.url;
-}
-async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
-  const r = await fetch("{{ url_for('mpu_complete') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
-  });
-  const j = await r.json();
-  if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
-  return j;
-}
-async function uploadMultipart(token, file, relpath, totalTracker){
-  const CHUNK = 24 * 1024 * 1024;
-  const CONCURRENCY = 6;
-  const init = await mpuInit(token, file.name, file.type);
-  const key = init.key, uploadId = init.uploadId;
-
-  const partCount = Math.ceil(Math.max(1, file.size) / CHUNK);
-  const perPart = new Array(partCount).fill(0);
-
-  function refreshTotal(){
-    const uploadedThis = perPart.reduce((a,b)=>a+b,0);
-    const total = totalTracker.currentBase + uploadedThis;
-    const pct = (total / totalTracker.totalBytes) * 100;
-    setProgress(pct);
-  }
-
-  async function uploadPart(partNumber){
-    const idx = partNumber - 1;
-    const start = idx * CHUNK;
-    const end = Math.min(start + CHUNK, file.size);
-    const blob = file.slice(start, end);
-
-    const MAX_TRIES = 6;
-    for(let attempt=1; attempt<=MAX_TRIES; attempt++){
-      try{
-        const url  = await signPart(key, uploadId, partNumber);
-        const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, \`part \${partNumber}\`);
-        perPart[idx] = blob.size; refreshTotal();
-        return { PartNumber: partNumber, ETag: etag };
-      }catch(err){
-        if(attempt===MAX_TRIES) throw err;
-        const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
-        await new Promise(r=>setTimeout(r, backoff));
-      }
+  function applyMode(openPicker){
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    fileRow.style.display  = (mode==='files')  ? '' : 'none';
+    folderRow.style.display = (mode==='folder') ? '' : 'none';
+    if(openPicker===true){
+      try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
     }
   }
+  modeRadios.forEach(r => r.addEventListener('change', ()=>applyMode(true)));
+  applyMode(false);
 
-  const results = new Array(partCount);
-  let next = 1;
-  async function worker(){
-    while(true){
-      const my = next++; if(my > partCount) break;
-      results[my-1] = await uploadPart(my);
-    }
+  const resBox=document.getElementById('result');
+  const upbar=document.getElementById('upbar');
+  const upbarFill=upbar.querySelector('i');
+  const uptext=document.getElementById('uptext');
+
+  let displayPct = 0; let targetPct  = 0; let animId = null;
+
+  function animateProgress(){
+    const diff = targetPct - displayPct;
+    if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
+    else { displayPct += diff * 0.15; }
+    const p = Math.max(0, Math.min(100, displayPct));
+    upbarFill.style.width = p + "%";
+    uptext.textContent = Math.round(p) + "%";
+    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
   }
-  const workers = Array.from({length: Math.min(CONCURRENCY, partCount)}, ()=>worker());
-  await Promise.all(workers);
-
-  await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
-  totalTracker.currentBase += file.size;
-}
-
-document.getElementById('f').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const mode = document.querySelector('input[name="upmode"]:checked').value;
-  const files = Array.from((mode==='files'?fileInput.files:folderInput.files)||[]);
-  if(!files.length){
-    alert("Kies bestand(en)" + (isIOS() ? "" : " of map"));
-    try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
-    return;
+  function setProgress(pct, forceText){
+    targetPct = Math.max(0, Math.min(100, pct || 0));
+    if (!animId) animId = requestAnimationFrame(animateProgress);
+    if (forceText){ uptext.textContent = forceText; }
+  }
+  function relPath(f){
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
   }
 
-  const edSel = document.getElementById('expDays');
-  let expiryDays = edSel.value;
-
-  const password   = document.getElementById('pw').value || '';
-  const title      = document.getElementById('title').value || '';
-
-  const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
-  const tracker = { totalBytes, currentBase: 0 };
-
-  upbar.style.display='block'; uptext.style.display='block';
-  displayPct = 0; targetPct = 0; if (animId){ cancelAnimationFrame(animId); animId = null; }
-  setProgress(0);
-
-  try{
-    const token = await packageInit(expiryDays, password, title);
-    for(const f of files){
-      const rel = sanitizePath(relPath(f));
-      if(f.size < 5 * 1024 * 1024){
-        await singleInit(token, f, rel, tracker);
-      }else{
-        await uploadMultipart(token, f, rel, tracker);
-      }
-    }
-
-    if (animId){ cancelAnimationFrame(animId); animId = null; }
-    setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
-
-    const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-
-    resBox.innerHTML = `
-      <div class="card" style="margin-top:1rem">
-        <strong>Deelbare link</strong>
-        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-          <input id="shareLinkInput" class="input" style="flex:1" value="\${link}" readonly>
-          <button class="btn" type="button" id="copyBtn">Kopieer</button>
-          <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
-        </div>
-      </div>`;
-
-    const copyBtn = document.getElementById('copyBtn');
-    const copyOk  = document.getElementById('copyOk');
-    const input   = document.getElementById('shareLinkInput');
-    copyBtn.addEventListener('click', async ()=>{
-      try{ await (navigator.clipboard?.writeText(input.value)); }
-      catch(e){ input.select(); document.execCommand?.('copy'); }
-      copyOk.style.display = 'inline';
-      setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
+  async function packageInit(expiryDays, password, title){
+    const r = await fetch("{{ url_for('package_init') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ expiry_days: expiryDays, password: password || "", title: title || "" })
     });
-
-    setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
-
-  }catch(err){
-    alert(err.message || 'Onbekende fout');
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Kan pakket niet starten");
+    return j.token;
   }
-});
+
+  function putWithProgress(url, blob, updateCb, label){
+    return new Promise((resolve,reject)=>{
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url, true);
+      xhr.timeout = 900000;
+      xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
+      xhr.upload.onprogress = (ev)=> updateCb(ev.loaded, ev.total || blob.size, ev.lengthComputable === true);
+      xhr.onload = ()=>{
+        if(xhr.status>=200 && xhr.status<300){
+          const etag = xhr.getResponseHeader("ETag");
+          resolve(etag ? etag.replaceAll('\"','') : null);
+        } else {
+          reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
+        }
+      };
+      xhr.onerror   = ()=> reject(new Error(`Netwerkfout bij ${label||'upload'} (CORS/endpoint?)`));
+      xhr.ontimeout = ()=> reject(new Error(`Timeout bij ${label||'upload'}`));
+      xhr.send(blob);
+    });
+  }
+  async function singleInit(token, filename, type){
+    const r = await fetch("{{ url_for('put_init') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
+    return j;
+  }
+  async function singleComplete(token, key, name, path){
+    const r = await fetch("{{ url_for('put_complete') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key, name, path })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
+    return j;
+  }
+  async function uploadSingle(token, file, relpath, totalTracker){
+    const init = await singleInit(token, file.name, file.type);
+    await putWithProgress(init.url, file, (loaded)=>{
+      const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
+      const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
+      setProgress(pctTotal);
+    }, 'PUT object');
+    await singleComplete(token, init.key, file.name, relpath);
+    totalTracker.currentBase += file.size;
+  }
+
+  async function mpuInit(token, filename, type){
+    const r = await fetch("{{ url_for('mpu_init') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init (MPU) mislukt");
+    return j;
+  }
+  async function signPart(key, uploadId, partNumber){
+    const r = await fetch("{{ url_for('mpu_sign') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ key, uploadId, partNumber })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Sign part mislukt");
+    return j.url;
+  }
+  async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
+    const r = await fetch("{{ url_for('mpu_complete') }}", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (MPU) mislukt");
+    return j;
+  }
+  async function uploadMultipart(token, file, relpath, totalTracker){
+const CHUNK = 24 * 1024 * 1024;  // 24 MiB
+const CONCURRENCY = 6;           // 6 parallelle parts
+    const init = await mpuInit(token, file.name, file.type);
+    const key = init.key, uploadId = init.uploadId;
+
+    const partCount = Math.ceil(Math.max(1, file.size) / CHUNK);
+    const perPart = new Array(partCount).fill(0);
+
+    function refreshTotal(){
+      const uploadedThis = perPart.reduce((a,b)=>a+b,0);
+      const total = totalTracker.currentBase + uploadedThis;
+      const pct = (total / totalTracker.totalBytes) * 100;
+      setProgress(pct);
+    }
+
+    async function uploadPart(partNumber){
+      const idx = partNumber - 1;
+      const start = idx * CHUNK;
+      const end = Math.min(start + CHUNK, file.size);
+      const blob = file.slice(start, end);
+
+      const MAX_TRIES = 6;
+      for(let attempt=1; attempt<=MAX_TRIES; attempt++){
+        try{
+          const url  = await signPart(key, uploadId, partNumber);
+          const etag = await putWithProgress(url, blob, (loaded)=>{ perPart[idx] = Math.min(loaded, blob.size); refreshTotal(); }, `part ${partNumber}`);
+          perPart[idx] = blob.size; refreshTotal();
+          return { PartNumber: partNumber, ETag: etag };
+        }catch(err){
+          if(attempt===MAX_TRIES) throw err;
+          const backoff = Math.round(500 * Math.pow(2, attempt-1) * (0.85 + Math.random()*0.3));
+          await new Promise(r=>setTimeout(r, backoff));
+        }
+      }
+    }
+
+    const results = new Array(partCount);
+    let next = 1;
+    async function worker(){
+      while(true){
+        const my = next++; if(my > partCount) break;
+        results[my-1] = await uploadPart(my);
+      }
+    }
+    const workers = Array.from({length: Math.min(CONCURRENCY, partCount)}, ()=>worker());
+    await Promise.all(workers);
+
+    await mpuComplete(token, key, file.name, relpath, results, uploadId, file.size);
+    totalTracker.currentBase += file.size;
+  }
+
+  document.getElementById('f').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const mode = document.querySelector('input[name="upmode"]:checked').value;
+    const files = Array.from((mode==='files'?fileInput.files:folderInput.files)||[]);
+    if(!files.length){
+      alert("Kies bestand(en)" + (isIOS() ? "" : " of map"));
+      try{ (mode==='files'?fileInput:folderInput).click(); }catch(e){}
+      return;
+    }
+
+const edSel = document.getElementById('expDays');
+// Standaard: pak de gekozen dagen
+let expiryDays = edSel.value;
+
+// (Optioneel) ondersteuning voor “Voor altijd bewaren”:
+// if (expiryDays === 'forever') {
+//   // Back-end verwacht dagen; geef bv. 100 jaar mee
+//   expiryDays = 36500;
+// }
+
+    const password   = document.getElementById('pw').value || '';
+    const title      = document.getElementById('title').value || '';
+
+    const totalBytes = files.reduce((a,f)=>a+f.size,0) || 1;
+    const tracker = { totalBytes, currentBase: 0 };
+
+    upbar.style.display='block'; uptext.style.display='block';
+    displayPct = 0; targetPct = 0; if (animId){ cancelAnimationFrame(animId); animId = null; }
+    setProgress(0);
+
+    try{
+      const token = await packageInit(expiryDays, password, title);
+      for(const f of files){
+        const rel = sanitizePath(relPath(f));
+        if(f.size < 5 * 1024 * 1024){
+          await uploadSingle(token, f, rel, tracker);
+        }else{
+          await uploadMultipart(token, f, rel, tracker);
+        }
+      }
+
+      if (animId){ cancelAnimationFrame(animId); animId = null; }
+      setProgress(100); upbarFill.style.width = '100%'; uptext.textContent = "Klaar";
+
+      const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+
+      resBox.innerHTML = `
+        <div class="card" style="margin-top:1rem">
+          <strong>Deelbare link</strong>
+          <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
+            <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
+            <button class="btn" type="button" id="copyBtn">Kopieer</button>
+            <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
+          </div>
+        </div>`;
+
+      const copyBtn = document.getElementById('copyBtn');
+      const copyOk  = document.getElementById('copyOk');
+      const input   = document.getElementById('shareLinkInput');
+      copyBtn.addEventListener('click', async ()=>{
+        try{ await (navigator.clipboard?.writeText(input.value)); }
+        catch(e){ input.select(); document.execCommand?.('copy'); }
+        copyOk.style.display = 'inline';
+        setTimeout(()=>{ copyOk.style.display='none'; }, 2000);
+      });
+
+      setTimeout(()=>{ upbar.style.display='none'; uptext.style.display='none'; }, 800);
+
+    }catch(err){
+      alert(err.message || 'Onbekende fout');
+    }
+  });
 </script>
 </body></html>
 """
@@ -856,46 +837,20 @@ PACKAGE_HTML = """
 <style>
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.4rem 0 1rem;color:var(--muted)}
-.meta strong{color: color-mix(in oklab, var(--text) 92%, transparent); font-weight:800}
+.meta{margin:.4rem 0 1rem;color:#374151}
 .btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
 
-/* Kolom 'Grootte' niet laten afbreken (ook mobiel) */
+/* Kolom 'Grootte' nooit laten afbreken (ook in mobile layout) */
 .table th.col-size,
 .table td.col-size,
 .table td[data-label="Grootte"]{
   white-space: nowrap;
   text-align: right;
-  min-width: 72px;
+  min-width: 72px; /* naar smaak aanpassen */
 }
-
-/* Geen overlap met CTA: kaart boven, CTA eronder met ruimte */
-.card{ position:relative; z-index:0; }
-.cta{ margin-top:1.25rem; }
-
-/* 🌙 Avondmodus — donker thema (downloadpagina) */
-.night .card{
-  background: rgba(13,20,40,.78) !important;
-  border-color: rgba(13,20,40,.45) !important;
-  color:#e5e7eb;
-}
-.night .btn{ box-shadow:0 6px 22px rgba(0,0,0,.35); }
-.night .table tr{ background: rgba(255,255,255,.08); }
-
-</style>
-
-<script>
-(function(){
-  const h = new Date().getHours();
-  const isNight = (h >= 18 || h < 7);
-  document.documentElement.classList.toggle('night', isNight);
-})();
-</script>
-
-
-</head><body>
+</style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
@@ -960,7 +915,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     if(!res.ok){
       const xerr = res.headers.get('X-Error') || '';
       let body=''; try{ body = await res.text(); }catch(e){}
-      alert(\`Fout \${res.status}\${xerr?' – '+xerr:''}\${body?'\\n\\n'+body:''}\`);
+      alert(`Fout ${res.status}${xerr?' – '+xerr:''}${body?'\\n\\n'+body:''}`);
       return;
     }
     const total = parseInt(res.headers.get('Content-Length')||'0',10);
