@@ -1171,30 +1171,234 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   .table tbody tr:hover{background:color-mix(in oklab, var(--surface-2) 86%, black 14%)}
 }
 
-/* ===== Slang (alleen downloadpagina) ===== */
-#snakeWrap{
-  position:fixed; z-index:2147483647; width:150px; height:100px;
-  left:0; top:0; transform:translate3d(24px, 72vh, 0);
-  will-change:transform; cursor:pointer; user-select:none; pointer-events:auto;
-}
-#snakeWrap svg{ width:100%; height:100%; overflow:visible;
-  filter: drop-shadow(0 0 6px rgba(255,255,255,.65)) drop-shadow(0 2px 10px rgba(0,0,0,.35));
-}
-#snakeWrap #body{ stroke:#000; stroke-width:14; stroke-linecap:round; stroke-linejoin:round; fill:none }
-#snakeWrap #head > circle:first-child{ fill:#000 }
-#snakeBubble{
-  position:absolute; bottom:72px; left:-10px; width:190px; max-width:min(220px, calc(100vw - 40px));
-  background:#fff; color:#111; border:1px solid rgba(0,0,0,.15);
-  padding:.5rem .7rem; border-radius:10px; box-shadow:0 10px 24px rgba(0,0,0,.25);
-  font-size:.85rem; line-height:1.25; opacity:0; transform:translateY(8px); pointer-events:none;
-  transition:opacity .2s, transform .2s;
-}
-#snakeBubble.show{ opacity:1; transform:translateY(0) }
-#snakeBubble:after{
-  content:""; position:absolute; left:26px; bottom:-10px;
-  border-width:10px 8px 0 8px; border-style:solid; border-color:#fff transparent transparent transparent;
-}
+<!-- ===== Slang (kleiner, pas na 1e klik, rustige beweging) ===== -->
+<style>
+  #snakeWrap{
+    position:fixed; z-index:2147483647; width:90px; height:60px;
+    left:0; top:0; transform:translate3d(24px, 72vh, 0);
+    will-change:transform; cursor:pointer; user-select:none;
+  }
+  #snakeWrap svg{
+    width:100%; height:100%; overflow:visible;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)) drop-shadow(0 6px 14px rgba(0,0,0,.25));
+  }
+  /* Bubble */
+  #snakeBubble{
+    position:absolute; bottom:64px; left:-6px;
+    width:180px; max-width:min(220px, calc(100vw - 40px));
+    background:#fff; color:#111; border:1px solid rgba(0,0,0,.12);
+    padding:.5rem .7rem; border-radius:10px; box-shadow:0 10px 24px rgba(0,0,0,.22);
+    font-size:.85rem; line-height:1.25; opacity:0; transform:translateY(6px);
+    pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+  }
+  #snakeBubble.show{ opacity:1; transform:translateY(0) }
+  #snakeBubble:after{
+    content:""; position:absolute; left:26px; bottom:-10px;
+    border-width:10px 8px 0 8px; border-style:solid; border-color:#fff transparent transparent transparent;
+  }
+  /* Donker thema */
+  @media (prefers-color-scheme: dark){
+    #snakeBubble{ background:#0b1324; color:#e5e7eb; border-color:rgba(255,255,255,.15) }
+    #snakeBubble:after{ border-color:#0b1324 transparent transparent transparent }
+  }
 </style>
+
+<div id="snakeWrap" aria-label="speels slangetje">
+  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- zachte verlooplijn voor het lijf -->
+      <linearGradient id="snakeLine" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0"  stop-color="#0b0b0b"/>
+        <stop offset="0.6" stop-color="#1a1a1a"/>
+        <stop offset="1"  stop-color="#262626"/>
+      </linearGradient>
+    </defs>
+    <g id="snakeGroup">
+      <path id="spine" d="" fill="none" stroke="none"></path>
+      <!-- wat subtieler (dikker dichtbij de kop) -->
+      <path id="body" d="" fill="none" stroke="url(#snakeLine)"
+            stroke-linecap="round" stroke-linejoin="round" stroke-width="12"></path>
+      <g id="head">
+        <!-- kop -->
+        <ellipse cx="0" cy="0" rx="11" ry="12" fill="#101010"/>
+        <!-- oog -->
+        <circle cx="4" cy="-4" r="2.6" fill="#fff"/>
+        <circle cx="4" cy="-4" r="1.2" fill="#111"/>
+        <!-- tong -->
+        <path d="M12 4 l9 1 -9 3" stroke="#b91c1c" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </g>
+    </g>
+  </svg>
+  <div id="snakeBubble">Klik me om me wakker te maken 🐍</div>
+</div>
+
+<script>
+(() => {
+  // ---- Config ----
+  const L = 120;             // lengte van de slang in SVG-units
+  const N = 24;              // samples langs het lijf
+  const BASE_SPEED = 35;     // px/s (¼ van 140)
+  const TURN_RATE = 1.8;     // hoe snel heading richting doel draait
+  const WAVE_SPEED = 3.2;    // golf-fase snelheid
+  const AMP_MIN = 4.5, AMP_MAX = 6.5;
+  const FREQ_MIN = 0.10, FREQ_MAX = 0.14;
+  const TARGET_HOLD_MIN = 2.5, TARGET_HOLD_MAX = 4.5; // seconden voor nieuw doel
+
+  // ---- DOM ----
+  const wrap   = document.getElementById('snakeWrap');
+  const group  = wrap.querySelector('#snakeGroup');
+  const body   = wrap.querySelector('#body');
+  const head   = wrap.querySelector('#head');
+  const bubble = wrap.querySelector('#snakeBubble');
+
+  // ---- State ----
+  let amp = 5.6, freq = 0.12, phase = 0;
+  let speed = BASE_SPEED;
+  let last = performance.now();
+  let active = false;            // ⬅️ pas bewegen na eerste klik
+  let heading = Math.random()*Math.PI*2; // huidige richting (rad)
+  let pos = { x: 24, y: innerHeight*0.72 }; // beginplek
+  let target = pickSafeTarget();
+  let nextTargetAt = 0;
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  function pickSafeTarget(){
+    const m = 16;
+    const W = Math.max(0, innerWidth  - wrap.clientWidth  - m);
+    const H = Math.max(0, innerHeight - wrap.clientHeight - m);
+    return { x: rand(m, W), y: rand(m, H) };
+  }
+  function place(){ wrap.style.transform = `translate(${pos.x}px,${pos.y}px)`; }
+
+  function computeSpine(){
+    const pts=[];
+    for(let i=0;i<N;i++){
+      const x=(L/(N-1))*i;
+      const y=amp*Math.sin(freq*x + phase);
+      pts.push([x,y]);
+    }
+    return pts;
+  }
+  function catmullRom2bezier(points){
+    if(points.length<2) return "";
+    const d=[];
+    for(let i=0;i<points.length-1;i++){
+      const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
+      const cp1x=p1[0]+(p2[0]-p0[0])/6, cp1y=p1[1]+(p2[1]-p0[1])/6;
+      const cp2x=p2[0]-(p3[0]-p1[0])/6, cp2y=p2[1]-(p3[1]-p1[1])/6;
+      if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
+      d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
+    }
+    return d.join(" ");
+  }
+  function orientHead(points){
+    const a=points[points.length-2], b=points[points.length-1];
+    const ang = Math.atan2(b[1]-a[1], b[0]-a[0])*180/Math.PI;
+    head.setAttribute('transform', `translate(${b[0]} ${b[1]}) rotate(${ang})`);
+  }
+  function rotateGroupTowards(dx,dy){
+    const ang = Math.atan2(dy,dx);
+    group.setAttribute('transform', `rotate(${ang*180/Math.PI})`);
+  }
+
+  // Init pose (stil)
+  place();
+  drawBodyStatic();
+
+  function drawBodyStatic(){
+    const pts = computeSpine();
+    body.setAttribute('d', catmullRom2bezier(pts));
+    orientHead(pts);
+  }
+
+  // Interactie: eerste klik activeert beweging
+  const QUOTES = [
+    "Oké oké, ik ben wakker! 🐍",
+    "Rustig aan... ik kom al.",
+    "Wie tikt mij daar aan? 😄",
+    "Tijd voor een blokje om!"
+  ];
+  let clicks = 0;
+  wrap.addEventListener('click', () => {
+    clicks++;
+    if(!active){
+      active = true;
+      bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+      bubble.classList.add('show');
+      setTimeout(()=>bubble.classList.remove('show'), 2000);
+      nextTargetAt = performance.now() + rand(TARGET_HOLD_MIN, TARGET_HOLD_MAX)*1000;
+      requestAnimationFrame(tick); // start loop
+      return;
+    }
+    // al actief -> nieuwe target, lichte variatie in golf
+    target = pickSafeTarget();
+    amp = rand(AMP_MIN, AMP_MAX);
+    freq = rand(FREQ_MIN, FREQ_MAX);
+    if(clicks%3===0){
+      bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+      bubble.classList.add('show');
+      setTimeout(()=>bubble.classList.remove('show'), 2000);
+    }
+  }, {passive:true});
+
+  // Hoofdlus
+  function tick(t){
+    const dt = Math.min(0.05, (t-last)/1000); // cap dt voor stabiele beweging
+    last = t;
+
+    if(active){
+      // fase en golf
+      phase += WAVE_SPEED*dt;
+
+      // periodiek nieuw doel
+      if(t >= nextTargetAt){
+        target = pickSafeTarget();
+        nextTargetAt = t + rand(TARGET_HOLD_MIN, TARGET_HOLD_MAX)*1000;
+        amp = rand(AMP_MIN, AMP_MAX);
+        freq = rand(FREQ_MIN, FREQ_MAX);
+      }
+
+      // stuur richting doel (gladde heading)
+      const dx = target.x - pos.x, dy = target.y - pos.y;
+      const desired = Math.atan2(dy, dx);
+      let dAng = ((desired - heading + Math.PI) % (2*Math.PI)) - Math.PI;
+      heading += clamp(dAng, -TURN_RATE*dt, TURN_RATE*dt);
+
+      // vooruit bewegen
+      pos.x += Math.cos(heading) * speed * dt;
+      pos.y += Math.sin(heading) * speed * dt;
+
+      // in beeld houden
+      const m=16;
+      pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
+      pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
+
+      // toepassen
+      rotateGroupTowards(Math.cos(heading), Math.sin(heading));
+      place();
+
+      // lijf tekenen
+      const spine = computeSpine();
+      body.setAttribute('d', catmullRom2bezier(spine));
+      orientHead(spine);
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // bij resize binnen beeld houden
+  addEventListener('resize', () => {
+    const m=16;
+    pos.x = clamp(pos.x, m, Math.max(m, innerWidth  - wrap.clientWidth  - m));
+    pos.y = clamp(pos.y, m, Math.max(m, innerHeight - wrap.clientHeight - m));
+    place();
+    if(active) target = pickSafeTarget();
+  }, {passive:true});
+})();
+</script>
+
 
 
 </head><body>
