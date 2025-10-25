@@ -579,7 +579,7 @@ input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 8
           </div>
           <div>
             <label for="pw">Wachtwoord (optioneel)</label>
-            <input id="pw" class="input" type="password" placeholder="Laat leeg voor geen wachtwoord" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+            <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
           </div>
         </div>
 
