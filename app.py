@@ -494,10 +494,12 @@ label{color:var(--text)}
 .cols-2{grid-template-columns:1fr 1fr}
 @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
 
+/* Toggle */
 .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
 .toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
 .toggle input{accent-color:var(--brand)}
 
+/* File list cards */
 .filelist{margin-top:.8rem}
 .filecard{
   display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
@@ -513,93 +515,43 @@ label{color:var(--text)}
 .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
 .row{display:flex;align-items:center;gap:.6rem}
 
+/* Progress */
 .progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4}
 .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 
+/* Total */
 .totalbox{margin-top:1rem}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
 .kv strong{font-weight:700;color:var(--text)}
 .kv span{color:var(--muted)}
 
+/* Buttons */
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
-.btn.gray{background:linear-gradient(180deg,#64748b,#475569)}
-.btn.ghost{border:1px solid var(--line);background:color-mix(in oklab, var(--surface) 92%, white 8%);color:var(--text);font-weight:600}
 
-/* Zorg dat inputs op donkere kaart goed leesbaar blijven */
-input.input, select.input, .input{color:var(--text)}
-input::placeholder, .input::placeholder{color:color-mix(in oklab, var(--muted) 85%, white 15%)}
+/* Contrast fix topbar */
+.topbar .logout{font-size:.95rem;font-weight:500;color:var(--text)!important}
+.topbar .logout a{color:var(--brand)!important;font-weight:700;text-decoration:none;opacity:.95;transition:opacity .15s,text-decoration .15s,color .15s}
+.topbar .logout a:hover{text-decoration:underline;opacity:1}
+@media(prefers-color-scheme:dark){.topbar .logout{color:var(--text)!important}.topbar .logout a{color:var(--brand-2)!important}}
 
-
-/* ===== Contrastfix voor topbar-login info ===== */
-.topbar .logout {
-  font-size: .95rem;
-  font-weight: 500;
-  color: var(--text) !important; /* automatisch donker/licht afhankelijk van thema */
-}
-
-.topbar .logout a {
-  color: var(--brand) !important;
-  font-weight: 700;
-  text-decoration: none;
-  opacity: .95;
-  transition: opacity .15s, text-decoration .15s, color .15s;
-}
-
-.topbar .logout a:hover {
-  text-decoration: underline;
-  opacity: 1;
-}
-
-@media (prefers-color-scheme: dark){
-  .topbar .logout {
-    color: var(--text) !important; /* automatisch licht */
-  }
-  .topbar .logout a {
-    color: var(--brand-2) !important; /* lichter blauw in dark mode */
-  }
-}
-
-/* ================== File input uitlijnen ================== */
+/* =========== File input strak uitlijnen met overige inputs =========== */
 input[type=file]{
-  appearance:none;
-  -webkit-appearance:none;
-  font: inherit;
-  line-height:1.2;
-  height:auto;
-
-  width:100%;
-  display:block;
-  padding:.85rem 1rem;
-  border-radius:12px;
-  border:1px solid var(--line);
+  appearance:none;-webkit-appearance:none;
+  font:inherit;line-height:1.2;height:auto;
+  width:100%;display:block;
+  padding:.85rem 1rem;border-radius:12px;border:1px solid var(--line);
   background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
   color:var(--text);
 }
-
 input[type=file]::file-selector-button{
-  font: inherit;
-  line-height:1;
-  padding:.55rem .9rem;
-  border-radius:10px;
-  border:1px solid var(--line);
-  background:var(--surface);
-  color:var(--text);
-  margin-right:.75rem;
-  cursor:pointer;
+  font:inherit;line-height:1;
+  padding:.55rem .9rem;border-radius:10px;border:1px solid var(--line);
+  background:var(--surface);color:var(--text);margin-right:.75rem;cursor:pointer;
 }
-
-/* Dark mode */
-@media (prefers-color-scheme: dark){
-  input[type=file]{
-    background:color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    border-color:#374151;
-  }
-  input[type=file]::file-selector-button{
-    background:var(--surface);
-    border-color:#374151;
-  }
+@media(prefers-color-scheme:dark){
+  input[type=file]{background:color-mix(in oklab, var(--surface-2) 92%, black 8%);border-color:#374151}
+  input[type=file]::file-selector-button{background:var(--surface);border-color:#374151}
 }
-
 </style>
 </head><body>
 {{ bg|safe }}
@@ -610,7 +562,7 @@ input[type=file]::file-selector-button{
     <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-<div class="card">
+  <div class="card">
     <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
         <label>Uploadtype</label>
@@ -655,10 +607,10 @@ input[type=file]::file-selector-button{
           </div>
         </div>
 
-<div class="row" style="gap:.6rem; flex-wrap:wrap">
-  <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
-</div>
-
+        <!-- Alleen nog de Uploaden-knop (Pauzeer/Annuleer verwijderd) -->
+        <div class="row" style="gap:.6rem;flex-wrap:wrap">
+          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
+        </div>
       </div>
     </form>
 
@@ -706,8 +658,6 @@ const totalEta = document.getElementById('totalEta');
 const fileList = document.getElementById('fileList');
 const resBox = document.getElementById('result');
 const btnStart = document.getElementById('btnStart');
-const btnPause = document.getElementById('btnPause');
-const btnCancel = document.getElementById('btnCancel');
 
 // iOS: directory input werkt niet -> verberg map-optie
 (function(){
@@ -727,42 +677,6 @@ document.querySelectorAll('input[name="upmode"]').forEach(r=>r.addEventListener(
 applyMode(false);
 
 // ===== State =====
-
-// ===== reset helper =====
-function resetUploadUI(){
-  // lijst + resultaat leeg
-  fileList.innerHTML = '';
-  fileList.style.display = 'none';
-  resBox.innerHTML = '';
-  // progress terug naar begin
-  setTotal(0, 'Nog niet gestart');
-  totalSpeed.textContent = '–';
-  totalEta.textContent = '–';
-  // state terugzetten
-  state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
-}
-
-async function runUpload(){
-  resetUploadUI();  // <<< voeg deze regel toe
-  const filesRaw = currentFiles();
-  if(!filesRaw.length){
-    alert("Kies eerst bestand(en) of map");
-    try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){}
-    return;
-  }
-  // ... rest ongewijzigd
-}
-
-function maybeResetOnNewSelection(){
-  // alleen resetten als we niet aan het uploaden zijn
-  if (btnPause.disabled) resetUploadUI();
-}
-fileInput.addEventListener('change', maybeResetOnNewSelection);
-folderInput.addEventListener('change', maybeResetOnNewSelection);
-document.querySelectorAll('input[name="upmode"]').forEach(r=>{
-  r.addEventListener('change', maybeResetOnNewSelection);
-});
-
 let state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
 
 // ===== UI helpers =====
@@ -787,6 +701,16 @@ function addFileRow(file, path){
     label: card.querySelector('[data-role=label]')
   };
 }
+function resetUploadUI(){
+  fileList.innerHTML = ''; fileList.style.display = 'none';
+  resBox.innerHTML = '';
+  setTotal(0, 'Nog niet gestart'); totalSpeed.textContent = '–'; totalEta.textContent = '–';
+  state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
+}
+function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
+function currentFiles(){ const m=selectedMode(); return Array.from(m==='files'?(fileInput.files||[]):(folderInput.files||[])); }
+function relP(file){ return selectedMode()==='folder' ? (file.webkitRelativePath || file.name) : file.name; }
+
 // ===== server calls =====
 async function packageInit(expiryDays,password,title){
   const r = await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password:password||"",title:title||""})});
@@ -828,10 +752,6 @@ function putWithProgress(url,blob,onProgress,onAbortSetter){
 }
 
 // ===== uploader =====
-function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
-function currentFiles(){ const m=selectedMode(); return Array.from(m==='files'?(fileInput.files||[]):(folderInput.files||[])); }
-function relP(file){ return selectedMode()==='folder' ? (file.webkitRelativePath || file.name) : file.name; }
-
 async function uploadOneSmall(token,file,rel,ui){
   const init=await putInit(token,file.name,file.type);
   ui.badge.textContent="Uploaden…"; ui.label.textContent="Directe upload";
@@ -862,6 +782,7 @@ async function uploadOneMPU(token,file,rel,ui){
 }
 
 async function runUpload(){
+  resetUploadUI();
   const filesRaw=currentFiles();
   if(!filesRaw.length){ alert("Kies eerst bestand(en) of map"); try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){} return; }
 
@@ -910,19 +831,20 @@ async function runUpload(){
   copyBtn.addEventListener('click',async()=>{try{await (navigator.clipboard?.writeText(input.value));}catch(_){input.select();document.execCommand?.('copy');}copyOk.style.display='inline';setTimeout(()=>copyOk.style.display='none',1600);});
 }
 
-// ===== controls =====
+// ===== events =====
+function maybeResetOnNewSelection(){ resetUploadUI(); }
+fileInput.addEventListener('change', maybeResetOnNewSelection);
+folderInput.addEventListener('change', maybeResetOnNewSelection);
+document.querySelectorAll('input[name="upmode"]').forEach(r=> r.addEventListener('change', maybeResetOnNewSelection));
+
+// Submit
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   btnStart.disabled = true;
-  try {
-    await runUpload();
-  } catch(_) {
-    totalStatus.textContent = 'Geannuleerd';
-  } finally {
-    btnStart.disabled = false;
-  }
+  try { await runUpload(); }
+  catch(_) { totalStatus.textContent = 'Geannuleerd'; }
+  finally { btnStart.disabled = false; }
 });
-
 </script>
 </body></html>
 """
