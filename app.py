@@ -1062,21 +1062,15 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 #snakeWrap{
   position:fixed;
   z-index:9999;
-  width:150px;               /* totale grootte slang */
+  width:150px;              /* totale grootte slang */
   height:100px;
-  left:24px;                 /* startplek */
-  bottom:96px;
-  transform:translate3d(0,0,0);
+  left:0; top:0;            /* we positioneren ALLES met translate(...) */
+  transform:translate3d(24px, 72vh, 0);
   will-change:transform;
   cursor:pointer;
   user-select:none;
 }
-
-#snakeWrap svg{
-  width:100%;
-  height:100%;
-  overflow:visible;
-}
+#snakeWrap svg{ width:100%; height:100%; overflow:visible; }
 
 /* Tekstballon */
 #snakeBubble{
@@ -1090,20 +1084,16 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   padding:.5rem .7rem;
   border-radius:10px;
   box-shadow:0 10px 24px rgba(0,0,0,.25);
-  font-size:.85rem;
-  line-height:1.25;
-  opacity:0;
-  transform:translateY(8px);
+  font-size:.85rem; line-height:1.25;
+  opacity:0; transform:translateY(8px);
   pointer-events:none;
   transition:opacity .2s, transform .2s;
 }
 #snakeBubble.show{ opacity:1; transform:translateY(0); }
 #snakeBubble:after{
   content:"";
-  position:absolute;
-  left:26px; bottom:-10px;
-  border-width:10px 8px 0 8px;
-  border-style:solid;
+  position:absolute; left:26px; bottom:-10px;
+  border-width:10px 8px 0 8px; border-style:solid;
   border-color:#fff transparent transparent transparent;
 }
 
@@ -1389,181 +1379,169 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 <!-- ====== Slang: klein, zwart, dynamisch ====== -->
 <div id="snakeWrap" aria-label="speels slangetje">
   <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
-    <!-- groep die we roteren met de vliegrichting -->
     <g id="snakeGroup">
-      <!-- ruggengraat (onzichtbaar, handig voor debug) -->
       <path id="spine" d="" fill="none" stroke="none"/>
-      <!-- lichaam -->
-      <path id="body" d="" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>
-      <!-- kop (op de punt) -->
+      <path id="body"  d="" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>
       <g id="head">
-        <circle id="headFill" cx="0" cy="0" r="12" fill="#000"/>
-        <circle id="eye" cx="4" cy="-4" r="2.6" fill="#fff"/>
-        <!-- simpel tongetje -->
+        <circle cx="0" cy="0" r="12" fill="#000"/>
+        <circle cx="4" cy="-4" r="2.6" fill="#fff"/>
         <path d="M12 4 l10 1 -10 3" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
       </g>
     </g>
   </svg>
-  <div id="snakeBubble">laat mij met rust, ik ben maar een lief slangetje xxx</div>
+  <div id="snakeBubble">…</div>
 </div>
 
 <script>
 (function(){
-  // --- basis elementen
-  const wrap  = document.getElementById('snakeWrap');
-  const group = document.getElementById('snakeGroup');
-  const body  = document.getElementById('body');
-  const head  = document.getElementById('head');
-  const bubble= document.getElementById('snakeBubble');
+  /* ---------- Jiskefet one-liners ---------- */
+  const QUOTES = [
+    "Ga jij nou es weg joh… ik ben ff bezig.",
+    "Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
+    "Ja doei! Ik ben een slang, geen helpdesk.",
+    "Hee lekker hoor… maar niet aankomen!",
+    "Wil jij een broodje kaas ofzo?",
+    "Ik ben niet gek, ik ben een slang!",
+    "Kom op joh… ik heb ook maar twee handen!",
+    "Ben jij los ofzo?",
+    "Moet dat nou steeds?",
+    "Ja hallo zeg… ik heb weekend!"
+  ];
 
-  // --- instellingen
-  const L = 120;                // lengte van de slang-as in SVG eenheden
-  const N = 22;                 // aantal samplepunten
-  let   amp = 6;                // amplitude van kronkel
-  let   freq = 0.13;            // golf-frequentie
-  let   phase = 0;              // lopende fase (animeren)
-  let   speed = 140;            // pixels/s (schermverplaatsing)
-  let   lastT = performance.now();
+  /* ---------- DOM ---------- */
+  const wrap   = document.getElementById('snakeWrap');
+  const group  = document.getElementById('snakeGroup');
+  const body   = document.getElementById('body');
+  const head   = document.getElementById('head');
+  const bubble = document.getElementById('snakeBubble');
 
-  // positie + doel (schermcoördinaten)
-  let pos = { x: wrap.offsetLeft, y: wrap.offsetTop };
-  let target = { x: pos.x, y: pos.y };
-  let clickCount = 0;
+  /* ---------- Kronkel-parameters ---------- */
+  const L = 120;                  // lengte van de slang in SVG-units
+  const N = 22;                   // aantal sample-punten
+  let amp   = 6;                  // amplitude
+  let freq  = 0.13;               // frequentie
+  let phase = 0;                  // lopende fase
+  let speed = 140;                // px/s
+  let lastT = performance.now();
 
-  // handige utils
+  /* ---------- Positie (top/left wereld, alles via translate) ---------- */
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
   function rand(a,b){ return a + Math.random()*(b-a); }
 
-  // bereken een polyline (as) en bouw daar een "smooth" path van
-  function computeSpinePoints(){
+  function pickSafeTarget(){
+    const margin = 18;
+    const W = Math.max(0, window.innerWidth  - wrap.clientWidth  - margin);
+    const H = Math.max(0, window.innerHeight - wrap.clientHeight - margin);
+    return { x: rand(margin, W), y: rand(margin, H) };
+  }
+
+  let pos    = pickSafeTarget();
+  let target = pickSafeTarget();
+
+  function applyTransform(){
+    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+  }
+  applyTransform();
+
+  function moveTowards(dt){
+    const dx = target.x - pos.x;
+    const dy = target.y - pos.y;
+    const dist = Math.hypot(dx,dy);
+    if (dist < 1) return;
+    const step = Math.min(dist, speed * dt);
+    pos.x += (dx/dist) * step;
+    pos.y += (dy/dist) * step;
+
+    // klem binnen viewport
+    const m = 18;
+    pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
+    pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
+
+    applyTransform();
+  }
+
+  /* ---------- Slang-geometrie ---------- */
+  function computeSpine(){
     const pts = [];
     for(let i=0;i<N;i++){
       const x = (L/(N-1))*i;
       const y = amp * Math.sin(freq * x + phase);
-      pts.push([x, y]);
+      pts.push([x,y]);
     }
     return pts;
   }
-
-  // Catmull-Rom → cubic Bezier conversie (soepeler dan L-segmenten)
   function catmullRom2bezier(points){
-    if(points.length < 2) return '';
+    if(points.length < 2) return "";
     const d = [];
     for (let i = 0; i < points.length - 1; i++) {
       const p0 = points[i-1] || points[i];
       const p1 = points[i];
       const p2 = points[i+1];
       const p3 = points[i+2] || p2;
-
       const cp1x = p1[0] + (p2[0]-p0[0]) / 6;
       const cp1y = p1[1] + (p2[1]-p0[1]) / 6;
       const cp2x = p2[0] - (p3[0]-p1[0]) / 6;
       const cp2y = p2[1] - (p3[1]-p1[1]) / 6;
-
       if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
       d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
     }
-    return d.join(' ');
+    return d.join(" ");
   }
-
-  // update oriëntatie kop (naar +X in groepcoördinaat)
-  function placeHead(points){
-    // kop op laatste punt
+  function orientHead(points){
     const pLast = points[points.length-1];
     const pPrev = points[points.length-2];
-    const dx = pLast[0]-pPrev[0], dy = pLast[1]-pPrev[1];
-    const ang = Math.atan2(dy, dx) * 180/Math.PI;
+    const ang = Math.atan2(pLast[1]-pPrev[1], pLast[0]-pPrev[0]) * 180/Math.PI;
     head.setAttribute('transform', `translate(${pLast[0]} ${pLast[1]}) rotate(${ang})`);
   }
-
-  // rotatie hele slang naar vliegrichting
-  function rotateGroupTo(angleRad){
-    const angDeg = angleRad * 180/Math.PI;
-    // we willen dat de slang naar +X wijst in z'n eigen local space;
-    // roteer rond het "staart"-begin (0,0) iets naar linksonder op onze viewBox
-    group.setAttribute('transform', `translate(0 0) rotate(${angDeg})`);
+  function rotateGroup(angleRad){
+    const deg = angleRad * 180/Math.PI;
+    group.setAttribute('transform', `rotate(${deg})`);
   }
 
-  // beweeg container naar target (met begrenzing binnen viewport)
-  function moveContainer(dt){
-    const dx = target.x - pos.x;
-    const dy = target.y - pos.y;
-    const dist = Math.hypot(dx,dy);
-    if (dist < 1) return;
-
-    const step = Math.min(dist, speed * dt);
-    const nx = pos.x + dx/dist * step;
-    const ny = pos.y + dy/dist * step;
-    pos.x = nx; pos.y = ny;
-    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
-  }
-
-  // een veilig doelpunt binnen beeld (met marge t.o.v. slang-grootte)
-  function pickSafeTarget(){
-    const margin = 18;
-    const W = window.innerWidth  - wrap.clientWidth  - margin;
-    const H = window.innerHeight - wrap.clientHeight - margin;
-    const x = clamp(rand(margin, W), margin, W);
-    const y = clamp(rand(margin, H), margin, H);
-    return {x,y};
-  }
-
-  // klik → nieuw doel + variatie in kronkel
-  function onClick(){
-    clickCount++;
+  /* ---------- Interactie ---------- */
+  let clicks = 0;
+  wrap.addEventListener('click', () => {
+    clicks++;
     target = pickSafeTarget();
-    amp = rand(5, 8);
+    amp  = rand(5, 8);
     freq = rand(0.11, 0.16);
 
-    if(clickCount >= 3){
+    if (clicks >= 3){
+      bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
       bubble.classList.add('show');
       setTimeout(()=> bubble.classList.remove('show'), 2400);
-      clickCount = 0;
+      clicks = 0;
     }
-  }
-  wrap.addEventListener('click', onClick, {passive:true});
+  }, { passive:true });
 
-  // start met een veilig doel (zodat hij binnen beeld blijft)
-  target = pickSafeTarget();
-
-  // animatielus
+  /* ---------- Animatielus ---------- */
   function tick(t){
     const dt = (t - lastT)/1000; lastT = t;
-
-    // fase laten lopen (levend kronkelen)
     phase += 6.5 * dt;
 
-    // richting naar doel
-    const vx = target.x - pos.x, vy = target.y - pos.y;
-    const angle = Math.atan2(vy, vx);
-    rotateGroupTo(angle);
+    // richting voor de hele slang (kop vooruit)
+    const dx = target.x - pos.x, dy = target.y - pos.y;
+    rotateGroup(Math.atan2(dy, dx));
 
-    // body tekenen
-    const spine = computeSpinePoints();
-    const d = catmullRom2bezier(spine);
-    body.setAttribute('d', d);
-    placeHead(spine);
+    const spine = computeSpine();
+    body.setAttribute('d', catmullRom2bezier(spine));
+    orientHead(spine);
 
-    // container verplaatsen
-    moveContainer(dt);
-
+    moveTowards(dt);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 
-  // her-bereken target veiligheid bij resize/orientation
+  // bij resize in beeld houden
   window.addEventListener('resize', () => {
-    // klem huidige positie ook meteen binnen beeld
-    const margin = 18;
-    pos.x = clamp(pos.x, margin, Math.max(margin, window.innerWidth  - wrap.clientWidth  - margin));
-    pos.y = clamp(pos.y, margin, Math.max(margin, window.innerHeight - wrap.clientHeight - margin));
-    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+    const m = 18;
+    pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
+    pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
+    applyTransform();
     target = pickSafeTarget();
-  }, {passive:true});
+  }, { passive:true });
 })();
 </script>
-
-
 
 
 </body></html>
