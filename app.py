@@ -596,22 +596,39 @@ function sanitizePath(p){
   const upbarFill=upbar.querySelector('i');
   const uptext=document.getElementById('uptext');
 
-  let displayPct = 0; let targetPct  = 0; let animId = null;
+let progressRAF = null;
 
-  function animateProgress(){
-    const diff = targetPct - displayPct;
-    if (Math.abs(diff) < 0.1){ displayPct = targetPct; }
-    else { displayPct += diff * 0.15; }
-    const p = Math.max(0, Math.min(100, displayPct));
-    upbarFill.style.width = p + "%";
-    uptext.textContent = Math.round(p) + "%";
-    if (displayPct < 99.9) animId = requestAnimationFrame(animateProgress); else animId = null;
+function updateProgress(pct, textForce){
+  if(textForce){
+    uptext.textContent = textForce;
+  }else{
+    uptext.textContent = `${Math.floor(pct)}%`;
   }
-  function setProgress(pct, forceText){
-    targetPct = Math.max(0, Math.min(100, pct || 0));
-    if (!animId) animId = requestAnimationFrame(animateProgress);
-    if (forceText){ uptext.textContent = forceText; }
+  upbarFill.style.width = `${pct}%`;
+}
+
+function animateTo(targetPct){
+  let currentPct = parseFloat(upbarFill.style.width) || 0;
+  let nextPct = currentPct + (targetPct - currentPct) * 0.25;
+
+  updateProgress(nextPct);
+
+  if(nextPct < targetPct - 0.5){
+    progressRAF = requestAnimationFrame(()=>animateTo(targetPct));
+  }else{
+    updateProgress(targetPct);
+    progressRAF = null;
   }
+}
+
+function setProgress(pct, textForce){
+  const targetPct = Math.min(100, Math.max(0, pct));
+  if(textForce){
+    uptext.textContent = textForce;
+  }
+  if(progressRAF){ cancelAnimationFrame(progressRAF); }
+  animateTo(targetPct);
+}
   function relPath(f){
     const mode = document.querySelector('input[name="upmode"]:checked').value;
     return (mode==='files') ? f.name : (f.webkitRelativePath || f.name);
