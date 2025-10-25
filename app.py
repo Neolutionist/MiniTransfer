@@ -639,56 +639,60 @@ INDEX_HTML = """
   </div>
 
   <div class="card">
-    <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
+  <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
+  <!-- FULL-WIDTH: Onderwerp -->
+  <div style="grid-column:1 / -1">
+    <label for="title">Onderwerp (optioneel)</label>
+    <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+  </div>
+
+  <!-- LINKER KOLOM -->
+  <div>
+    <label>Uploadtype</label>
+    <div class="toggle">
+      <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+      <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+    </div>
+
+    <div id="fileRow">
+      <label for="fileInput">Kies bestand(en)</label>
+      <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
+    </div>
+
+    <div id="folderRow" style="display:none">
+      <label for="folderInput">Kies een map</label>
+      <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
+    </div>
+
+    <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
+  </div>
+
+  <!-- RECHTER KOLOM -->
+  <div class="grid">
+    <div class="grid cols-2">
       <div>
-        <label>Uploadtype</label>
-        <div class="toggle">
-          <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-          <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
-        </div>
-
-        <div id="fileRow">
-          <label for="fileInput">Kies bestand(en)</label>
-          <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
-        </div>
-
-        <div id="folderRow" style="display:none">
-          <label for="folderInput">Kies een map</label>
-          <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
-        </div>
-
-        <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
+        <label for="expDays">Verloopt na</label>
+        <select id="expDays" class="input">
+          <option value="1">1 dag</option>
+          <option value="3">3 dagen</option>
+          <option value="7">7 dagen</option>
+          <option value="30" selected>30 dagen</option>
+          <option value="60">60 dagen</option>
+          <option value="365">1 jaar</option>
+        </select>
       </div>
-
-      <div class="grid">
-        <div>
-          <label for="title">Onderwerp (optioneel)</label>
-          <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
-        </div>
-        <div class="grid cols-2">
-          <div>
-            <label for="expDays">Verloopt na</label>
-            <select id="expDays" class="input">
-              <option value="1">1 dag</option>
-              <option value="3">3 dagen</option>
-              <option value="7">7 dagen</option>
-              <option value="30" selected>30 dagen</option>
-              <option value="60">60 dagen</option>
-              <option value="365">1 jaar</option>
-            </select>
-          </div>
-          <div>
-            <label for="pw">Wachtwoord (optioneel)</label>
-            <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-          </div>
-        </div>
-
-        <!-- Alleen nog de Uploaden-knop (Pauzeer/Annuleer verwijderd) -->
-        <div class="row" style="gap:.6rem;flex-wrap:wrap">
-          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
-        </div>
+      <div>
+        <label for="pw">Wachtwoord (optioneel)</label>
+        <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
       </div>
-    </form>
+    </div>
+
+    <div class="row" style="gap:.6rem; flex-wrap:wrap">
+      <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
+    </div>
+  </div>
+</form>
+
 
     <div class="totalbox">
       <div class="row" style="justify-content:space-between">
@@ -1062,272 +1066,12 @@ form.addEventListener('submit', async (e)=>{
 """
 
 
-PACKAGE_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Download – Olde Hanter</title>{{ head_icon|safe }}
-
-<style>
-{{ base_css }}
-
-h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.6rem 0 1rem;color:var(--muted)}
-.meta strong{color:var(--text)}
-.btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
-.btn.secondary{background:#0f4c98}
-.btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
-
-/* Tabel-kolom 'Grootte' vast & rechts */
-.table th.col-size,
-.table td.col-size,
-.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px}
-
-/* CTA blok */
-.cta{margin-top:1.2rem; position:relative; z-index:2}
-
-/* Tabelstijl (compact & modern) */
-.table{ width:100%; border-collapse:separate; border-spacing:0 6px; }
-.table thead th{ font-weight:700; color:var(--text); opacity:.9; padding:.4rem .7rem; }
-.table tbody tr{
-  background: color-mix(in oklab, var(--surface-2) 80%, white 20%);
-  box-shadow: 0 1px 0 rgba(0,0,0,.05) inset, 0 0 0 1px rgba(0,0,0,.05);
-  border-radius:12px;
-}
-.table tbody td{ padding:.6rem .7rem; border-bottom:0; }
-.table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 70%, white 30%); }
-.table td[data-label="Pad"]{ max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-/* Download-knoppen in tabel */
-.table .btn.mini{
-  display:inline-flex; align-items:center; justify-content:center;
-  padding:.42rem .72rem !important; font-size:.82rem !important; line-height:1 !important; font-weight:600 !important;
-  border-radius:10px !important; white-space:nowrap;
-  background: color-mix(in oklab, var(--brand) 74%, white 26%); color:#fff; border:0; box-shadow:0 2px 6px rgba(0,0,0,.12);
-  transition:filter .15s, transform .12s, background .2s;
-}
-.table .btn.mini:hover{ filter:brightness(1.06); }
-.table .btn.mini:active{ transform:translateY(1px); }
-
-/* Vooruitgangsbalk onder grote Download-knop */
-.progress#bar{ height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.75rem; }
-.progress#bar > i{ display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff); }
-
-/* ========= GEEN SCROLLBAR OP DEZE PAGINA ========= */
-html, body{ height:100%; overflow:hidden; }     /* voorkomt scrollen */
-.wrap{ max-width:980px; margin:4vh auto; padding:0 1rem; } /* iets compacter zodat alles past */
-.card{ position:relative; z-index:1; }          /* boven achtergrond/snake */
-
-/* Dark mode */
-@media (prefers-color-scheme: dark){
-  .table tbody tr{
-    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px rgba(255,255,255,.06);
-  }
-  .table tbody tr:hover{ background: color-mix(in oklab, var(--surface-2) 86%, black 14%); }
-}
-
-/* ====== Slang: zichtbaar op downloadpagina ====== */
-#snakeWrap{
-  position:fixed; left:0; top:0;
-  width:150px; height:100px;
-  transform:translate3d(24px, 64vh, 0);  /* start in beeld */
-  z-index:2147483647;                    /* boven alles */
-  will-change:transform;
-  cursor:pointer; user-select:none;
-}
-#snakeWrap svg{ width:100%; height:100%; overflow:visible; }
-
-/* Tekstballon */
-#snakeBubble{
-  position:absolute; bottom:72px; left:-10px;
-  max-width:min(220px, calc(100vw - 40px));
-  background:#fff; color:#111; border:1px solid rgba(0,0,0,.15);
-  padding:.5rem .7rem; border-radius:10px; box-shadow:0 10px 24px rgba(0,0,0,.25);
-  font-size:.85rem; line-height:1.25; opacity:0; transform:translateY(8px);
-  pointer-events:none; transition:opacity .2s, transform .2s;
-}
-#snakeBubble.show{ opacity:1; transform:translateY(0); }
-#snakeBubble:after{ content:""; position:absolute; left:26px; bottom:-10px; border-width:10px 8px 0 8px; border-style:solid; border-color:#fff transparent transparent transparent; }
-
-/* Zichtbaarheid/contrast slang */
-#snakeWrap svg{
-  filter: drop-shadow(0 0 6px rgba(255,255,255,.65)) drop-shadow(0 2px 10px rgba(0,0,0,.35));
-}
-#snakeWrap #body{ stroke:#000; stroke-width:14; }
-#snakeWrap #head > circle:first-child{ fill:#000; }
-</style>
-
-
-</head><body>
-{{ bg|safe }}
-
-<div class="wrap">
-  <div class="card" style="position:relative; z-index:1">
-    <h1>Download</h1>
-    <div class="meta">
-      <div><strong>Onderwerp:</strong> {{ title or token }}</div>
-      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
-      <div><strong>Totaal:</strong> {{ total_human }}</div>
-      <div><strong>Bestanden:</strong> {{ items|length }}</div>
-    </div>
-
-{% if items|length == 1 %}
-  <a
-    class="btn"
-    id="dlSingle"
-    href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
-    download="{{ items[0]['name'] }}"
-    rel="noopener"
-  >
-    Download
-  </a>
-{% else %}
-  <a
-    class="btn"
-    id="zipAll"
-    href="{{ url_for('stream_zip', token=token) }}"
-    download
-    rel="noopener"
-  >
-    Alles downloaden (zip)
-  </a>
-{% endif %}
-
-    <div class="progress" id="bar" style="display:none"><i></i></div>
-    <div class="small" id="txt" style="display:none">Starten…</div>
-
-    {% if items|length > 1 %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Bestand</th>
-          <th>Pad</th>
-          <th class="col-size">Grootte</th>
-          <th style="width:1%"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for it in items %}
-        <tr>
-          <td data-label="Bestand">{{ it["name"] }}</td>
-          <td class="small" data-label="Pad">{{ it["path"] }}</td>
-          <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
-          <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </div>
-
-  <div class="cta">
-    <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
-  </div>
-
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
-
-<!-- ================= START DOWNLOADPAGE SCRIPT BLOCK ================= -->
-<script>
-  /* ===== Progress download functionaliteit ===== */
-  const bar  = document.getElementById('bar');
-  const fill = bar?.querySelector('i');
-  const txt  = document.getElementById('txt');
-
-  function nativeDownload(url, suggestedName){
-    try{
-      const a = document.createElement('a');
-      a.href = url;
-      if (suggestedName) a.download = suggestedName;
-      a.rel = 'noopener';
-      a.target = '_self';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }catch(_){
-      window.location.href = url;
-    }
-  }
-
-  async function streamToBlob(url, fallbackName){
-    try{
-      if (bar && txt && fill){
-        bar.style.display='block';
-        txt.style.display='block';
-        fill.style.width='0%';
-        txt.textContent='Starten…';
-      }
-      const res = await fetch(url, { credentials: 'same-origin' });
-      if(!res.ok){
-        const xerr = res.headers.get('X-Error') || '';
-        let body=''; try{ body = await res.text(); }catch(e){}
-        alert(`Fout ${res.status}${xerr ? ' – ' + xerr : ''}${body ? '\n\n' + body : ''}`);
-        if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
-        return;
-      }
-      const total = parseInt(res.headers.get('Content-Length')||'0',10);
-      const name  = res.headers.get('X-Filename') || fallbackName || 'download';
-
-      if (bar){
-        total ? bar.classList.remove('indet') : bar.classList.add('indet');
-      }
-
-      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-      if (reader){
-        const chunks=[]; let received=0;
-        while(true){
-          const {done,value} = await reader.read();
-          if(done) break;
-          chunks.push(value); received += value.length;
-          if (fill && txt){
-            if (total){
-              const p = Math.round(received/total*100);
-              fill.style.width = p+'%'; txt.textContent = p+'%';
-            }else{
-              txt.textContent = (received/1024/1024).toFixed(1)+' MB…';
-            }
-          }
-        }
-        if (bar){ bar.classList.remove('indet'); }
-        if (fill){ fill.style.width='100%'; }
-        if (txt){ txt.textContent='Klaar'; }
-
-        const blob = new Blob(chunks);
-        const u = URL.createObjectURL(blob);
-        nativeDownload(u, name);
-        URL.revokeObjectURL(u);
-        if (bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
-        return;
-      }
-
-      const blob = await res.blob();
-      const u = URL.createObjectURL(blob);
-      nativeDownload(u, name);
-      URL.revokeObjectURL(u);
-      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
-    }catch(err){
-      console.error('Stream fallback naar native:', err);
-      nativeDownload(url, null);
-      if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
-    }
-  }
-
-  /* Single file download progress */
-  const dlBtn = document.getElementById('dlSingle');
-  if(dlBtn){
-    dlBtn.addEventListener('click', (e)=>{
-      e.preventDefault();
-      streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
-    });
-  }
-</script>
-
-<!-- ================= SNAKE ================= -->
-<div id="snakeWrap" aria-label="speels slangetje"
-     style="position:fixed;left:0;top:0;width:150px;height:100px;transform:translate(24px,64vh);z-index:2147483647;will-change:transform;cursor:pointer;user-select:none;">
-  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">
+<!-- Slang (alleen op de downloadpagina) -->
+<div id="snakeWrap" aria-label="speels slangetje" style="position:fixed;z-index:2147483647;width:150px;height:100px;left:0;top:0;transform:translate3d(24px,72vh,0);will-change:transform;cursor:pointer;user-select:none;display:block">
+  <svg viewBox="-20 -25 200 120" xmlns="http://www.w3.org/2000/svg">
     <g id="snakeGroup">
       <path id="spine" d="" fill="none" stroke="none"></path>
-      <path id="body"  d="" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"></path>
+      <path id="body"  d="" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"></path>
       <g id="head">
         <circle cx="0" cy="0" r="12" fill="#000"></circle>
         <circle cx="4" cy="-4" r="2.6" fill="#fff"></circle>
@@ -1335,104 +1079,25 @@ html, body{ height:100%; overflow:hidden; }     /* voorkomt scrollen */
       </g>
     </g>
   </svg>
-  <div id="snakeBubble"
-       style="position:absolute;bottom:72px;left:-10px;max-width:min(220px,calc(100vw - 40px));background:#fff;color:#111;border:1px solid rgba(0,0,0,.15);padding:.5rem .7rem;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.25);font-size:.85rem;line-height:1.25;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s;">
-    …
-  </div>
+  <div id="snakeBubble" style="position:absolute;bottom:72px;left:-10px;max-width:min(220px,calc(100vw - 40px));width:190px;background:#fff;color:#111;border:1px solid rgba(0,0,0,.15);padding:.5rem .7rem;border-radius:10px;box-shadow:0 10px 24px rgba(0,0,0,.25);font-size:.85rem;line-height:1.25;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s"></div>
 </div>
 
 <script>
+// --- geen horizontale scroll op deze pagina ---
+try{ document.documentElement.style.overflowX = 'hidden'; document.body.style.overflowX = 'hidden'; }catch(_){}
+
+// Alleen draaien als de slang-container aanwezig is
 (function(){
-  const QUOTES=[
-    "Ga jij nou es weg joh… ik ben ff bezig.","Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
-    "Ja doei! Ik ben een slang, geen helpdesk.","Hee lekker hoor… maar niet aankomen!",
-    "Ik ben niet gek, ik ben een slang!","Moet dat nou steeds?","Ben jij los ofzo?",
-    "Wil jij een broodje kaas ofzo?","Kom op joh… ik heb ook maar twee handen!"
-  ];
-  const wrap=document.getElementById('snakeWrap'),
-        group=document.getElementById('snakeGroup'),
-        body=document.getElementById('body'),
-        head=document.getElementById('head'),
-        bubble=document.getElementById('snakeBubble');
+  const wrap = document.getElementById('snakeWrap');
+  if(!wrap){ return; } // niets doen als markup niet is toegevoegd
 
-  const L=120, N=22;
-  let amp=6, freq=0.13, phase=0, speed=140, last=performance.now();
+  // UI elementen
+  const group  = wrap.querySelector('#snakeGroup');
+  const body   = wrap.querySelector('#body');
+  const head   = wrap.querySelector('#head');
+  const bubble = document.getElementById('snakeBubble');
 
-  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-  function rand(a,b){return a+Math.random()*(b-a);}
-
-  function safeTarget(){
-    const m=18,W=Math.max(0,innerWidth-wrap.clientWidth-m),
-              H=Math.max(0,innerHeight-wrap.clientHeight-m);
-    return {x:rand(m,W),y:rand(m,H)};
-  }
-  let pos={x:clamp(innerWidth*0.06,18,innerWidth-180),
-           y:clamp(innerHeight*0.64,18,innerHeight-140)},
-      target=safeTarget();
-  function place(){wrap.style.transform=`translate(${pos.x}px,${pos.y}px)`;}
-  place();
-
-  function move(dt){
-    const dx=target.x-pos.x,dy=target.y-pos.y,dist=Math.hypot(dx,dy);
-    if(dist<1)return;
-    const mv=Math.min(dist,speed*dt);
-    pos.x+=dx/dist*mv;pos.y+=dy/dist*mv;
-    const m=18;
-    pos.x=clamp(pos.x,m,Math.max(m,innerWidth-wrap.clientWidth-m));
-    pos.y=clamp(pos.y,m,Math.max(m,innerHeight-wrap.clientHeight-m));
-    place();
-  }
-  function spine(){
-    const a=[];
-    for(let i=0;i<N;i++){
-      const x=(L/(N-1))*i,y=amp*Math.sin(freq*x+phase);
-      a.push([x,y]);
-    }
-    return a;
-  }
-  function bezier(p){
-    if(p.length<2)return"";
-    const d=[];
-    for(let i=0;i<p.length-1;i++){
-      const P0=p[i-1]||p[i],P1=p[i],P2=p[i+1],P3=p[i+2]||P2;
-      const c1=[P1[0]+(P2[0]-P0[0])/6,P1[1]+(P2[1]-P0[1])/6],
-            c2=[P2[0]-(P3[0]-P1[0])/6,P2[1]-(P3[1]-P1[1])/6];
-      if(i===0)d.push(`M ${P1[0]} ${P1[1]}`);
-      d.push(`C ${c1[0]} ${c1[1]}, ${c2[0]} ${c2[1]}, ${P2[0]} ${P2[1]}`);
-    }
-    return d.join(" ");
-  }
-  function orient(p){
-    const a=p[p.length-2],b=p[p.length-1],
-          ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
-    head.setAttribute('transform',`translate(${b[0]} ${b[1]}) rotate(${ang})`);
-  }
-  function rotate(r){group.setAttribute('transform',`rotate(${r*180/Math.PI})`);}
-
-  wrap.addEventListener('click',()=>{
-    target=safeTarget();
-    amp=rand(5,8);freq=rand(0.11,0.16);
-    bubble.textContent=QUOTES[Math.floor(Math.random()*QUOTES.length)];
-    bubble.style.opacity=1;bubble.style.transform='translateY(0)';
-    setTimeout(()=>{bubble.style.opacity=0;bubble.style.transform='translateY(8px)';},2000);
-  });
-
-  function tick(t){
-    const dt=(t-last)/1000;last=t;
-    phase+=6.5*dt;
-    const dx=target.x-pos.x,dy=target.y-pos.y;
-    rotate(Math.atan2(dy,dx));
-    const s=spine();body.setAttribute('d',bezier(s));orient(s);
-    move(dt);
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-})();
-</script>
-<!-- ============== END DOWNLOADPAGE SCRIPT BLOCK ============== -->
-
-(function(){
-  /* ---------- Jiskefet one-liners ---------- */
+  // One-liners
   const QUOTES = [
     "Ga jij nou es weg joh… ik ben ff bezig.",
     "Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
@@ -1446,140 +1111,92 @@ html, body{ height:100%; overflow:hidden; }     /* voorkomt scrollen */
     "Ja hallo zeg… ik heb weekend!"
   ];
 
-  /* ---------- DOM ---------- */
-  const wrap   = document.getElementById('snakeWrap');
-  const group  = document.getElementById('snakeGroup');
-  const body   = document.getElementById('body');
-  const head   = document.getElementById('head');
-  const bubble = document.getElementById('snakeBubble');
-
-  /* ---------- Kronkel-parameters ---------- */
-  const L = 120;                  // lengte van de slang in SVG-units
-  const N = 22;                   // aantal sample-punten
-  let amp   = 6;                  // amplitude
-  let freq  = 0.13;               // frequentie
-  let phase = 0;                  // lopende fase
-  let speed = 140;                // px/s
+  // Param’s
+  const L = 120;     // lengte in SVG-units
+  const N = 22;      // samples
+  let amp = 6, freq = 0.13, phase = 0, speed = 140;
   let lastT = performance.now();
 
-  /* ---------- Positie (top/left wereld, alles via translate) ---------- */
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function rand(a,b){ return a + Math.random()*(b-a); }
+  // helpers
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand  = (a,b)=>a+Math.random()*(b-a);
+  const pickSafeTarget = ()=>{
+    const m = 18;
+    const W = Math.max(0, window.innerWidth  - wrap.clientWidth  - m);
+    const H = Math.max(0, window.innerHeight - wrap.clientHeight - m);
+    return { x: rand(m, W), y: rand(m, H) };
+  };
 
-  function pickSafeTarget(){
-    const margin = 18;
-    const W = Math.max(0, window.innerWidth  - wrap.clientWidth  - margin);
-    const H = Math.max(0, window.innerHeight - wrap.clientHeight - margin);
-    return { x: rand(margin, W), y: rand(margin, H) };
-  }
-
-  let pos    = pickSafeTarget();
-  let target = pickSafeTarget();
-
-  function applyTransform(){
-    wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
-  }
+  let pos = pickSafeTarget(), target = pickSafeTarget();
+  const applyTransform = ()=>{ wrap.style.transform = `translate(${pos.x}px, ${pos.y}px)`; };
   applyTransform();
 
   function moveTowards(dt){
-    const dx = target.x - pos.x;
-    const dy = target.y - pos.y;
-    const dist = Math.hypot(dx,dy);
-    if (dist < 1) return;
-    const step = Math.min(dist, speed * dt);
-    pos.x += (dx/dist) * step;
-    pos.y += (dy/dist) * step;
-
-    // klem binnen viewport
+    const dx = target.x - pos.x, dy = target.y - pos.y;
+    const dist = Math.hypot(dx,dy); if(dist<1) return;
+    const step = Math.min(dist, speed*dt);
+    pos.x += (dx/dist)*step; pos.y += (dy/dist)*step;
     const m = 18;
     pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
     pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
-
     applyTransform();
   }
 
-  /* ---------- Slang-geometrie ---------- */
   function computeSpine(){
-    const pts = [];
-    for(let i=0;i<N;i++){
-      const x = (L/(N-1))*i;
-      const y = amp * Math.sin(freq * x + phase);
-      pts.push([x,y]);
-    }
+    const pts=[]; for(let i=0;i<N;i++){ const x=(L/(N-1))*i; const y=amp*Math.sin(freq*x+phase); pts.push([x,y]); }
     return pts;
   }
   function catmullRom2bezier(points){
-    if(points.length < 2) return "";
-    const d = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i-1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i+1];
-      const p3 = points[i+2] || p2;
-      const cp1x = p1[0] + (p2[0]-p0[0]) / 6;
-      const cp1y = p1[1] + (p2[1]-p0[1]) / 6;
-      const cp2x = p2[0] - (p3[0]-p1[0]) / 6;
-      const cp2y = p2[1] - (p3[1]-p1[1]) / 6;
+    if(points.length<2) return "";
+    const d=[];
+    for(let i=0;i<points.length-1;i++){
+      const p0=points[i-1]||points[i], p1=points[i], p2=points[i+1], p3=points[i+2]||p2;
+      const cp1x=p1[0]+(p2[0]-p0[0])/6, cp1y=p1[1]+(p2[1]-p0[1])/6;
+      const cp2x=p2[0]-(p3[0]-p1[0])/6, cp2y=p2[1]-(p3[1]-p1[1])/6;
       if(i===0) d.push(`M ${p1[0]} ${p1[1]}`);
       d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`);
     }
     return d.join(" ");
   }
   function orientHead(points){
-    const pLast = points[points.length-1];
-    const pPrev = points[points.length-2];
-    const ang = Math.atan2(pLast[1]-pPrev[1], pLast[0]-pPrev[0]) * 180/Math.PI;
+    const pLast=points[points.length-1], pPrev=points[points.length-2];
+    const ang=Math.atan2(pLast[1]-pPrev[1], pLast[0]-pPrev[0])*180/Math.PI;
     head.setAttribute('transform', `translate(${pLast[0]} ${pLast[1]}) rotate(${ang})`);
   }
-  function rotateGroup(angleRad){
-    const deg = angleRad * 180/Math.PI;
-    group.setAttribute('transform', `rotate(${deg})`);
-  }
+  function rotateGroup(angleRad){ group.setAttribute('transform', `rotate(${angleRad*180/Math.PI})`); }
 
-  /* ---------- Interactie ---------- */
-  let clicks = 0;
-  wrap.addEventListener('click', () => {
-    clicks++;
-    target = pickSafeTarget();
-    amp  = rand(5, 8);
-    freq = rand(0.11, 0.16);
-
-    if (clicks >= 3){
+  // Interactie
+  let clicks=0;
+  wrap.addEventListener('click', ()=>{
+    clicks++; target = pickSafeTarget();
+    amp = rand(5,8); freq = rand(0.11,0.16);
+    if(clicks>=3){
       bubble.textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
-      bubble.classList.add('show');
-      setTimeout(()=> bubble.classList.remove('show'), 2400);
+      bubble.style.opacity = '1'; bubble.style.transform = 'translateY(0)';
+      setTimeout(()=>{ bubble.style.opacity='0'; bubble.style.transform='translateY(8px)'; }, 2400);
       clicks = 0;
     }
-  }, { passive:true });
+  }, {passive:true});
 
-  /* ---------- Animatielus ---------- */
+  // Animatie
   function tick(t){
-    const dt = (t - lastT)/1000; lastT = t;
-    phase += 6.5 * dt;
-
-    // richting voor de hele slang (kop vooruit)
-    const dx = target.x - pos.x, dy = target.y - pos.y;
-    rotateGroup(Math.atan2(dy, dx));
-
-    const spine = computeSpine();
-    body.setAttribute('d', catmullRom2bezier(spine));
-    orientHead(spine);
-
-    moveTowards(dt);
-    requestAnimationFrame(tick);
+    const dt=(t-lastT)/1000; lastT=t; phase += 6.5*dt;
+    const dx=target.x-pos.x, dy=target.y-pos.y; rotateGroup(Math.atan2(dy,dx));
+    const spine=computeSpine(); body.setAttribute('d', catmullRom2bezier(spine)); orientHead(spine);
+    moveTowards(dt); requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 
-  // bij resize in beeld houden
-  window.addEventListener('resize', () => {
-    const m = 18;
+  // on resize in beeld houden
+  window.addEventListener('resize', ()=>{
+    const m=18;
     pos.x = clamp(pos.x, m, Math.max(m, window.innerWidth  - wrap.clientWidth  - m));
     pos.y = clamp(pos.y, m, Math.max(m, window.innerHeight - wrap.clientHeight - m));
-    applyTransform();
-    target = pickSafeTarget();
-  }, { passive:true });
+    applyTransform(); target = pickSafeTarget();
+  }, {passive:true});
 })();
 </script>
+
 
 
 </body></html>
