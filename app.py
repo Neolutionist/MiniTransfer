@@ -496,30 +496,51 @@ INDEX_HTML = """
   gap:1rem;
   margin-bottom:1rem;
 }
-.topbar .title{ flex:1; }
-h1{ margin:.25rem 0 1rem; color:var(--brand); font-size:2.1rem; }
+/* --- Titel veel beter leesbaar op elke achtergrond --- */
+.topbar .title h1{
+  display:inline-block;
+  margin:.25rem 0 1rem;
+  color: var(--brand);
+  font-size:2.1rem;
+  font-weight:800;
 
-.logout{
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  gap:.2rem;
-  line-height:1.15;
+  /* subtiele glass-pill achter de tekst */
+  background: color-mix(in oklab, var(--panel) 78%, transparent);
+  border: 1px solid var(--panel-b);
+  padding: .15rem .6rem;
+  border-radius: 14px;
+  backdrop-filter: blur(6px) saturate(1.05);
+
+  /* dunne outline + zachte schaduw voor extra contrast */
+  -webkit-text-stroke: .4px rgba(0,0,0,.28);
+  text-shadow: 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(0,0,0,.18);
 }
-/* Dynamische per-letter leesbaarheid op elke achtergrond */
+
+/* Dark mode: omkeren van outline en schaduw */
+@media (prefers-color-scheme: dark){
+  .topbar .title h1{
+    -webkit-text-stroke: .4px rgba(255,255,255,.25);
+    text-shadow: 0 1px 0 rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.45);
+    background: color-mix(in oklab, var(--panel) 86%, transparent);
+  }
+}
+
+/* --- ‘Ingelogd als …’ subtiel dynamisch, niet te donker --- */
 .login-status{
-  font-weight:700;
-  color:#fff;                    /* basis – blend past dit aan */
-  mix-blend-mode:difference;     /* ✨ per letter dynamisch contrast */
-  letter-spacing:.2px;
+  font-weight: 600;              /* iets minder zwaar */
+  letter-spacing:.15px;
+  color:#fff;
+  mix-blend-mode: exclusion;     /* zachtere versie van difference */
+  opacity:.85;                   /* iets subtieler */
 }
 
-/* overige bestaande stijlen */
-.logout a{ color:var(--brand); text-decoration:none; font-weight:700 }
-.toggle{ display:flex; gap:.75rem; align-items:center; margin:.4rem 0 1rem }
-.nav a{ color:var(--brand); text-decoration:none; font-weight:700 }
-</style></head><body>
-{{ bg|safe }}
+/* link blijft normaal zichtbaar en niet geblend */
+.logout a{
+  mix-blend-mode: normal;
+  color: var(--brand);
+  text-decoration: none;
+  font-weight:700;
+}
 
 <div class="wrap">
   <div class="topbar">
