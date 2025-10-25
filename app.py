@@ -487,20 +487,44 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
-.logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
-.nav a{color:var(--brand);text-decoration:none;font-weight:700}
+.topbar{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* titel blok links moet niet over het midden heen zweven */
+.topbar .title{
+  flex: 1;
+}
+
+/* login tekst rechts moet compact blijven */
+.logout{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: .15rem;
+}
+
+.login-status{
+  font-weight: 700;
+  mix-blend-mode: difference; /* ✨ dynamisch leesbaar */
+  color: #fff;
+}
+
 </style></head><body>
 {{ bg|safe }}
 
 <div class="wrap">
-  <div class="topbar">
+<div class="topbar">
+  <div class="title">
     <h1>Bestanden delen met Olde Hanter</h1>
-<div class="logout">
-  <span class="login-status">Ingelogd als {{ user }}</span>
-  • <a href="{{ url_for('logout') }}">Uitloggen</a>
+  </div>
+  <div class="logout">
+    <span class="login-status">Ingelogd als {{ user }}</span>
+    <a href="{{ url_for('logout') }}">Uitloggen</a>
+  </div>
 </div>
 
 
