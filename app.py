@@ -480,50 +480,38 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
-:root{
-  --ok:#16a34a; --warn:#eab308; --err:#dc2626;
-}
+:root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; }
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
 h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
 .logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.nav a{color:var(--brand);text-decoration:none;font-weight:700}
 .grid{display:grid;gap:1rem}
 .cols-2{grid-template-columns:1fr 1fr}
 @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
 
+.toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
+.toggle label{display:inline-flex;gap:.5rem;align-items:center; font-weight:600; cursor:pointer}
+.toggle input{accent-color:var(--brand)}
+
 .filelist{margin-top:.8rem}
-.filecard{
-  display:grid; grid-template-columns:1fr auto; gap:.4rem .8rem;
-  padding:.75rem 1rem; border:1px solid var(--line); border-radius:12px;
-  background:color-mix(in oklab, var(--surface) 86%, white 14%);
-}
-.filecard .name{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.filecard .meta{color:var(--muted); font-size:.9rem}
-.filecard .act{display:flex; gap:.4rem}
-.badge{
-  display:inline-block; padding:.22rem .55rem; border-radius:999px; font-size:.78rem; font-weight:700
-}
-.badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%); color:var(--ok)}
-.badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%); color:var(--err)}
-.badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%); color:var(--warn)}
-.row{display:flex; align-items:center; gap:.6rem}
-.smallmuted{font-size:.88rem; color:var(--muted)}
-
-.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4; position:relative}
-.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff); transition:width .12s ease}
-progress{width:100%;height:12px;appearance:none}
-
+.filecard{display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab, var(--surface) 86%, white 14%)}
+.filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filecard .meta{color:var(--muted);font-size:.9rem}
+.filecard .act{display:flex;gap:.4rem}
+.badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
+.badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
+.badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
+.badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
+.row{display:flex;align-items:center;gap:.6rem}
+.smallmuted{font-size:.88rem;color:var(--muted)}
+.progress{height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4;position:relative}
+.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 .totalbox{margin-top:1rem}
-.kv{display:grid; grid-template-columns:auto 1fr; gap:.25rem .75rem; font-size:.92rem; color:#334155}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem;color:#334155}
 .kv strong{font-weight:700}
-
 .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
 .btn.gray{background:linear-gradient(180deg,#64748b,#475569)}
-.btn.ghost{
-  border:1px solid var(--line); background:color-mix(in oklab, var(--surface) 92%, white 8%); color:var(--text); font-weight:600
-}
+.btn.ghost{border:1px solid var(--line);background:color-mix(in oklab, var(--surface) 92%, white 8%);color:var(--text);font-weight:600}
 input[type=file]::-webkit-file-upload-button{cursor:pointer}
-
 </style>
 </head><body>
 {{ bg|safe }}
@@ -537,12 +525,23 @@ input[type=file]::-webkit-file-upload-button{cursor:pointer}
   <div class="card">
     <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
-        <label for="fileInput">Kies bestand(en) of map</label>
-        <div class="row" style="gap:.6rem; flex-wrap:wrap">
+        <label>Uploadtype</label>
+        <div class="toggle">
+          <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+          <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+        </div>
+
+        <div id="fileRow">
+          <label for="fileInput">Kies bestand(en)</label>
           <input id="fileInput" class="input" type="file" multiple style="max-width:100%">
+        </div>
+
+        <div id="folderRow" style="display:none">
+          <label for="folderInput">Kies een map</label>
           <input id="folderInput" class="input" type="file" multiple webkitdirectory directory style="max-width:100%">
         </div>
-        <div class="smallmuted">Tip: gebruik de map-knop voor het uploaden van hele mappen met submappen.</div>
+
+        <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
       </div>
 
       <div class="grid">
@@ -569,16 +568,13 @@ input[type=file]::-webkit-file-upload-button{cursor:pointer}
         </div>
 
         <div class="row" style="gap:.6rem; flex-wrap:wrap">
-          <button id="btnStart" class="btn icon" type="submit">
-            <span>Uploaden</span>
-          </button>
+          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
           <button id="btnPause" class="btn gray icon" type="button" disabled>Pauzeer</button>
           <button id="btnCancel" class="btn ghost icon" type="button" disabled>Annuleer</button>
         </div>
       </div>
     </form>
 
-    <!-- Totaalvoortgang -->
     <div class="totalbox">
       <div class="row" style="justify-content:space-between">
         <strong>Totaalvoortgang</strong>
@@ -592,10 +588,7 @@ input[type=file]::-webkit-file-upload-button{cursor:pointer}
       </div>
     </div>
 
-    <!-- Bestandenlijst -->
     <div class="filelist" id="fileList" style="display:none"></div>
-
-    <!-- Link na upload -->
     <div id="result" style="margin-top:1rem"></div>
   </div>
 
@@ -603,31 +596,21 @@ input[type=file]::-webkit-file-upload-button{cursor:pointer}
 </div>
 
 <script>
-// ===================== Utils =====================
-function fmtBytes(n){
-  const u=["B","KB","MB","GB","TB"]; let i=0, x=n||0;
-  while(x>=1024 && i<u.length-1){ x/=1024; i++; }
-  return (i?x.toFixed(1):Math.round(x))+" "+u[i];
-}
-function sanitizePath(p){
-  const parts = (p||"").split('/').map(n=>{
-    const dot=n.lastIndexOf('.'); const base=dot>=0?n.slice(0,dot):n; const ext=dot>=0?n.slice(dot):'';
-    let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w.\-]+/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
-    if(s.length>160) s = s.slice(0,160);
-    return (s||'file') + ext.replace(/[^.\w-]/g,'');
-  });
-  return parts.join('/');
-}
-function relPath(file, mode){
-  return mode==='folder' ? (file.webkitRelativePath || file.name) : file.name;
-}
+// ===== helpers =====
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0,x=n||0;while(x>=1024&&i<u.length-1){x/=1024;i++;}return(i?x.toFixed(1):Math.round(x))+" "+u[i];}
+function sanitizePath(p){const parts=(p||"").split('/').map(n=>{const d=n.lastIndexOf('.');const b=d>=0?n.slice(0,d):n;const e=d>=0?n.slice(d):'';let s=b.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w.\-]+/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');if(s.length>160)s=s.slice(0,160);return(s||'file')+e.replace(/[^.\w-]/g,'');});return parts.join('/');}
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-// ===================== DOM refs =====================
-const form = document.getElementById('form');
+// ===== DOM =====
+const modeFiles = document.getElementById('modeFiles');
+const modeFolder = document.getElementById('modeFolder');
+const lblFolder = document.getElementById('lblFolder');
+const fileRow = document.getElementById('fileRow');
+const folderRow = document.getElementById('folderRow');
 const fileInput = document.getElementById('fileInput');
 const folderInput = document.getElementById('folderInput');
 
+const form = document.getElementById('form');
 const totalBar = document.getElementById('totalBar').querySelector('i');
 const totalPct = document.getElementById('totalPct');
 const totalStatus = document.getElementById('totalStatus');
@@ -635,322 +618,182 @@ const totalSpeed = document.getElementById('totalSpeed');
 const totalEta = document.getElementById('totalEta');
 const fileList = document.getElementById('fileList');
 const resBox = document.getElementById('result');
-
 const btnStart = document.getElementById('btnStart');
 const btnPause = document.getElementById('btnPause');
 const btnCancel = document.getElementById('btnCancel');
 
-// ===================== State =====================
-let state = {
-  files: [],
-  token: null,
-  totalBytes: 1,
-  uploadedBytes: 0,
-  startedAt: 0,
-  paused: false,
-  abortAll: null,
-};
+// iOS: directory input werkt niet -> verberg map-optie
+(function(){
+  const ua = navigator.userAgent||navigator.vendor||window.opera;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  if(isIOS){ modeFolder.disabled=true; lblFolder.style.display='none'; modeFiles.checked=true; }
+})();
+function applyMode(openPicker){
+  const mode = document.querySelector('input[name="upmode"]:checked').value;
+  fileRow.style.display = (mode==='files') ? '' : 'none';
+  folderRow.style.display = (mode==='folder') ? '' : 'none';
+  if(openPicker===true){
+    try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
+  }
+}
+document.querySelectorAll('input[name="upmode"]').forEach(r=>r.addEventListener('change',()=>applyMode(true)));
+applyMode(false);
 
-// ===================== UI helpers =====================
-function setTotal(pct, label){
-  const p = Math.max(0,Math.min(100,pct||0));
-  totalBar.style.width = p + '%';
-  totalPct.textContent = Math.round(p)+'%';
-  totalPct.className = 'badge ' + (p>=100?'ok': (p>0?'warn':'')); 
-  if(label) totalStatus.textContent = label;
-}
-function setSpeedAndEta(uploaded, total, startedAt){
-  const dt = (performance.now() - startedAt)/1000;
-  const speed = dt>0 ? uploaded/dt : 0;
-  const remain = Math.max(0, total-uploaded);
-  const eta = speed>0 ? remain/speed : 0;
-  totalSpeed.textContent = speed ? fmtBytes(speed) + '/s' : '–';
-  totalEta.textContent = speed ? (eta>3600 ? (eta/3600).toFixed(1)+' u' : (eta/60).toFixed(1)+' min') : '–';
-}
+// ===== State =====
+let state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
+
+// ===== UI helpers =====
+function setTotal(pct,label){const p=Math.max(0,Math.min(100,pct||0)); totalBar.style.width=p+'%'; totalPct.textContent=Math.round(p)+'%'; totalPct.className='badge '+(p>=100?'ok':(p>0?'warn':'')); if(label) totalStatus.textContent=label; }
+function setSpeedAndEta(uploaded,total,startedAt){const dt=(performance.now()-startedAt)/1000; const speed=dt>0?uploaded/dt:0; const remain=Math.max(0,total-uploaded); const eta=speed>0?remain/speed:0; totalSpeed.textContent=speed?fmtBytes(speed)+'/s':'–'; totalEta.textContent=speed?(eta>3600?(eta/3600).toFixed(1)+' u':(eta/60).toFixed(1)+' min'):'–';}
 function addFileRow(file, path){
-  fileList.style.display = '';
-  const card = document.createElement('div');
-  card.className = 'filecard';
-  card.innerHTML = `
+  fileList.style.display='';
+  const card=document.createElement('div');
+  card.className='filecard';
+  card.innerHTML=`
     <div class="name" title="${path}">${path}</div>
-    <div class="act">
-      <span class="badge warn" data-role="badge">Wacht…</span>
-    </div>
-    <div class="meta">${fmtBytes(file.size)} • ${file.type || 'octet-stream'}</div>
-    <div></div>
+    <div class="act"><span class="badge warn" data-role="badge">Wacht…</span></div>
+    <div class="meta">${fmtBytes(file.size)} • ${file.type||'octet-stream'}</div><div></div>
     <div class="progress"><i style="width:0%"></i></div>
-    <div class="smallmuted" data-role="label">Nog niet gestart</div>
-  `;
+    <div class="smallmuted" data-role="label">Nog niet gestart</div>`;
   fileList.appendChild(card);
-  return {
-    el: card,
-    fill: card.querySelector('.progress i'),
-    badge: card.querySelector('[data-role=badge]'),
-    label: card.querySelector('[data-role=label]')
-  };
+  return { el:card, fill:card.querySelector('.progress i'), badge:card.querySelector('[data-role=badge]'), label:card.querySelector('[data-role=label]') };
 }
 
-// ===================== Server calls =====================
-async function packageInit(expiryDays, password, title){
-  const r = await fetch("{{ url_for('package_init') }}", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ expiry_days: expiryDays, password: password||"", title: title||"" })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'package-init mislukt');
-  return j.token;
+// ===== server calls =====
+async function packageInit(expiryDays,password,title){
+  const r = await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password:password||"",title:title||""})});
+  const j = await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'package-init mislukt'); return j.token;
 }
-async function putInit(token, filename, type){
-  const r = await fetch("{{ url_for('put_init') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ token, filename, contentType: type||"application/octet-stream" })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'put-init mislukt');
-  return j;
+async function putInit(token,filename,type){
+  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||"application/octet-stream"})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'put-init mislukt'); return j;
 }
-async function putComplete(token, key, name, path){
-  const r = await fetch("{{ url_for('put_complete') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ token, key, name, path })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'afronden mislukt');
-  return j;
+async function putComplete(token,key,name,path){
+  const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'afronden mislukt'); return j;
 }
-async function mpuInit(token, filename, type){
-  const r = await fetch("{{ url_for('mpu_init') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ token, filename, contentType: type||"application/octet-stream" })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'mpu-init mislukt');
-  return j;
+async function mpuInit(token,filename,type){
+  const r=await fetch("{{ url_for('mpu_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||"application/octet-stream"})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'mpu-init mislukt'); return j;
 }
-async function mpuSign(key, uploadId, partNumber){
-  const r = await fetch("{{ url_for('mpu_sign') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ key, uploadId, partNumber })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'part-sign mislukt');
-  return j.url;
+async function mpuSign(key,uploadId,partNumber){
+  const r=await fetch("{{ url_for('mpu_sign') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key,uploadId,partNumber})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'part-sign mislukt'); return j.url;
 }
-async function mpuComplete(token, key, name, path, parts, uploadId, clientSize){
-  const r = await fetch("{{ url_for('mpu_complete') }}", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ token, key, name, path, parts, uploadId, clientSize })
-  });
-  const j = await r.json(); if(!r.ok || !j.ok) throw new Error(j.error||'mpu-complete mislukt');
-  return j;
+async function mpuComplete(token,key,name,path,parts,uploadId,clientSize){
+  const r=await fetch("{{ url_for('mpu_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path,parts,uploadId,clientSize})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'mpu-complete mislukt'); return j;
 }
-
-// Low-level PUT met voortgang (XHR is nodig voor upload-progress events)
-function putWithProgress(url, blob, onProgress, onAbortSetter){
+function putWithProgress(url,blob,onProgress,onAbortSetter){
   return new Promise((resolve,reject)=>{
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.timeout = 30*60*1000; // 30 min
-    xhr.setRequestHeader("Content-Type", blob.type || "application/octet-stream");
-    xhr.upload.onprogress = (ev)=>{
-      const loaded = ev.loaded || 0;
-      const total  = ev.total || blob.size || 1;
-      onProgress(loaded, total);
-    };
-    xhr.onload = ()=> (xhr.status>=200 && xhr.status<300) ? resolve(xhr.getResponseHeader("ETag")?.replaceAll('"','')||null) : reject(new Error(`HTTP ${xhr.status} ${xhr.statusText}`));
-    xhr.onerror = ()=> reject(new Error("Netwerkfout bij upload"));
-    xhr.ontimeout = ()=> reject(new Error("Upload timeout"));
+    const xhr=new XMLHttpRequest();
+    xhr.open("PUT",url,true);
+    xhr.timeout=30*60*1000;
+    xhr.setRequestHeader("Content-Type",blob.type||"application/octet-stream");
+    xhr.upload.onprogress=(ev)=>{const loaded=ev.loaded||0; const total=ev.total||blob.size||1; onProgress(loaded,total);};
+    xhr.onload=()=> (xhr.status>=200&&xhr.status<300)?resolve(xhr.getResponseHeader("ETag")?.replaceAll('"','')||null):reject(new Error(`HTTP ${xhr.status} ${xhr.statusText}`));
+    xhr.onerror=()=>reject(new Error("Netwerkfout bij upload"));
+    xhr.ontimeout=()=>reject(new Error("Upload timeout"));
     xhr.send(blob);
-    if(typeof onAbortSetter === 'function'){ onAbortSetter(()=>xhr.abort()); }
+    if(typeof onAbortSetter==='function'){ onAbortSetter(()=>xhr.abort()); }
   });
 }
 
-// ===================== Uploader =====================
-async function uploadOneSmall(token, file, rel, ui){
-  const init = await putInit(token, file.name, file.type);
-  ui.badge.textContent = "Uploaden…"; ui.label.textContent = "Directe upload";
-  const etag = await putWithProgress(init.url, file, (loaded,total)=>{
-    const p = Math.round(loaded/total*100);
-    ui.fill.style.width = p+'%';
-  }, abort => (ui.abort = abort));
-  await putComplete(token, init.key, file.name, rel);
-  ui.fill.style.width = '100%';
-  ui.badge.textContent = "Klaar"; ui.badge.className='badge ok'; ui.label.textContent = "Opgeslagen";
+// ===== uploader =====
+async function uploadOneSmall(token,file,rel,ui){
+  const init=await putInit(token,file.name,file.type);
+  ui.badge.textContent="Uploaden…"; ui.label.textContent="Directe upload";
+  await putWithProgress(init.url,file,(l,t)=>{ui.fill.style.width=Math.round(l/t*100)+'%';},fn=>ui.abort=fn);
+  await putComplete(token,init.key,file.name,rel);
+  ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok'; ui.label.textContent="Opgeslagen";
+}
+async function uploadOneMPU(token,file,rel,ui){
+  const CHUNK=24*1024*1024, PAR=6;
+  const init=await mpuInit(token,file.name,file.type);
+  const key=init.key, uploadId=init.uploadId;
+  const parts=Math.ceil(Math.max(1,file.size)/CHUNK); const doneBytes=new Array(parts).fill(0);
+  let abortFns=[];
+  ui.badge.textContent="Uploaden…"; ui.label.textContent="Multipart ("+parts+" delen)";
+  function refresh(){const uploaded=doneBytes.reduce((a,b)=>a+b,0); ui.fill.style.width=Math.round(uploaded/Math.max(1,file.size)*100)+'%';}
+  async function sendPart(n){
+    const i=n-1, start=i*CHUNK, end=Math.min(start+CHUNK,file.size); const blob=file.slice(start,end);
+    const url=await mpuSign(key,uploadId,n); let abort=()=>{};
+    const etag=await putWithProgress(url,blob,(l)=>{doneBytes[i]=Math.min(l,blob.size);refresh();},fn=>abort=fn);
+    abortFns[i]=abort; doneBytes[i]=blob.size; refresh(); return {PartNumber:n, ETag:etag};
+  }
+  ui.abort=()=>{abortFns.forEach(fn=>{try{fn&&fn();}catch(_){}}); throw new Error("geannuleerd");};
+  const results=new Array(parts); let next=1;
+  async function worker(){while(true){ if(state.paused){await sleep(150); continue;} const m=next++; if(m>parts) break; results[m-1]=await sendPart(m);} }
+  await Promise.all(Array.from({length:Math.min(PAR,parts)},worker));
+  await mpuComplete(token,key,file.name,rel,results,uploadId,file.size);
+  ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok'; ui.label.textContent="Opgeslagen";
 }
 
-async function uploadOneMPU(token, file, rel, ui){
-  const CHUNK = 24 * 1024 * 1024;
-  const PAR = 6;
-  const init = await mpuInit(token, file.name, file.type);
-  const key = init.key, uploadId = init.uploadId;
-
-  const parts = Math.ceil(Math.max(1, file.size)/CHUNK);
-  const doneBytes = new Array(parts).fill(0);
-  let abortControllers = [];
-  ui.badge.textContent = "Uploaden…"; ui.label.textContent="Multipart ("+parts+" delen)";
-
-  function refresh(){
-    const uploaded = doneBytes.reduce((a,b)=>a+b,0);
-    const p = Math.round(uploaded / Math.max(1,file.size) * 100);
-    ui.fill.style.width = p+'%';
-  }
-
-  async function sendPart(partNo){
-    const idx = partNo-1;
-    const start = idx*CHUNK; const end = Math.min(start+CHUNK, file.size);
-    const blob = file.slice(start,end);
-
-    const url = await mpuSign(key, uploadId, partNo);
-    let abortFn = ()=>{};
-    const etag = await putWithProgress(url, blob, (loaded,total)=>{
-      doneBytes[idx] = Math.min(loaded, blob.size);
-      refresh();
-    }, fn=>abortFn=fn);
-    abortControllers[idx] = abortFn;
-    doneBytes[idx] = blob.size; refresh();
-    return { PartNumber: partNo, ETag: etag };
-  }
-
-  // pauze/annuleer hooks
-  ui.abort = ()=>{
-    abortControllers.forEach(fn=>{ try{ fn&&fn(); }catch(_){}}); 
-    throw new Error("geannuleerd");
-  };
-
-  const results = new Array(parts);
-  let next = 1;
-
-  async function worker(){
-    while(true){
-      if(state.paused) { await sleep(150); continue; }
-      const mine = next++; if(mine>parts) break;
-      results[mine-1] = await sendPart(mine);
-    }
-  }
-
-  await Promise.all(Array.from({length:Math.min(PAR,parts)}, worker));
-  await mpuComplete(token, key, file.name, rel, results, uploadId, file.size);
-  ui.fill.style.width = '100%';
-  ui.badge.textContent="Klaar"; ui.badge.className='badge ok'; ui.label.textContent="Opgeslagen";
+function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
+function currentFiles(){
+  const mode = selectedMode();
+  return Array.from(mode==='files' ? (fileInput.files||[]) : (folderInput.files||[]));
+}
+function relPath(file){
+  return selectedMode()==='folder' ? (file.webkitRelativePath || file.name) : file.name;
 }
 
 async function runUpload(){
-  const mode = (folderInput.files?.length ? 'folder' : 'files');
-  const raw = Array.from(folderInput.files?.length ? folderInput.files : fileInput.files || []);
-  if(!raw.length){ alert("Kies eerst bestand(en) of map"); return; }
+  const filesRaw=currentFiles();
+  if(!filesRaw.length){ alert("Kies eerst bestand(en) of map"); try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){} return; }
 
-  // Bouw nette lijst & UI-rijen
-  state.files = raw.map(f=>{
-    const rp = sanitizePath(relPath(f, mode));
-    const ui = addFileRow(f, rp);
-    return {file:f, rel:rp, ui};
-  });
-  state.totalBytes = state.files.reduce((a,x)=>a+x.file.size,0) || 1;
-  state.uploadedBytes = 0;
-  state.startedAt = performance.now();
-  setTotal(0,"Voorbereiden…");
-  totalSpeed.textContent = '–'; totalEta.textContent = '–';
-  resBox.innerHTML = "";
+  state.files = filesRaw.map(f=>{ const rp=sanitizePath(relPath(f)); const ui=addFileRow(f,rp); return {file:f, rel:rp, ui}; });
+  state.totalBytes = state.files.reduce((a,x)=>a+x.file.size,0)||1; state.uploadedBytes=0; state.startedAt=performance.now();
+  setTotal(0,"Voorbereiden…"); totalSpeed.textContent='–'; totalEta.textContent='–'; resBox.innerHTML="";
 
-  // Token maken
-  const expiryDays = document.getElementById('expDays').value;
-  const password = document.getElementById('pw').value || '';
-  const title = document.getElementById('title').value || '';
-  state.token = await packageInit(expiryDays, password, title);
+  const expiryDays=document.getElementById('expDays').value;
+  const password=document.getElementById('pw').value||'';
+  const title=document.getElementById('title').value||'';
+  state.token = await packageInit(expiryDays,password,title);
 
-  // Bestanden achter elkaar (maar intern parallel bij MPU)
   for(const item of state.files){
-    if(state.paused) while(state.paused) { await sleep(150); }
-    if(state.abortAll) throw new Error("geannuleerd");
+    if(state.paused) while(state.paused){ await sleep(150); }
+    const startUploaded=state.uploadedBytes;
 
-    const small = item.file.size < 5 * 1024 * 1024;
-    const startUploaded = state.uploadedBytes;
-
-    // Per-bestand voortgang beïnvloedt totaal
-    const origFillSetter = item.ui.fill.style.width;
-    const updateTotal = ()=>{
-      const perDone = parseFloat(item.ui.fill.style.width)||0;
-      const added = Math.round(item.file.size * perDone / 100);
-      const currentUploaded = startUploaded + added;
-      const pct = (currentUploaded / state.totalBytes) * 100;
-      setTotal(pct, "Uploaden…");
-      setSpeedAndEta(currentUploaded, state.totalBytes, state.startedAt);
+    const updateTotal=()=>{
+      const per=parseFloat(item.ui.fill.style.width)||0;
+      const added=Math.round(item.file.size*per/100);
+      const cur=startUploaded+added;
+      setTotal((cur/state.totalBytes)*100,"Uploaden…");
+      const uploadedSum = state.uploadedBytes + added;
+      setSpeedAndEta(uploadedSum, state.totalBytes, state.startedAt);
     };
-
-    // Patch de UI fill setter om total te updaten
-    Object.defineProperty(item.ui.fill.style, 'width', {
-      set(v){ this.setProperty('width', v); requestAnimationFrame(updateTotal); },
-      get(){ return this.getPropertyValue('width'); }
-    });
+    Object.defineProperty(item.ui.fill.style,'width',{set(v){this.setProperty('width',v);requestAnimationFrame(updateTotal);},get(){return this.getPropertyValue('width');}});
 
     try{
-      if(small) await uploadOneSmall(state.token, item.file, item.rel, item.ui);
-      else      await uploadOneMPU(state.token, item.file, item.rel, item.ui);
+      if(item.file.size < 5*1024*1024) await uploadOneSmall(state.token,item.file,item.rel,item.ui);
+      else await uploadOneMPU(state.token,item.file,item.rel,item.ui);
       state.uploadedBytes += item.file.size;
-      setTotal((state.uploadedBytes/state.totalBytes)*100, "Uploaden…");
+      setTotal((state.uploadedBytes/state.totalBytes)*100,"Uploaden…");
       setSpeedAndEta(state.uploadedBytes, state.totalBytes, state.startedAt);
     }catch(err){
       if(String(err||'').includes("geannuleerd")){
-        item.ui.badge.textContent="Geannuleerd"; item.ui.badge.className='badge err';
-        item.ui.label.textContent="Onderbroken";
-        throw err;
+        item.ui.badge.textContent="Geannuleerd"; item.ui.badge.className='badge err'; item.ui.label.textContent="Onderbroken"; throw err;
       }else{
-        item.ui.badge.textContent="Fout"; item.ui.badge.className='badge err';
-        item.ui.label.textContent=(err && err.message) ? err.message : "Onbekende fout";
+        item.ui.badge.textContent="Fout"; item.ui.badge.className='badge err'; item.ui.label.textContent=(err&&err.message)?err.message:"Onbekende fout";
       }
     }
   }
 
-  // Klaar
-  setTotal(100,"Klaar");
-  totalSpeed.textContent = '–'; totalEta.textContent = '–';
-
-  const link = "{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", state.token);
-  resBox.innerHTML = `
-    <div class="card" style="margin-top:1rem">
-      <strong>Deelbare link</strong>
-      <div class="row" style="gap:.5rem; margin-top:.35rem">
-        <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
-        <button class="btn" type="button" id="copyBtn">Kopieer</button>
-        <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
-      </div>
-    </div>`;
-  const copyBtn = document.getElementById('copyBtn');
-  const copyOk  = document.getElementById('copyOk');
-  const input   = document.getElementById('shareLinkInput');
-  copyBtn.addEventListener('click', async ()=>{
-    try{ await (navigator.clipboard?.writeText(input.value)); }catch(_){ input.select(); document.execCommand?.('copy'); }
-    copyOk.style.display='inline'; setTimeout(()=>copyOk.style.display='none', 1600);
-  });
+  setTotal(100,"Klaar"); totalSpeed.textContent='–'; totalEta.textContent='–';
+  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", state.token);
+  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link</strong><div class="row" style="gap:.5rem;margin-top:.35rem"><input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly><button class="btn" type="button" id="copyBtn">Kopieer</button><span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span></div></div>`;
+  const copyBtn=document.getElementById('copyBtn'); const copyOk=document.getElementById('copyOk'); const input=document.getElementById('shareLinkInput');
+  copyBtn.addEventListener('click',async()=>{try{await (navigator.clipboard?.writeText(input.value));}catch(_){input.select();document.execCommand?.('copy');}copyOk.style.display='inline';setTimeout(()=>copyOk.style.display='none',1600);});
 }
 
-// ===================== Controls =====================
+// ===== controls =====
 form.addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  btnStart.disabled = true; btnPause.disabled = false; btnCancel.disabled = false;
-  state.paused = false; state.abortAll = null;
-  try{ await runUpload(); }
-  catch(err){ if(String(err||'').includes('geannuleerd')) { totalStatus.textContent = 'Geannuleerd'; } }
-  finally{
-    btnStart.disabled = false; btnPause.disabled = true; btnCancel.disabled = true;
-  }
+  e.preventDefault(); btnStart.disabled=true; btnPause.disabled=false; btnCancel.disabled=false; state.paused=false;
+  try{ await runUpload(); }catch(_){ totalStatus.textContent='Geannuleerd'; }finally{ btnStart.disabled=false; btnPause.disabled=true; btnCancel.disabled=true; }
 });
-
-btnPause.addEventListener('click', ()=>{
-  state.paused = !state.paused;
-  btnPause.textContent = state.paused ? 'Hervat' : 'Pauzeer';
-  totalStatus.textContent = state.paused ? 'Gepauzeerd' : 'Uploaden…';
-});
-
-btnCancel.addEventListener('click', ()=>{
-  if(!confirm('Upload annuleren?')) return;
-  state.abortAll = ()=>{};
-  // abort lopende kleinere upload
-  state.files.forEach(f=>{ try{ f.ui.abort && f.ui.abort(); }catch(_){ } });
-  totalStatus.textContent = 'Geannuleerd';
-});
-
-// iOS: directory input werkt niet -> verberg map-input
-(function(){
-  const ua = navigator.userAgent||navigator.vendor||window.opera;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
-  if(isIOS){ folderInput.disabled=true; folderInput.parentElement.style.display='none'; }
-})();
+btnPause.addEventListener('click', ()=>{ state.paused=!state.paused; btnPause.textContent=state.paused?'Hervat':'Pauzeer'; totalStatus.textContent=state.paused?'Gepauzeerd':'Uploaden…'; });
+btnCancel.addEventListener('click', ()=>{ if(!confirm('Upload annuleren?')) return; state.files.forEach(f=>{try{f.ui.abort&&f.ui.abort();}catch(_){}}); totalStatus.textContent='Geannuleerd'; });
 </script>
 </body></html>
 """
