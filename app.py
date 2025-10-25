@@ -1592,13 +1592,24 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   const head = wrap.querySelector('#head');
   const bubble = document.getElementById('snakeBubble');
 
-  const QUOTES = [
-    "Niet aaien! Ik ben aan het werk!",
-    "Ja hallo, ik slinger hier!",
-    "Denk je dat ik voor de lol beweeg?",
-    "Slangen leven ook!",
-    "Ik ben in 3D joh!"
-  ];
+const QUOTES = [
+  "Ga jij nou eens weg joh… ik ben ff bezig.",
+  "Kijk uit! Mijn vader werkt bij de Rijkspolitie!",
+  "Ja doei! Ik ben een slang, geen helpdesk.",
+  "Hee lekker hoor… maar niet aankomen!",
+  "Wil jij een broodje kaas ofzo?",
+  "Ik ben niet gek, ik ben een slang!",
+  "Kom op joh… ik heb ook maar twee handen!",
+  "Ben jij los ofzo?",
+  "Moet dat nou steeds?",
+  "Ja hallo zeg… ik heb weekend!",
+  "Ik ben gewoon een slang… hoezo kijk je zo?",
+  "Niet zo staren gap, ik ben verlegen!",
+  "Ken je m’n broer? Pythonus uit Hengelo.",
+  "Raak me nog eens aan en ik bel de Rijkspolitie!",
+  "Oprotten jij. Ik ben aan het flexen.",
+  "Ik kan beter met mijn staart typen dan jij met je handen."
+];
 
   /* 📌 Formaat 60% kleiner */
   wrap.style.width = '90px';
