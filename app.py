@@ -855,7 +855,7 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
     {% if items|length == 1 %}
       <button class="btn" id="dlBtn">Download</button>
     {% else %}
-      <button class="btn" id="zipAll">Alles downloaden (zip)</button>
+<button class="btn" id="zipAll" type="button">Alles downloaden (zip)</button>
     {% endif %}
     <div class="progress" id="bar" style="display:none"><i></i></div>
     <div class="small" id="txt" style="display:none">Starten…</div>
@@ -896,17 +896,25 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   const fill = bar?.querySelector('i');
   const txt  = document.getElementById('txt');
 
-  function triggerDirectDownload(url, suggestedName){
-    // Fallback: native download zonder progress (meest compatibel)
-    const a = document.createElement('a');
-    a.href = url;
-    if (suggestedName) a.download = suggestedName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  function nativeDownload(url, suggestedName){
+    // Meest compatibel: directe navigatie of anchor-click
+    try{
+      const a = document.createElement('a');
+      a.href = url;
+      if (suggestedName) a.download = suggestedName; // hint; server Content-Disposition blijft leidend
+      a.rel = 'noopener';
+      a.target = '_self';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }catch(_){
+      // laatste redmiddel
+      window.location.href = url;
+    }
   }
 
   async function streamToBlob(url, fallbackName){
+    // Voor single file: probeer progress, anders native
     try{
       if (bar && txt && fill){
         bar.style.display='block';
@@ -925,25 +933,21 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
       }
 
       const total = parseInt(res.headers.get('Content-Length')||'0', 10);
-      const name  = res.headers.get('X-Filename') || fallbackName || 'download.zip';
+      const name  = res.headers.get('X-Filename') || fallbackName || 'download';
 
       if (bar){
-        if (!total){ bar.classList.add('indet'); }
-        else { bar.classList.remove('indet'); }
+        if (!total){ bar.classList.add('indet'); } else { bar.classList.remove('indet'); }
       }
 
-      // ========== 1) streaming met voortgang ==========
       const reader = res.body && res.body.getReader ? res.body.getReader() : null;
       if (reader){
         const chunks = [];
         let received = 0;
-
         while(true){
           const {done, value} = await reader.read();
           if (done) break;
           chunks.push(value);
           received += value.length;
-
           if (fill && txt){
             if(total){
               const p = Math.round(received/total*100);
@@ -954,50 +958,49 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
             }
           }
         }
-
         if (bar){ bar.classList.remove('indet'); }
         if (fill){ fill.style.width='100%'; }
         if (txt){ txt.textContent='Klaar'; }
 
         const blob = new Blob(chunks);
         const u = URL.createObjectURL(blob);
-        triggerDirectDownload(u, name);
+        nativeDownload(u, name);
         URL.revokeObjectURL(u);
-
         if (bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; }, 800);
         return;
       }
 
-      // ========== 2) fallback: hele blob in één keer ==========
+      // Fallback: zonder stream-API
       const blob = await res.blob();
       const u = URL.createObjectURL(blob);
-      triggerDirectDownload(u, name);
+      nativeDownload(u, name);
       URL.revokeObjectURL(u);
       if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }catch(err){
-      // ========== 3) laatste redmiddel: native download zonder fetch ==========
-      console.error('Download fout / stream niet ondersteund:', err);
-      try{
-        triggerDirectDownload(url, null);
-      }catch(e){}
+      // Laatste redmiddel: native naar de URL
+      console.error('Stream download fallback naar native:', err);
+      nativeDownload(url, null);
       if (bar && txt){ bar.style.display='none'; txt.style.display='none'; }
     }
   }
 
-  // ===== Koppeling met de knoppen =====
-  // (Deze code verwacht dezelfde HTML-IDs als in jouw template.)
-
+  // ===== Koppeling met knoppen =====
+  // Single file: progress mogelijk
   {% if items|length == 1 %}
     document.getElementById('dlBtn')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
-                   "{{ items[0]['name'] }}");
+      streamToBlob(
+        "{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+        "{{ items[0]['name'] }}"
+      );
     });
   {% else %}
+    // ZIP: altijd native (betrouwbaar en geen geheugenpiek)
     document.getElementById('zipAll')?.addEventListener('click', ()=>{
-      streamToBlob("{{ url_for('stream_zip', token=token) }}", "download.zip");
+      nativeDownload("{{ url_for('stream_zip', token=token) }}", "download.zip");
     });
   {% endif %}
 </script>
+
 
 </body></html>
 """
