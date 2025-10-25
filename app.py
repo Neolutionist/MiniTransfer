@@ -620,9 +620,13 @@ html, body{
   }
 }
 
-/* =========================================================
-   File input perfect uitgelijnd
-========================================================= */
+/* ================== File input perfect uitlijnen (vervangt oude blok) ================== */
+:root{
+  /* gebruik dezelfde veldhoogte overal */
+  --field-h: 48px;
+}
+
+/* Alle ‘gewone’ velden */
 input.input,
 select.input,
 .input,
@@ -631,47 +635,58 @@ input[type=password],
 input[type=email],
 input[type=number],
 textarea{
-  height:var(--field-h);
-  padding:0 1rem;
-  line-height:1.2;
+  height: var(--field-h);
+  padding: 0 1rem;               /* horizontaal; verticaal via vaste hoogte */
+  line-height: 1.2;
 }
 
-/* hoofdelement */
+/* Het file-veld zelf */
 input[type=file]{
-  height:var(--field-h);
-  padding:0 1rem;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
-  color:var(--text);
-  vertical-align:middle;
-  position:relative;
-  top:-1px;
+  -webkit-appearance: none;
+  appearance: none;
+  height: var(--field-h);
+  width: 100%;
+  padding: 0 1rem;               /* zelfde padding als andere inputs */
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+  color: var(--text);
+  display: inline-flex;          /* centreert button + tekst netjes verticaal */
+  align-items: center;           /* ← zorgt voor perfecte uitlijning */
+  gap: .75rem;
+  vertical-align: middle;
 }
 
-/* knop erin */
+/* De “Choose files” knop binnen het file-veld */
 input[type=file]::file-selector-button{
-  font:inherit;
-  line-height:1;
-  height:calc(var(--field-h) - 18px);
-  padding:.50rem .90rem;
-  margin-right:.75rem;
-  border-radius:10px;
-  border:1px solid var(--line);
-  background:var(--surface);
-  color:var(--text);
-  cursor:pointer;
+  font: inherit;
+  line-height: 1;
+  height: 36px;                  /* visueel gelijk aan de tekst in andere velden */
+  padding: .5rem .9rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  margin: 0 .5rem 0 0;           /* nette ruimte tussen knop en bestandsnaam */
+  cursor: pointer;
+  align-self: center;            /* exact centreren in het veld */
 }
 
-/* dark mode */
-@media(prefers-color-scheme:dark){
+/* Firefox kleine correctie (pseudo-button hoogte verschilt daar) */
+@-moz-document url-prefix(){
+  input[type=file]{ padding-block: .4rem; }
+  input[type=file]::file-selector-button{ height: auto; padding: .45rem .8rem; }
+}
+
+/* Dark mode varianten */
+@media (prefers-color-scheme: dark){
   input[type=file]{
-    background:color-mix(in oklab, var(--surface-2) 92%, black 8%);
-    border-color:#374151;
+    background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+    border-color: #374151;
   }
   input[type=file]::file-selector-button{
-    background:var(--surface);
-    border-color:#374151;
+    background: var(--surface);
+    border-color: #374151;
   }
 }
 </style>
