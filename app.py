@@ -302,27 +302,35 @@ input[type=file]::file-selector-button{
 /* ─── Upload Progressbar Visual Upgrade ────────────────────────────── */
 
 /* Achtergrond van de balk: subtiel transparant */
+/* ──────────────────────────────────────────────── */
+/* ✅ Progressbar – Altijd zichtbaar + mooie glow   */
+/* ──────────────────────────────────────────────── */
+
+/* Container */
 .progress{
-  height: 14px;
-  border-radius: 999px;
-  background: rgba(0,0,0,.18);
-  border: 1px solid rgba(255,255,255,.25);
+  height:14px;
+  border-radius:999px;
+  background:rgba(0,0,0,.18);
+  border:1px solid rgba(255,255,255,.25);
   overflow:hidden;
   margin-top:1rem;
   position:relative;
 }
 
-/* Vulling: modern blauw-gradient met lichte glow */
+/* Balkvulling */
 .progress > i{
+  display:block;                 /* ✅ blijft zichtbaar */
   height:100%;
   width:0%;
   background: linear-gradient(90deg,#1570ef,#4aa3ff);
-  box-shadow: 0 0 16px rgba(33,132,255,.45);
-  border-radius: inherit;
-  transition: width .15s ease;
+  box-shadow:0 0 16px rgba(33,132,255,.45);
+  border-radius:inherit;
+  transition: width .15s ease;   /* ✅ smooth progress */
+  transform:none;
+  animation:none;
 }
 
-/* Donker thema */
+/* ✅ Donkere modus */
 @media (prefers-color-scheme: dark){
   .progress{
     background: rgba(255,255,255,.07);
@@ -330,15 +338,23 @@ input[type=file]::file-selector-button{
   }
   .progress > i{
     background: linear-gradient(90deg,#1f8fff,#69c1ff);
-    box-shadow: 0 0 18px rgba(115,200,255,.55);
+    box-shadow:0 0 18px rgba(115,200,255,.55);
   }
 }
 
-/* Indeterminate (voor onbekende grootte) */
+/* ✅ Indeterminate – voortgang onbekend */
 .progress.indet > i{
   width:35%;
   animation: indet-slide 1.2s infinite ease-in-out;
 }
+
+/* ✅ Zodra weer normale progress → animatie uit */
+.progress:not(.indet) > i{
+  animation:none;
+  transform:none;
+}
+
+/* Keyframes animatie */
 @keyframes indet-slide{
   0%   { transform: translateX(-100%); }
   50%  { transform: translateX(25%); }
