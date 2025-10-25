@@ -413,22 +413,20 @@ INDEX_HTML = """
 .topbar .title{ flex:1; }
 
 /* H1 altijd leesbaar met subtiele glass-achtergrond */
+/* H1 altijd leesbaar, maar zonder achtergrond of rand */
 .topbar h1{
-  display:inline-block;
   margin:.25rem 0 1rem;
   color:var(--brand);
   font-size:2.1rem;
   font-weight:800;
-  padding:.1rem .5rem;
-  border-radius:14px;
-  background: color-mix(in oklab, var(--panel) 78%, transparent);
-  border:1px solid var(--panel-b);
-  text-shadow: 0 1px 0 rgba(255,255,255,.5);
+  padding:0;                 /* geen padding */
+  background:transparent;    /* geen kaartje */
+  border:0;                  /* geen rand */
+  text-shadow: 0 1px 0 rgba(255,255,255,.55);
 }
 @media (prefers-color-scheme: dark){
   .topbar h1{
     text-shadow: 0 1px 0 rgba(0,0,0,.7);
-    background: color-mix(in oklab, var(--panel) 86%, transparent);
   }
 }
 
@@ -486,8 +484,42 @@ INDEX_HTML = """
   width:40%;
   animation: indet-move 1.2s linear infinite;
 }
+/* 🌙 Avondmodus — donker thema */
+.night .card{
+  background: rgba(13,20,40,.78) !important;
+  border-color: rgba(13,20,40,.45) !important;
+  color:#e5e7eb;
+}
+
+.night .input,
+.night input[type=text], .night input[type=password], .night input[type=email],
+.night select, .night textarea{
+  background: #1f2937 !important;
+  color:#e5e7eb !important;
+  border-color:#374151 !important;
+}
+
+.night label,
+.night .meta,
+.night .topbar h1{
+  color:#e5e7eb !important;
+}
+
+.night .btn{
+  box-shadow:0 6px 22px rgba(0,0,0,.35);
+}
+
 @keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-</style></head><body>
+</style>
+<script>
+(function(){
+  const h = new Date().getHours();
+  const isNight = (h >= 18 || h < 7);
+  document.documentElement.classList.toggle('night', isNight);
+})();
+</script>
+</head>
+<body>
 {{ bg|safe }}
 
 <div class="wrap">
@@ -842,7 +874,28 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
 /* Geen overlap met CTA: kaart boven, CTA eronder met ruimte */
 .card{ position:relative; z-index:0; }
 .cta{ margin-top:1.25rem; }
-</style></head><body>
+
+/* 🌙 Avondmodus — donker thema (downloadpagina) */
+.night .card{
+  background: rgba(13,20,40,.78) !important;
+  border-color: rgba(13,20,40,.45) !important;
+  color:#e5e7eb;
+}
+.night .btn{ box-shadow:0 6px 22px rgba(0,0,0,.35); }
+.night .table tr{ background: rgba(255,255,255,.08); }
+
+</style>
+
+<script>
+(function(){
+  const h = new Date().getHours();
+  const isNight = (h >= 18 || h < 7);
+  document.documentElement.classList.toggle('night', isNight);
+})();
+</script>
+
+
+</head><body>
 {{ bg|safe }}
 
 <div class="wrap">
