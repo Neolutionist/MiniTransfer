@@ -184,203 +184,103 @@ migrate_add_tenant_columns()
 BASE_CSS = """
 *,*:before,*:after{box-sizing:border-box}
 :root{
-  /* Kleuren */
-  --c1:#86b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
+  --c1:#84b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
+  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
   --brand:#0f4c98; --brand-2:#003366;
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
   --surface:#ffffff; --surface-2:#f1f5f9;
-  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
-  /* Animatie snelheden */
-  --t-slow: 28s;
-  --t-med:  18s;
-  --t-fast:  8s;
 }
-/* Dark mode (volgt OS) */
-@media (prefers-color-scheme: dark){
-  :root{
-    --brand:#7db4ff; --brand-2:#4a7fff;
-    --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
-    --surface:#0b1020; --surface-2:#0f172a;
-    --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
-  }
-}
-
 html,body{height:100%}
-body{
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  color:var(--text); margin:0; position:relative; overflow-x:hidden;
-  background: var(--surface);
-}
-
-/* Dynamische zichtbaarheid login-status tekst */
-.login-status {
-  font-weight: 700;
-  mix-blend-mode: difference; /* per-letter dynamische contrast magie */
-  color: #fff; /* basis, wordt automatisch aangepast */
-}
-
-/* ======= Nieuwe achtergrond ======= */
-.bg{
-  position:fixed; inset:0; z-index:-2; overflow:hidden;
-  /* Basismix (zachte radialen + subtiele vertical fade) */
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden}
+.bg{position:fixed; inset:0; z-index:-2; overflow:hidden;
   background:
-    radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
-    radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
-    radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
-    linear-gradient(180deg, #edf3ff 0%, #eef4fb 100%);
-  filter:saturate(1.06);
-  animation: hueShift var(--t-slow) linear infinite;
+    radial-gradient(40vmax 40vmax at 15% 25%, var(--c1) 0%, transparent 60%),
+    radial-gradient(38vmax 38vmax at 85% 30%, var(--c2) 0%, transparent 60%),
+    radial-gradient(50vmax 50vmax at 50% 90%, var(--c3) 0%, transparent 60%),
+    linear-gradient(180deg,#edf3ff 0%, #eef4fb 100%);
+  filter: saturate(1.05);
 }
-
-/* Aurora laag */
-.bg::before,
-.bg::after{
-  content:""; position:absolute; inset:-10%;
-  /* Aurora met conic-gradients; de mask maakt vloeiende vormen */
+.bg::before,.bg::after{content:""; position:absolute; inset:-10%;
   background:
-    conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
-    conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);
-  mix-blend-mode: overlay;
+    radial-gradient(45vmax 45vmax at 20% 70%, rgba(255,255,255,.35), transparent 60%),
+    radial-gradient(50vmax 50vmax at 80% 20%, rgba(255,255,255,.25), transparent 60%),
+    radial-gradient(35vmax 35vmax at 60% 45%, rgba(255,255,255,.22), transparent 60%);
   will-change: transform, opacity;
+  animation: driftA 26s ease-in-out infinite;
 }
-.bg::before{
-  animation: driftA var(--t-med) ease-in-out infinite alternate;
-  opacity:.85;
-  -webkit-mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
-          mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
-}
-.bg::after{
-  animation: driftB var(--t-slow) ease-in-out infinite;
-  opacity:.65;
-  -webkit-mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
-          mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
-}
-
-/* Subtiele korrel / film grain (zonder externe asset) */
-.bg::marker{display:none}
-.bg > i{display:none}
-.bg::before, .bg::after { backdrop-filter: saturate(1.05) blur(2px); }
-.bg + .grain{ /* aparte overlay via pseudo-element lukt niet overal; gebruik extra div niet nodig – we faken ruis met gradients */
-  display:none;
-}
-
-/* Glass kaarten en UI */
+.bg::after{mix-blend-mode: overlay; opacity:.55; animation: driftB 30s ease-in-out infinite}
+@keyframes driftA{0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(.6%,1.4%,0)} 100%{transform:translate3d(0,0,0)}}
+@keyframes driftB{0%{transform:rotate(0deg)} 50%{transform:rotate(180deg)} 100%{transform:rotate(360deg)}}
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-.card{
-  padding:1.5rem; background:var(--panel); border:1px solid var(--panel-b);
-  border-radius:18px; box-shadow:0 18px 40px rgba(0,0,0,.12);
-  backdrop-filter: blur(10px) saturate(1.05);
-}
+.card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);
+      border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter: blur(10px)}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
-
-/* Forms/Buttons */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
 .input, input[type=text], input[type=password], input[type=email], input[type=number],
 select, textarea{
   width:100%; display:block; appearance:none;
-  padding:.85rem 1rem; border-radius:12px; border:1px solid var(--line);
-  background:color-mix(in oklab, var(--surface-2) 90%, white 10%); color:var(--text);
-  outline:none; transition: box-shadow .15s, border-color .15s, background .15s;
+  padding: .85rem 1rem; border-radius:12px; border:1px solid var(--line);
+  background:#f0f6ff; color:var(--text);
+  outline: none; transition: box-shadow .15s, border-color .15s, background .15s;
 }
 input:focus, .input:focus, select:focus, textarea:focus{
-  border-color: var(--ring); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
+  border-color: var(--ring); box-shadow: 0 0 0 4px rgba(37,99,235,.15);
 }
-input[type=file]{padding:.55rem 1rem; background:var(--surface-2); cursor:pointer}
+input[type=file]{padding:.55rem 1rem; background:#f0f6ff; cursor:pointer}
 input[type=file]::file-selector-button{
   margin-right:.75rem; border:1px solid var(--line);
-  background:var(--surface); color:var(--text);
+  background:var(--surface-2); color:var(--text);
   padding:.55rem .9rem; border-radius:10px; cursor:pointer;
 }
 .btn{
   padding:.85rem 1.05rem;border:0;border-radius:12px;
-  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
-  color:#fff;font-weight:700;cursor:pointer;
+  background:var(--brand);color:#fff;font-weight:700;cursor:pointer;
   box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
   font-size:.95rem; line-height:1;
 }
 .btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
-.btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
-
-/* --- Progress bar: robuuster tekenen en duidelijker --- */
+.btn.secondary{background:var(--brand-2)}
+/* Robuuste progressbar (altijd zichtbaar) */
 .progress{
-  height: 12px;                           /* iets hoger voor zichtbaarheid */
-  border-radius: 999px;
-  background: rgba(255,255,255,.18);
-  border: 1px solid rgba(255,255,255,.75);
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;                      /* los van backdrop-filter stacks, belangrijk */
+  height:12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.75);
+  position:relative;
+  overflow:hidden;
+  margin-top:.75rem;
 }
 
 .progress > i{
   display:block;
   height:100%;
   width:0%;
-  /* vaste fallback-kleur + gradient samen (sommige GPU’s negeren pure gradient bij animatie) */
-  background-color: #5aa3ff;
-  background-image: linear-gradient(90deg,#5aa3ff,#9fc5ff);
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.25),
-    0 0 8px rgba(80,150,255,.45);
-  will-change: width, transform;          /* forceer compositor */
-  transform-origin: left center;
+  background-color:#5aa3ff; /* fallback */
+  background-image:linear-gradient(90deg,#5aa3ff,#9fc5ff);
+  transition:width .12s ease;
 }
-.progress > i::after{
-  content:""; position:absolute; inset:0;
-  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
-  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
+
+/* Indeterminate blijft werken */
+.progress.indet > i{
+  width:40%;
+  animation: indet-move 1.2s linear infinite;
 }
-.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
-
-@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
-
-/* Tabel */
+@keyframes indet-move{ 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
-
-/* Responsive tabel */
 @media (max-width: 680px){
   .table thead{display:none}
   .table, .table tbody, .table tr, .table td{display:block;width:100%}
   .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
-  .cols-2{ grid-template-columns: 1fr !important; }
 }
-
-/* ZIP lijst kolombreedte */
-.table th.col-size,
-.table td.col-size,
-.table td[data-label="Grootte"]{
-  white-space:nowrap; text-align:right; min-width:72px;
-}
-
-/* Aurora animaties */
-@keyframes driftA{
-  0%{transform:translate3d(0,0,0) scale(1)}
-  50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
-  100%{transform:translate3d(0,0,0) scale(1)}
-}
-@keyframes driftB{
-  0%{transform:rotate(0deg) translateY(0)}
-  50%{transform:rotate(180deg) translateY(-1%)}
-  100%{transform:rotate(360deg) translateY(0)}
-}
-/* Kleurverschuiving over tijd */
-@keyframes hueShift{
-  0%{filter:hue-rotate(0deg) saturate(1.06)}
-  100%{filter:hue-rotate(360deg) saturate(1.06)}
-}
-
-/* Respecteer reduced motion */
-@media (prefers-reduced-motion: reduce){
-  .bg, .bg::before, .bg::after{ animation: none !important; }
-}
+@media (max-width: 680px){ .cols-2{ grid-template-columns: 1fr !important; } }
+.cta{display:flex;justify-content:center;margin-top:1rem}
 """
 
 # --- Favicon (SVG) ---
@@ -501,71 +401,55 @@ INDEX_HTML = """
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
-
-/* ====== Topbar & layout fixes ====== */
-.topbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:1rem;
-  margin-bottom:1rem;
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+h1{margin:.25rem 0 1rem;color:var(--brand);font-size:2.1rem}
+.logout a{color:var(--brand);text-decoration:none;font-weight:700}
+.toggle{display:flex;gap:.75rem;align-items:center;margin:.4rem 0 1rem}
+.nav a{color:var(--brand);text-decoration:none;font-weight:700}
+/* Zichtbare per-letter rand (werkt overal, geen blend-mode) */
+.login-status{
+  font-weight:700;
+  letter-spacing:.2px;
+  color:#0f172a; /* licht thema tekstkleur */
+  text-shadow:
+     1px 0 0 #fff, -1px 0 0 #fff, 0 1px 0 #fff, 0 -1px 0 #fff,
+     1px 1px 0 #fff, -1px 1px 0 #fff, 1px -1px 0 #fff, -1px -1px 0 #fff;
 }
-/* --- Titel veel beter leesbaar op elke achtergrond --- */
-.topbar .title h1{
-  display:inline-block;
-  margin:.25rem 0 1rem;
-  color: var(--brand);
-  font-size:2.1rem;
-  font-weight:800;
-
-  /* subtiele glass-pill achter de tekst */
-  background: color-mix(in oklab, var(--panel) 78%, transparent);
-  border: 1px solid var(--panel-b);
-  padding: .15rem .6rem;
-  border-radius: 14px;
-  backdrop-filter: blur(6px) saturate(1.05);
-
-  /* dunne outline + zachte schaduw voor extra contrast */
-  -webkit-text-stroke: .4px rgba(0,0,0,.28);
-  text-shadow: 0 1px 0 rgba(255,255,255,.6), 0 4px 16px rgba(0,0,0,.18);
-}
-
-/* Dark mode: omkeren van outline en schaduw */
+/* Donker thema: inverse omlijning */
 @media (prefers-color-scheme: dark){
-  .topbar .title h1{
-    -webkit-text-stroke: .4px rgba(255,255,255,.25);
-    text-shadow: 0 1px 0 rgba(0,0,0,.9), 0 6px 22px rgba(0,0,0,.45);
+  .login-status{
+    color:#e5e7eb;
+    text-shadow:
+       1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000,
+       1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+  }
+}
+/* Subtiele “glass” achtergrond achter de H1 voor contrast */
+.topbar h1{
+  display:inline-block;
+  padding:.1rem .5rem;
+  border-radius:14px;
+  background: color-mix(in oklab, var(--panel) 78%, transparent);
+  border:1px solid var(--panel-b);
+  text-shadow: 0 1px 0 rgba(255,255,255,.5);
+}
+@media (prefers-color-scheme: dark){
+  .topbar h1{
+    text-shadow: 0 1px 0 rgba(0,0,0,.6);
     background: color-mix(in oklab, var(--panel) 86%, transparent);
   }
 }
-
-/* --- ‘Ingelogd als …’ subtiel dynamisch, niet te donker --- */
-.login-status{
-  font-weight: 600;              /* iets minder zwaar */
-  letter-spacing:.15px;
-  color:#fff;
-  mix-blend-mode: exclusion;     /* zachtere versie van difference */
-  opacity:.85;                   /* iets subtieler */
-}
-
-/* link blijft normaal zichtbaar en niet geblend */
-.logout a{
-  mix-blend-mode: normal;
-  color: var(--brand);
-  text-decoration: none;
-  font-weight:700;
-}
+</style></head><body>
+{{ bg|safe }}
 
 <div class="wrap">
   <div class="topbar">
-    <div class="title">
-      <h1>Bestanden delen met Olde Hanter</h1>
-    </div>
-    <div class="logout">
-      <span class="login-status">Ingelogd als {{ user }}</span>
-      <a href="{{ url_for('logout') }}">Uitloggen</a>
-    </div>
-  </div>
+    <h1>Bestanden delen met Olde Hanter</h1>
+<div class="logout">
+  <span class="login-status">Ingelogd als {{ user }}</span>
+  • <a href="{{ url_for('logout') }}">Uitloggen</a>
+</div>
+
 
   <form id="f" class="card" enctype="multipart/form-data" autocomplete="off">
     <label>Uploadtype</label>
@@ -628,10 +512,10 @@ function sanitizePath(p){
     const base = dot>=0 ? n.slice(0,dot) : n;
     const ext  = dot>=0 ? n.slice(dot) : '';
     let s = base.normalize('NFKD').replace(/[\u0300-\u036f]/g,''); // diacritics weg
-    s = s.replace(/[^\w.\\-]+/g, '_');   // vervang + [ ] spaties etc.
+    s = s.replace(/[^\w.\-]+/g, '_');   // vervang + [ ] spaties etc.
     s = s.replace(/_+/g,'_').replace(/^_+|_+$/g,''); // opschonen
     if (s.length > 160) s = s.slice(0,160);          // korter maken
-    return (s || 'file') + ext.replace(/[^.\\w-]/g,'');
+    return (s || 'file') + ext.replace(/[^.\w-]/g,'');
   });
   return parts.join('/');
 }
@@ -710,7 +594,7 @@ function sanitizePath(p){
       xhr.onload = ()=>{
         if(xhr.status>=200 && xhr.status<300){
           const etag = xhr.getResponseHeader("ETag");
-          resolve(etag ? etag.replaceAll('\\"','') : null);
+          resolve(etag ? etag.replaceAll('\"','') : null);
         } else {
           reject(new Error(`HTTP ${xhr.status} ${xhr.statusText||''} bij ${label||'upload'}: ${xhr.responseText||''}`));
         }
@@ -720,21 +604,32 @@ function sanitizePath(p){
       xhr.send(blob);
     });
   }
-  async function singleInit(token, file, relpath, totalTracker){
-    const init = await fetch("{{ url_for('put_init') }}", {
+  async function singleInit(token, filename, type){
+    const r = await fetch("{{ url_for('put_init') }}", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, filename: file.name, contentType: file.type || "application/octet-stream" })
-    }).then(r=>r.json());
-    if(!init.ok) throw new Error(init.error || "Init (PUT) mislukt");
+      body: JSON.stringify({ token, filename, contentType: type || "application/octet-stream" })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Init (PUT) mislukt");
+    return j;
+  }
+  async function singleComplete(token, key, name, path){
+    const r = await fetch("{{ url_for('put_complete') }}", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ token, key, name, path })
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || "Afronden (PUT) mislukt");
+    return j;
+  }
+  async function uploadSingle(token, file, relpath, totalTracker){
+    const init = await singleInit(token, file.name, file.type);
     await putWithProgress(init.url, file, (loaded)=>{
       const totalLoaded = totalTracker.currentBase + Math.min(loaded, file.size);
       const pctTotal = (totalLoaded / totalTracker.totalBytes) * 100;
       setProgress(pctTotal);
     }, 'PUT object');
-    await fetch("{{ url_for('put_complete') }}", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ token, key: init.key, name: file.name, path: relpath })
-    }).then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error || "Afronden (PUT) mislukt"); });
+    await singleComplete(token, init.key, file.name, relpath);
     totalTracker.currentBase += file.size;
   }
 
@@ -766,8 +661,8 @@ function sanitizePath(p){
     return j;
   }
   async function uploadMultipart(token, file, relpath, totalTracker){
-    const CHUNK = 24 * 1024 * 1024;  // 24 MiB
-    const CONCURRENCY = 6;           // 6 parallelle parts
+const CHUNK = 24 * 1024 * 1024;  // 24 MiB
+const CONCURRENCY = 6;           // 6 parallelle parts
     const init = await mpuInit(token, file.name, file.type);
     const key = init.key, uploadId = init.uploadId;
 
@@ -852,7 +747,7 @@ let expiryDays = edSel.value;
       for(const f of files){
         const rel = sanitizePath(relPath(f));
         if(f.size < 5 * 1024 * 1024){
-          await singleInit(token, f, rel, tracker);
+          await uploadSingle(token, f, rel, tracker);
         }else{
           await uploadMultipart(token, f, rel, tracker);
         }
@@ -867,7 +762,7 @@ let expiryDays = edSel.value;
         <div class="card" style="margin-top:1rem">
           <strong>Deelbare link</strong>
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">
-            <input id="shareLinkInput" class="input" style="flex:1" value="\${link}" readonly>
+            <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
             <button class="btn" type="button" id="copyBtn">Kopieer</button>
             <span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span>
           </div>
@@ -893,14 +788,14 @@ let expiryDays = edSel.value;
 </body></html>
 """
 
-
 PACKAGE_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Download – Olde Hanter</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
 h1{margin:.2rem 0 1rem;color:var(--brand)}
-.meta{margin:.4rem 0 1rem;color:#374151}
+.meta{margin:.4rem 0 1rem;color:var(--muted)}
+.meta strong{color: color-mix(in oklab, var(--text) 92%, transparent); font-weight:800}
 .btn{padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);color:#fff;text-decoration:none;font-weight:700}
 .btn.secondary{background:#0f4c98}
 .btn.mini{padding:.5rem .75rem;font-size:.9rem;border-radius:10px}
@@ -913,6 +808,11 @@ h1{margin:.2rem 0 1rem;color:var(--brand)}
   text-align: right;
   min-width: 72px; /* naar smaak aanpassen */
 }
+
+/* Zet CTA netjes los onder de kaart */
+.card{ position:relative; z-index:0; }
+.cta{ margin-top:1.25rem; }
+
 </style></head><body>
 {{ bg|safe }}
 
