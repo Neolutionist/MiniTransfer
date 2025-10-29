@@ -582,6 +582,21 @@ INDEX_HTML = """
     padding: 0 .75rem 0 .6rem; /* ruimte voor knop + tekst */
     overflow: hidden;
   }
+
+/* Voeg dit toe aan de bestaande CSS (onder .filepicker__control) */
+.filepicker {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.filepicker__control {
+  height: var(--field-h);
+  display: flex;
+  align-items: center;
+}
+  
+  
   /* onzichtbare native input bovenop – klikt overal */
   .filepicker__control > input[type=file]{
     position:absolute; inset:0; opacity:0; cursor:pointer;
