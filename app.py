@@ -486,6 +486,7 @@ INDEX_HTML = """
   <style>
     {{ base_css }}
 
+    /* Layout basics (zelfde look) */
     h1{color:var(--brand);margin:.25rem 0 1rem}
     .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
     .logout{color:var(--muted);font-size:.9rem}
@@ -496,10 +497,14 @@ INDEX_HTML = """
     .cols-2{grid-template-columns:1fr 1fr}
     @media(max-width:760px){.cols-2{grid-template-columns:1fr}}
 
+    /* Inputs mogen krimpen op mobiel (anders overflow) */
+    .input, input, select, textarea { min-width: 0; }
+
     .toggle{display:flex;gap:.8rem;align-items:center;margin:.3rem 0 .6rem}
     .toggle label{display:flex;gap:.4rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
     .toggle input{accent-color:var(--brand)}
 
+    /* Filepicker */
     .filepicker{margin-bottom:.6rem}
     .filepicker__control{
       position:relative;
@@ -511,8 +516,12 @@ INDEX_HTML = """
       overflow:hidden;
       padding:0 .75rem;
       gap:.75rem;
+      min-width:0; /* voorkomt overflow op smal scherm */
     }
-    .filepicker__control input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    /* het invoerelement beslaat de control */
+    .filepicker__control input[type=file]{
+      position:absolute; inset:0; opacity:0; cursor:pointer;
+    }
     .btn.ghost{
       background:var(--surface);
       color:var(--text);
@@ -521,35 +530,44 @@ INDEX_HTML = """
       padding:.55rem .9rem;
       font-size:.9rem;
       cursor:pointer;
+      z-index:1; /* boven de onzichtbare input-knop */
     }
-    .filepicker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .filepicker__name{
+      color:var(--muted);
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    }
 
-    /* uitlijning fix */
+    /* Uitlijning: duw de filepicker omlaag zodat deze gelijk valt met de rechter kolom */
     #form>div:first-child{display:flex;flex-direction:column}
     #fileRow{margin-top:auto}
     #fileRow>label{margin:.65rem 0 .35rem}
 
+    /* Progress en badge */
     .progress{height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.5rem}
     .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 
-    .filelist{margin-top:.8rem}
-    .filecard{
-      display:grid;
-      grid-template-columns:1fr auto;
-      gap:.4rem .8rem;
-      padding:.75rem 1rem;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);
+    .badge{
+      display:inline-flex;align-items:center;justify-content:center;
+      padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700;
+      line-height:1; white-space:nowrap;
     }
-    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .filecard .meta{color:var(--muted);font-size:.9rem}
-    .filecard .badge{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
     .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#16a34a}
     .badge.err{background:color-mix(in oklab,#dc2626 16%,white 84%);color:#dc2626}
     .badge.warn{background:color-mix(in oklab,#eab308 16%,white 84%);color:#eab308}
 
+    .filelist{margin-top:.8rem}
+    .filecard{
+      display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
+      padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
+      background:color-mix(in oklab,var(--surface) 86%,white 14%)
+    }
+    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .filecard .meta{color:var(--muted);font-size:.9rem}
+
     .row{display:flex;align-items:center;gap:.6rem}
+
+    /* Card houdt alles binnen bij mobiel (geen uitschieters) */
+    .card{overflow:hidden}
   </style>
 </head>
 <body>
@@ -565,14 +583,14 @@ INDEX_HTML = """
         <div>
           <label>Uploadtype</label>
           <div class="toggle">
-            <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-            <label><input type="radio" name="upmode" value="folder"> Map</label>
+            <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+            <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
           </div>
 
           <div id="fileRow" class="filepicker">
             <label for="fileInput">Kies bestand(en)</label>
             <div class="filepicker__control">
-              <button type="button" class="btn ghost">Kies bestanden</button>
+              <button id="btnPickFiles" type="button" class="btn ghost">Kies bestanden</button>
               <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
               <input id="fileInput" type="file" multiple>
             </div>
@@ -581,7 +599,7 @@ INDEX_HTML = """
           <div id="folderRow" class="filepicker" style="display:none">
             <label for="folderInput">Kies een map</label>
             <div class="filepicker__control">
-              <button type="button" class="btn ghost">Kies map</button>
+              <button id="btnPickFolder" type="button" class="btn ghost">Kies map</button>
               <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
               <input id="folderInput" type="file" multiple webkitdirectory directory>
             </div>
@@ -638,8 +656,18 @@ INDEX_HTML = """
 const FILE_PAR = 3;
 
 const form=document.getElementById('form');
+const modeFiles=document.getElementById('modeFiles');
+const modeFolder=document.getElementById('modeFolder');
+
+const fileRow=document.getElementById('fileRow');
+const folderRow=document.getElementById('folderRow');
 const fileInput=document.getElementById('fileInput');
 const folderInput=document.getElementById('folderInput');
+const btnPickFiles=document.getElementById('btnPickFiles');
+const btnPickFolder=document.getElementById('btnPickFolder');
+const fileName=document.getElementById('fileName');
+const folderName=document.getElementById('folderName');
+
 const fileList=document.getElementById('fileList');
 const totalBar=document.getElementById('totalBar').querySelector('i');
 const totalPct=document.getElementById('totalPct');
@@ -647,88 +675,187 @@ const totalStatus=document.getElementById('totalStatus');
 const btnStart=document.getElementById('btnStart');
 const resBox=document.getElementById('result');
 
-function fmtBytes(n){const u=["B","KB","MB","GB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(i?1:0)+' '+u[i];}
-function setTotal(pct,label){totalBar.style.width=pct+'%';totalPct.textContent=Math.round(pct)+'%';if(label)totalStatus.textContent=label;}
+/* Helpers */
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+' '+u[i];}
+function setTotal(pct,label){const p=Math.min(100,Math.max(0,pct||0));totalBar.style.width=p+'%';totalPct.textContent=Math.round(p)+'%';if(label)totalStatus.textContent=label;}
+
+/* Mode wisselen: volledig uitsluiten van de andere input (geen ‘dubbel selecteren’) */
+function applyMode(){
+  const folder = modeFolder.checked;
+  fileRow.style.display = folder ? 'none' : '';
+  folderRow.style.display = folder ? '' : 'none';
+
+  // zorg dat de verborgen control NIET klikbaar is
+  fileInput.disabled   = folder;
+  folderInput.disabled = !folder;
+  fileInput.style.pointerEvents   = folder ? 'none' : 'auto';
+  folderInput.style.pointerEvents = folder ? 'auto' : 'none';
+}
+modeFiles.addEventListener('change',applyMode);
+modeFolder.addEventListener('change',applyMode);
+applyMode();
+
+/* Buttons forceren de juiste picker (voorkomt dat de verkeerde input triggert) */
+btnPickFiles.addEventListener('click',()=>{ if(!modeFiles.checked){ modeFiles.checked=true; applyMode(); } fileInput.click(); });
+btnPickFolder.addEventListener('click',()=>{ if(!modeFolder.checked){ modeFolder.checked=true; applyMode(); } folderInput.click(); });
+
+/* Namen tonen */
+fileInput.addEventListener('change',()=>{
+  if(fileInput.files.length===0){ fileName.textContent='Nog geen bestanden gekozen'; return; }
+  fileName.textContent = Array.from(fileInput.files).slice(0,3).map(f=>f.name).join(', ') + (fileInput.files.length>3?` … (+${fileInput.files.length-3})`:``);
+});
+folderInput.addEventListener('change',()=>{
+  if(folderInput.files.length===0){ folderName.textContent='Nog geen map gekozen'; return; }
+  // toon top-level mapnaam
+  const p = (folderInput.files[0].webkitRelativePath||'').split('/')[0] || 'Gekozen map';
+  folderName.textContent = `${p} (${folderInput.files.length} bestanden)`;
+});
+
+/* UI helpers */
 function addFileRow(f,path){
   fileList.style.display='';
   const d=document.createElement('div');
   d.className='filecard';
-  d.innerHTML=`<div class="name">${path}</div><div class="badge warn" data-badge>Wacht…</div><div class="meta">${fmtBytes(f.size)}</div><div></div><div class="progress"><i></i></div>`;
+  d.innerHTML=`
+    <div class="name" title="${path}">${path}</div>
+    <div class="badge warn" data-badge>Wacht…</div>
+    <div class="meta">${fmtBytes(f.size)} • ${f.type || 'octet-stream'}</div><div></div>
+    <div class="progress"><i style="width:0%"></i></div>
+  `;
   fileList.appendChild(d);
   return{el:d,fill:d.querySelector('.progress i'),badge:d.querySelector('[data-badge]')};
 }
+
+/* Server calls */
 async function packageInit(expiryDays,password,title){
   const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password,title})});
-  const j=await r.json();if(!j.ok)throw new Error(j.error);return j.token;
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'package_init');
+  return j.token;
 }
 async function putInit(token,filename,type){
-  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type})});
-  const j=await r.json();if(!j.ok)throw new Error(j.error);return j;
+  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'put_init');
+  return j;
 }
 async function putComplete(token,key,name,path){
   const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
-  const j=await r.json();if(!j.ok)throw new Error(j.error);return j;
+  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'put_complete');
+  return j;
 }
+
+/* PUT met voortgang */
 function putWithProgress(url,blob,onProgress){
-  return new Promise((res,rej)=>{
-    const x=new XMLHttpRequest();
-    x.open("PUT",url,true);
-    x.upload.onprogress=(e)=>onProgress(e.loaded,e.total);
-    x.onload=()=>x.status>=200&&x.status<300?res():rej();
-    x.onerror=()=>rej();
-    x.send(blob);
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open("PUT",url,true);
+    xhr.setRequestHeader("Content-Type",blob.type||"application/octet-stream");
+    xhr.upload.onprogress=(e)=>{const l=e.loaded||0; const t=e.total||blob.size||1; onProgress(l,t);};
+    xhr.onload=()=> (xhr.status>=200&&xhr.status<300)?resolve():reject(new Error('HTTP '+xhr.status));
+    xhr.onerror=()=>reject(new Error('Netwerkfout'));
+    xhr.send(blob);
   });
 }
+
+/* Upload één bestand */
 async function uploadOne(token,f,rel,ui){
   const init=await putInit(token,f.name,f.type);
   ui.badge.textContent="Uploaden…";
-  await putWithProgress(init.url,f,(l,t)=>ui.fill.style.width=Math.round(l/t*100)+'%');
+  await putWithProgress(init.url,f,(l,t)=>{ ui.fill.style.width=Math.round(l/t*100)+'%'; });
   await putComplete(token,init.key,f.name,rel);
   ui.fill.style.width='100%';
-  ui.badge.textContent="Klaar";ui.badge.className='badge ok';
+  ui.badge.textContent="Klaar"; ui.badge.className='badge ok';
 }
 
+/* Sanitizer voor paden (houd bestandsextensie) */
+function sanitizePath(p){
+  const parts=(p||"").split('/').map(n=>{
+    const d=n.lastIndexOf('.'); const b=d>=0?n.slice(0,d):n; const e=d>=0?n.slice(d):'';
+    let s=b.normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^\\w.\\-]+/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
+    if(s.length>160) s=s.slice(0,160);
+    return (s||'file')+e.replace(/[^.\\w-]/g,'');
+  });
+  return parts.join('/');
+}
+
+/* Hoofdproces (parallel) */
 async function runUpload(){
-  const upmode=form.querySelector("input[name=upmode]:checked").value;
-  const files=[...(upmode==="folder"?folderInput.files:fileInput.files)];
-  if(!files.length){alert("Kies eerst bestanden of een map.");return;}
-  fileList.innerHTML='';fileList.style.display='none';
-  setTotal(0,"Voorbereiden…");
+  const isFolder = modeFolder.checked;
+  const files = Array.from(isFolder ? folderInput.files : fileInput.files);
+  if(!files.length){ alert("Kies eerst bestanden of een map."); return; }
+
+  // Reset UI
+  fileList.innerHTML=''; fileList.style.display='none';
+  resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
+
   const expiry=document.getElementById('expDays').value;
   const pw=document.getElementById('pw').value||'';
   const title=document.getElementById('title').value||'';
   const token=await packageInit(expiry,pw,title);
-  const state={done:0,total:files.length};
-  const queue=[...files.entries()];
+
+  const queue = files.map(f=>{
+    const rel = isFolder ? (f.webkitRelativePath || f.name) : f.name;
+    const safeRel = sanitizePath(rel);
+    const ui = addFileRow(f, safeRel);
+    return { f, rel: safeRel, ui };
+  });
+
+  let done=0, errors=0;
   async function worker(){
     while(queue.length){
-      const [i,f]=queue.shift();
-      const rel=f.webkitRelativePath||f.name;
-      const ui=addFileRow(f,rel);
-      await uploadOne(token,f,rel,ui);
-      state.done++;
-      setTotal(state.done/state.total*100,"Uploaden…");
+      const item = queue.shift();
+      try{
+        await uploadOne(token, item.f, item.rel, item.ui);
+        done++;
+        setTotal(done/files.length*100,'Uploaden…');
+      }catch(err){
+        errors++;
+        item.ui.badge.textContent='Fout';
+        item.ui.badge.className='badge err';
+        console.error(err);
+      }
     }
   }
   await Promise.all(Array.from({length:Math.min(FILE_PAR,files.length)},worker));
-  setTotal(100,"Klaar");
-  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__",token);
-  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link:</strong><div class="row" style="margin-top:.4rem"><input class="input" style="flex:1" value="${link}" readonly></div></div>`;
+
+  // Toon link als er minstens 1 bestand succesvol was
+  const anySuccess = done > 0;
+  if(anySuccess){
+    setTotal(100,'Klaar');
+    const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+    resBox.innerHTML = `
+      <div class="card" style="margin-top:1rem">
+        <strong>Deelbare link</strong>
+        <div class="row" style="gap:.5rem;margin-top:.35rem">
+          <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
+          <button class="btn" type="button" id="copyBtn">Kopieer</button>
+        </div>
+      </div>`;
+    const copyBtn=document.getElementById('copyBtn');
+    const input=document.getElementById('shareLinkInput');
+    copyBtn.addEventListener('click',async()=>{
+      try{ await (navigator.clipboard?.writeText(input.value)); }
+      catch(_){ input.select(); document.execCommand?.('copy'); }
+      copyBtn.textContent='Gekopieerd!';
+      setTimeout(()=>copyBtn.textContent='Kopieer',1200);
+    });
+  }else{
+    setTotal(0,'Mislukt'); // niets geüpload
+    resBox.innerHTML = '<div class="small" style="color:#b91c1c">Upload mislukt. Probeer opnieuw.</div>';
+  }
 }
 
-form.querySelectorAll('input[name=upmode]').forEach(r=>{
-  r.addEventListener('change',()=>{
-    const isFolder=r.value==="folder";
-    document.getElementById('folderRow').style.display=isFolder?'':'none';
-    document.getElementById('fileRow').style.display=isFolder?'none':'';
-  });
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  btnStart.disabled = true;
+  try{ await runUpload(); }
+  finally{ btnStart.disabled = false; }
 });
-
-form.addEventListener('submit',async(e)=>{e.preventDefault();btnStart.disabled=true;try{await runUpload();}finally{btnStart.disabled=false;}});
 </script>
 </body>
 </html>
 """
+
+
 
 PACKAGE_HTML = """
 <!doctype html>
