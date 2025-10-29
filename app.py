@@ -488,39 +488,71 @@ INDEX_HTML = """
     html{-webkit-text-size-adjust:100%} body{overflow-x:hidden}
     .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
     .card{overflow:hidden}
+
     h1{color:var(--brand);margin:.25rem 0 1rem}
     .topbar{display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap}
     .logout{color:var(--muted);font-size:.9rem}.logout a{color:var(--brand);font-weight:600;text-decoration:none}
-    .grid{display:grid;gap:1rem;min-width:0}.grid>*{min-width:0}
+
+    .grid{display:grid;gap:.8rem;min-width:0} /* compacter */
+    .grid>*{min-width:0}
     .cols-2{grid-template-columns:1fr 1fr}
     @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
-    label{display:block;margin:.65rem 0 .35rem;font-weight:600}
-    .input,select{width:100%;max-width:100%;padding:.85rem 1rem;border-radius:12px;border:1px solid var(--line);background:color-mix(in oklab,var(--surface-2) 90%,white 10%);box-sizing:border-box}
-    .toggle{display:flex;gap:1rem;align-items:center;margin:.3rem 0 .6rem}
-    .toggle label{display:flex;gap:.4rem;align-items:center;font-weight:600;cursor:pointer}
-    /* filepicker */
-    .filepicker{display:flex;flex-direction:column;min-width:0}
-    .filepicker__control{position:relative;display:flex;align-items:center;gap:.75rem;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 90%,white 10%);height:44px;padding:0 .75rem;min-width:0}
+
+    label{display:block;margin:.45rem 0 .3rem;font-weight:600} /* compacter */
+    .input,select{
+      width:100%;max-width:100%;
+      padding:.75rem .9rem;border-radius:12px;border:1px solid var(--line);
+      background:color-mix(in oklab,var(--surface-2) 90%,white 10%);box-sizing:border-box
+    }
+
+    .toggle{display:flex;gap:1rem;align-items:center;margin:0 0 .3rem} /* minder ruimte */
+    .toggle label{display:flex;gap:.45rem;align-items:center;font-weight:600;cursor:pointer}
+
+    /* filepicker – dichter onder uploadtype */
+    .filepicker{display:flex;flex-direction:column;min-width:0;margin-top:.2rem}
+    .filepicker__control{
+      position:relative;display:flex;align-items:center;gap:.6rem;
+      border:1px solid var(--line);border-radius:12px;
+      background:color-mix(in oklab,var(--surface-2) 90%,white 10%);
+      height:42px;padding:0 .65rem;min-width:0
+    }
     .filepicker__control input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:.55rem .9rem;font-size:.9rem;white-space:nowrap}
+    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:.5rem .8rem;font-size:.9rem;white-space:nowrap}
     .filepicker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-    /* uitlijning: fileblok gelijk met “Verloopt/Wachtwoord” */
-    #form>div:first-child{display:flex;flex-direction:column;min-width:0} #fileRow{margin-top:auto}
-    /* file lijst */
-    .filelist{margin-top:.8rem}
-    .filecard{display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface) 86%,white 14%);min-width:0}
-    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .filecard .meta{color:var(--muted);font-size:.9rem}
-    .badge{display:inline-block;padding:.2rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700;white-space:nowrap}
+
+    /* file-lijst + uitlijning badge */
+    .filelist{margin-top:.6rem}
+    .filecard{
+      display:grid;grid-template-columns:1fr auto;align-items:center;
+      gap:.25rem .8rem;padding:.6rem .8rem;border:1px solid var(--line);border-radius:12px;
+      background:color-mix(in oklab,var(--surface) 86%,white 14%);min-width:0
+    }
+    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
+    .filecard .meta{color:var(--muted);font-size:.88rem}
+    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.18rem .5rem;border-radius:999px;font-size:.78rem;font-weight:700;line-height:1;vertical-align:middle}
     .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#16a34a}
     .badge.err{background:color-mix(in oklab,#dc2626 16%,white 84%);color:#dc2626}
     .badge.warn{background:color-mix(in oklab,#eab308 16%,white 84%);color:#eab308}
-    /* progress */
-    .progress{height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.5rem}
+
+    /* progress – gelijk uiterlijk bij totaal */
+    .progress{height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.35rem}
     .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
-    .row{display:flex;align-items:center;gap:.6rem}.row.wrap{flex-wrap:wrap}.row .input{flex:1;min-width:0}
-    .btn{padding:.85rem 1.05rem;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.small{padding:.55rem .8rem;font-size:.9rem}
+
+    .row{display:flex;align-items:center;gap:.6rem}
+    .row.wrap{flex-wrap:wrap}
+    .row .input{flex:1;min-width:0}
+
+    .btn{padding:.8rem 1rem;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
+    .btn.small{padding:.45rem .7rem;font-size:.88rem}
+
+    /* Totaal-header: badge oranje en horizontaal gelijk met “Klaar” in file-rijen */
+    .total-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.1rem}
+    #totalPct.badge{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309} /* oranje */
+    
+    /* Compacte “Deelbare link” */
+    .share-card{padding:.8rem .9rem;border-radius:14px;background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.1)}
+    .share-row{display:flex;align-items:center;gap:.5rem}
+    .share-row .input{padding:.55rem .7rem;height:auto}
   </style>
 </head>
 <body>
@@ -579,7 +611,7 @@ INDEX_HTML = """
               <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
             </div>
           </div>
-          <div class="row" style="margin-top:.5rem">
+          <div class="row" style="margin-top:.25rem">
             <button id="btnStart" class="btn" type="submit">Uploaden</button>
           </div>
         </div>
@@ -587,23 +619,23 @@ INDEX_HTML = """
 
       <div class="filelist" id="fileList"></div>
 
-      <div class="totalbox" style="margin-top:1rem">
-        <div class="row" style="justify-content:space-between">
+      <div class="totalbox" style="margin-top:.6rem">
+        <div class="total-header">
           <strong style="color:var(--text)">Totaalvoortgang</strong>
-          <span id="totalPct" class="badge warn">0%</span>
+          <span id="totalPct" class="badge">0%</span>
         </div>
         <div class="progress"><i id="totalFill"></i></div>
         <div class="small" id="totalStatus" style="margin-top:.25rem">Nog niet gestart</div>
       </div>
 
-      <div id="result" style="margin-top:1rem"></div>
+      <div id="result" style="margin-top:.8rem"></div>
     </div>
 
     <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 
 <script>
-/* ===== iOS detect & basis ===== */
+/* ===== iOS detect ===== */
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const FILE_PAR=3;
 
@@ -616,9 +648,44 @@ const fileName=document.getElementById('fileName'), folderName=document.getEleme
 const fileList=document.getElementById('fileList');
 const totalFill=document.getElementById('totalFill'), totalPct=document.getElementById('totalPct'), totalStatus=document.getElementById('totalStatus');
 const resBox=document.getElementById('result');
+
+/* iOS: map verbergen */
 if(isIOS){ folderLabel.style.display='none'; }
 
-/* Helpers */
+/* ======= UI gedrag ======= */
+/* map/file radiokeuze – open direct juiste verkenner */
+document.querySelectorAll('input[name=upmode]').forEach(r=>{
+  r.addEventListener('change',()=>{
+    const mode=document.querySelector('input[name=upmode]:checked').value;
+    const useFolder = mode==='folder' && !isIOS;
+    fileRow.style.display = useFolder ? 'none' : '';
+    folderRow.style.display = useFolder ? '' : 'none';
+    // Open de juiste picker meteen
+    setTimeout(()=>{
+      try{
+        (useFolder ? folderInput : fileInput).click();
+      }catch(_){}
+    }, 0);
+  }, {passive:true});
+});
+
+/* knoppen openen nu ECHT de juiste input */
+btnFiles.onclick=(e)=>{ e.preventDefault(); fileInput.click(); };
+btnFolder && (btnFolder.onclick=(e)=>{ e.preventDefault(); folderInput.click(); });
+
+/* file/folder labels */
+fileInput.onchange=()=>{
+  fileName.textContent=fileInput.files.length
+    ? (Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``))
+    : 'Nog geen bestanden gekozen';
+};
+folderInput.onchange=()=>{
+  if(!folderInput.files.length){ folderName.textContent='Nog geen map gekozen'; return; }
+  const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';
+  folderName.textContent=`${root} (${folderInput.files.length} bestanden)`;
+};
+
+/* ===== Helpers ===== */
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
 function addFileRow(f,rel){
@@ -630,7 +697,7 @@ function addFileRow(f,rel){
   fileList.appendChild(el); return {fill:el.querySelector('.progress i'),badge:el.querySelector('[data-badge]')};
 }
 
-/* API */
+/* ===== Server API ===== */
 async function packageInit(expiry,password,title){
   const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
@@ -644,7 +711,7 @@ async function putComplete(token,key,name,path){
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
 }
 
-/* PUT met echte onprogress */
+/* PUT met progress */
 function putWithProgress(url,blob,onProgress){
   return new Promise((resolve,reject)=>{
     const x=new XMLHttpRequest();
@@ -667,24 +734,19 @@ async function uploadOne(token,f,rel,ui,onDelta){
   ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok';
 }
 
-/* UI events */
-btnFiles.onclick=()=>fileInput.click(); btnFolder && (btnFolder.onclick=()=>folderInput.click());
-fileInput.onchange=()=>{fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
-folderInput.onchange=()=>{if(!folderInput.files.length){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${folderInput.files.length} bestanden)`};
-
-/* Submit */
+/* ===== Upload start ===== */
 document.getElementById('form').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  // bepaal modus
   const mode=document.querySelector('input[name=upmode]:checked').value;
   const useFolder = mode==='folder' && !isIOS;
   const files = Array.from(useFolder ? folderInput.files : fileInput.files);
-  if(!files.length){ alert("Kies eerst bestanden"+(useFolder?" of een map":"")+"."); return; }
+  if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
 
-  // reset UI
   fileList.innerHTML=''; fileList.style.display=''; resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
 
-  const expiry=document.getElementById('expDays').value, pw=document.getElementById('pw').value||'', title=document.getElementById('title').value||'';
+  const expiry=document.getElementById('expDays').value,
+        pw=document.getElementById('pw').value||'',
+        title=document.getElementById('title').value||'';
   const token=await packageInit(expiry,pw,title);
 
   const totalBytes=files.reduce((s,f)=>s+f.size,0)||1; let uploaded=0;
@@ -700,19 +762,26 @@ document.getElementById('form').addEventListener('submit', async (e)=>{
   await Promise.all(Array.from({length:Math.min(FILE_PAR,files.length)}, worker));
   setTotal(100,'Klaar');
 
-  // Deelbare link + kopieerknop
+  /* Compacte deelbare link + Kopieer */
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link</strong>
-    <div class="row wrap" style="margin-top:.5rem">
+  resBox.innerHTML=`<div class="share-card" style="margin-top:.8rem">
+    <div style="font-weight:700;margin-bottom:.4rem">Deelbare link</div>
+    <div class="share-row">
       <input id="shareLinkInput" class="input" value="${link}" readonly>
       <button id="copyBtn" type="button" class="btn small">Kopieer</button>
-    </div></div>`;
-  document.getElementById('copyBtn').onclick=async()=>{const input=document.getElementById('shareLinkInput');try{await navigator.clipboard.writeText(input.value);}catch(_){input.select();document.execCommand('copy');}const b=document.getElementById('copyBtn');b.textContent='Gekopieerd!';setTimeout(()=>b.textContent='Kopieer',1200);};
+    </div>
+  </div>`;
+  document.getElementById('copyBtn').onclick=async()=>{
+    const input=document.getElementById('shareLinkInput');
+    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
+    const b=document.getElementById('copyBtn'); b.textContent='Gekopieerd!'; setTimeout(()=>b.textContent='Kopieer',1100);
+  };
 });
 </script>
 </body>
 </html>
 """
+
 
 
 PACKAGE_HTML = """
