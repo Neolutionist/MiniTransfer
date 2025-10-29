@@ -524,7 +524,7 @@ INDEX_HTML = """
     }
     .filepicker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-    /* uitlijning */
+    /* uitlijning fix */
     #form>div:first-child{display:flex;flex-direction:column}
     #fileRow{margin-top:auto}
     #fileRow>label{margin:.65rem 0 .35rem}
@@ -635,22 +635,20 @@ INDEX_HTML = """
   </div>
 
 <script>
-const FILE_PAR = 3; // aantal gelijktijdige bestanden
+const FILE_PAR = 3;
 
-const form = document.getElementById('form');
-const fileInput = document.getElementById('fileInput');
-const folderInput = document.getElementById('folderInput');
-const fileList = document.getElementById('fileList');
-const totalBar = document.getElementById('totalBar').querySelector('i');
-const totalPct = document.getElementById('totalPct');
-const totalStatus = document.getElementById('totalStatus');
-const btnStart = document.getElementById('btnStart');
-const resBox = document.getElementById('result');
+const form=document.getElementById('form');
+const fileInput=document.getElementById('fileInput');
+const folderInput=document.getElementById('folderInput');
+const fileList=document.getElementById('fileList');
+const totalBar=document.getElementById('totalBar').querySelector('i');
+const totalPct=document.getElementById('totalPct');
+const totalStatus=document.getElementById('totalStatus');
+const btnStart=document.getElementById('btnStart');
+const resBox=document.getElementById('result');
 
 function fmtBytes(n){const u=["B","KB","MB","GB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(i?1:0)+' '+u[i];}
-
 function setTotal(pct,label){totalBar.style.width=pct+'%';totalPct.textContent=Math.round(pct)+'%';if(label)totalStatus.textContent=label;}
-
 function addFileRow(f,path){
   fileList.style.display='';
   const d=document.createElement('div');
@@ -659,7 +657,6 @@ function addFileRow(f,path){
   fileList.appendChild(d);
   return{el:d,fill:d.querySelector('.progress i'),badge:d.querySelector('[data-badge]')};
 }
-
 async function packageInit(expiryDays,password,title){
   const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password,title})});
   const j=await r.json();if(!j.ok)throw new Error(j.error);return j.token;
@@ -672,7 +669,6 @@ async function putComplete(token,key,name,path){
   const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
   const j=await r.json();if(!j.ok)throw new Error(j.error);return j;
 }
-
 function putWithProgress(url,blob,onProgress){
   return new Promise((res,rej)=>{
     const x=new XMLHttpRequest();
@@ -683,7 +679,6 @@ function putWithProgress(url,blob,onProgress){
     x.send(blob);
   });
 }
-
 async function uploadOne(token,f,rel,ui){
   const init=await putInit(token,f.name,f.type);
   ui.badge.textContent="Uploaden…";
@@ -694,8 +689,9 @@ async function uploadOne(token,f,rel,ui){
 }
 
 async function runUpload(){
-  const files=[...fileInput.files];
-  if(!files.length){alert("Kies eerst bestanden.");return;}
+  const upmode=form.querySelector("input[name=upmode]:checked").value;
+  const files=[...(upmode==="folder"?folderInput.files:fileInput.files)];
+  if(!files.length){alert("Kies eerst bestanden of een map.");return;}
   fileList.innerHTML='';fileList.style.display='none';
   setTotal(0,"Voorbereiden…");
   const expiry=document.getElementById('expDays').value;
@@ -707,8 +703,9 @@ async function runUpload(){
   async function worker(){
     while(queue.length){
       const [i,f]=queue.shift();
-      const ui=addFileRow(f,f.name);
-      await uploadOne(token,f,f.name,ui);
+      const rel=f.webkitRelativePath||f.name;
+      const ui=addFileRow(f,rel);
+      await uploadOne(token,f,rel,ui);
       state.done++;
       setTotal(state.done/state.total*100,"Uploaden…");
     }
@@ -718,6 +715,14 @@ async function runUpload(){
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__",token);
   resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link:</strong><div class="row" style="margin-top:.4rem"><input class="input" style="flex:1" value="${link}" readonly></div></div>`;
 }
+
+form.querySelectorAll('input[name=upmode]').forEach(r=>{
+  r.addEventListener('change',()=>{
+    const isFolder=r.value==="folder";
+    document.getElementById('folderRow').style.display=isFolder?'':'none';
+    document.getElementById('fileRow').style.display=isFolder?'none':'';
+  });
+});
 
 form.addEventListener('submit',async(e)=>{e.preventDefault();btnStart.disabled=true;try{await runUpload();}finally{btnStart.disabled=false;}});
 </script>
