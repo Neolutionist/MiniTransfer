@@ -479,99 +479,221 @@ INDEX_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Bestanden delen – Olde Hanter</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
 
-    /* Layout basics (zelfde look) */
-    h1{color:var(--brand);margin:.25rem 0 1rem}
-    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-    .logout{color:var(--muted);font-size:.9rem}
-    .logout a{color:var(--brand);font-weight:600;text-decoration:none}
-    .logout a:hover{text-decoration:underline}
-
-    .grid{display:grid;gap:1rem}
-    .cols-2{grid-template-columns:1fr 1fr}
-    @media(max-width:760px){.cols-2{grid-template-columns:1fr}}
-
-    /* Inputs mogen krimpen op mobiel (anders overflow) */
-    .input, input, select, textarea { min-width: 0; }
-
-    .toggle{display:flex;gap:.8rem;align-items:center;margin:.3rem 0 .6rem}
-    .toggle label{display:flex;gap:.4rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
-    .toggle input{accent-color:var(--brand)}
-
-    /* Filepicker */
-    .filepicker{margin-bottom:.6rem}
-    .filepicker__control{
-      position:relative;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab, var(--surface-2) 90%, white 10%);
-      display:flex;align-items:center;
-      height:var(--field-h);
-      overflow:hidden;
-      padding:0 .75rem;
-      gap:.75rem;
-      min-width:0; /* voorkomt overflow op smal scherm */
-    }
-    /* het invoerelement beslaat de control */
-    .filepicker__control input[type=file]{
-      position:absolute; inset:0; opacity:0; cursor:pointer;
-    }
-    .btn.ghost{
-      background:var(--surface);
-      color:var(--text);
-      border:1px solid var(--line);
-      border-radius:10px;
-      padding:.55rem .9rem;
-      font-size:.9rem;
-      cursor:pointer;
-      z-index:1; /* boven de onzichtbare input-knop */
-    }
-    .filepicker__name{
-      color:var(--muted);
-      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    :root {
+      --brand: #0f4c98;
+      --accent: #1e90ff;
+      --radius: 12px;
+      --shadow: 0 3px 8px rgba(0,0,0,.07);
     }
 
-    /* Uitlijning: duw de filepicker omlaag zodat deze gelijk valt met de rechter kolom */
-    #form>div:first-child{display:flex;flex-direction:column}
-    #fileRow{margin-top:auto}
-    #fileRow>label{margin:.65rem 0 .35rem}
-
-    /* Progress en badge */
-    .progress{height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.5rem}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
-
-    .badge{
-      display:inline-flex;align-items:center;justify-content:center;
-      padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700;
-      line-height:1; white-space:nowrap;
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
     }
-    .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#16a34a}
-    .badge.err{background:color-mix(in oklab,#dc2626 16%,white 84%);color:#dc2626}
-    .badge.warn{background:color-mix(in oklab,#eab308 16%,white 84%);color:#eab308}
 
-    .filelist{margin-top:.8rem}
-    .filecard{
-      display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
-      padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%)
+    .wrap {
+      max-width: 900px;
+      margin: 1.5rem auto;
+      padding: 1rem;
     }
-    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .filecard .meta{color:var(--muted);font-size:.9rem}
 
-    .row{display:flex;align-items:center;gap:.6rem}
+    .card {
+      background: white;
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
 
-    /* Card houdt alles binnen bij mobiel (geen uitschieters) */
-    .card{overflow:hidden}
+    h1 {
+      color: var(--brand);
+      margin: 0 0 1.25rem;
+      font-size: 1.5rem;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .logout {
+      font-size: .9rem;
+      color: #64748b;
+    }
+
+    .logout a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .cols-2 {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    @media (max-width: 700px) {
+      .cols-2 { grid-template-columns: 1fr; }
+      .card { padding: 1rem; }
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: .3rem;
+    }
+
+    .input, select {
+      width: 100%;
+      padding: .55rem .7rem;
+      border-radius: var(--radius);
+      border: 1px solid #d1d5db;
+      font-size: .95rem;
+      background: #f9fafb;
+      box-sizing: border-box;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: .6rem 1.2rem;
+      border-radius: var(--radius);
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: var(--brand);
+      color: white;
+      transition: background .2s ease;
+    }
+    .btn:hover { background: var(--accent); }
+
+    .btn.ghost {
+      background: white;
+      border: 1px solid #d1d5db;
+      color: #334155;
+    }
+
+    .toggle {
+      display: flex;
+      gap: 1rem;
+      margin: .5rem 0 1rem;
+    }
+
+    .filepicker__control {
+      display: flex;
+      align-items: center;
+      border: 1px solid #d1d5db;
+      border-radius: var(--radius);
+      background: #f9fafb;
+      padding: 0 .75rem;
+      height: 42px;
+      position: relative;
+      overflow: hidden;
+      gap: .75rem;
+    }
+
+    .filepicker__control input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .filepicker__name {
+      font-size: .9rem;
+      color: #64748b;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress {
+      height: 14px;
+      background: #e2e8f0;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: .5rem;
+    }
+
+    .progress > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand), var(--accent));
+      transition: width .12s ease;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: .2rem .6rem;
+      font-size: .78rem;
+      border-radius: 999px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .badge.ok { background: #dcfce7; color: #15803d; }
+    .badge.warn { background: #fef9c3; color: #ca8a04; }
+    .badge.err { background: #fee2e2; color: #b91c1c; }
+
+    .filelist {
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .filecard {
+      border: 1px solid #e2e8f0;
+      border-radius: var(--radius);
+      padding: .7rem 1rem;
+      background: #f9fafb;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: .4rem .8rem;
+    }
+
+    .filecard .name {
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .filecard .meta {
+      color: #64748b;
+      font-size: .85rem;
+    }
+
+    .footer {
+      margin-top: 2rem;
+      text-align: center;
+      color: #94a3b8;
+      font-size: .85rem;
+    }
+
+    /* responsive spacing fix */
+    input, select, .btn, .filepicker__control { min-width: 0; }
   </style>
 </head>
 <body>
-  {{ bg|safe }}
   <div class="wrap">
     <div class="topbar">
       <h1>Bestanden delen met Olde Hanter</h1>
@@ -579,38 +701,33 @@ INDEX_HTML = """
     </div>
 
     <div class="card">
-      <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
+      <form id="form" class="grid cols-2" autocomplete="off">
         <div>
           <label>Uploadtype</label>
           <div class="toggle">
-            <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-            <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+            <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+            <label id="folderLabel" style="display:none"><input type="radio" name="upmode" value="folder"> Map</label>
           </div>
 
-          <div id="fileRow" class="filepicker">
-            <label for="fileInput">Kies bestand(en)</label>
-            <div class="filepicker__control">
-              <button id="btnPickFiles" type="button" class="btn ghost">Kies bestanden</button>
-              <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
-              <input id="fileInput" type="file" multiple>
-            </div>
+          <div id="fileRow" class="filepicker__control">
+            <button type="button" class="btn ghost" id="btnFiles">Kies bestanden</button>
+            <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
+            <input id="fileInput" type="file" multiple>
           </div>
 
-          <div id="folderRow" class="filepicker" style="display:none">
-            <label for="folderInput">Kies een map</label>
-            <div class="filepicker__control">
-              <button id="btnPickFolder" type="button" class="btn ghost">Kies map</button>
-              <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
-              <input id="folderInput" type="file" multiple webkitdirectory directory>
-            </div>
+          <div id="folderRow" class="filepicker__control" style="display:none">
+            <button type="button" class="btn ghost" id="btnFolder">Kies map</button>
+            <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
+            <input id="folderInput" type="file" multiple webkitdirectory directory>
           </div>
-          <div class="small" style="color:var(--muted)">Tip: gebruik de map-stand voor mappen met submappen.</div>
+
+          <div class="small" style="color:#64748b;margin-top:.3rem">Tip: mapselectie werkt alleen op desktop.</div>
         </div>
 
         <div class="grid">
           <div>
             <label for="title">Onderwerp (optioneel)</label>
-            <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+            <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X">
           </div>
           <div class="grid cols-2">
             <div>
@@ -626,24 +743,22 @@ INDEX_HTML = """
             </div>
             <div>
               <label for="pw">Wachtwoord (optioneel)</label>
-              <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+              <input id="pw" class="input" type="password" placeholder="Optioneel">
             </div>
           </div>
-          <div class="row" style="margin-top:.5rem">
-            <button id="btnStart" class="btn" type="submit">Uploaden</button>
-          </div>
+          <button id="btnStart" class="btn" type="submit">Uploaden</button>
         </div>
       </form>
 
-      <div class="filelist" id="fileList" style="display:none"></div>
+      <div class="filelist" id="fileList"></div>
 
-      <div class="totalbox" style="margin-top:1rem">
-        <div class="row" style="justify-content:space-between">
-          <strong style="color:var(--text)">Totaalvoortgang</strong>
+      <div style="margin-top:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Totaalvoortgang</strong>
           <span id="totalPct" class="badge warn">0%</span>
         </div>
-        <div class="progress" id="totalBar"><i></i></div>
-        <div class="small" id="totalStatus" style="margin-top:.25rem">Nog niet gestart</div>
+        <div class="progress"><i id="totalBar"></i></div>
+        <div id="totalStatus" style="font-size:.9rem;color:#64748b;margin-top:.25rem">Nog niet gestart</div>
       </div>
 
       <div id="result" style="margin-top:1rem"></div>
@@ -654,201 +769,123 @@ INDEX_HTML = """
 
 <script>
 const FILE_PAR = 3;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+if(!isIOS){ document.getElementById('folderLabel').style.display=''; }
 
 const form=document.getElementById('form');
-const modeFiles=document.getElementById('modeFiles');
-const modeFolder=document.getElementById('modeFolder');
-
-const fileRow=document.getElementById('fileRow');
-const folderRow=document.getElementById('folderRow');
 const fileInput=document.getElementById('fileInput');
 const folderInput=document.getElementById('folderInput');
-const btnPickFiles=document.getElementById('btnPickFiles');
-const btnPickFolder=document.getElementById('btnPickFolder');
+const btnFiles=document.getElementById('btnFiles');
+const btnFolder=document.getElementById('btnFolder');
 const fileName=document.getElementById('fileName');
 const folderName=document.getElementById('folderName');
-
-const fileList=document.getElementById('fileList');
-const totalBar=document.getElementById('totalBar').querySelector('i');
+const totalBar=document.getElementById('totalBar');
 const totalPct=document.getElementById('totalPct');
 const totalStatus=document.getElementById('totalStatus');
-const btnStart=document.getElementById('btnStart');
+const fileList=document.getElementById('fileList');
 const resBox=document.getElementById('result');
+const btnStart=document.getElementById('btnStart');
 
-/* Helpers */
-function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+' '+u[i];}
-function setTotal(pct,label){const p=Math.min(100,Math.max(0,pct||0));totalBar.style.width=p+'%';totalPct.textContent=Math.round(p)+'%';if(label)totalStatus.textContent=label;}
+function fmtBytes(n){const u=["B","KB","MB","GB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return n.toFixed(i?1:0)+' '+u[i];}
+function setTotal(pct,label){totalBar.style.width=pct+'%';totalPct.textContent=Math.round(pct)+'%';if(label)totalStatus.textContent=label;}
 
-/* Mode wisselen: volledig uitsluiten van de andere input (geen ‘dubbel selecteren’) */
-function applyMode(){
-  const folder = modeFolder.checked;
-  fileRow.style.display = folder ? 'none' : '';
-  folderRow.style.display = folder ? '' : 'none';
+btnFiles.onclick=()=>fileInput.click();
+btnFolder.onclick=()=>folderInput.click();
 
-  // zorg dat de verborgen control NIET klikbaar is
-  fileInput.disabled   = folder;
-  folderInput.disabled = !folder;
-  fileInput.style.pointerEvents   = folder ? 'none' : 'auto';
-  folderInput.style.pointerEvents = folder ? 'auto' : 'none';
-}
-modeFiles.addEventListener('change',applyMode);
-modeFolder.addEventListener('change',applyMode);
-applyMode();
+fileInput.onchange=()=>{
+  if(fileInput.files.length===0) fileName.textContent='Nog geen bestanden gekozen';
+  else fileName.textContent=Array.from(fileInput.files).map(f=>f.name).slice(0,2).join(', ') + (fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``);
+};
+folderInput.onchange=()=>{
+  if(folderInput.files.length===0) folderName.textContent='Nog geen map gekozen';
+  else {
+    const top=(folderInput.files[0].webkitRelativePath||'').split('/')[0];
+    folderName.textContent=`${top||'Gekozen map'} (${folderInput.files.length} bestanden)`;
+  }
+};
 
-/* Buttons forceren de juiste picker (voorkomt dat de verkeerde input triggert) */
-btnPickFiles.addEventListener('click',()=>{ if(!modeFiles.checked){ modeFiles.checked=true; applyMode(); } fileInput.click(); });
-btnPickFolder.addEventListener('click',()=>{ if(!modeFolder.checked){ modeFolder.checked=true; applyMode(); } folderInput.click(); });
-
-/* Namen tonen */
-fileInput.addEventListener('change',()=>{
-  if(fileInput.files.length===0){ fileName.textContent='Nog geen bestanden gekozen'; return; }
-  fileName.textContent = Array.from(fileInput.files).slice(0,3).map(f=>f.name).join(', ') + (fileInput.files.length>3?` … (+${fileInput.files.length-3})`:``);
-});
-folderInput.addEventListener('change',()=>{
-  if(folderInput.files.length===0){ folderName.textContent='Nog geen map gekozen'; return; }
-  // toon top-level mapnaam
-  const p = (folderInput.files[0].webkitRelativePath||'').split('/')[0] || 'Gekozen map';
-  folderName.textContent = `${p} (${folderInput.files.length} bestanden)`;
-});
-
-/* UI helpers */
 function addFileRow(f,path){
   fileList.style.display='';
-  const d=document.createElement('div');
-  d.className='filecard';
-  d.innerHTML=`
-    <div class="name" title="${path}">${path}</div>
-    <div class="badge warn" data-badge>Wacht…</div>
-    <div class="meta">${fmtBytes(f.size)} • ${f.type || 'octet-stream'}</div><div></div>
-    <div class="progress"><i style="width:0%"></i></div>
-  `;
-  fileList.appendChild(d);
-  return{el:d,fill:d.querySelector('.progress i'),badge:d.querySelector('[data-badge]')};
+  const el=document.createElement('div');
+  el.className='filecard';
+  el.innerHTML=`<div class="name">${path}</div><div class="badge warn">Wacht…</div><div class="meta">${fmtBytes(f.size)}</div><div class="progress"><i></i></div>`;
+  fileList.appendChild(el);
+  return {fill:el.querySelector('.progress i'),badge:el.querySelector('.badge')};
 }
 
-/* Server calls */
-async function packageInit(expiryDays,password,title){
-  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiryDays,password,title})});
-  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'package_init');
-  return j.token;
+async function packageInit(expiry,password,title){
+  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
+  const j=await r.json();if(!j.ok)throw new Error(j.error);return j.token;
 }
 async function putInit(token,filename,type){
-  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
-  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'put_init');
-  return j;
+  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type})});
+  const j=await r.json();if(!j.ok)throw new Error(j.error);return j;
 }
 async function putComplete(token,key,name,path){
   const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
-  const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||'put_complete');
-  return j;
+  const j=await r.json();if(!j.ok)throw new Error(j.error);return j;
 }
-
-/* PUT met voortgang */
 function putWithProgress(url,blob,onProgress){
-  return new Promise((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();
-    xhr.open("PUT",url,true);
-    xhr.setRequestHeader("Content-Type",blob.type||"application/octet-stream");
-    xhr.upload.onprogress=(e)=>{const l=e.loaded||0; const t=e.total||blob.size||1; onProgress(l,t);};
-    xhr.onload=()=> (xhr.status>=200&&xhr.status<300)?resolve():reject(new Error('HTTP '+xhr.status));
-    xhr.onerror=()=>reject(new Error('Netwerkfout'));
-    xhr.send(blob);
+  return new Promise((res,rej)=>{
+    const x=new XMLHttpRequest();
+    x.open("PUT",url,true);
+    x.upload.onprogress=e=>onProgress(e.loaded,e.total);
+    x.onload=()=>x.status>=200&&x.status<300?res():rej();
+    x.onerror=()=>rej();
+    x.send(blob);
   });
 }
 
-/* Upload één bestand */
 async function uploadOne(token,f,rel,ui){
   const init=await putInit(token,f.name,f.type);
   ui.badge.textContent="Uploaden…";
-  await putWithProgress(init.url,f,(l,t)=>{ ui.fill.style.width=Math.round(l/t*100)+'%'; });
+  await putWithProgress(init.url,f,(l,t)=>ui.fill.style.width=Math.round(l/t*100)+'%');
   await putComplete(token,init.key,f.name,rel);
   ui.fill.style.width='100%';
-  ui.badge.textContent="Klaar"; ui.badge.className='badge ok';
+  ui.badge.textContent="Klaar";ui.badge.className='badge ok';
 }
 
-/* Sanitizer voor paden (houd bestandsextensie) */
-function sanitizePath(p){
-  const parts=(p||"").split('/').map(n=>{
-    const d=n.lastIndexOf('.'); const b=d>=0?n.slice(0,d):n; const e=d>=0?n.slice(d):'';
-    let s=b.normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^\\w.\\-]+/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
-    if(s.length>160) s=s.slice(0,160);
-    return (s||'file')+e.replace(/[^.\\w-]/g,'');
-  });
-  return parts.join('/');
-}
-
-/* Hoofdproces (parallel) */
 async function runUpload(){
-  const isFolder = modeFolder.checked;
-  const files = Array.from(isFolder ? folderInput.files : fileInput.files);
-  if(!files.length){ alert("Kies eerst bestanden of een map."); return; }
-
-  // Reset UI
-  fileList.innerHTML=''; fileList.style.display='none';
-  resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
-
+  const mode=document.querySelector('input[name=upmode]:checked').value;
+  const files=[...(mode==="folder"?folderInput.files:fileInput.files)];
+  if(!files.length){alert("Kies eerst bestanden.");return;}
+  fileList.innerHTML='';fileList.style.display='none';
+  setTotal(0,"Voorbereiden…");
   const expiry=document.getElementById('expDays').value;
   const pw=document.getElementById('pw').value||'';
   const title=document.getElementById('title').value||'';
   const token=await packageInit(expiry,pw,title);
 
-  const queue = files.map(f=>{
-    const rel = isFolder ? (f.webkitRelativePath || f.name) : f.name;
-    const safeRel = sanitizePath(rel);
-    const ui = addFileRow(f, safeRel);
-    return { f, rel: safeRel, ui };
+  const queue=files.map(f=>{
+    const rel=(mode==="folder"?(f.webkitRelativePath||f.name):f.name);
+    const ui=addFileRow(f,rel);
+    return {f,rel,ui};
   });
 
-  let done=0, errors=0;
+  let done=0;
   async function worker(){
     while(queue.length){
-      const item = queue.shift();
-      try{
-        await uploadOne(token, item.f, item.rel, item.ui);
-        done++;
-        setTotal(done/files.length*100,'Uploaden…');
-      }catch(err){
-        errors++;
-        item.ui.badge.textContent='Fout';
-        item.ui.badge.className='badge err';
-        console.error(err);
-      }
+      const item=queue.shift();
+      try{await uploadOne(token,item.f,item.rel,item.ui);}catch(_){item.ui.badge.textContent="Fout";item.ui.badge.className="badge err";}
+      done++;setTotal(done/files.length*100,"Uploaden…");
     }
   }
   await Promise.all(Array.from({length:Math.min(FILE_PAR,files.length)},worker));
-
-  // Toon link als er minstens 1 bestand succesvol was
-  const anySuccess = done > 0;
-  if(anySuccess){
-    setTotal(100,'Klaar');
-    const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-    resBox.innerHTML = `
-      <div class="card" style="margin-top:1rem">
-        <strong>Deelbare link</strong>
-        <div class="row" style="gap:.5rem;margin-top:.35rem">
-          <input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly>
-          <button class="btn" type="button" id="copyBtn">Kopieer</button>
-        </div>
-      </div>`;
-    const copyBtn=document.getElementById('copyBtn');
+  setTotal(100,"Klaar");
+  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__",token);
+  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link:</strong><div class="grid" style="margin-top:.4rem"><input id="shareLinkInput" class="input" value="${link}" readonly><button class="btn" type="button" id="copyBtn">Kopieer</button></div></div>`;
+  document.getElementById('copyBtn').onclick=async()=>{
     const input=document.getElementById('shareLinkInput');
-    copyBtn.addEventListener('click',async()=>{
-      try{ await (navigator.clipboard?.writeText(input.value)); }
-      catch(_){ input.select(); document.execCommand?.('copy'); }
-      copyBtn.textContent='Gekopieerd!';
-      setTimeout(()=>copyBtn.textContent='Kopieer',1200);
-    });
-  }else{
-    setTotal(0,'Mislukt'); // niets geüpload
-    resBox.innerHTML = '<div class="small" style="color:#b91c1c">Upload mislukt. Probeer opnieuw.</div>';
-  }
+    try{await navigator.clipboard.writeText(input.value);}catch(_){input.select();document.execCommand('copy');}
+    document.getElementById('copyBtn').textContent='Gekopieerd!';
+    setTimeout(()=>document.getElementById('copyBtn').textContent='Kopieer',1200);
+  };
 }
 
-form.addEventListener('submit', async (e)=>{
+form.addEventListener('submit',async e=>{
   e.preventDefault();
-  btnStart.disabled = true;
-  try{ await runUpload(); }
-  finally{ btnStart.disabled = false; }
+  btnStart.disabled=true;
+  try{await runUpload();}finally{btnStart.disabled=false;}
 });
 </script>
 </body>
