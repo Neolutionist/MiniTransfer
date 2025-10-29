@@ -35,6 +35,7 @@ from cleanup_expired import cleanup_expired, resolve_data_dir
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 DB_PATH  = DATA_DIR / "files_multi.db"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
 AUTH_PASSWORD = "Hulsmaat"  # vast wachtwoord voor het inloggen
@@ -2365,5 +2366,5 @@ def stream_file_alias(token, item_id): return redirect(url_for("stream_file", to
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
