@@ -481,103 +481,88 @@ INDEX_HTML = """
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-  <title>Bestanden delen – Olde Hanter</title>
+  <title>Upload • Olde Hanter</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
 
-    /* ====== Paneelstijl (strak) ====== */
-    .shell{max-width:980px;margin:6vh auto;padding:0 16px}
-    .pane{
-      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
-      background:color-mix(in oklab, var(--surface) 96%, black 4%);
-      border-radius:16px; overflow:hidden;
-      box-shadow:0 12px 28px rgba(0,0,0,.14);
-      backdrop-filter:saturate(1.05) blur(6px);
-    }
-    .pane__head{
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      padding:18px 20px;border-bottom:1px solid color-mix(in oklab, var(--surface-2) 60%, black 40%);
-    }
-    .pane__title{margin:0;color:var(--brand);font-size:1.25rem}
-    .pane__body{padding:18px 20px}
-    .meta{color:var(--muted);font-size:.92rem}
+    /* ===== PRO LAYOUT ===== */
+    .shell{max-width:1100px;margin:5vh auto;padding:0 16px}
+    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+    .brand{color:var(--brand);margin:0;font-weight:800;letter-spacing:.2px}
+    .who{color:var(--muted);font-size:.9rem}.who a{color:var(--brand)}
 
-    /* ====== Forms ====== */
-    .grid{display:grid;gap:16px;min-width:0}
-    .cols-2{grid-template-columns:1fr 1fr}
-    @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
-    label{display:block;margin:0 0 6px;font-weight:600}
-    .input, select{
-      width:100%;max-width:100%;box-sizing:border-box;
-      padding:12px 14px;border-radius:12px;border:1px solid var(--line);
-      background:color-mix(in oklab, var(--surface-2) 92%, white 8%);
-    }
-    .row{display:flex;align-items:center;gap:10px}
+    .deck{display:grid;grid-template-columns:1.4fr .9fr;gap:14px}
+    @media (max-width:920px){.deck{grid-template-columns:1fr}}
 
-    /* Uploadtype compact + dicht bij picker */
-    .toggle{display:flex;gap:18px;align-items:center}
-    .toggle label{display:flex;gap:8px;align-items:center;font-weight:600;cursor:pointer}
-    .block-gap-xs{margin-top:6px}
+    .card{border-radius:16px;background:var(--panel);backdrop-filter:blur(10px) saturate(1.05);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14)}
+    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
+    .card-h h2{margin:0;font-size:1.02rem}
+    .card-b{padding:14px 16px}
+    .subtle{color:var(--muted);font-size:.92rem}
 
-    /* File/Folder picker */
+    .grid{display:grid;gap:12px}
+    .cols2{grid-template-columns:1fr 1fr}
+    @media (max-width:720px){.cols2{grid-template-columns:1fr}}
+
+    label{display:block;margin:0 0 6px;font-weight:650}
+    .input, select{width:100%;padding:.7rem .9rem;border-radius:12px;border:1px solid var(--line);background:color-mix(in oklab,var(--surface-2) 92%,white 8%);box-sizing:border-box}
+    .toggle{display:flex;gap:14px;align-items:center}
+    .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
+
+    /* filepicker compact */
     .picker{display:flex;flex-direction:column;gap:6px}
-    .picker__ctrl{
-      position:relative;display:flex;align-items:center;gap:10px;
-      border:1px solid var(--line);border-radius:12px;height:42px;padding:0 10px;
-      background:color-mix(in oklab, var(--surface-2) 90%, white 10%);min-width:0
-    }
-    .picker__ctrl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .picker__btn{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
-    .picker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+    .picker-ctl{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 92%,white 8%);height:42px;padding:0 10px}
+    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .btn{padding:.7rem .95rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
+    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
+    .muted{color:var(--muted)}
+    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-    /* Bestandenlijst */
-    .filelist{display:grid;gap:10px;margin-top:10px}
-    .frow{
-      display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 14px;
-      padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface) 95%, black 5%);
-    }
-    .frow .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .frow .meta{font-size:.88rem}
-    .badge{display:inline-flex;align-items:center;justify-content:center;padding:3px 9px;border-radius:999px;font-size:.78rem;font-weight:700;line-height:1}
-    .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#166534}
-    .badge.warn{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309}
-    .badge.err{background:color-mix(in oklab,#dc2626 18%,white 82%);color:#991b1b}
+    /* queue tabel */
+    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    .rowc{display:grid;grid-template-columns:22px 1fr 100px 90px;align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
+    .ico{width:22px;height:22px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
+    .size,.eta{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
 
-    /* Progress */
-    .progress{height:12px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
+    /* telemetry */
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv .k{font-size:.85rem;color:var(--muted)}
+    .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+    @media(max-width:420px){.kv{grid-template-columns:1fr}}
+    .log{max-height:200px;overflow:auto;border:1px solid rgba(0,0,0,.08);border-radius:10px;background:color-mix(in oklab,var(--surface)92%,white 8%);padding:8px 10px;font-size:.9rem}
+    .log p{margin:4px 0}
 
-    /* Totaalrij strak uitgelijnd */
-    .total-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 6px}
-    #totalPct.badge{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309}
+    /* total bar + badges */
+    .totalline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.22rem .6rem;border-radius:999px;font-weight:800;font-size:.78rem}
+    .badge.ok{background:color-mix(in oklab,#16a34a 18%,white 82%);color:#166534}
+    .badge.warn{background:color-mix(in oklab,#f59e0b 22%,white 78%);color:#b45309}
 
-    /* Deelbare link – strak/compact */
-    .share{margin-top:12px}
-    .share__card{
-      display:flex;flex-direction:column;gap:8px;
-      padding:10px 12px;border-radius:12px;background:color-mix(in oklab,var(--surface-2) 90%, black 10%);
-      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
-    }
-    .share__row{display:flex;align-items:center;gap:8px}
-    .share__row .input{padding:10px 12px}
-    .btn{padding:11px 14px;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%, black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.small{padding:8px 10px;font-size:.88rem}
+    /* share mini */
+    .share{display:flex;align-items:center;gap:8px}
+    .share .input{padding:.55rem .7rem}
+    .share .btn{padding:.55rem .7rem}
   </style>
 </head>
 <body>
-  {{ bg|safe }}
-  <div class="shell">
-    <div class="pane">
-      <div class="pane__head">
-        <h2 class="pane__title">Bestanden delen met Olde Hanter</h2>
-        <div class="meta">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-      </div>
+{{ bg|safe }}
+<div class="shell">
+  <div class="hdr">
+    <h1 class="brand">Bestanden uploaden</h1>
+    <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
 
-      <div class="pane__body">
-        <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
-          <!-- Linkerkolom -->
-          <div class="grid">
+  <div class="deck">
+    <!-- LEFT: Controls & Queue -->
+    <div class="card">
+      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">3</span></div></div>
+      <div class="card-b">
+        <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
+          <div class="grid cols2">
             <div>
               <label>Uploadtype</label>
               <div class="toggle">
@@ -585,123 +570,137 @@ INDEX_HTML = """
                 <label id="folderLabel"><input type="radio" name="upmode" value="folder"> Map</label>
               </div>
             </div>
-
-            <div id="fileRow" class="picker block-gap-xs">
-              <label for="fileInput">Kies bestand(en)</label>
-              <div class="picker__ctrl">
-                <button type="button" id="btnFiles" class="picker__btn">Kies bestanden</button>
-                <span id="fileName" class="picker__name">Nog geen bestanden gekozen</span>
-                <input id="fileInput" type="file" multiple>
-              </div>
-            </div>
-
-            <div id="folderRow" class="picker block-gap-xs" style="display:none">
-              <label for="folderInput">Kies een map</label>
-              <div class="picker__ctrl">
-                <button type="button" id="btnFolder" class="picker__btn">Kies map</button>
-                <span id="folderName" class="picker__name">Nog geen map gekozen</span>
-                <input id="folderInput" type="file" multiple webkitdirectory directory>
-              </div>
-              <div class="meta">Let op: mapselectie werkt niet op iOS.</div>
+            <div>
+              <label for="title">Onderwerp</label>
+              <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
             </div>
           </div>
 
-          <!-- Rechterkolom -->
-          <div class="grid">
+          <div class="grid cols2">
             <div>
-              <label for="title">Onderwerp (optioneel)</label>
-              <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+              <label for="expDays">Verloopt na</label>
+              <select id="expDays" class="input">
+                <option value="1">1 dag</option><option value="3">3 dagen</option>
+                <option value="7">7 dagen</option><option value="30" selected>30 dagen</option>
+                <option value="60">60 dagen</option><option value="365">1 jaar</option>
+              </select>
             </div>
-            <div class="grid cols-2">
-              <div>
-                <label for="expDays">Verloopt na</label>
-                <select id="expDays" class="input">
-                  <option value="1">1 dag</option>
-                  <option value="3">3 dagen</option>
-                  <option value="7">7 dagen</option>
-                  <option value="30" selected>30 dagen</option>
-                  <option value="60">60 dagen</option>
-                  <option value="365">1 jaar</option>
-                </select>
-              </div>
-              <div>
-                <label for="pw">Wachtwoord (optioneel)</label>
-                <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-              </div>
+            <div>
+              <label for="pw">Wachtwoord (optioneel)</label>
+              <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password">
             </div>
-            <div class="row"><button id="btnStart" class="btn" type="submit">Uploaden</button></div>
+          </div>
+
+          <div id="fileRow" class="picker">
+            <label for="fileInput">Kies bestand(en)</label>
+            <div class="picker-ctl">
+              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
+              <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
+              <input id="fileInput" type="file" multiple>
+            </div>
+          </div>
+
+          <div id="folderRow" class="picker" style="display:none">
+            <label for="folderInput">Kies een map</label>
+            <div class="picker-ctl">
+              <button type="button" id="btnFolder" class="btn ghost">Kies map</button>
+              <div id="folderName" class="ellipsis muted">Nog geen map gekozen</div>
+              <input id="folderInput" type="file" multiple webkitdirectory directory>
+            </div>
+            <div class="muted" style="margin-top:2px">Tip: mapselectie werkt niet op iOS.</div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+            <button id="btnStart" class="btn" type="submit">Uploaden</button>
+            <span class="muted">Queue: <span id="kvQueue">0</span> • Bestanden: <span id="kvFiles">0</span></span>
           </div>
         </form>
 
-        <!-- Lijst -->
-        <div class="filelist" id="fileList"></div>
+        <!-- Queue -->
+        <div id="queue" class="grid" style="margin-top:14px"></div>
 
-        <!-- Totaalvoortgang -->
-        <div class="total" style="margin-top:12px">
-          <div class="total-head">
-            <strong>Totaalvoortgang</strong>
-            <span id="totalPct" class="badge">0%</span>
+        <!-- Total -->
+        <div style="margin-top:14px">
+          <div class="totalline">
+            <div class="subtle">Totaalvoortgang</div>
+            <span id="totalPct" class="badge warn">0%</span>
           </div>
           <div class="progress"><i id="totalFill"></i></div>
-          <div class="meta" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
+          <div class="subtle" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
         </div>
 
-        <!-- Deelbare link -->
-        <div id="result" class="share"></div>
+        <!-- Share -->
+        <div id="result" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Telemetry -->
+    <div class="card">
+      <div class="card-h"><h2>Live Telemetry</h2><div class="subtle">Sessie</div></div>
+      <div class="card-b grid">
+        <div class="kv">
+          <div>
+            <div class="k">Actieve workers</div>
+            <div class="v" id="tWorkers">0</div>
+          </div>
+          <div>
+            <div class="k">Doorvoersnelheid</div>
+            <div class="v"><span id="tSpeed">0</span> /s</div>
+          </div>
+          <div>
+            <div class="k">Verplaatst</div>
+            <div class="v" id="tMoved">0 B</div>
+          </div>
+          <div>
+            <div class="k">Nog te gaan</div>
+            <div class="v" id="tLeft">0 B</div>
+          </div>
+          <div>
+            <div class="k">ETA</div>
+            <div class="v" id="tEta">—</div>
+          </div>
+          <div>
+            <div class="k">Bestanden klaar</div>
+            <div class="v" id="tDone">0</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="k" style="margin-bottom:6px">Activiteitenlog</div>
+          <div id="log" class="log" aria-live="polite"></div>
+        </div>
       </div>
     </div>
   </div>
 
-<script>
-/* ==== functionaliteit (ongewijzigd) ==== */
-const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const FILE_PAR=3;
+  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
 
+<script>
+/* ==== Settings & iOS ==== */
+const FILE_PAR = 3;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+
+/* Elements */
 const folderLabel=document.getElementById('folderLabel');
 const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
 const fileInput=document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
 const btnFiles=document.getElementById('btnFiles'), btnFolder=document.getElementById('btnFolder');
 const fileName=document.getElementById('fileName'), folderName=document.getElementById('folderName');
-const fileList=document.getElementById('fileList');
+const queue=document.getElementById('queue'); const form=document.getElementById('form');
 const totalFill=document.getElementById('totalFill'), totalPct=document.getElementById('totalPct'), totalStatus=document.getElementById('totalStatus');
-const resBox=document.getElementById('result');
+const kvWorkers=document.getElementById('kvWorkers'), kvQueue=document.getElementById('kvQueue'), kvFiles=document.getElementById('kvFiles');
+const tWorkers=document.getElementById('tWorkers'), tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tLeft=document.getElementById('tLeft'), tEta=document.getElementById('tEta'), tDone=document.getElementById('tDone');
+const logEl=document.getElementById('log'), resBox=document.getElementById('result');
 
 if(isIOS){ folderLabel.style.display='none'; }
 
-document.querySelectorAll('input[name=upmode]').forEach(r=>{
-  r.addEventListener('change',()=>{
-    const mode=document.querySelector('input[name=upmode]:checked').value;
-    const useFolder = mode==='folder' && !isIOS;
-    fileRow.style.display = useFolder ? 'none' : '';
-    folderRow.style.display = useFolder ? '' : 'none';
-    setTimeout(()=>{ try{ (useFolder ? folderInput : fileInput).click(); }catch(_){} },0);
-  }, {passive:true});
-});
-btnFiles.onclick=(e)=>{ e.preventDefault(); fileInput.click(); };
-btnFolder && (btnFolder.onclick=(e)=>{ e.preventDefault(); folderInput.click(); });
-
-fileInput.onchange=()=>{
-  fileName.textContent=fileInput.files.length
-    ? (Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``))
-    : 'Nog geen bestanden gekozen';
-};
-folderInput.onchange=()=>{
-  if(!folderInput.files.length){ folderName.textContent='Nog geen map gekozen'; return; }
-  const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';
-  folderName.textContent=`${root} (${folderInput.files.length} bestanden)`;
-};
-
+/* Utils */
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
+function log(msg){const p=document.createElement('p');const t=new Date().toLocaleTimeString();p.textContent=`[${t}] ${msg}`;logEl.prepend(p)}
 function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
-function addFileRow(f,rel){
-  const el=document.createElement('div'); el.className='frow';
-  el.innerHTML=`<div class="name" title="${rel}">${rel}</div>
-                <div class="badge warn" data-badge>Wacht…</div>
-                <div class="meta">${fmtBytes(f.size)} • ${f.type||'octet-stream'}</div>
-                <div class="progress"><i style="width:0%"></i></div>`;
-  fileList.appendChild(el); return {fill:el.querySelector('.progress i'),badge:el.querySelector('[data-badge]')};
-}
 
+/* API */
 async function packageInit(expiry,password,title){
   const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
@@ -714,7 +713,6 @@ async function putComplete(token,key,name,path){
   const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
 }
-
 function putWithProgress(url,blob,onProgress){
   return new Promise((resolve,reject)=>{
     const x=new XMLHttpRequest();
@@ -725,53 +723,103 @@ function putWithProgress(url,blob,onProgress){
     x.onerror=()=>reject(new Error('Netwerkfout')); x.send(blob);
   });
 }
-async function uploadOne(token,f,rel,ui,onDelta){
-  const init=await putInit(token,f.name,f.type);
-  ui.badge.textContent="Uploaden…";
-  let last=0;
-  await putWithProgress(init.url,f,(loaded,total)=>{
-    ui.fill.style.width=Math.round(loaded/total*100)+'%';
-    const delta=loaded-last; last=loaded; onDelta(delta);
-  });
-  await putComplete(token,init.key,f.name,rel);
-  ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok';
+
+/* Queue rows */
+function addRow(rel,size){
+  const r=document.createElement('div'); r.className='rowc';
+  r.innerHTML=`<div class="ico"></div>
+               <div class="ellipsis"><strong>${rel}</strong><div class="progress"><i style="width:0%"></i></div></div>
+               <div class="size">${fmtBytes(size)}</div>
+               <div class="eta" data-eta>—</div>`;
+  queue.appendChild(r);
+  return {row:r,fill:r.querySelector('i'),eta:r.querySelector('[data-eta]')};
 }
 
-document.getElementById('form').addEventListener('submit', async (e)=>{
+/* Telemetry state */
+let totBytes=0, moved=0, done=0, workers=0;
+let speedAvg=0; let lastTick=performance.now(), lastMoved=0;
+setInterval(()=>{
+  const now=performance.now(); const dt=(now-lastTick)/1000; lastTick=now;
+  const delta = moved - lastMoved; lastMoved = moved;
+  const inst = delta / Math.max(dt,0.001);
+  // EMA
+  speedAvg = speedAvg ? speedAvg*0.7 + inst*0.3 : inst;
+  tSpeed.textContent = fmtBytes(speedAvg)+"/s";
+  tMoved.textContent = fmtBytes(moved);
+  tLeft.textContent  = fmtBytes(Math.max(0, totBytes - moved));
+  tWorkers.textContent = workers;
+  tDone.textContent = done;
+  const etaSec = speedAvg>1 ? Math.max(0,(totBytes-moved)/speedAvg) : 0;
+  tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
+}, 700);
+
+/* UI bindings */
+btnFiles.onclick=()=>fileInput.click();
+btnFolder && (btnFolder.onclick=()=>folderInput.click());
+fileInput.onchange=()=>{kvFiles.textContent=fileInput.files.length; kvQueue.textContent=fileInput.files.length; fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
+folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
+document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
+  const use = (r.value==='folder' && !isIOS);
+  fileRow.style.display = use ? 'none' : '';
+  folderRow.style.display = use ? '' : 'none';
+  setTimeout(()=> (use?folderInput:fileInput).click(), 0);
+}));
+
+/* Main submit */
+form.addEventListener('submit', async (e)=>{
   e.preventDefault();
+  queue.innerHTML=''; moved=0; done=0; speedAvg=0; setTotal(0,'Voorbereiden…');
   const mode=document.querySelector('input[name=upmode]:checked').value;
   const useFolder = mode==='folder' && !isIOS;
   const files = Array.from(useFolder ? folderInput.files : fileInput.files);
   if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
+  const expiry=document.getElementById('expDays').value, pw=document.getElementById('pw').value||'', title=document.getElementById('title').value||'';
+  const token = await packageInit(expiry,pw,title);
 
-  fileList.innerHTML=''; fileList.style.display='grid'; resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
-
-  const expiry=document.getElementById('expDays').value,
-        pw=document.getElementById('pw').value||'',
-        title=document.getElementById('title').value||'';
-  const token=await packageInit(expiry,pw,title);
-
-  const totalBytes=files.reduce((s,f)=>s+f.size,0)||1; let uploaded=0;
-  const queue=files.map(f=>({f,rel:useFolder?(f.webkitRelativePath||f.name):f.name,ui:addFileRow(f,useFolder?(f.webkitRelativePath||f.name):f.name)}));
+  totBytes = files.reduce((s,f)=>s+f.size,0)||1;
+  kvQueue.textContent = files.length; kvFiles.textContent = files.length;
+  const list = files.map(f=>({f,rel:useFolder?(f.webkitRelativePath||f.name):f.name,ui:addRow(useFolder?(f.webkitRelativePath||f.name):f.name,f.size),start:0,uploaded:0}));
+  const q=[...list];
 
   async function worker(){
-    while(queue.length){
-      const item=queue.shift();
-      try{ await uploadOne(token,item.f,item.rel,item.ui,(d)=>{uploaded+=d; setTotal(uploaded/totalBytes*100,'Uploaden…');}); }
-      catch(_){ item.ui.badge.textContent='Fout'; item.ui.badge.className='badge err'; }
-    }
+    workers++; kvWorkers.textContent=FILE_PAR; try{
+      while(q.length){
+        const it=q.shift();
+        it.start=performance.now(); log("Start: "+it.rel);
+        try{
+          const init=await putInit(token,it.f.name,it.f.type);
+          let last=0;
+          await putWithProgress(init.url,it.f,(loaded,total)=>{
+            const pct=Math.round(loaded/total*100);
+            it.ui.fill.style.width=pct+'%';
+            const d=loaded-last; last=loaded; moved+=d; it.uploaded=loaded;
+            const spent=(performance.now()-it.start)/1000; const sp = loaded/Math.max(spent,0.001);
+            const left=total-loaded; const etaS= sp>1 ? left/sp : 0; it.ui.eta.textContent = etaS? new Date(etaS*1000).toISOString().substring(11,19) : '—';
+            setTotal(moved/totBytes*100,'Uploaden…');
+          });
+          await putComplete(token,init.key,it.f.name,it.rel);
+          it.ui.fill.style.width='100%'; it.ui.eta.textContent='Klaar'; done++; log("Klaar: "+it.rel);
+        }catch(err){ it.ui.eta.textContent='Fout'; log("Fout: "+it.rel); }
+      }
+    } finally { workers--; }
   }
-  await Promise.all(Array.from({length:Math.min(FILE_PAR,files.length)}, worker));
+  await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
   setTotal(100,'Klaar');
 
+  // Share (compact)
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML=`<div class="share__card"><div style="font-weight:700">Deelbare link</div>
-    <div class="share__row"><input id="shareLinkInput" class="input" value="${link}" readonly>
-    <button id="copyBtn" type="button" class="btn small">Kopieer</button></div></div>`;
+  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
+    </div>
+    <div class="share">
+      <input id="shareLinkInput" class="input" value="${link}" readonly>
+      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+    </div>
+  </div></div>`;
   document.getElementById('copyBtn').onclick=async()=>{
     const input=document.getElementById('shareLinkInput');
     try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
-    const b=document.getElementById('copyBtn'); b.textContent='Gekopieerd!'; setTimeout(()=>b.textContent='Kopieer',1100);
   };
 });
 </script>
@@ -779,152 +827,142 @@ document.getElementById('form').addEventListener('submit', async (e)=>{
 </html>
 """
 
+
+
 PACKAGE_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-  <title>Bestanden downloaden – Olde Hanter</title>
+  <title>Download • Olde Hanter</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
+    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
+    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+    .brand{color:var(--brand);margin:0;font-weight:800}
+    .deck{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+    @media(max-width:900px){.deck{grid-template-columns:1fr}}
+    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14)}
+    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
+    .card-b{padding:14px 16px}
+    .subtle{color:var(--muted);font-size:.92rem}
+    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
+    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
+    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
+    @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
 
-    .shell{max-width:900px;margin:6vh auto;padding:0 16px}
-    .pane{
-      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
-      background:color-mix(in oklab, var(--surface) 96%, black 4%);
-      border-radius:16px; overflow:hidden;
-      box-shadow:0 12px 28px rgba(0,0,0,.14);
-      backdrop-filter:saturate(1.05) blur(6px);
-    }
-    .pane__head{padding:18px 20px;border-bottom:1px solid color-mix(in oklab, var(--surface-2) 60%, black 40%)}
-    .pane__title{margin:0;color:var(--brand);font-size:1.25rem}
-    .pane__body{padding:18px 20px}
-    .meta{color:var(--muted);font-size:.95rem}
-
-    .btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:12px;font-weight:700;border:0;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%,black 15%));color:#fff;cursor:pointer}
-
-    .progress{height:12px;background:#eef2ff;border-radius:999px;overflow:hidden;margin-top:10px;border:1px solid #dbe5f4}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
-    .progress.indet>i{width:40%;animation:indet 1.1s linear infinite}
-    @keyframes indet{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-
-    /* Tabel – pill-rijtjes */
-    .table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:14px}
-    .table thead th{padding:8px 10px;font-weight:700}
-    .table tbody tr{background:color-mix(in oklab,var(--surface-2) 90%, black 10%);border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);border-radius:12px;overflow:hidden}
-    .table tbody td{padding:10px}
-    .table td[data-label="Grootte"]{white-space:nowrap;text-align:right}
-    .foot{margin-top:12px;text-align:center;color:#94a3b8}
-
-    @media(max-width:680px){
-      .table thead{display:none}
-      .table,.table tbody,.table tr,.table td{display:block;width:100%}
-      .table tr{padding:8px 10px}
-      .table td{padding:6px 0}
-      .table td[data-label]:before{content:attr(data-label) ": ";font-weight:700;color:#334155}
-    }
+    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    .rowc{display:grid;grid-template-columns:1fr 100px 90px;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
+    .r{font-variant-numeric:tabular-nums;text-align:right;color:var(--muted)}
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
-  {{ bg|safe }}
-  <div class="shell">
-    <div class="pane">
-      <div class="pane__head">
-        <h2 class="pane__title">Download</h2>
-      </div>
+{{ bg|safe }}
+<div class="shell">
+  <div class="hdr">
+    <h1 class="brand">Bestanden downloaden</h1>
+    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
+  </div>
 
-      <div class="pane__body">
-        <div class="meta" style="margin-bottom:12px">
-          {% if title %}<div><strong>Onderwerp:</strong> {{ title }}</div>{% endif %}
-          <div><strong>Verloopt op:</strong> {{ expires_human }}</div>
-          <div><strong>Bestanden:</strong> {{ items|length }}</div>
-        </div>
-
-        {% if not items or items|length == 0 %}
-          <div class="meta" style="color:#b91c1c;background:#fee2e2;border:1px solid #fecaca;border-radius:10px;padding:8px 10px">Geen bestanden gevonden.</div>
+  <div class="deck">
+    <div class="card">
+      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
+      <div class="card-b">
+        {% if items|length == 1 %}
+          <button id="btnDownload" class="btn">Download bestand</button>
         {% else %}
-          {% if items|length == 1 %}
-            <button id="btnDownload" class="btn">Download bestand</button>
-          {% else %}
-            <button id="btnDownload" class="btn">Download alle bestanden (ZIP)</button>
-          {% endif %}
-          <div id="bar" class="progress" style="display:none"><i></i></div>
-          <div id="status" class="meta" style="display:none;margin-top:6px">Starten…</div>
+          <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
+        {% endif %}
+        <div id="bar" class="progress" style="margin-top:10px;display:none"><i></i></div>
+        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
 
-          {% if items|length > 1 %}
-          <table class="table">
-            <thead><tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr></thead>
-            <tbody>
-              {% for it in items %}
-              <tr>
-                <td data-label="Bestand">{{ it["name"] }}</td>
-                <td class="meta" data-label="Pad">{{ it["path"] }}</td>
-                <td data-label="Grootte" style="text-align:right">{{ it["size_h"] }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-          {% endif %}
+        {% if items|length > 1 %}
+        <div style="margin-top:14px">
+          <div class="subtle" style="margin-bottom:6px">Inhoud</div>
+          <div class="grid" style="gap:8px">
+            {% for it in items %}
+              <div class="rowc">
+                <div>{{ it["path"] }}</div>
+                <div class="r">{{ it["size_h"] }}</div>
+                <div class="r"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
         {% endif %}
       </div>
     </div>
-    <p class="foot">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+
+    <div class="card">
+      <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
+      <div class="card-b">
+        <div class="kv">
+          <div><div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div></div>
+          <div><div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div></div>
+          <div><div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div></div>
+          <div><div class="k">ETA</div><div class="v" id="tEta">—</div></div>
+        </div>
+      </div>
+    </div>
   </div>
 
+  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
 <script>
-/* ==== download-progress (functionaliteit blijft) ==== */
-const bar  = document.getElementById('bar');
-const fill = bar ? bar.querySelector('i') : null;
-const txt  = document.getElementById('status');
+const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
+const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
+function show(){bar.style.display='block';txt.style.display='block'}
+function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
 
-function showBar(){ if(bar&&txt){ bar.style.display='block'; txt.style.display='block'; } }
-function setPct(p,label){ if(fill){ fill.style.width=Math.max(0,Math.min(100,p))+'%'; } if(label&&txt){ txt.textContent=label; } }
-function startIndeterminate(){ if(!bar) return; bar.classList.add('indet'); showBar(); txt.textContent='Downloaden…'; }
-function stopIndeterminate(){ if(!bar) return; bar.classList.remove('indet'); }
-function triggerDownload(blobOrUrl, filename){
-  const url = blobOrUrl instanceof Blob ? URL.createObjectURL(blobOrUrl) : blobOrUrl;
-  const a=document.createElement('a'); a.href=url; if(filename) a.download=filename; document.body.appendChild(a); a.click(); a.remove();
-  if(blobOrUrl instanceof Blob) URL.revokeObjectURL(url);
-}
+async function downloadWithTelemetry(url, fallbackName){
+  show(); setPct(0); txt.textContent='Starten…';
+  let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
 
-async function downloadWithProgress(url, filename){
+  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
+  const iv=setInterval(tick,700);
+
   try{
-    showBar(); setPct(0,'Voorbereiden…');
-    const res = await fetch(url, { credentials:'same-origin' });
-    if(!res.ok){ setPct(0,'Fout bij downloaden'); return; }
+    const res=await fetch(url,{credentials:'same-origin'});
+    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
+    total=parseInt(res.headers.get('Content-Length')||'0',10);
+    const name=res.headers.get('X-Filename')||fallbackName||'download';
 
-    const total = parseInt(res.headers.get('Content-Length')||'0',10);
-    const nameHdr = res.headers.get('X-Filename'); const name = nameHdr || filename || 'download';
-    const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-
-    if(reader){
-      let received=0; const chunks=[];
-      if(!total){ startIndeterminate(); }
+    const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
+    if(rdr){
+      const chunks=[];
+      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
       while(true){
-        const {done,value}=await reader.read(); if(done) break;
-        chunks.push(value); received+=value.length;
-        if(total){ const pct=Math.round(received/total*100); setPct(pct, pct+'%'); }
+        const {done,value}=await rdr.read(); if(done) break;
+        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
+        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
       }
-      stopIndeterminate(); if(!total){ setPct(100,'Klaar'); }
-      const blob=new Blob(chunks); triggerDownload(blob,name); return;
+      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
+      clearInterval(iv);
+      const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+      return;
     }
-    startIndeterminate(); const blob=await res.blob(); stopIndeterminate(); setPct(100,'Klaar'); triggerDownload(blob, filename);
-  }catch(e){ console.error(e); setPct(0,'Fout bij downloaden'); }
+    // geen reader → blob fallback
+    bar.classList.add('indet'); txt.textContent='Downloaden…';
+    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
+    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
+  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
 }
 
 const btn=document.getElementById('btnDownload');
 if(btn){
-  btn.addEventListener('click', ()=>{
+  btn.addEventListener('click',()=>{
     {% if items|length == 1 %}
-      const url="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}";
-      const name="{{ items[0]['name'] }}";
-      downloadWithProgress(url,name);
+      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
     {% else %}
-      const url="{{ url_for('stream_zip', token=token) }}";
-      const name="{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}";
-      downloadWithProgress(url,name);
+      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
     {% endif %}
   });
 }
