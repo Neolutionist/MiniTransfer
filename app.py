@@ -855,12 +855,40 @@ PACKAGE_HTML = """
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
+
+    /* ===== Downloadlijst: nette uitlijning ===== */
+    .filecard{
+      display:grid;
+      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
+      align-items:center;
+      gap:.6rem .8rem;
+      padding:.70rem 1rem;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:color-mix(in oklab,var(--surface) 86%,white 14%);
+    }
+    .filecard .name{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      line-height:1.25;
+      overflow-wrap:anywhere;
+    }
+    .filecard .size{ width:6.5rem; text-align:right; }
+    .filecard .action{ width:auto; text-align:right; }
+    .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
+
+    /* Progressbalk ruimte */
+    #bar{ margin-top:.75rem }
+
+    /* Kaarten & grid */
     .shell{max-width:980px;margin:5vh auto;padding:0 16px}
     .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
     .brand{color:var(--brand);margin:0;font-weight:800}
-    .deck{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
     @media(max-width:900px){.deck{grid-template-columns:1fr}}
-    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14)}
+    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
     .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
     .card-b{padding:14px 16px}
     .subtle{color:var(--muted);font-size:.92rem}
@@ -870,11 +898,18 @@ PACKAGE_HTML = """
     .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
     @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
 
-    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
-    .rowc{display:grid;grid-template-columns:1fr 100px 90px;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
-    .r{font-variant-numeric:tabular-nums;text-align:right;color:var(--muted)}
     .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+
+    .deck > .card { min-width: 0; }
+    .card h1, .card h2, .card h3 { line-height: 1.2; }
+    .card p, .card li, .card div { line-height: 1.25; }
+
+    @media (max-width:700px){
+      .filecard{grid-template-columns:1fr;gap:.35rem;}
+      .filecard .name{white-space:normal;}
+      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+    }
   </style>
 </head>
 <body>
@@ -886,6 +921,7 @@ PACKAGE_HTML = """
   </div>
 
   <div class="deck">
+    <!-- Linkerkaart -->
     <div class="card">
       <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
       <div class="card-b">
@@ -894,35 +930,30 @@ PACKAGE_HTML = """
         {% else %}
           <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
         {% endif %}
-        <div id="bar" class="progress" style="margin-top:10px;display:none"><i></i></div>
+        <div id="bar" class="progress" style="display:none"><i></i></div>
         <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
 
         {% if items|length > 1 %}
-        <div style="margin-top:14px">
-          <div class="subtle" style="margin-bottom:6px">Inhoud</div>
-          <div class="grid" style="gap:8px">
-            {% for it in items %}
-              <div class="rowc">
-                <div>{{ it["path"] }}</div>
-                <div class="r">{{ it["size_h"] }}</div>
-                <div class="r"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
-              </div>
-            {% endfor %}
+        <h4 style="margin-top:14px;">Inhoud</h4>
+        {% for it in items %}
+          <div class="filecard">
+            <div class="name">{{ it["path"] }}</div>
+            <div class="size">{{ it["size_h"] }}</div>
+            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
           </div>
-        </div>
+        {% endfor %}
         {% endif %}
       </div>
     </div>
 
+    <!-- Rechterkaart -->
     <div class="card">
       <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
-      <div class="card-b">
-        <div class="kv">
-          <div><div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div></div>
-          <div><div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div></div>
-          <div><div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div></div>
-          <div><div class="k">ETA</div><div class="v" id="tEta">—</div></div>
-        </div>
+      <div class="card-b kv">
+        <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
+        <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
+        <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
+        <div class="k">ETA</div><div class="v" id="tEta">—</div>
       </div>
     </div>
   </div>
@@ -965,7 +996,6 @@ async function downloadWithTelemetry(url, fallbackName){
       const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
       return;
     }
-    // geen reader → blob fallback
     bar.classList.add('indet'); txt.textContent='Downloaden…';
     const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
     const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
@@ -986,7 +1016,6 @@ if(btn){
 </body>
 </html>
 """
-
 
 
 
