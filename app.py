@@ -40,9 +40,15 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
 AUTH_PASSWORD = "Hulsmaat"  # vast wachtwoord voor het inloggen
 
-S3_BUCKET       = os.environ["S3_BUCKET"]
-S3_REGION       = os.environ.get("S3_REGION", "eu-central-003")
-S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
+S3_BUCKET = os.getenv("S3_BUCKET")
+S3_REGION = os.getenv("S3_REGION", "eu-central-003")
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
+
+if not S3_BUCKET or not S3_ENDPOINT_URL:
+    raise RuntimeError(
+        "❌ S3-configuratie mist! Controleer of 'S3_BUCKET' en 'S3_ENDPOINT_URL' zijn ingesteld in Render → Environment."
+    )
+
 
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -80,6 +86,15 @@ s3 = boto3.client(
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
+
+# --- Render healthcheck fix ---
+HEALTH_PATHS = ("/health", "/health-s3", "/__health")
+
+@app.before_request
+def allow_health():
+    """Laat Render healthchecks (en vergelijkbare) gewoon 200 OK teruggeven."""
+    if request.path.startswith(HEALTH_PATHS):
+        return  # Geen redirect of blokkade; laat de route doorgaan
 
 # ---- Multi-tenant configuratie (HOST -> tenant) ----
 TENANTS = {
