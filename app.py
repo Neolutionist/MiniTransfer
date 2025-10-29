@@ -440,6 +440,8 @@ LOGIN_HTML = """
   const form   = document.currentScript.previousElementSibling;
   const pwUI   = document.getElementById('pw_ui');
   const pwReal = document.getElementById('pw_real');
+  // Hoeveel bestanden tegelijk?
+const FILE_PAR = 3; // maak 2–4 als je wil
 
   // extra defensie
   setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
@@ -942,8 +944,74 @@ async function runUpload(){
   const title=document.getElementById('title').value||'';
   state.token = await packageInit(expiryDays,password,title);
 
-  for(const item of state.files){
-    if(state.paused) while(state.paused){ await sleep(150); }
+// ---- Parallel per bestand (FILE_PAR workers) ----
+
+// helper: totale voortgang uit de UI afleiden (robust en simpel)
+function recomputeTotalFromUI(){
+  let sum = 0;
+  for(const it of state.files){
+    const per = parseFloat(it.ui.fill.style.width)||0;
+    sum += it.file.size * (per/100);
+  }
+  setTotal((sum/state.totalBytes)*100, "Uploaden…");
+  setSpeedAndEta(sum, state.totalBytes, state.startedAt);
+}
+
+// periodiek totaalbalk en snelheid bijwerken
+const totalTimer = setInterval(recomputeTotalFromUI, 150);
+
+let nextIdx = 0;
+let hadCancel = false;
+
+async function uploadItem(item){
+  // dezelfde progress-hook als je had (zet balkje per file)
+  const startUploaded = 0;
+  const updateTotal = ()=>{
+    // niets nodig hier—totaal wordt via timer herberekend
+  };
+  Object.defineProperty(item.ui.fill.style,'width',{
+    set(v){ this.setProperty('width', v); requestAnimationFrame(updateTotal); },
+    get(){ return this.getPropertyValue('width'); }
+  });
+
+  if(item.file.size < 5*1024*1024){
+    await uploadOneSmall(state.token, item.file, item.rel, item.ui);
+  }else{
+    await uploadOneMPU(state.token, item.file, item.rel, item.ui);
+  }
+}
+
+async function fileWorker(){
+  while(true){
+    const i = nextIdx++;
+    if(i >= state.files.length) break;
+    const it = state.files[i];
+    try{
+      await uploadItem(it);
+    }catch(err){
+      if(String(err||'').includes("geannuleerd")) hadCancel = true;
+      it.ui.badge.textContent = "Fout";
+      it.ui.badge.className   = "badge err";
+      it.ui.label.textContent = (err && err.message) ? err.message : "Onbekende fout";
+    }
+  }
+}
+
+// start N workers
+await Promise.all(Array.from({length: Math.min(FILE_PAR, state.files.length)}, fileWorker));
+
+// klaar met alle uploads
+clearInterval(totalTimer);
+recomputeTotalFromUI(); // forceer 100% als alles klaar is
+setTotal(100, hadCancel ? "Geannuleerd" : "Klaar");
+totalSpeed.textContent = '–';
+totalEta.textContent   = '–';
+
+const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", state.token);
+resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link</strong><div class="row" style="gap:.5rem;margin-top:.35rem"><input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly><button class="btn" type="button" id="copyBtn">Kopieer</button><span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span></div></div>`;
+const copyBtn=document.getElementById('copyBtn'); const copyOk=document.getElementById('copyOk'); const input=document.getElementById('shareLinkInput');
+copyBtn.addEventListener('click',async()=>{try{await (navigator.clipboard?.writeText(input.value));}catch(_){input.select();document.execCommand?.('copy');}copyOk.style.display='inline';setTimeout(()=>copyOk.style.display='none',1600);});
+
     const startUploaded=state.uploadedBytes;
 
     const updateTotal=()=>{
@@ -1076,6 +1144,29 @@ PACKAGE_HTML = """
         background:color-mix(in oklab, var(--surface-2) 90%, black 10%)
       }
     }
+
+    /* Maak de linkerkolom een flex-container en duw de filepicker omlaag
+   zodat hij uitlijnt met de controls in de rechterkolom */
+#form > div:first-child{
+  display: flex;
+  flex-direction: column;
+}
+
+/* laat de filepicker naar beneden ‘drijven’ binnen die kolom */
+#fileRow{
+  margin-top: auto;
+}
+
+/* zorg dat de filepicker zelf dezelfde hoogte en vertical centering heeft
+   als je andere inputvelden */
+.filepicker__control{
+  height: var(--field-h);
+  display: flex;
+  align-items: center;
+}
+
+/* optioneel, voor strakkere label-afstand (matcht je andere velden) */
+#fileRow > label{ margin: .65rem 0 .35rem; }
 
   </style>
 </head>
