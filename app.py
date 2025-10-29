@@ -393,86 +393,342 @@ HTML_HEAD_ICON = f"""
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
 <div class="wrap"><div class="card" style="max-width:460px;margin:auto">
-  <h1>Inloggen</h1>
-  {% if error %}<div style="background:#3b11119c;color:#ffb4b4;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-  <form method="post" autocomplete="off">
-    <input type="text" name="x" style="display:none">
-    <input type="password" name="y" style="display:none" autocomplete="new-password">
+  <h1 style="color:var(--brand)">Inloggen</h1>
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+<style>
+/* Masker een tekstveld als een wachtwoordveld */
+.input.pw-mask {
+  -webkit-text-security: disc;    /* Chrome/Safari */
+  text-security: disc;            /* sommige browsers */
+}
+</style>
 
-    <label for="email">E-mail</label>
-    <input id="email" class="input" name="email" type="email" value="{{ auth_email }}" autocomplete="username" required>
+<form method="post" autocomplete="off">
+  <!-- honeypots tegen autofill -->
+  <input type="text" name="x" style="display:none">
+  <input type="password" name="y" style="display:none" autocomplete="new-password">
 
-    <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" name="password" type="password" placeholder="Wachtwoord" autocomplete="current-password" required>
+  <label for="email">E-mail</label>
+  <input id="email" class="input" name="email" type="email"
+         value="{{ auth_email }}" autocomplete="username" required>
 
-    <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
-  </form>
-  <p class="small" style="margin-top:.8rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <label for="pw_ui">Wachtwoord</label>
+  <!-- Zichtbaar veld is GEEN password-type -> geen generator/autofill -->
+  <input id="pw_ui"
+         class="input pw-mask"
+         type="text"
+         name="pw_ui"
+         placeholder="Wachtwoord"
+         autocomplete="off"
+         autocapitalize="off"
+         autocorrect="off"
+         spellcheck="false"
+         inputmode="text"
+         data-lpignore="true"
+         data-1p-ignore="true">
+
+  <!-- Echt verborgen password-veld voor submit naar server -->
+  <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
+
+  <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
+</form>
+
+<script>
+(function(){
+  const form   = document.currentScript.previousElementSibling;
+  const pwUI   = document.getElementById('pw_ui');
+  const pwReal = document.getElementById('pw_real');
+
+  // extra defensie
+  setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
+
+  form.addEventListener('submit', function(){
+    pwReal.value = pwUI.value || '';
+  }, {passive:true});
+})();
+</script>
+
+  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
 """
-
-
 
 PASS_PROMPT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
 <div class="wrap"><div class="card" style="max-width:560px;margin:6vh auto">
   <h1>Beveiligd pakket</h1>
   <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
-  {% if error %}<div style="background:#3b11119c;color:#ffb4b4;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
   <form method="post" autocomplete="off">
     <input type="text" name="a" style="display:none"><input type="password" name="b" style="display:none">
     <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord" required autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
+           required autocomplete="new-password" autocapitalize="off" spellcheck="false">
     <button class="btn" style="margin-top:1rem">Ontgrendel</button>
   </form>
-  <p class="small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
 """
 
-
 INDEX_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bestanden delen met Olde Hanter</title>{{ head_icon|safe }}
-<style>{{ base_css }}</style>
+
+
+<style>
+  /* ---- basis uit je template ---- */
+  {{ base_css }}
+
+  /* =========================================================
+     UPLOADPAGINA – compacte, consistente UI + nette filepicker
+     ========================================================= */
+
+  /* Kleuren voor badges */
+  :root{ --ok:#16a34a; --warn:#eab308; --err:#dc2626; --field-h:50px; }
+
+  /* Titel */
+  h1{
+    margin:.25rem 0 1rem;
+    color:var(--brand);
+    font-size:clamp(1.6rem, 2.5vw + 1.2rem, 2.1rem);
+  }
+
+  /* Topbar (rechts: ingelogd + uitloggen) */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;
+  }
+  .topbar .logout{
+    background:
+      linear-gradient(
+        to right,
+        color-mix(in oklab, var(--surface) 70%, transparent 30%),
+        color-mix(in oklab, var(--surface) 55%, transparent 45%)
+      );
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    border:1px solid color-mix(in oklab, var(--surface) 85%, transparent 15%);
+    border-radius:999px;
+    box-shadow:0 4px 18px rgba(0,0,0,.12), inset 0 0 0 1px rgba(255,255,255,.06);
+    padding:.38rem .75rem;
+    display:inline-flex;gap:.35rem;align-items:center;
+    color:var(--text)!important;
+    max-width:100%;
+  }
+  .topbar .logout a{
+    color:var(--brand)!important;font-weight:700;text-decoration:none;opacity:.95
+  }
+  .topbar .logout a:hover{ text-decoration:underline; opacity:1 }
+
+  @media (prefers-color-scheme: dark){
+    .topbar .logout{
+      background:
+        linear-gradient(
+          to right,
+          color-mix(in oklab, var(--surface) 50%, transparent 50%),
+          color-mix(in oklab, var(--surface) 35%, transparent 65%)
+        );
+      border-color:rgba(255,255,255,.10);
+      box-shadow:0 4px 18px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+    .topbar .logout a{ color:var(--brand-2)!important }
+  }
+
+  /* Grid helpers */
+  .grid{display:grid;gap:1rem}
+  .cols-2{grid-template-columns:1fr 1fr}
+  @media (max-width:760px){ .cols-2{grid-template-columns:1fr} }
+
+  /* Labels en subtitels */
+  .card{color:var(--text)}
+  label{color:var(--text)}
+  .smallmuted{color:var(--muted)}
+
+  /* Toggle (bestanden/map) */
+  .toggle{display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem}
+  .toggle label{display:inline-flex;gap:.5rem;align-items:center;font-weight:600;cursor:pointer;color:var(--text)}
+  .toggle input{accent-color:var(--brand)}
+
+  /* Invoervelden – uniforme hoogte */
+  .input,
+  input[type=text],
+  input[type=password],
+  input[type=email],
+  input[type=number],
+  select,
+  textarea{
+    height: var(--field-h);
+    padding: 0 1rem;
+    line-height: 1.2;
+    box-sizing: border-box;
+  }
+
+  /* ===== Mooie FILEPICKER (knop + bestandsnamen) ===== */
+  .filepicker{ margin-bottom:.6rem; }
+  .filepicker__control{
+    position: relative;
+    height: var(--field-h);
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: color-mix(in oklab, var(--surface-2) 90%, white 10%);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: .75rem;
+    padding: 0 .75rem 0 .6rem; /* ruimte voor knop + tekst */
+    overflow: hidden;
+  }
+
+/* Voeg dit toe aan de bestaande CSS (onder .filepicker__control) */
+.filepicker {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.filepicker__control {
+  height: var(--field-h);
+  display: flex;
+  align-items: center;
+}
+  
+  
+  /* onzichtbare native input bovenop – klikt overal */
+  .filepicker__control > input[type=file]{
+    position:absolute; inset:0; opacity:0; cursor:pointer;
+  }
+  /* knopje links */
+  .btn.ghost{
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--line);
+    box-shadow: none;
+    padding: .55rem .9rem;
+    border-radius: 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  /* bestandsnamen rechts */
+  .filepicker__name{
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Dark mode filepicker */
+  @media (prefers-color-scheme: dark){
+    .filepicker__control{
+      background: color-mix(in oklab, var(--surface-2) 92%, black 8%);
+      border-color:#374151;
+    }
+    .btn.ghost{ background: var(--surface); border-color:#374151; }
+  }
+
+  /* File list (na selectie) */
+  .filelist{margin-top:.8rem}
+  .filecard{
+    display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;
+    padding:.75rem 1rem;border:1px solid var(--line);border-radius:12px;
+    background:color-mix(in oklab, var(--surface) 86%, white 14%); color:var(--text)
+  }
+  .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filecard .meta{color:var(--muted);font-size:.9rem}
+  .filecard .act{display:flex;gap:.4rem}
+  .badge{display:inline-block;padding:.22rem .55rem;border-radius:999px;font-size:.78rem;font-weight:700}
+  .badge.ok{background:color-mix(in oklab, var(--ok) 16%, white 84%);color:var(--ok)}
+  .badge.err{background:color-mix(in oklab, var(--err) 16%, white 84%);color:var(--err)}
+  .badge.warn{background:color-mix(in oklab, var(--warn) 16%, white 84%);color:var(--warn)}
+  .row{display:flex;align-items:center;gap:.6rem}
+
+  /* Progress */
+  .progress{
+    height:12px;margin:.25rem 0 0;border-radius:999px;background:#eef2ff;overflow:hidden;border:1px solid #dbe5f4
+  }
+  .progress > i{
+    display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,#0f4c98,#1e90ff);
+    transition:width .12s ease
+  }
+
+  /* Total box */
+  .totalbox{margin-top:1rem}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:.25rem .75rem;font-size:.92rem}
+  .kv strong{font-weight:700;color:var(--text)}
+  .kv span{color:var(--muted)}
+
+  /* Buttons */
+  .btn.icon{display:inline-flex;align-items:center;gap:.4rem}
+
+  /* Knoppen-animatie */
+  .btn{
+    position: relative;
+    transform: translateY(0);
+    transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+    box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  }
+  .btn:hover{
+    transform: translateY(-2px);
+    filter: brightness(1.04);
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+  }
+  .btn:active{
+    transform: translateY(0);
+    filter: brightness(0.98);
+    box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  }
+
+  /* Mobiel */
+  @media (max-width:460px){
+    .topbar{ align-items:flex-start }
+    .topbar .logout{ font-size:.95rem }
+    .btn.ghost{ padding:.4rem .7rem; font-size:.9rem }
+  }
+</style>
+
+
 </head><body>
+{{ bg|safe }}
 
 <div class="wrap">
-  <div class="card">
-    <div class="grid cols-2">
-      <h1 style="margin:0">Bestanden delen</h1>
-      <div style="text-align:right;align-self:center"><span class="small">Ingelogd als {{ user }}</span> • <a href="{{ url_for('logout') }}" class="small" style="color:#9ecbff">Uitloggen</a></div>
-    </div>
+  <div class="topbar">
+    <h1>Bestanden delen met Olde Hanter</h1>
+<div class="logout">Ingelogd als <span class="mail">{{ user }}</span> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
 
+  </div>
+
+  <div class="card">
     <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
       <div>
         <label>Uploadtype</label>
-        <div style="display:flex;gap:.9rem;align-items:center;margin:.25rem 0 .6rem">
-          <label><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-          <label><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
+        <div class="toggle">
+          <label id="lblFiles"><input id="modeFiles" type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+          <label id="lblFolder"><input id="modeFolder" type="radio" name="upmode" value="folder"> Map</label>
         </div>
 
-        <div id="fileRow" class="filepicker">
-          <label for="fileInput">Kies bestand(en)</label>
-          <div class="filepicker__control">
-            <button type="button" class="btn ghost" aria-hidden="true">Kies bestanden</button>
-            <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
-            <input id="fileInput" type="file" multiple>
-          </div>
-          <div class="small" style="margin-top:.45rem">Tip: gebruik de map-stand voor complete mappen met submappen.</div>
-        </div>
+<div id="fileRow" class="filepicker">
+  <label for="fileInput">Kies bestand(en)</label>
+  <div class="filepicker__control">
+    <button type="button" class="btn ghost" aria-hidden="true">Kies bestanden</button>
+    <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
+    <input id="fileInput" type="file" multiple>
+  </div>
+</div>
 
-        <div id="folderRow" class="filepicker" style="display:none">
-          <label for="folderInput">Kies een map</label>
-          <div class="filepicker__control">
-            <button type="button" class="btn ghost" aria-hidden="true">Kies map</button>
-            <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
-            <input id="folderInput" type="file" multiple webkitdirectory directory>
-          </div>
-        </div>
+<div id="folderRow" class="filepicker" style="display:none">
+  <label for="folderInput">Kies een map</label>
+  <div class="filepicker__control">
+    <button type="button" class="btn ghost" aria-hidden="true">Kies map</button>
+    <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
+    <input id="folderInput" type="file" multiple webkitdirectory directory>
+  </div>
+</div>
+
+
+        <div class="smallmuted">Tip: gebruik de map-stand voor het uploaden van complete mappen met submappen.</div>
       </div>
 
       <div class="grid">
@@ -497,59 +753,68 @@ INDEX_HTML = """
             <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
           </div>
         </div>
-        <div>
-          <button id="btnStart" class="btn" type="submit">Uploaden</button>
+
+        <!-- Alleen nog de Uploaden-knop (Pauzeer/Annuleer verwijderd) -->
+        <div class="row" style="gap:.6rem;flex-wrap:wrap">
+          <button id="btnStart" class="btn icon" type="submit"><span>Uploaden</span></button>
         </div>
       </div>
     </form>
 
-    <div class="card" style="margin-top:1rem">
-      <div class="grid cols-2">
-        <div><strong>Totaalvoortgang</strong><div class="progress" id="totalBar" style="margin-top:.4rem"><i></i></div></div>
-        <div>
-          <div class="grid" style="grid-template-columns:auto 1fr">
-            <div class="small">Status</div><div id="totalStatus" class="small">Nog niet gestart</div>
-            <div class="small">Snelheid</div><div id="totalSpeed"  class="small">–</div>
-            <div class="small">ETA</div><div id="totalEta" class="small">–</div>
-          </div>
-        </div>
+    <div class="totalbox">
+      <div class="row" style="justify-content:space-between">
+        <strong style="color:var(--text)">Totaalvoortgang</strong>
+        <span id="totalPct" class="badge warn">0%</span>
+      </div>
+      <div class="progress" id="totalBar"><i></i></div>
+      <div class="kv" style="margin-top:.35rem">
+        <strong>Status</strong><span id="totalStatus">Nog niet gestart</span>
+        <strong>Snelheid</strong><span id="totalSpeed">–</span>
+        <strong>ETA</strong><span id="totalEta">–</span>
       </div>
     </div>
 
     <div class="filelist" id="fileList" style="display:none"></div>
     <div id="result" style="margin-top:1rem"></div>
   </div>
-  <p class="small" style="text-align:center;margin-top:.8rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
 <script>
-// ===== config =====
-const FILE_PAR = 3; // aantal bestanden tegelijk uploaden
-
 // ===== helpers =====
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0,x=n||0;while(x>=1024&&i<u.length-1){x/=1024;i++;}return(i?x.toFixed(1):Math.round(x))+" "+u[i];}
+function sanitizePath(p){const parts=(p||"").split('/').map(n=>{const d=n.lastIndexOf('.');const b=d>=0?n.slice(0,d):n;const e=d>=0?n.slice(d):'';let s=b.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w.\-]+/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');if(s.length>160)s=s.slice(0,160);return(s||'file')+e.replace(/[^.\w-]/g,'');});return parts.join('/');}
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-// DOM refs
-const modeFiles  = document.getElementById('modeFiles');
+// ===== DOM =====
+const modeFiles = document.getElementById('modeFiles');
 const modeFolder = document.getElementById('modeFolder');
-const fileRow    = document.getElementById('fileRow');
-const folderRow  = document.getElementById('folderRow');
-const fileInput  = document.getElementById('fileInput');
-const folderInput= document.getElementById('folderInput');
+const lblFolder = document.getElementById('lblFolder');
+const fileRow = document.getElementById('fileRow');
+const folderRow = document.getElementById('folderRow');
+const fileInput = document.getElementById('fileInput');
+const folderInput = document.getElementById('folderInput');
 
-const form       = document.getElementById('form');
-const totalBar   = document.getElementById('totalBar').querySelector('i');
-const totalStatus= document.getElementById('totalStatus');
+const form = document.getElementById('form');
+const totalBar = document.getElementById('totalBar').querySelector('i');
+const totalPct = document.getElementById('totalPct');
+const totalStatus = document.getElementById('totalStatus');
 const totalSpeed = document.getElementById('totalSpeed');
-const totalEta   = document.getElementById('totalEta');
-const fileList   = document.getElementById('fileList');
-const resBox     = document.getElementById('result');
-const btnStart   = document.getElementById('btnStart');
+const totalEta = document.getElementById('totalEta');
+const fileList = document.getElementById('fileList');
+const resBox = document.getElementById('result');
+const btnStart = document.getElementById('btnStart');
 
+// iOS: directory input werkt niet -> verberg map-optie
+(function(){
+  const ua = navigator.userAgent||navigator.vendor||window.opera;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  if(isIOS){ modeFolder.disabled=true; lblFolder.style.display='none'; modeFiles.checked=true; }
+})();
 function applyMode(openPicker){
   const mode = document.querySelector('input[name="upmode"]:checked').value;
-  fileRow.style.display   = (mode==='files') ? '' : 'none';
+  fileRow.style.display = (mode==='files') ? '' : 'none';
   folderRow.style.display = (mode==='folder') ? '' : 'none';
   if(openPicker===true){
     try{ (mode==='files' ? fileInput : folderInput).click(); }catch(e){}
@@ -558,32 +823,22 @@ function applyMode(openPicker){
 document.querySelectorAll('input[name="upmode"]').forEach(r=>r.addEventListener('change',()=>applyMode(true)));
 applyMode(false);
 
-let state = { files:[], token:null, totalBytes:1, startedAt:0, paused:false };
+// ===== State =====
+let state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
 
-function setTotal(pct,label){
-  const p=Math.max(0,Math.min(100,pct||0));
-  totalBar.style.width=p+'%';
-  if(label) totalStatus.textContent=label;
-}
-function setSpeedAndEta(uploaded,total,startedAt){
-  const dt=(performance.now()-startedAt)/1000;
-  const speed=dt>0?uploaded/dt:0;
-  const remain=Math.max(0,total-uploaded);
-  const eta=speed>0?remain/speed:0;
-  totalSpeed.textContent=speed?fmtBytes(speed)+'/s':'–';
-  totalEta.textContent=speed?(eta>3600?(eta/3600).toFixed(1)+' u':(eta/60).toFixed(1)+' min'):'–';
-}
+// ===== UI helpers =====
+function setTotal(pct,label){const p=Math.max(0,Math.min(100,pct||0)); totalBar.style.width=p+'%'; totalPct.textContent=Math.round(p)+'%'; totalPct.className='badge '+(p>=100?'ok':(p>0?'warn':'')); if(label) totalStatus.textContent=label; }
+function setSpeedAndEta(uploaded,total,startedAt){const dt=(performance.now()-startedAt)/1000; const speed=dt>0?uploaded/dt:0; const remain=Math.max(0,total-uploaded); const eta=speed>0?remain/speed:0; totalSpeed.textContent=speed?fmtBytes(speed)+'/s':'–'; totalEta.textContent=speed?(eta>3600?(eta/3600).toFixed(1)+' u':(eta/60).toFixed(1)+' min'):'–';}
 function addFileRow(file, path){
   fileList.style.display='';
   const card = document.createElement('div');
   card.className = 'filecard';
-  card.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:.4rem .8rem;padding:.75rem 1rem;border:1px solid #2c3554;border-radius:12px;background:#121a33;color:#e5e7eb;margin-top:.6rem';
   card.innerHTML = `
-    <div class="name" title="${path}" style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${path}</div>
+    <div class="name" title="${path}">${path}</div>
     <div class="act"><span class="badge warn" data-role="badge">Wacht…</span></div>
-    <div class="meta small">${fmtBytes(file.size)} • ${file.type || 'octet-stream'}</div><div></div>
+    <div class="meta">${fmtBytes(file.size)} • ${file.type || 'octet-stream'}</div><div></div>
     <div class="progress"><i style="width:0%"></i></div>
-    <div class="small" data-role="label">Nog niet gestart</div>
+    <div class="smallmuted" data-role="label">Nog niet gestart</div>
   `;
   fileList.appendChild(card);
   return {
@@ -597,7 +852,7 @@ function resetUploadUI(){
   fileList.innerHTML = ''; fileList.style.display = 'none';
   resBox.innerHTML = '';
   setTotal(0, 'Nog niet gestart'); totalSpeed.textContent = '–'; totalEta.textContent = '–';
-  state = { files:[], token:null, totalBytes:1, startedAt:0, paused:false };
+  state = { files:[], token:null, totalBytes:1, uploadedBytes:0, startedAt:0, paused:false };
 }
 function selectedMode(){ return document.querySelector('input[name="upmode"]:checked').value; }
 function currentFiles(){ const m=selectedMode(); return Array.from(m==='files'?(fileInput.files||[]):(folderInput.files||[])); }
@@ -643,7 +898,7 @@ function putWithProgress(url,blob,onProgress,onAbortSetter){
   });
 }
 
-// ===== uploaders =====
+// ===== uploader =====
 async function uploadOneSmall(token,file,rel,ui){
   const init=await putInit(token,file.name,file.type);
   ui.badge.textContent="Uploaden…"; ui.label.textContent="Directe upload";
@@ -678,8 +933,8 @@ async function runUpload(){
   const filesRaw=currentFiles();
   if(!filesRaw.length){ alert("Kies eerst bestand(en) of map"); try{ (selectedMode()==='files'?fileInput:folderInput).click(); }catch(e){} return; }
 
-  state.files = filesRaw.map(f=>{ const rp = (selectedMode()==='folder' ? (f.webkitRelativePath||f.name) : f.name); const ui=addFileRow(f,rp); return {file:f, rel:rp, ui}; });
-  state.totalBytes = state.files.reduce((a,x)=>a+x.file.size,0)||1; state.startedAt=performance.now();
+  state.files = filesRaw.map(f=>{ const rp=sanitizePath(relP(f)); const ui=addFileRow(f,rp); return {file:f, rel:rp, ui}; });
+  state.totalBytes = state.files.reduce((a,x)=>a+x.file.size,0)||1; state.uploadedBytes=0; state.startedAt=performance.now();
   setTotal(0,"Voorbereiden…"); totalSpeed.textContent='–'; totalEta.textContent='–'; resBox.innerHTML="";
 
   const expiryDays=document.getElementById('expDays').value;
@@ -687,50 +942,55 @@ async function runUpload(){
   const title=document.getElementById('title').value||'';
   state.token = await packageInit(expiryDays,password,title);
 
-  // Totaalbalk uit alle per-file balkjes (werkt met parallel)
-  function recomputeTotal(){
-    let sum=0;
-    for(const it of state.files){
-      const per = parseFloat(it.ui.fill.style.width)||0;
-      sum += it.file.size * (per/100);
-    }
-    setTotal((sum/state.totalBytes)*100, "Uploaden…");
-    setSpeedAndEta(sum, state.totalBytes, state.startedAt);
-  }
-  const totalTimer = setInterval(recomputeTotal, 150);
+  for(const item of state.files){
+    if(state.paused) while(state.paused){ await sleep(150); }
+    const startUploaded=state.uploadedBytes;
 
-  async function uploadItem(it){
+    const updateTotal=()=>{
+      const per=parseFloat(item.ui.fill.style.width)||0;
+      const added=Math.round(item.file.size*per/100);
+      const cur=startUploaded+added;
+      setTotal((cur/state.totalBytes)*100,"Uploaden…");
+      const uploadedSum = state.uploadedBytes + added;
+      setSpeedAndEta(uploadedSum, state.totalBytes, state.startedAt);
+    };
+    Object.defineProperty(item.ui.fill.style,'width',{set(v){this.setProperty('width',v);requestAnimationFrame(updateTotal);},get(){return this.getPropertyValue('width');}});
+
     try{
-      if(it.file.size < 5*1024*1024) await uploadOneSmall(state.token, it.file, it.rel, it.ui);
-      else await uploadOneMPU(state.token, it.file, it.rel, it.ui);
+      if(item.file.size < 5*1024*1024) await uploadOneSmall(state.token,item.file,item.rel,item.ui);
+      else await uploadOneMPU(state.token,item.file,item.rel,item.ui);
+      state.uploadedBytes += item.file.size;
+      setTotal((state.uploadedBytes/state.totalBytes)*100,"Uploaden…");
+      setSpeedAndEta(state.uploadedBytes, state.totalBytes, state.startedAt);
     }catch(err){
-      it.ui.badge.textContent="Fout"; it.ui.badge.className='badge err';
-      it.ui.label.textContent=(err&&err.message)?err.message:"Onbekende fout";
+      if(String(err||'').includes("geannuleerd")){
+        item.ui.badge.textContent="Geannuleerd"; item.ui.badge.className='badge err'; item.ui.label.textContent="Onderbroken"; throw err;
+      }else{
+        item.ui.badge.textContent="Fout"; item.ui.badge.className='badge err'; item.ui.label.textContent=(err&&err.message)?err.message:"Onbekende fout";
+      }
     }
   }
-  let next=0;
-  async function worker(){
-    while(true){
-      const i=next++; if(i>=state.files.length) break;
-      await uploadItem(state.files[i]);
-    }
-  }
-  await Promise.all(Array.from({length:Math.min(FILE_PAR,state.files.length)}, worker));
-  clearInterval(totalTimer); recomputeTotal();
 
   setTotal(100,"Klaar"); totalSpeed.textContent='–'; totalEta.textContent='–';
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", state.token);
-  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link</strong><div style="display:flex;gap:.5rem;margin-top:.35rem"><input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly><button class="btn" type="button" id="copyBtn">Kopieer</button><span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span></div></div>`;
+  resBox.innerHTML=`<div class="card" style="margin-top:1rem"><strong>Deelbare link</strong><div class="row" style="gap:.5rem;margin-top:.35rem"><input id="shareLinkInput" class="input" style="flex:1" value="${link}" readonly><button class="btn" type="button" id="copyBtn">Kopieer</button><span id="copyOk" class="small" style="display:none;margin-left:.25rem;">Gekopieerd!</span></div></div>`;
   const copyBtn=document.getElementById('copyBtn'); const copyOk=document.getElementById('copyOk'); const input=document.getElementById('shareLinkInput');
   copyBtn.addEventListener('click',async()=>{try{await (navigator.clipboard?.writeText(input.value));}catch(_){input.select();document.execCommand?.('copy');}copyOk.style.display='inline';setTimeout(()=>copyOk.style.display='none',1600);});
 }
 
-// events
-fileInput.addEventListener('change', ()=>{ fileList.innerHTML=''; resBox.innerHTML=''; setTotal(0,'Nog niet gestart'); });
-folderInput.addEventListener('change', ()=>{ fileList.innerHTML=''; resBox.innerHTML=''; setTotal(0,'Nog niet gestart'); });
+// ===== events =====
+function maybeResetOnNewSelection(){ resetUploadUI(); }
+fileInput.addEventListener('change', maybeResetOnNewSelection);
+folderInput.addEventListener('change', maybeResetOnNewSelection);
+document.querySelectorAll('input[name="upmode"]').forEach(r=> r.addEventListener('change', maybeResetOnNewSelection));
+
+// Submit
 form.addEventListener('submit', async (e)=>{
-  e.preventDefault(); btnStart.disabled = true;
-  try{ await runUpload(); } finally { btnStart.disabled = false; }
+  e.preventDefault();
+  btnStart.disabled = true;
+  try { await runUpload(); }
+  catch(_) { totalStatus.textContent = 'Geannuleerd'; }
+  finally { btnStart.disabled = false; }
 });
 </script>
 
@@ -738,85 +998,233 @@ form.addEventListener('submit', async (e)=>{
 """
 
 PACKAGE_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Download – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
-<div class="wrap">
-  <div class="card">
-    <h1>Download</h1>
-    <div class="small" style="margin:.4rem 0 1rem">
-      <div><strong>Onderwerp:</strong> {{ title or token }}</div>
-      <div><strong>Verloopt:</strong> {{ expires_human }}</div>
-      <div><strong>Totaal:</strong> {{ total_human }}</div>
-      <div><strong>Bestanden:</strong> {{ items|length }}</div>
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Download – Olde Hanter</title>
+  {{ head_icon|safe }}
+
+  <style>
+    /* ====== Basis uit je template ====== */
+    {{ base_css }}
+
+    /* ====== Downloadpagina (layout) ====== */
+    html,body{height:100%;overflow-x:hidden}
+    body{margin:0}
+    .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
+    .card{position:relative;z-index:1;margin-bottom:1.2rem}
+    h1{margin:.2rem 0 1rem;color:var(--brand)}
+    .meta{margin:.6rem 0 1rem;color:var(--muted)}
+    .meta strong{color:var(--text)}
+    .footer{margin-top:.8rem}
+
+    /* ====== Knoppen ====== */
+    .btn{
+      padding:.85rem 1.15rem;border-radius:12px;background:var(--brand);
+      color:#fff;text-decoration:none;font-weight:700;border:0;display:inline-block
+    }
+    .btn.secondary{background:#0f4c98}
+    .btn.mini{padding:.42rem .72rem;font-size:.82rem;border-radius:10px;line-height:1}
+    .btn{
+      position:relative;transform:translateY(0);
+      transition:transform .15s ease,filter .15s ease,box-shadow .15s ease;
+      box-shadow:0 6px 16px rgba(0,0,0,.18)
+    }
+    .btn:hover{
+      transform:translateY(-2px);filter:brightness(1.04);
+      box-shadow:0 10px 24px rgba(0,0,0,.22)
+    }
+    .btn:active{transform:translateY(0);filter:brightness(.98)}
+    .table .btn.mini{background:color-mix(in oklab, var(--brand) 74%, white 26%);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+    .table .btn.mini:hover{filter:brightness(1.06)}
+    .table .btn.mini:active{transform:translateY(1px)}
+
+    /* ====== Tabel (mooie 'card'-rijen) ====== */
+    .table{width:100%;border-collapse:separate;border-spacing:0 10px}
+    .table thead th{font-weight:700;color:var(--text);opacity:.9;padding:.4rem .7rem}
+    .table tbody tr{position:relative}
+    .table tbody tr::before{
+      content:"";position:absolute;inset:0;border-radius:14px;
+      background:color-mix(in oklab, var(--surface-2) 90%, black 10%);
+      border:1px solid color-mix(in oklab, var(--surface-2) 65%, black 35%);
+      box-shadow:0 6px 14px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04);
+      z-index:0;transition:transform .15s ease,background .15s ease,box-shadow .15s ease
+    }
+    .table tbody tr:hover::before{
+      background:color-mix(in oklab, var(--surface-2) 84%, black 16%);
+      transform:translateY(-1px);
+      box-shadow:0 10px 22px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.05)
+    }
+    .table tbody td{position:relative;z-index:1;padding:.7rem .8rem;border-bottom:0}
+    .table td[data-label="Pad"]{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .table th.col-size,.table td.col-size,.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px;padding-right:.4rem}
+    .progress#bar{margin-top:.75rem}
+
+    /* ====== CTA ====== */
+    .cta{margin-top:.6rem}
+
+    /* ====== Dark mode finetuning ====== */
+    @media (prefers-color-scheme: dark){
+      .table tbody tr::before{
+        background:color-mix(in oklab, var(--surface-2) 94%, black 6%);
+        border-color:rgba(255,255,255,.12);
+        box-shadow:0 10px 26px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.03)
+      }
+      .table tbody tr:hover::before{
+        background:color-mix(in oklab, var(--surface-2) 90%, black 10%)
+      }
+    }
+
+  </style>
+</head>
+<body>
+  {{ bg|safe }}
+
+  <div class="wrap">
+    <div class="card">
+      <h1>Download</h1>
+      <div class="meta">
+        <div><strong>Onderwerp:</strong> {{ title or token }}</div>
+        <div><strong>Verloopt:</strong> {{ expires_human }}</div>
+        <div><strong>Totaal:</strong> {{ total_human }}</div>
+        <div><strong>Bestanden:</strong> {{ items|length }}</div>
+      </div>
+
+      {% if items|length == 1 %}
+        <a
+          class="btn"
+          id="dlSingle"
+          href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}"
+          download="{{ items[0]['name'] }}"
+          rel="noopener"
+        >Download</a>
+      {% else %}
+        <a
+          class="btn"
+          id="zipAll"
+          href="{{ url_for('stream_zip', token=token) }}"
+          download
+          rel="noopener"
+        >Alles downloaden (zip)</a>
+      {% endif %}
+
+      <div class="progress" id="bar" style="display:none"><i></i></div>
+      <div class="small" id="txt" style="display:none">Starten…</div>
+
+      {% if items|length > 1 %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Bestand</th>
+            <th>Pad</th>
+            <th class="col-size">Grootte</th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td data-label="Bestand">{{ it["name"] }}</td>
+            <td class="small" data-label="Pad">{{ it["path"] }}</td>
+            <td class="col-size" data-label="Grootte">{{ it["size_h"] }}</td>
+            <td data-label=""><a class="btn mini" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </div>
 
-    {% if items|length == 1 %}
-      <a class="btn" id="dlSingle" href="{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}" download="{{ items[0]['name'] }}">Download</a>
-    {% else %}
-      <a class="btn" id="zipAll" href="{{ url_for('stream_zip', token=token) }}" download>Alles downloaden (zip)</a>
-    {% endif %}
+    <div class="cta">
+      <a class="btn secondary" href="{{ url_for('contact') }}">Eigen transfer-oplossing aanvragen</a>
+    </div>
 
-    <div class="progress" id="bar" style="display:none;margin-top:.75rem"><i></i></div>
-    <div class="small" id="txt" style="display:none">Starten…</div>
-
-    {% if items|length > 1 %}
-    <table class="table" style="width:100%;border-collapse:separate;border-spacing:0 10px;margin-top:1rem">
-      <thead>
-        <tr><th>Bestand</th><th>Pad</th><th style="width:1%;white-space:nowrap">Grootte</th><th style="width:1%"></th></tr>
-      </thead>
-      <tbody>
-        {% for it in items %}
-        <tr style="background:#111a33;border:1px solid #2c3554;border-radius:14px">
-          <td>{{ it["name"] }}</td>
-          <td class="small" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it["path"] }}</td>
-          <td style="text-align:right;white-space:nowrap">{{ it["size_h"] }}</td>
-          <td><a class="btn" style="padding:.42rem .72rem;font-size:.82rem" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Download</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
+    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
-  <p class="small" style="text-align:center;margin-top:.8rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
 
-<script>
-const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
-function nativeDownload(url, name){ try{ const a=document.createElement('a'); a.href=url; if(name) a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); }catch(_){ location.href=url; } }
-async function streamToBlob(url, fallbackName){
-  try{
-    if(bar&&txt&&fill){ bar.style.display='block'; txt.style.display='block'; fill.style.width='0%'; txt.textContent='Starten…'; }
-    const res = await fetch(url, { credentials:'same-origin' });
-    if(!res.ok){ alert('Fout '+res.status); if(bar&&txt){ bar.style.display='none'; txt.style.display='none'; } return; }
-    const total = parseInt(res.headers.get('Content-Length')||'0',10);
-    const name  = res.headers.get('X-Filename') || fallbackName || 'download';
-    if(bar){ total ? bar.classList.remove('indet') : bar.classList.add('indet'); }
-    const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-    if(reader){
-      const chunks=[]; let received=0;
-      while(true){ const {done,value}=await reader.read(); if(done) break;
-        chunks.push(value); received+=value.length;
-        if(fill && txt){
-          if(total){ const p=Math.round(received/total*100); fill.style.width=p+'%'; txt.textContent=p+'%'; }
-          else { txt.textContent=(received/1024/1024).toFixed(1)+' MB…'; }
-        }
-      }
-      if(bar){ bar.classList.remove('indet'); } if(fill){ fill.style.width='100%'; } if(txt){ txt.textContent='Klaar'; }
-      const blob=new Blob(chunks); const u=URL.createObjectURL(blob); nativeDownload(u,name); URL.revokeObjectURL(u);
-      setTimeout(()=>{ if(bar&&txt){ bar.style.display='none'; txt.style.display='none'; } }, 800);
-      return;
+  <!-- ====== Download-progress script ====== -->
+  <script>
+    const bar  = document.getElementById('bar');
+    const fill = bar ? bar.querySelector('i') : null;
+    const txt  = document.getElementById('txt');
+
+    function nativeDownload(url, suggestedName){
+      try{
+        const a=document.createElement('a');
+        a.href=url; if(suggestedName) a.download=suggestedName;
+        a.rel='noopener'; a.target='_self'; document.body.appendChild(a);
+        a.click(); a.remove();
+      }catch(_){ window.location.href=url; }
     }
-    const blob=await res.blob(); const u=URL.createObjectURL(blob); nativeDownload(u,name); URL.revokeObjectURL(u);
-    if(bar&&txt){ bar.style.display='none'; txt.style.display='none'; }
-  }catch(err){ console.error(err); nativeDownload(url,null); if(bar&&txt){ bar.style.display='none'; txt.style.display='none'; } }
-}
-const dlBtn=document.getElementById('dlSingle'); if(dlBtn){ dlBtn.addEventListener('click',(e)=>{ e.preventDefault(); streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || ''); }); }
-</script>
 
-</body></html>
+    async function streamToBlob(url, fallbackName){
+      try{
+        if(bar && txt && fill){ bar.style.display='block'; txt.style.display='block'; fill.style.width='0%'; txt.textContent='Starten…'; }
+        const res = await fetch(url, { credentials: 'same-origin' });
+        if(!res.ok){
+          const xerr=res.headers.get('X-Error')||''; let body='';
+          try{ body=await res.text(); }catch(e){}
+          alert(`Fout ${res.status}${xerr?' – '+xerr:''}${body? '\\n\\n'+body : ''}`);
+          if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+          return;
+        }
+        const total = parseInt(res.headers.get('Content-Length')||'0',10);
+        const name  = res.headers.get('X-Filename') || fallbackName || 'download';
+
+        if(bar){ total ? bar.classList.remove('indet') : bar.classList.add('indet'); }
+
+        const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+        if(reader){
+          const chunks=[]; let received=0;
+          while(true){
+            const {done,value}=await reader.read(); if(done) break;
+            chunks.push(value); received+=value.length;
+            if(fill && txt){
+              if(total){
+                const p=Math.round(received/total*100);
+                fill.style.width=p+'%'; txt.textContent=p+'%';
+              }else{
+                txt.textContent=(received/1024/1024).toFixed(1)+' MB…';
+              }
+            }
+          }
+          if(bar){ bar.classList.remove('indet'); }
+          if(fill){ fill.style.width='100%'; }
+          if(txt){ txt.textContent='Klaar'; }
+
+          const blob=new Blob(chunks);
+          const u=URL.createObjectURL(blob);
+          nativeDownload(u,name);
+          URL.revokeObjectURL(u);
+          if(bar && txt) setTimeout(()=>{ bar.style.display='none'; txt.style.display='none'; },800);
+          return;
+        }
+
+        const blob=await res.blob();
+        const u=URL.createObjectURL(blob);
+        nativeDownload(u,name);
+        URL.revokeObjectURL(u);
+        if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+      }catch(err){
+        console.error('Stream fallback naar native:', err);
+        nativeDownload(url,null);
+        if(bar && txt){ bar.style.display='none'; txt.style.display='none'; }
+      }
+    }
+
+    const dlBtn=document.getElementById('dlSingle');
+    if(dlBtn){
+      dlBtn.addEventListener('click',(e)=>{
+        e.preventDefault();
+        streamToBlob(dlBtn.href, dlBtn.getAttribute('download') || '');
+      });
+    }
+  </script>
+</body>
+</html>
 """
-
-
 
 CONTACT_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
