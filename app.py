@@ -3,7 +3,7 @@
 
 # ========= MiniTransfer – Olde Hanter (met abonnementbeheer + PayPal webhook) =========
 # - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
-# - Upload (files/folders) naar B2 (S3) met voortgang
+# - Upload (files/folders) naar B2 (S3) met voortgangz
 # - Downloadpagina met zip-stream en precheck
 # - Contact/aanvraag met PayPal abonnement-knop (pas zichtbaar bij volledig geldig formulier)
 # - Abonnementbeheer: opslaan subscriptionID, opzeggen, plan wijzigen (revise)
