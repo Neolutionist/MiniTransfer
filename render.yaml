@@ -1,17 +1,43 @@
 services:
-- type: web
-name: minitransfer
-env: python
-region: oregon
-plan: starter
-buildCommand: "pip install -r requirements.txt"
-startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers=2 --threads=4 --timeout=120"
-envVars:
-- key: PYTHON_VERSION
-value: 3.11.9
-- key: SECRET_KEY
-generateValue: true
-disks:
-- name: uploads
-mountPath: /opt/render/project/src/uploads
-sizeGB: 1
+  - type: web
+    name: minitransfer
+    env: python
+    region: oregon
+    plan: starter
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: >
+      gunicorn app:app
+      --bind 0.0.0.0:$PORT
+      --workers=2
+      --threads=8
+      --timeout=120
+      --graceful-timeout=30
+      --access-logfile -
+      --error-logfile -
+
+    # Heel belangrijk voor Render: dit pad moet 200 OK geven
+    healthCheckPath: /health-s3
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Zet je S3-config hier neer (anders crasht de app tijdens import)
+      - key: S3_BUCKET
+        value: your-bucket
+      - key: S3_ENDPOINT_URL
+        value: https://your-s3-endpoint
+      - key: S3_REGION
+        value: eu-central-003
+
+      # Laat de app weten waar de persistente disk hangt (voor SQLite)
+      - key: DATA_DIR
+        value: /opt/render/project/src/uploads/data
+
+    disks:
+      - name: uploads
+        mountPath: /opt/render/project/src/uploads
+        sizeGB: 1
