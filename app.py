@@ -485,161 +485,178 @@ INDEX_HTML = """
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
-    html{-webkit-text-size-adjust:100%} body{overflow-x:hidden}
-    .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-    .card{overflow:hidden}
 
-    h1{color:var(--brand);margin:.25rem 0 1rem}
-    .topbar{display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap}
-    .logout{color:var(--muted);font-size:.9rem}.logout a{color:var(--brand);font-weight:600;text-decoration:none}
+    /* ====== Paneelstijl (strak) ====== */
+    .shell{max-width:980px;margin:6vh auto;padding:0 16px}
+    .pane{
+      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
+      background:color-mix(in oklab, var(--surface) 96%, black 4%);
+      border-radius:16px; overflow:hidden;
+      box-shadow:0 12px 28px rgba(0,0,0,.14);
+      backdrop-filter:saturate(1.05) blur(6px);
+    }
+    .pane__head{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:18px 20px;border-bottom:1px solid color-mix(in oklab, var(--surface-2) 60%, black 40%);
+    }
+    .pane__title{margin:0;color:var(--brand);font-size:1.25rem}
+    .pane__body{padding:18px 20px}
+    .meta{color:var(--muted);font-size:.92rem}
 
-    .grid{display:grid;gap:.8rem;min-width:0} /* compacter */
-    .grid>*{min-width:0}
+    /* ====== Forms ====== */
+    .grid{display:grid;gap:16px;min-width:0}
     .cols-2{grid-template-columns:1fr 1fr}
     @media (max-width:760px){.cols-2{grid-template-columns:1fr}}
-
-    label{display:block;margin:.45rem 0 .3rem;font-weight:600} /* compacter */
-    .input,select{
-      width:100%;max-width:100%;
-      padding:.75rem .9rem;border-radius:12px;border:1px solid var(--line);
-      background:color-mix(in oklab,var(--surface-2) 90%,white 10%);box-sizing:border-box
+    label{display:block;margin:0 0 6px;font-weight:600}
+    .input, select{
+      width:100%;max-width:100%;box-sizing:border-box;
+      padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+      background:color-mix(in oklab, var(--surface-2) 92%, white 8%);
     }
+    .row{display:flex;align-items:center;gap:10px}
 
-    .toggle{display:flex;gap:1rem;align-items:center;margin:0 0 .3rem} /* minder ruimte */
-    .toggle label{display:flex;gap:.45rem;align-items:center;font-weight:600;cursor:pointer}
+    /* Uploadtype compact + dicht bij picker */
+    .toggle{display:flex;gap:18px;align-items:center}
+    .toggle label{display:flex;gap:8px;align-items:center;font-weight:600;cursor:pointer}
+    .block-gap-xs{margin-top:6px}
 
-    /* filepicker – dichter onder uploadtype */
-    .filepicker{display:flex;flex-direction:column;min-width:0;margin-top:.2rem}
-    .filepicker__control{
-      position:relative;display:flex;align-items:center;gap:.6rem;
-      border:1px solid var(--line);border-radius:12px;
-      background:color-mix(in oklab,var(--surface-2) 90%,white 10%);
-      height:42px;padding:0 .65rem;min-width:0
+    /* File/Folder picker */
+    .picker{display:flex;flex-direction:column;gap:6px}
+    .picker__ctrl{
+      position:relative;display:flex;align-items:center;gap:10px;
+      border:1px solid var(--line);border-radius:12px;height:42px;padding:0 10px;
+      background:color-mix(in oklab, var(--surface-2) 90%, white 10%);min-width:0
     }
-    .filepicker__control input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:.5rem .8rem;font-size:.9rem;white-space:nowrap}
-    .filepicker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+    .picker__ctrl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .picker__btn{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+    .picker__name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 
-    /* file-lijst + uitlijning badge */
-    .filelist{margin-top:.6rem}
-    .filecard{
-      display:grid;grid-template-columns:1fr auto;align-items:center;
-      gap:.25rem .8rem;padding:.6rem .8rem;border:1px solid var(--line);border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);min-width:0
+    /* Bestandenlijst */
+    .filelist{display:grid;gap:10px;margin-top:10px}
+    .frow{
+      display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 14px;
+      padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface) 95%, black 5%);
     }
-    .filecard .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
-    .filecard .meta{color:var(--muted);font-size:.88rem}
-    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.18rem .5rem;border-radius:999px;font-size:.78rem;font-weight:700;line-height:1;vertical-align:middle}
-    .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#16a34a}
-    .badge.err{background:color-mix(in oklab,#dc2626 16%,white 84%);color:#dc2626}
-    .badge.warn{background:color-mix(in oklab,#eab308 16%,white 84%);color:#eab308}
+    .frow .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .frow .meta{font-size:.88rem}
+    .badge{display:inline-flex;align-items:center;justify-content:center;padding:3px 9px;border-radius:999px;font-size:.78rem;font-weight:700;line-height:1}
+    .badge.ok{background:color-mix(in oklab,#16a34a 16%,white 84%);color:#166534}
+    .badge.warn{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309}
+    .badge.err{background:color-mix(in oklab,#dc2626 18%,white 82%);color:#991b1b}
 
-    /* progress – gelijk uiterlijk bij totaal */
-    .progress{height:14px;background:#eef2ff;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;margin-top:.35rem}
+    /* Progress */
+    .progress{height:12px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
     .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
 
-    .row{display:flex;align-items:center;gap:.6rem}
-    .row.wrap{flex-wrap:wrap}
-    .row .input{flex:1;min-width:0}
+    /* Totaalrij strak uitgelijnd */
+    .total-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 6px}
+    #totalPct.badge{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309}
 
-    .btn{padding:.8rem 1rem;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.small{padding:.45rem .7rem;font-size:.88rem}
-
-    /* Totaal-header: badge oranje en horizontaal gelijk met “Klaar” in file-rijen */
-    .total-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.1rem}
-    #totalPct.badge{background:color-mix(in oklab,#f59e0b 18%,white 82%);color:#b45309} /* oranje */
-    
-    /* Compacte “Deelbare link” */
-    .share-card{padding:.8rem .9rem;border-radius:14px;background:rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.1)}
-    .share-row{display:flex;align-items:center;gap:.5rem}
-    .share-row .input{padding:.55rem .7rem;height:auto}
+    /* Deelbare link – strak/compact */
+    .share{margin-top:12px}
+    .share__card{
+      display:flex;flex-direction:column;gap:8px;
+      padding:10px 12px;border-radius:12px;background:color-mix(in oklab,var(--surface-2) 90%, black 10%);
+      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
+    }
+    .share__row{display:flex;align-items:center;gap:8px}
+    .share__row .input{padding:10px 12px}
+    .btn{padding:11px 14px;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%, black 15%));color:#fff;font-weight:700;cursor:pointer}
+    .btn.small{padding:8px 10px;font-size:.88rem}
   </style>
 </head>
 <body>
   {{ bg|safe }}
-  <div class="wrap">
-    <div class="topbar">
-      <h1>Bestanden delen met Olde Hanter</h1>
-      <div class="logout">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-    </div>
-
-    <div class="card">
-      <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
-        <div>
-          <label>Uploadtype</label>
-          <div class="toggle">
-            <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
-            <label id="folderLabel"><input type="radio" name="upmode" value="folder"> Map</label>
-          </div>
-
-          <div id="fileRow" class="filepicker">
-            <label for="fileInput">Kies bestand(en)</label>
-            <div class="filepicker__control">
-              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
-              <span id="fileName" class="filepicker__name">Nog geen bestanden gekozen</span>
-              <input id="fileInput" type="file" multiple>
-            </div>
-          </div>
-
-          <div id="folderRow" class="filepicker" style="display:none">
-            <label for="folderInput">Kies een map</label>
-            <div class="filepicker__control">
-              <button type="button" id="btnFolder" class="btn ghost">Kies map</button>
-              <span id="folderName" class="filepicker__name">Nog geen map gekozen</span>
-              <input id="folderInput" type="file" multiple webkitdirectory directory>
-            </div>
-            <div class="small" style="color:var(--muted)">Let op: mapselectie werkt niet op iOS.</div>
-          </div>
-        </div>
-
-        <div class="grid">
-          <div>
-            <label for="title">Onderwerp (optioneel)</label>
-            <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
-          </div>
-          <div class="grid cols-2">
-            <div>
-              <label for="expDays">Verloopt na</label>
-              <select id="expDays" class="input">
-                <option value="1">1 dag</option><option value="3">3 dagen</option>
-                <option value="7">7 dagen</option><option value="30" selected>30 dagen</option>
-                <option value="60">60 dagen</option><option value="365">1 jaar</option>
-              </select>
-            </div>
-            <div>
-              <label for="pw">Wachtwoord (optioneel)</label>
-              <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-            </div>
-          </div>
-          <div class="row" style="margin-top:.25rem">
-            <button id="btnStart" class="btn" type="submit">Uploaden</button>
-          </div>
-        </div>
-      </form>
-
-      <div class="filelist" id="fileList"></div>
-
-      <div class="totalbox" style="margin-top:.6rem">
-        <div class="total-header">
-          <strong style="color:var(--text)">Totaalvoortgang</strong>
-          <span id="totalPct" class="badge">0%</span>
-        </div>
-        <div class="progress"><i id="totalFill"></i></div>
-        <div class="small" id="totalStatus" style="margin-top:.25rem">Nog niet gestart</div>
+  <div class="shell">
+    <div class="pane">
+      <div class="pane__head">
+        <h2 class="pane__title">Bestanden delen met Olde Hanter</h2>
+        <div class="meta">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
       </div>
 
-      <div id="result" style="margin-top:.8rem"></div>
-    </div>
+      <div class="pane__body">
+        <form id="form" class="grid cols-2" autocomplete="off" enctype="multipart/form-data">
+          <!-- Linkerkolom -->
+          <div class="grid">
+            <div>
+              <label>Uploadtype</label>
+              <div class="toggle">
+                <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+                <label id="folderLabel"><input type="radio" name="upmode" value="folder"> Map</label>
+              </div>
+            </div>
 
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+            <div id="fileRow" class="picker block-gap-xs">
+              <label for="fileInput">Kies bestand(en)</label>
+              <div class="picker__ctrl">
+                <button type="button" id="btnFiles" class="picker__btn">Kies bestanden</button>
+                <span id="fileName" class="picker__name">Nog geen bestanden gekozen</span>
+                <input id="fileInput" type="file" multiple>
+              </div>
+            </div>
+
+            <div id="folderRow" class="picker block-gap-xs" style="display:none">
+              <label for="folderInput">Kies een map</label>
+              <div class="picker__ctrl">
+                <button type="button" id="btnFolder" class="picker__btn">Kies map</button>
+                <span id="folderName" class="picker__name">Nog geen map gekozen</span>
+                <input id="folderInput" type="file" multiple webkitdirectory directory>
+              </div>
+              <div class="meta">Let op: mapselectie werkt niet op iOS.</div>
+            </div>
+          </div>
+
+          <!-- Rechterkolom -->
+          <div class="grid">
+            <div>
+              <label for="title">Onderwerp (optioneel)</label>
+              <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+            </div>
+            <div class="grid cols-2">
+              <div>
+                <label for="expDays">Verloopt na</label>
+                <select id="expDays" class="input">
+                  <option value="1">1 dag</option>
+                  <option value="3">3 dagen</option>
+                  <option value="7">7 dagen</option>
+                  <option value="30" selected>30 dagen</option>
+                  <option value="60">60 dagen</option>
+                  <option value="365">1 jaar</option>
+                </select>
+              </div>
+              <div>
+                <label for="pw">Wachtwoord (optioneel)</label>
+                <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+              </div>
+            </div>
+            <div class="row"><button id="btnStart" class="btn" type="submit">Uploaden</button></div>
+          </div>
+        </form>
+
+        <!-- Lijst -->
+        <div class="filelist" id="fileList"></div>
+
+        <!-- Totaalvoortgang -->
+        <div class="total" style="margin-top:12px">
+          <div class="total-head">
+            <strong>Totaalvoortgang</strong>
+            <span id="totalPct" class="badge">0%</span>
+          </div>
+          <div class="progress"><i id="totalFill"></i></div>
+          <div class="meta" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
+        </div>
+
+        <!-- Deelbare link -->
+        <div id="result" class="share"></div>
+      </div>
+    </div>
   </div>
 
 <script>
-/* ===== iOS detect ===== */
+/* ==== functionaliteit (ongewijzigd) ==== */
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const FILE_PAR=3;
 
-/* Elements */
 const folderLabel=document.getElementById('folderLabel');
 const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
 const fileInput=document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
@@ -649,31 +666,20 @@ const fileList=document.getElementById('fileList');
 const totalFill=document.getElementById('totalFill'), totalPct=document.getElementById('totalPct'), totalStatus=document.getElementById('totalStatus');
 const resBox=document.getElementById('result');
 
-/* iOS: map verbergen */
 if(isIOS){ folderLabel.style.display='none'; }
 
-/* ======= UI gedrag ======= */
-/* map/file radiokeuze – open direct juiste verkenner */
 document.querySelectorAll('input[name=upmode]').forEach(r=>{
   r.addEventListener('change',()=>{
     const mode=document.querySelector('input[name=upmode]:checked').value;
     const useFolder = mode==='folder' && !isIOS;
     fileRow.style.display = useFolder ? 'none' : '';
     folderRow.style.display = useFolder ? '' : 'none';
-    // Open de juiste picker meteen
-    setTimeout(()=>{
-      try{
-        (useFolder ? folderInput : fileInput).click();
-      }catch(_){}
-    }, 0);
+    setTimeout(()=>{ try{ (useFolder ? folderInput : fileInput).click(); }catch(_){} },0);
   }, {passive:true});
 });
-
-/* knoppen openen nu ECHT de juiste input */
 btnFiles.onclick=(e)=>{ e.preventDefault(); fileInput.click(); };
 btnFolder && (btnFolder.onclick=(e)=>{ e.preventDefault(); folderInput.click(); });
 
-/* file/folder labels */
 fileInput.onchange=()=>{
   fileName.textContent=fileInput.files.length
     ? (Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``))
@@ -685,11 +691,10 @@ folderInput.onchange=()=>{
   folderName.textContent=`${root} (${folderInput.files.length} bestanden)`;
 };
 
-/* ===== Helpers ===== */
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
 function addFileRow(f,rel){
-  const el=document.createElement('div'); el.className='filecard';
+  const el=document.createElement('div'); el.className='frow';
   el.innerHTML=`<div class="name" title="${rel}">${rel}</div>
                 <div class="badge warn" data-badge>Wacht…</div>
                 <div class="meta">${fmtBytes(f.size)} • ${f.type||'octet-stream'}</div>
@@ -697,7 +702,6 @@ function addFileRow(f,rel){
   fileList.appendChild(el); return {fill:el.querySelector('.progress i'),badge:el.querySelector('[data-badge]')};
 }
 
-/* ===== Server API ===== */
 async function packageInit(expiry,password,title){
   const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
@@ -711,7 +715,6 @@ async function putComplete(token,key,name,path){
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
 }
 
-/* PUT met progress */
 function putWithProgress(url,blob,onProgress){
   return new Promise((resolve,reject)=>{
     const x=new XMLHttpRequest();
@@ -734,7 +737,6 @@ async function uploadOne(token,f,rel,ui,onDelta){
   ui.fill.style.width='100%'; ui.badge.textContent="Klaar"; ui.badge.className='badge ok';
 }
 
-/* ===== Upload start ===== */
 document.getElementById('form').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const mode=document.querySelector('input[name=upmode]:checked').value;
@@ -742,7 +744,7 @@ document.getElementById('form').addEventListener('submit', async (e)=>{
   const files = Array.from(useFolder ? folderInput.files : fileInput.files);
   if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
 
-  fileList.innerHTML=''; fileList.style.display=''; resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
+  fileList.innerHTML=''; fileList.style.display='grid'; resBox.innerHTML=''; setTotal(0,'Voorbereiden…');
 
   const expiry=document.getElementById('expDays').value,
         pw=document.getElementById('pw').value||'',
@@ -762,15 +764,10 @@ document.getElementById('form').addEventListener('submit', async (e)=>{
   await Promise.all(Array.from({length:Math.min(FILE_PAR,files.length)}, worker));
   setTotal(100,'Klaar');
 
-  /* Compacte deelbare link + Kopieer */
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML=`<div class="share-card" style="margin-top:.8rem">
-    <div style="font-weight:700;margin-bottom:.4rem">Deelbare link</div>
-    <div class="share-row">
-      <input id="shareLinkInput" class="input" value="${link}" readonly>
-      <button id="copyBtn" type="button" class="btn small">Kopieer</button>
-    </div>
-  </div>`;
+  resBox.innerHTML=`<div class="share__card"><div style="font-weight:700">Deelbare link</div>
+    <div class="share__row"><input id="shareLinkInput" class="input" value="${link}" readonly>
+    <button id="copyBtn" type="button" class="btn small">Kopieer</button></div></div>`;
   document.getElementById('copyBtn').onclick=async()=>{
     const input=document.getElementById('shareLinkInput');
     try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
@@ -782,8 +779,6 @@ document.getElementById('form').addEventListener('submit', async (e)=>{
 </html>
 """
 
-
-
 PACKAGE_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -794,89 +789,106 @@ PACKAGE_HTML = """
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
-    .wrap{max-width:800px;margin:6vh auto;padding:0 1rem}
-    .card{position:relative}
-    h1{color:var(--brand);margin:0 0 1rem}
-    .meta{color:#64748b;font-size:.95rem;margin-bottom:1rem}
-    .btn{display:inline-flex;align-items:center;justify-content:center;padding:.8rem 1.1rem;border-radius:12px;font-weight:700;border:0;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;cursor:pointer}
-    .progress{height:14px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-top:.7rem;border:1px solid #dbe5f4}
+
+    .shell{max-width:900px;margin:6vh auto;padding:0 16px}
+    .pane{
+      border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);
+      background:color-mix(in oklab, var(--surface) 96%, black 4%);
+      border-radius:16px; overflow:hidden;
+      box-shadow:0 12px 28px rgba(0,0,0,.14);
+      backdrop-filter:saturate(1.05) blur(6px);
+    }
+    .pane__head{padding:18px 20px;border-bottom:1px solid color-mix(in oklab, var(--surface-2) 60%, black 40%)}
+    .pane__title{margin:0;color:var(--brand);font-size:1.25rem}
+    .pane__body{padding:18px 20px}
+    .meta{color:var(--muted);font-size:.95rem}
+
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:12px;font-weight:700;border:0;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%,black 15%));color:#fff;cursor:pointer}
+
+    .progress{height:12px;background:#eef2ff;border-radius:999px;overflow:hidden;margin-top:10px;border:1px solid #dbe5f4}
     .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease}
     .progress.indet>i{width:40%;animation:indet 1.1s linear infinite}
     @keyframes indet{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-    .small{font-size:.9rem;color:#64748b}
-    .badge.err{display:inline-flex;align-items:center;justify-content:center;padding:.24rem .6rem;border-radius:999px;font-weight:700;font-size:.78rem;background:#fee2e2;color:#b91c1c}
-    .table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:1rem}
-    .table th,.table td{padding:.55rem .7rem}
-    .table tbody tr{background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:12px}
+
+    /* Tabel – pill-rijtjes */
+    .table{width:100%;border-collapse:separate;border-spacing:0 8px;margin-top:14px}
+    .table thead th{padding:8px 10px;font-weight:700}
+    .table tbody tr{background:color-mix(in oklab,var(--surface-2) 90%, black 10%);border:1px solid color-mix(in oklab, var(--surface-2) 70%, black 30%);border-radius:12px;overflow:hidden}
+    .table tbody td{padding:10px}
     .table td[data-label="Grootte"]{white-space:nowrap;text-align:right}
+    .foot{margin-top:12px;text-align:center;color:#94a3b8}
+
     @media(max-width:680px){
       .table thead{display:none}
       .table,.table tbody,.table tr,.table td{display:block;width:100%}
-      .table tr{padding:.5rem .6rem}
-      .table td{padding:.25rem 0}
-      .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+      .table tr{padding:8px 10px}
+      .table td{padding:6px 0}
+      .table td[data-label]:before{content:attr(data-label) ": ";font-weight:700;color:#334155}
     }
   </style>
 </head>
 <body>
   {{ bg|safe }}
-  <div class="wrap">
-    <div class="card">
-      <h1>Bestanden downloaden</h1>
-      <div class="meta">
-        {% if title %}<div><strong>Onderwerp:</strong> {{ title }}</div>{% endif %}
-        <div><strong>Verloopt op:</strong> {{ expires_human }}</div>
-        <div><strong>Bestanden:</strong> {{ items|length }}</div>
+  <div class="shell">
+    <div class="pane">
+      <div class="pane__head">
+        <h2 class="pane__title">Download</h2>
       </div>
 
-      {% if not items or items|length == 0 %}
-        <div class="badge err">Geen bestanden gevonden.</div>
-      {% else %}
-        {% if items|length == 1 %}
-          <button id="btnDownload" class="btn">Download bestand</button>
-        {% else %}
-          <button id="btnDownload" class="btn">Download alle bestanden (ZIP)</button>
-        {% endif %}
-        <div id="bar" class="progress" style="display:none"><i></i></div>
-        <div id="status" class="small" style="display:none">Starten…</div>
+      <div class="pane__body">
+        <div class="meta" style="margin-bottom:12px">
+          {% if title %}<div><strong>Onderwerp:</strong> {{ title }}</div>{% endif %}
+          <div><strong>Verloopt op:</strong> {{ expires_human }}</div>
+          <div><strong>Bestanden:</strong> {{ items|length }}</div>
+        </div>
 
-        {% if items|length > 1 %}
+        {% if not items or items|length == 0 %}
+          <div class="meta" style="color:#b91c1c;background:#fee2e2;border:1px solid #fecaca;border-radius:10px;padding:8px 10px">Geen bestanden gevonden.</div>
+        {% else %}
+          {% if items|length == 1 %}
+            <button id="btnDownload" class="btn">Download bestand</button>
+          {% else %}
+            <button id="btnDownload" class="btn">Download alle bestanden (ZIP)</button>
+          {% endif %}
+          <div id="bar" class="progress" style="display:none"><i></i></div>
+          <div id="status" class="meta" style="display:none;margin-top:6px">Starten…</div>
+
+          {% if items|length > 1 %}
           <table class="table">
-            <thead><tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr></thead>
+            <thead><tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr></thead>
             <tbody>
               {% for it in items %}
-                <tr>
-                  <td data-label="Bestand">{{ it["name"] }}</td>
-                  <td class="small" data-label="Pad">{{ it["path"] }}</td>
-                  <td data-label="Grootte">{{ it["size_h"] }}</td>
-                </tr>
+              <tr>
+                <td data-label="Bestand">{{ it["name"] }}</td>
+                <td class="meta" data-label="Pad">{{ it["path"] }}</td>
+                <td data-label="Grootte" style="text-align:right">{{ it["size_h"] }}</td>
+              </tr>
               {% endfor %}
             </tbody>
           </table>
+          {% endif %}
         {% endif %}
-      {% endif %}
+      </div>
     </div>
-
-    <p class="footer" style="text-align:center;color:#94a3b8;margin-top:1.4rem">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+    <p class="foot">Olde Hanter Bouwconstructies • Bestandentransfer</p>
   </div>
 
 <script>
-const barEl=document.getElementById('bar'), fillEl=barEl?barEl.querySelector('i'):null, statusEl=document.getElementById('status');
-function showBar(){ if(barEl&&statusEl){ barEl.style.display='block'; statusEl.style.display='block'; } }
-function setPct(p,label){ if(fillEl){ fillEl.style.width=Math.max(0,Math.min(100,p))+'%'; } if(label&&statusEl){ statusEl.textContent=label; } }
+/* ==== download-progress (functionaliteit blijft) ==== */
+const bar  = document.getElementById('bar');
+const fill = bar ? bar.querySelector('i') : null;
+const txt  = document.getElementById('status');
 
-/* Fallback animatie (zonder Content-Length / zonder reader) */
-function startIndeterminate(){ if(!barEl) return; barEl.classList.add('indet'); showBar(); statusEl.textContent='Downloaden…'; }
-function stopIndeterminate(){ if(!barEl) return; barEl.classList.remove('indet'); }
-
-/* Trigger download (link-click helper) */
+function showBar(){ if(bar&&txt){ bar.style.display='block'; txt.style.display='block'; } }
+function setPct(p,label){ if(fill){ fill.style.width=Math.max(0,Math.min(100,p))+'%'; } if(label&&txt){ txt.textContent=label; } }
+function startIndeterminate(){ if(!bar) return; bar.classList.add('indet'); showBar(); txt.textContent='Downloaden…'; }
+function stopIndeterminate(){ if(!bar) return; bar.classList.remove('indet'); }
 function triggerDownload(blobOrUrl, filename){
   const url = blobOrUrl instanceof Blob ? URL.createObjectURL(blobOrUrl) : blobOrUrl;
   const a=document.createElement('a'); a.href=url; if(filename) a.download=filename; document.body.appendChild(a); a.click(); a.remove();
   if(blobOrUrl instanceof Blob) URL.revokeObjectURL(url);
 }
 
-/* Download met echte progress waar mogelijk; anders smooth fallback */
 async function downloadWithProgress(url, filename){
   try{
     showBar(); setPct(0,'Voorbereiden…');
@@ -891,25 +903,17 @@ async function downloadWithProgress(url, filename){
       let received=0; const chunks=[];
       if(!total){ startIndeterminate(); }
       while(true){
-        const {done,value}=await reader.read();
-        if(done) break;
+        const {done,value}=await reader.read(); if(done) break;
         chunks.push(value); received+=value.length;
         if(total){ const pct=Math.round(received/total*100); setPct(pct, pct+'%'); }
       }
       stopIndeterminate(); if(!total){ setPct(100,'Klaar'); }
-      const blob=new Blob(chunks); triggerDownload(blob,name);
-      return;
+      const blob=new Blob(chunks); triggerDownload(blob,name); return;
     }
-
-    // Geen reader (Safari oude) → indeterminate + blob()
-    startIndeterminate();
-    const blob=await res.blob(); stopIndeterminate(); setPct(100,'Klaar'); triggerDownload(blob, filename);
-  }catch(e){
-    console.error(e); setPct(0,'Fout bij downloaden');
-  }
+    startIndeterminate(); const blob=await res.blob(); stopIndeterminate(); setPct(100,'Klaar'); triggerDownload(blob, filename);
+  }catch(e){ console.error(e); setPct(0,'Fout bij downloaden'); }
 }
 
-/* Bind knop (server vult juiste URL’s in) */
 const btn=document.getElementById('btnDownload');
 if(btn){
   btn.addEventListener('click', ()=>{
@@ -928,6 +932,8 @@ if(btn){
 </body>
 </html>
 """
+
+
 
 
 CONTACT_HTML = r"""
