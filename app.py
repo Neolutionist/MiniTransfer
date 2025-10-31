@@ -87,6 +87,16 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
+# === Helpers: zet dit handig bij je andere helpers ===
+def resolve_path_for_item(it):
+    ...
+    return os.path.join(BASE_UPLOAD_DIR, it['name'])
+
+@app.template_filter('filesize')
+def filesize(n):
+    """Maak 12345678 -> '11.8 MB' (veilige fallback)."""
+    ...
+
 # === Helper: zet dit handig bij je andere helpers ===
 def resolve_path_for_item(it):
     """
@@ -96,6 +106,7 @@ def resolve_path_for_item(it):
         return it['disk_path']
     BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # eventueel aanpassen
     return os.path.join(BASE_UPLOAD_DIR, it['name'])
+
 
 
 # --- Render healthcheck fix ---
@@ -865,7 +876,7 @@ PACKAGE_HTML = """
           {% for it in items %}
           <tr>
             <td>{{ it.name }}</td>
-            <td>{{ it.size|filesizeformat }}</td>
+            <td>{{ it.size|filesize }}</td>
             {% if it.sha256 %}<td class="mono">{{ it.sha256[:16] }}…</td>{% endif %}
           </tr>
           {% endfor %}
