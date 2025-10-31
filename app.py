@@ -93,7 +93,7 @@ def resolve_path_for_item(it):
     Bepaalt het fysieke pad van een item.
     - Als 'disk_path' aanwezig is, gebruik die.
     - Anders reconstrueer op basis van jouw opslagmap + naam.
-    Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
+    - Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
     """
     if 'disk_path' in it and it['disk_path']:
         return it['disk_path']
