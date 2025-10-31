@@ -100,18 +100,6 @@ def resolve_path_for_item(it):
     BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # <== PAS DIT EVENTUEEL AAN
     return os.path.join(BASE_UPLOAD_DIR, it['name'])
 
-# === Voorbeeld van een package_page route ===
-@app.route("/p/<token>")
-def package_page(token):
-    # -- haal package + items op zoals jij dat nu doet --
-    # Voorbeeld (pas aan naar jouw logica):
-    pkg = get_package_by_token(token)              # jouw eigen functie
-    if not pkg:
-        return "Pakket niet gevonden", 404
-    items = get_items_for_package(token)           # lijst met dicts: {'id','name','size', ...}
-    title = pkg.get('title') or f"Pakket {token}"
-    expiry_at = pkg.get('expiry_at')               # datetime of None
-
     # === NIEUW: vul sha256 waar mogelijk ===
     any_sha = False
     for it in items:
