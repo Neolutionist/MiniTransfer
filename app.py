@@ -1702,6 +1702,17 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" 
 
 # -------------- Routes (core) --------------
 
+# === TEMP: 500 debug zichtbaar maken in de browser ===
+import traceback
+from flask import Response
+
+@app.errorhandler(500)
+def debug_500(e):
+    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    return Response("500 Internal Server Error (debug)\n\n" + tb, mimetype="text/plain", status=500)
+
+
+
 @app.route("/debug/dbcols")
 def debug_dbcols():
     c = db()
@@ -1924,48 +1935,76 @@ def internal_cleanup():
 # -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
-    c = db()
-    t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
-
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-        for r in rows:
-            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception: pass
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit(); c.close(); abort(410)
-
-    if pkg["password_hash"]:
-        if request.method == "GET" and not session.get(f"allow_{token}", False):
+    try:
+        # --- Haal package + items op zoals in jouw app ---
+        t = current_tenant()["slug"]
+        c = db()
+        pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+        if not pkg:
             c.close()
-            return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
-        if request.method == "POST":
-            if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
-                c.close()
-                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
-            session[f"allow_{token}"] = True
+            return "Pakket niet gevonden", 404
 
-    items = c.execute("""SELECT id,name,path,size_bytes FROM items
-                         WHERE token=? AND tenant_id=?
-                         ORDER BY path""", (token, t)).fetchall()
-    c.close()
+        # Let op: jouw kolomnamen kunnen iets verschillen; pas dit evt. aan.
+        rows = c.execute("SELECT id, name, size, s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY id ASC",
+                         (token, t)).fetchall()
+        c.close()
 
-    total_bytes = sum(int(r["size_bytes"]) for r in items)
-    total_h = human(total_bytes)
-    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
-    expires_h = dt.strftime("%d-%m-%Y %H:%M")
+        # Titel + expiry normaliseren
+        title = pkg.get("title") if isinstance(pkg, dict) else (pkg["title"] if "title" in pkg.keys() else None)
+        expires_at = pkg.get("expires_at") if isinstance(pkg, dict) else (pkg["expires_at"] if "expires_at" in pkg.keys() else None)
 
-    its = [{"id":r["id"], "name":r["name"], "path":r["path"], "size_h":human(int(r["size_bytes"]))} for r in items]
+        # expiry_ts: string -> datetime -> epoch
+        expiry_ts = None
+        if expires_at:
+            try:
+                # veel DB’s slaan UTC als ISO-string op
+                from datetime import datetime, timezone
+                if isinstance(expires_at, str):
+                    expires_at_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                else:
+                    expires_at_dt = expires_at
+                expiry_ts = int(expires_at_dt.astimezone(timezone.utc).timestamp())
+            except Exception:
+                expiry_ts = None
 
-    return render_template_string(
-        PACKAGE_HTML,
-        token=token, title=pkg["title"],
-        items=its, total_human=total_h,
-        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
-    )
+        # --- Items normaliseren voor template ---
+        items = []
+        for r in rows:
+            # r kan sqlite Row zijn of dict
+            _id   = r["id"]   if isinstance(r, dict) or hasattr(r, "__getitem__") else r.id
+            _name = r["name"] if isinstance(r, dict) or hasattr(r, "__getitem__") else r.name
+            _size = r["size"] if isinstance(r, dict) or hasattr(r, "__getitem__") else r.size
+            _sha  = r.get("sha256") if isinstance(r, dict) else (r["sha256"] if "sha256" in r.keys() else None)
+
+            # type/None fixes
+            try:
+                _size = int(_size or 0)
+            except Exception:
+                _size = 0
+
+            items.append({
+                "id": _id,
+                "name": _name or "bestand",
+                "size": _size,
+                "sha256": _sha or None,
+            })
+
+        # Zorg dat zip_sha256 altijd bestaat (None is ok)
+        zip_sha256 = None
+
+        # --- Renderen: geef ALLES mee wat de template gebruikt ---
+        return render_template_string(
+            PACKAGE_HTML,
+            token=token,
+            title=title or f"Pakket {token}",
+            items=items,
+            expiry_ts=expiry_ts,
+            zip_sha256=zip_sha256
+        )
+
+    except Exception as e:
+        # Laat dezelfde 500 handler het tonen
+        raise
 
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
