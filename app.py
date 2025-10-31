@@ -87,6 +87,70 @@ s3 = boto3.client(
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
+# === Helper: zet dit handig bij je andere helpers ===
+def resolve_path_for_item(it):
+    """
+    Bepaalt het fysieke pad van een item.
+    - Als 'disk_path' aanwezig is, gebruik die.
+    - Anders reconstrueer op basis van jouw opslagmap + naam.
+    Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
+    """
+    if 'disk_path' in it and it['disk_path']:
+        return it['disk_path']
+    BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # <== PAS DIT EVENTUEEL AAN
+    return os.path.join(BASE_UPLOAD_DIR, it['name'])
+
+# === Voorbeeld van een package_page route ===
+@app.route("/p/<token>")
+def package_page(token):
+    # -- haal package + items op zoals jij dat nu doet --
+    # Voorbeeld (pas aan naar jouw logica):
+    pkg = get_package_by_token(token)              # jouw eigen functie
+    if not pkg:
+        return "Pakket niet gevonden", 404
+    items = get_items_for_package(token)           # lijst met dicts: {'id','name','size', ...}
+    title = pkg.get('title') or f"Pakket {token}"
+    expiry_at = pkg.get('expiry_at')               # datetime of None
+
+    # === NIEUW: vul sha256 waar mogelijk ===
+    any_sha = False
+    for it in items:
+        if not it.get('sha256'):
+            try:
+                disk_path = resolve_path_for_item(it)
+                if os.path.isfile(disk_path):
+                    it['sha256'] = sha256_file(disk_path)
+                    any_sha = True
+            except Exception:
+                pass
+
+    # === NIEUW: zip-hash indien je een zip serveert voor multi-download ===
+    zip_sha256 = None
+    if len(items) > 1:
+        # Alleen als je vooraf een zip bouwt en op schijf staat:
+        # Stel dat jouw stream_zip route een bestaand pad gebruikt:
+        zip_path = get_zip_path_if_exists(token)  # pas aan of laat op None
+        if zip_path and os.path.isfile(zip_path):
+            try:
+                zip_sha256 = sha256_file(zip_path)
+            except Exception:
+                zip_sha256 = None
+
+    # === NIEUW: expiry_ts meegeven aan template ===
+    expiry_ts = int(expiry_at.timestamp()) if expiry_at else None
+
+    # === Renderen ===
+    return render_template_string(
+        PACKAGE_HTML,
+        token=token,
+        items=items,
+        title=title,
+        expiry_ts=expiry_ts,
+        zip_sha256=zip_sha256
+    )
+
+
+
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
 
@@ -1233,68 +1297,6 @@ const PLAN_MAP = {
   "2":   "{{ paypal_plan_2 }}",
   "5":   "{{ paypal_plan_5 }}"
 };
-
-# === Helper: zet dit handig bij je andere helpers ===
-def resolve_path_for_item(it):
-    """
-    Bepaalt het fysieke pad van een item.
-    - Als 'disk_path' aanwezig is, gebruik die.
-    - Anders reconstrueer op basis van jouw opslagmap + naam.
-    Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
-    """
-    if 'disk_path' in it and it['disk_path']:
-        return it['disk_path']
-    BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # <== PAS DIT EVENTUEEL AAN
-    return os.path.join(BASE_UPLOAD_DIR, it['name'])
-
-# === Voorbeeld van een package_page route ===
-@app.route("/p/<token>")
-def package_page(token):
-    # -- haal package + items op zoals jij dat nu doet --
-    # Voorbeeld (pas aan naar jouw logica):
-    pkg = get_package_by_token(token)              # jouw eigen functie
-    if not pkg:
-        return "Pakket niet gevonden", 404
-    items = get_items_for_package(token)           # lijst met dicts: {'id','name','size', ...}
-    title = pkg.get('title') or f"Pakket {token}"
-    expiry_at = pkg.get('expiry_at')               # datetime of None
-
-    # === NIEUW: vul sha256 waar mogelijk ===
-    any_sha = False
-    for it in items:
-        if not it.get('sha256'):
-            try:
-                disk_path = resolve_path_for_item(it)
-                if os.path.isfile(disk_path):
-                    it['sha256'] = sha256_file(disk_path)
-                    any_sha = True
-            except Exception:
-                pass
-
-    # === NIEUW: zip-hash indien je een zip serveert voor multi-download ===
-    zip_sha256 = None
-    if len(items) > 1:
-        # Alleen als je vooraf een zip bouwt en op schijf staat:
-        # Stel dat jouw stream_zip route een bestaand pad gebruikt:
-        zip_path = get_zip_path_if_exists(token)  # pas aan of laat op None
-        if zip_path and os.path.isfile(zip_path):
-            try:
-                zip_sha256 = sha256_file(zip_path)
-            except Exception:
-                zip_sha256 = None
-
-    # === NIEUW: expiry_ts meegeven aan template ===
-    expiry_ts = int(expiry_at.timestamp()) if expiry_at else None
-
-    # === Renderen ===
-    return render_template_string(
-        PACKAGE_HTML,
-        token=token,
-        items=items,
-        title=title,
-        expiry_ts=expiry_ts,
-        zip_sha256=zip_sha256
-    )
 
 
 // ---------- elements ----------
