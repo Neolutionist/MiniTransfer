@@ -206,175 +206,72 @@ BASE_CSS = """
   --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
   --surface:#ffffff; --surface-2:#f1f5f9;
   --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
-  /* Animatie snelheden */
-  --t-slow: 28s;
-  --t-med:  18s;
-  --t-fast:  8s;
+  --t-slow:28s; --t-med:18s; --t-fast:8s;
 }
-/* Dark mode (volgt OS) */
 @media (prefers-color-scheme: dark){
   :root{
-    --brand:#7db4ff; --brand-2:#4a7fff;
-    --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
-    --surface:#0b1020; --surface-2:#0f172a;
-    --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
+    --brand:#7db4ff; --brand-2:#4a7fff; --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
+    --surface:#0b1020; --surface-2:#0f172a; --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
   }
 }
-
 html,body{height:100%}
-body{
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  color:var(--text); margin:0; position:relative; overflow-x:hidden;
-  background: var(--surface);
-}
-
-/* ======= Nieuwe achtergrond ======= */
-.bg{
-  position:fixed; inset:0; z-index:-2; overflow:hidden;
-  /* Basismix (zachte radialen + subtiele vertical fade) */
-  background:
-    radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
-    radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
-    radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
-    linear-gradient(180deg, #edf3ff 0%, #eef4fb 100%);
-  filter:saturate(1.06);
-  animation: hueShift var(--t-slow) linear infinite;
-}
-
-/* Aurora laag */
-.bg::before,
-.bg::after{
-  content:""; position:absolute; inset:-10%;
-  /* Aurora met conic-gradients; de mask maakt vloeiende vormen */
-  background:
-    conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
-    conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);
-  mix-blend-mode: overlay;
-  will-change: transform, opacity;
-}
-.bg::before{
-  animation: driftA var(--t-med) ease-in-out infinite alternate;
-  opacity:.85;
-  -webkit-mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
-          mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
-}
-.bg::after{
-  animation: driftB var(--t-slow) ease-in-out infinite;
-  opacity:.65;
-  -webkit-mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
-          mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
-}
-
-/* Subtiele korrel / film grain (zonder externe asset) */
-.bg::marker{display:none}
-.bg > i{display:none}
-.bg::before, .bg::after { backdrop-filter: saturate(1.05) blur(2px); }
-.bg + .grain{ /* aparte overlay via pseudo-element lukt niet overal; gebruik extra div niet nodig – we faken ruis met gradients */
-  display:none;
-}
-
-/* Glass kaarten en UI */
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);margin:0;position:relative;overflow-x:hidden;background:var(--surface)}
+.bg{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
+  radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
+  radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
+  radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
+  linear-gradient(180deg,#edf3ff 0%,#eef4fb 100%);filter:saturate(1.06);animation:hueShift var(--t-slow) linear infinite}
+.bg::before,.bg::after{content:"";position:absolute;inset:-10%;background:
+  conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
+  conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);mix-blend-mode:overlay;will-change:transform,opacity;backdrop-filter:saturate(1.05) blur(2px)}
+.bg::before{animation:driftA var(--t-med) ease-in-out infinite alternate;opacity:.85;-webkit-mask-image:radial-gradient(65% 55% at 35% 60%,#000 0 60%,transparent 62%);mask-image:radial-gradient(65% 55% at 35% 60%,#000 0 60%,transparent 62%)}
+.bg::after{animation:driftB var(--t-slow) ease-in-out infinite;opacity:.65;-webkit-mask-image:radial-gradient(75% 65% at 70% 40%,#000 0 60%,transparent 62%);mask-image:radial-gradient(75% 65% at 70% 40%,#000 0 60%,transparent 62%)}
 .wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
-.card{
-  padding:1.5rem; background:var(--panel); border:1px solid var(--panel-b);
-  border-radius:18px; box-shadow:0 18px 40px rgba(0,0,0,.12);
-  backdrop-filter: blur(10px) saturate(1.05);
-}
+.card{padding:1.5rem;background:var(--panel);border:1px solid var(--panel-b);border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.12);backdrop-filter:blur(10px) saturate(1.05)}
 h1{line-height:1.15}
 .footer{color:#334155;margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
-
-/* Forms/Buttons */
 label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
-.input, input[type=text], input[type=password], input[type=email], input[type=number],
-select, textarea{
-  width:100%; display:block; appearance:none;
-  padding:.85rem 1rem; border-radius:12px; border:1px solid var(--line);
-  background:color-mix(in oklab, var(--surface-2) 90%, white 10%); color:var(--text);
-  outline:none; transition: box-shadow .15s, border-color .15s, background .15s;
+.input,input[type=text],input[type=password],input[type=email],input[type=number],select,textarea{
+  width:100%;display:block;appearance:none;padding:.85rem 1rem;border-radius:12px;border:1px solid var(--line);
+  background:color-mix(in oklab,var(--surface-2) 90%,white 10%);color:var(--text);outline:none;transition:box-shadow .15s,border-color .15s,background .15s
 }
-input:focus, .input:focus, select:focus, textarea:focus{
-  border-color: var(--ring); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
-}
-input[type=file]{padding:.55rem 1rem; background:var(--surface-2); cursor:pointer}
-input[type=file]::file-selector-button{
-  margin-right:.75rem; border:1px solid var(--line);
-  background:var(--surface); color:var(--text);
-  padding:.55rem .9rem; border-radius:10px; cursor:pointer;
-}
-.btn{
-  padding:.85rem 1.05rem;border:0;border-radius:12px;
-  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
-  color:#fff;font-weight:700;cursor:pointer;
-  box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
-  font-size:.95rem; line-height:1;
-}
+input:focus,.input:focus,select:focus,textarea:focus{border-color:var(--ring);box-shadow:0 0 0 4px color-mix(in oklab,var(--ring) 30%, transparent)}
+input[type=file]{padding:.55rem 1rem;background:var(--surface-2);cursor:pointer}
+input[type=file]::file-selector-button{margin-right:.75rem;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:.55rem .9rem;border-radius:10px;cursor:pointer}
+.btn{padding:.85rem 1.05rem;border:0;border-radius:12px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand) 85%, black 15%));color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(15,76,152,.25);transition:filter .15s,transform .02s;font-size:.95rem;line-height:1}
 .btn.small{padding:.55rem .8rem;font-size:.9rem}
 .btn:hover{filter:brightness(1.05)}
 .btn:active{transform:translateY(1px)}
-.btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
-
-/* Progress */
-.progress{
-  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
-  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
-}
-.progress > i{
-  display:block;height:100%;width:0%;
-  background:linear-gradient(90deg,#0f4c98,#1e90ff);
-  transition:width .12s ease; position:relative;
-}
-.progress > i::after{
-  content:""; position:absolute; inset:0;
-  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
-  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
-}
-.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
-
-@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
-@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
-
-/* Tabel */
+.btn.secondary{background:linear-gradient(180deg,var(--brand-2),color-mix(in oklab,var(--brand-2)85%,black 15%))}
+.progress{height:14px;background:color-mix(in oklab,var(--surface-2) 85%,white 15%);border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4;position:relative}
+.progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s ease;position:relative}
+.progress>i::after{content:"";position:absolute;inset:0;background-image:linear-gradient(135deg,rgba(255,255,255,.28) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.28) 50%,rgba(255,255,255,.28) 75%,transparent 75%,transparent);background-size:24px 24px;animation:stripes 1s linear infinite;mix-blend-mode:overlay}
+.progress.indet>i{width:40%;animation:indet-move 1.2s linear infinite}
 .table{width:100%;border-collapse:collapse;margin-top:.6rem}
 .table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
-
-/* Responsive tabel */
-@media (max-width: 680px){
+@media (max-width:680px){
   .table thead{display:none}
-  .table, .table tbody, .table tr, .table td{display:block;width:100%}
+  .table,.table tbody,.table tr,.table td{display:block;width:100%}
   .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
   .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
-  .cols-2{ grid-template-columns: 1fr !important; }
+  .cols-2{grid-template-columns:1fr !important}
 }
+.table th.col-size,.table td.col-size,.table td[data-label="Grootte"]{white-space:nowrap;text-align:right;min-width:72px}
+@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
+@keyframes driftA{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}100%{transform:translate3d(0,0,0) scale(1)}}
+@keyframes driftB{0%{transform:rotate(0deg) translateY(0)}50%{transform:rotate(180deg) translateY(-1%)}100%{transform:rotate(360deg) translateY(0)}}
+@keyframes hueShift{0%{filter:hue-rotate(0deg) saturate(1.06)}100%{filter:hue-rotate(360deg) saturate(1.06)}}
+@media (prefers-reduced-motion: reduce){.bg,.bg::before,.bg::after{animation:none !important}}
 
-/* ZIP lijst kolombreedte */
-.table th.col-size,
-.table td.col-size,
-.table td[data-label="Grootte"]{
-  white-space:nowrap; text-align:right; min-width:72px;
-}
-
-/* Aurora animaties */
-@keyframes driftA{
-  0%{transform:translate3d(0,0,0) scale(1)}
-  50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
-  100%{transform:translate3d(0,0,0) scale(1)}
-}
-@keyframes driftB{
-  0%{transform:rotate(0deg) translateY(0)}
-  50%{transform:rotate(180deg) translateY(-1%)}
-  100%{transform:rotate(360deg) translateY(0)}
-}
-/* Kleurverschuiving over tijd */
-@keyframes hueShift{
-  0%{filter:hue-rotate(0deg) saturate(1.06)}
-  100%{filter:hue-rotate(360deg) saturate(1.06)}
-}
-
-/* Respecteer reduced motion */
-@media (prefers-reduced-motion: reduce){
-  .bg, .bg::before, .bg::after{ animation: none !important; }
+/* === Mobiel compact voor file-pickers/knoppen (uploadknop fix) === */
+@media (max-width:480px){
+  .btn{padding:.68rem .88rem;font-size:.9rem;border-radius:11px}
+  .btn.small{padding:.48rem .64rem;font-size:.85rem;border-radius:10px}
+  .picker-ctl{height:38px}
+  .picker-ctl .ellipsis{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
 }
 """
 
@@ -753,21 +650,30 @@ function addRow(rel,size){
 
 /* Telemetry state */
 let totBytes=0, moved=0, done=0, workers=0;
-let speedAvg=0; let lastTick=performance.now(), lastMoved=0;
-setInterval(()=>{
-  const now=performance.now(); const dt=(now-lastTick)/1000; lastTick=now;
-  const delta = moved - lastMoved; lastMoved = moved;
-  const inst = delta / Math.max(dt,0.001);
-  // EMA
-  speedAvg = speedAvg ? speedAvg*0.7 + inst*0.3 : inst;
-  tSpeed.textContent = fmtBytes(speedAvg)+"/s";
-  tMoved.textContent = fmtBytes(moved);
-  tLeft.textContent  = fmtBytes(Math.max(0, totBytes - moved));
-  tWorkers.textContent = workers;
-  tDone.textContent = done;
-  const etaSec = speedAvg>1 ? Math.max(0,(totBytes-moved)/speedAvg) : 0;
-  tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
-}, 700);
+let speedAvg=0; let lastTick=0, lastMoved=0; let teleIv=null;
+
+function startTelemetry(){
+  speedAvg=0; lastTick=performance.now(); lastMoved=moved;
+  stopTelemetry();
+  teleIv=setInterval(()=>{
+    const now=performance.now(); const dt=(now-lastTick)/1000; lastTick=now;
+    const delta = moved - lastMoved; lastMoved = moved;
+    const inst = delta / Math.max(dt,0.001);
+    speedAvg = speedAvg ? speedAvg*0.7 + inst*0.3 : inst;
+    tSpeed.textContent = fmtBytes(speedAvg)+"/s";
+    tMoved.textContent = fmtBytes(moved);
+    tLeft.textContent  = fmtBytes(Math.max(0, totBytes - moved));
+    tWorkers.textContent = workers;
+    tDone.textContent = done;
+    const etaSec = speedAvg>1 ? Math.max(0,(totBytes-moved)/speedAvg) : 0;
+    tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
+  }, 700);
+}
+function stopTelemetry(){
+  if(teleIv){ clearInterval(teleIv); teleIv=null; }
+  tSpeed.textContent = "0 B/s";
+  tEta.textContent = "—";
+}
 
 /* UI bindings */
 btnFiles.onclick=()=>fileInput.click();
@@ -797,6 +703,8 @@ form.addEventListener('submit', async (e)=>{
   const list = files.map(f=>({f,rel:useFolder?(f.webkitRelativePath||f.name):f.name,ui:addRow(useFolder?(f.webkitRelativePath||f.name):f.name,f.size),start:0,uploaded:0}));
   const q=[...list];
 
+  startTelemetry();
+
   async function worker(){
     workers++; kvWorkers.textContent=FILE_PAR; try{
       while(q.length){
@@ -822,6 +730,8 @@ form.addEventListener('submit', async (e)=>{
   await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
   setTotal(100,'Klaar');
 
+  stopTelemetry(); // <<< direct op 0 B/s zodra klaar
+
   // Share (compact)
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
   resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
@@ -839,6 +749,7 @@ form.addEventListener('submit', async (e)=>{
   };
 });
 </script>
+
 </body>
 </html>
 """
@@ -846,177 +757,183 @@ form.addEventListener('submit', async (e)=>{
 
 
 PACKAGE_HTML = """
-<!doctype html>
+<!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-  <title>Download • Olde Hanter</title>
-  {{ head_icon|safe }}
+  <meta charset="utf-8">
+  <title>{{ title or 'Download pakket' }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    {{ base_css }}
-
-    /* ===== Downloadlijst: nette uitlijning ===== */
-    .filecard{
-      display:grid;
-      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
-      align-items:center;
-      gap:.6rem .8rem;
-      padding:.70rem 1rem;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      margin:0;padding:0;background:#f9fafc;color:#111827
     }
-    .filecard .name{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      line-height:1.25;
-      overflow-wrap:anywhere;
+    .wrap{max-width:800px;margin:40px auto;padding:0 1rem}
+    .card{background:white;border:1px solid #e2e8f0;border-radius:14px;
+          box-shadow:0 6px 24px rgba(0,0,0,.08);padding:1.5rem}
+    h1{margin-top:0;font-size:1.5rem}
+    table{width:100%;border-collapse:collapse;margin-top:1rem}
+    th,td{text-align:left;padding:.55rem;border-bottom:1px solid #e5e7eb}
+    th{background:#f1f5f9}
+    .btn{
+      display:inline-block;
+      padding:.7rem 1rem;
+      border:0;
+      border-radius:11px;
+      background:linear-gradient(180deg,#0f4c98,#003366);
+      color:#fff;
+      font-weight:700;
+      cursor:pointer;
+      text-decoration:none
     }
-    .filecard .size{ width:6.5rem; text-align:right; }
-    .filecard .action{ width:auto; text-align:right; }
-    .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
-
-    /* Progressbalk ruimte */
-    #bar{ margin-top:.75rem }
-
-    /* Kaarten & grid */
-    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
-    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
-    .brand{color:var(--brand);margin:0;font-weight:800}
-    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-    @media(max-width:900px){.deck{grid-template-columns:1fr}}
-    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
-    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
-    .card-b{padding:14px 16px}
-    .subtle{color:var(--muted);font-size:.92rem}
-    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
-    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
-    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
-    @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
-
-    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
-
-    .deck > .card { min-width: 0; }
-    .card h1, .card h2, .card h3 { line-height: 1.2; }
-    .card p, .card li, .card div { line-height: 1.25; }
-
-    @media (max-width:700px){
-      .filecard{grid-template-columns:1fr;gap:.35rem;}
-      .filecard .name{white-space:normal;}
-      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+    .btn:hover{filter:brightness(1.05)}
+    .btn.sm{padding:.48rem .68rem;font-size:.88rem;border-radius:10px}
+    .btn.ghost{background:#fff;color:#111827;border:1px solid #e2e8f0}
+    .progress{height:14px;background:#f1f5f9;border-radius:999px;overflow:hidden;
+              margin-top:.8rem;border:1px solid #dbe5f4;display:none}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);
+                transition:width .12s ease;position:relative}
+    .progress>i::after{
+      content:"";position:absolute;inset:0;
+      background-image:linear-gradient(135deg,rgba(255,255,255,.28)25%,transparent25%,transparent50%,rgba(255,255,255,.28)50%,rgba(255,255,255,.28)75%,transparent75%,transparent);
+      background-size:24px 24px;animation:stripes 1s linear infinite;mix-blend-mode:overlay
     }
+    .progress.indet>i{width:40%;animation:indet-move 1.2s linear infinite}
+    @keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+    @keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
+    .subtle{font-size:.9rem;color:#475569}
+    .meta{margin-top:.6rem;font-size:.9rem;color:#475569}
+    .footer{margin-top:1.4rem;text-align:right}
   </style>
 </head>
 <body>
-{{ bg|safe }}
-<div class="shell">
-  <div class="hdr">
-    <h1 class="brand">Bestanden downloaden</h1>
-    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
-  </div>
-
-  <div class="deck">
-    <!-- Linkerkaart -->
+  <div class="wrap">
     <div class="card">
-      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
-      <div class="card-b">
-        {% if items|length == 1 %}
-          <button id="btnDownload" class="btn">Download bestand</button>
-        {% else %}
-          <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
-        {% endif %}
-        <div id="bar" class="progress" style="display:none"><i></i></div>
-        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
+      <h1>{{ title or 'Download pakket' }}</h1>
+      {% if items|length == 1 %}
+        <p>Klik op de knop hieronder om het bestand te downloaden:</p>
+      {% else %}
+        <p>Klik op de knop hieronder om alle bestanden als zip te downloaden:</p>
+      {% endif %}
 
-        {% if items|length > 1 %}
-        <h4 style="margin-top:14px;">Inhoud</h4>
-        {% for it in items %}
-          <div class="filecard">
-            <div class="name">{{ it["path"] }}</div>
-            <div class="size">{{ it["size_h"] }}</div>
-            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
-          </div>
-        {% endfor %}
-        {% endif %}
+      <div style="margin-top:1rem">
+        <button id="btnDownload" class="btn">Downloaden</button>
       </div>
-    </div>
 
-    <!-- Rechterkaart -->
-    <div class="card">
-      <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
-      <div class="card-b kv">
-        <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-        <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-        <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
-        <div class="k">ETA</div><div class="v" id="tEta">—</div>
+      <div id="bar" class="progress"><i></i></div>
+      <div id="txt" class="subtle" style="display:none;margin-top:.5rem">Voorbereiden…</div>
+
+      <div class="meta">
+        <span id="tSpeed">0 B/s</span> •
+        <span id="tMoved">0 B</span> •
+        <span id="tEta">—</span>
+      </div>
+
+      {% if items %}
+      <table>
+        <thead><tr><th>Bestand</th><th>Grootte</th></tr></thead>
+        <tbody>
+          {% for it in items %}
+          <tr><td>{{ it.name }}</td><td>{{ it.size|filesizeformat }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      <div class="footer">
+        <a class="btn sm ghost" href="{{ url_for('contact') }}">Eigen omgeving aanvragen</a>
       </div>
     </div>
   </div>
 
-  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
+  <script>
+  const bar=document.getElementById('bar'),
+        fill=bar?bar.querySelector('i'):null,
+        txt=document.getElementById('txt');
+  const tSpeed=document.getElementById('tSpeed'),
+        tMoved=document.getElementById('tMoved'),
+        tEta=document.getElementById('tEta');
 
-<script>
-const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
-const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
-function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
-function show(){bar.style.display='block';txt.style.display='block'}
-function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
+  function fmtBytes(n){
+    const u=["B","KB","MB","GB","TB"];let i=0;
+    while(n>=1024&&i<u.length-1){n/=1024;i++;}
+    return (i?n.toFixed(1):Math.round(n))+" "+u[i];
+  }
 
-async function downloadWithTelemetry(url, fallbackName){
-  show(); setPct(0); txt.textContent='Starten…';
-  let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
+  function show(){bar.style.display='block';txt.style.display='block'}
+  function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
 
-  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
-  const iv=setInterval(tick,700);
+  function stopTelemetry(iv){
+    if(iv) clearInterval(iv);
+    tSpeed.textContent="0 B/s";
+    tEta.textContent="—";
+  }
 
-  try{
-    const res=await fetch(url,{credentials:'same-origin'});
-    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
-    total=parseInt(res.headers.get('Content-Length')||'0',10);
-    const name=res.headers.get('X-Filename')||fallbackName||'download';
+  async function downloadWithTelemetry(url,fallbackName){
+    show(); setPct(0); txt.textContent='Starten…';
+    let speedAvg=0,lastT=performance.now(),lastB=0,moved=0,total=0;
+    const tick=()=>{
+      const now=performance.now(),dt=(now-lastT)/1000;lastT=now;
+      const inst=(moved-lastB)/Math.max(dt,0.001);lastB=moved;
+      speedAvg=speedAvg?speedAvg*0.7+inst*0.3:inst;
+      tSpeed.textContent=fmtBytes(speedAvg)+"/s";
+      const eta=(total&&speedAvg>1)?(total-moved)/speedAvg:0;
+      tEta.textContent=eta?new Date(eta*1000).toISOString().substring(11,19):"—";
+    };
+    const iv=setInterval(tick,700);
 
-    const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
-    if(rdr){
-      const chunks=[];
-      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
-      while(true){
-        const {done,value}=await rdr.read(); if(done) break;
-        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
-        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
+    try{
+      const res=await fetch(url,{credentials:'same-origin'});
+      if(!res.ok){txt.textContent='Fout '+res.status;stopTelemetry(iv);return;}
+      total=parseInt(res.headers.get('Content-Length')||'0',10);
+      const name=res.headers.get('X-Filename')||fallbackName||'download';
+      const rdr=res.body&&res.body.getReader?res.body.getReader():null;
+
+      if(rdr){
+        const chunks=[];
+        if(!total){bar.classList.add('indet');txt.textContent='Downloaden…';}
+        while(true){
+          const {done,value}=await rdr.read();if(done)break;
+          chunks.push(value);moved+=value.length;tMoved.textContent=fmtBytes(moved);
+          if(total){setPct(Math.round(moved/total*100));txt.textContent=Math.round(moved/total*100)+'%';}
+        }
+        if(!total){bar.classList.remove('indet');setPct(100);txt.textContent='Klaar';}
+        stopTelemetry(iv);
+        const blob=new Blob(chunks);
+        const u=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=u;a.download=name;a.rel='noopener';
+        document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);
+        return;
       }
-      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
-      clearInterval(iv);
-      const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
-      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
-      return;
-    }
-    bar.classList.add('indet'); txt.textContent='Downloaden…';
-    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
-    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
-  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
-}
 
-const btn=document.getElementById('btnDownload');
-if(btn){
-  btn.addEventListener('click',()=>{
-    {% if items|length == 1 %}
-      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
-    {% else %}
-      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
-    {% endif %}
-  });
-}
-</script>
+      bar.classList.add('indet');txt.textContent='Downloaden…';
+      const blob=await res.blob();
+      bar.classList.remove('indet');setPct(100);txt.textContent='Klaar';
+      stopTelemetry(iv);
+      const u=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=u;a.download=fallbackName||'download';
+      a.click();URL.revokeObjectURL(u);
+    }catch(e){
+      stopTelemetry(iv);txt.textContent='Fout';
+    }
+  }
+
+  const btn=document.getElementById('btnDownload');
+  if(btn){
+    btn.addEventListener('click',()=>{
+      {% if items|length == 1 %}
+        downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+      {% else %}
+        downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
+      {% endif %}
+    });
+  }
+  </script>
 </body>
 </html>
 """
-
 
 
 CONTACT_HTML = r"""
