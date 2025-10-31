@@ -2528,11 +2528,6 @@ def qrcode_png(token):
     img.save(buf, format='PNG'); buf.seek(0)
     return send_file(buf, mimetype='image/png', max_age=3600)
 
-@app.route("/contact")
-def contact():
-    return render_template_string(CONTACT_HTML)  # of return "Contact", 200
-
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
