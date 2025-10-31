@@ -1971,86 +1971,37 @@ def package_page(token):
             return "Pakket niet gevonden", 404
 
         # Let op: jouw kolomnamen kunnen iets verschillen; pas dit evt. aan.
-# --- Bepaal dynamisch welke kolommen er zijn ---
-cols = {r["name"] for r in c.execute("PRAGMA table_info(items)").fetchall()}
+
+        
+# --- Bepaal dynamisch welke kolommen er zijn (veilige variant) ---
+cols = set()
+for r in c.execute("PRAGMA table_info(items)").fetchall():
+    # sqlite Row: kolomnaam zit op index 1, of onder key 'name'
+    try:
+        name = r["name"]
+    except Exception:
+        name = r[1]
+    cols.add(name)
+
 size_col = "size" if "size" in cols else ("bytes" if "bytes" in cols else None)
-name_col = "name" if "name" in cols else next((c for c in ["filename","file_name","title"] if c in cols), None)
-s3_col   = "s3_key" if "s3_key" in cols else next((c for c in ["key","path","object_key"] if c in cols), None)
-id_col   = "id" if "id" in cols else next((c for c in ["item_id","pk"] if c in cols), None)
+name_col = "name" if "name" in cols else next((cname for cname in ("filename","file_name","title") if cname in cols), None)
+s3_col   = "s3_key" if "s3_key" in cols else next((cname for cname in ("key","path","object_key") if cname in cols), None)
+id_col   = "id" if "id" in cols else next((cname for cname in ("item_id","pk") if cname in cols), None)
 
 if not id_col or not name_col:
     c.close()
     return "Items-tabel mist verplichte kolommen (id/name).", 500
 
-# Bouw veilige SELECT met fallbacks
-select_parts = [id_col + " AS id", name_col + " AS name"]
-select_parts.append((size_col + " AS size") if size_col else ("0 AS size"))
-if s3_col:
-    select_parts.append(s3_col + " AS s3_key")
-else:
-    select_parts.append("'' AS s3_key")
-select_sql = "SELECT " + ", ".join(select_parts) + " FROM items WHERE token=? AND tenant_id=? ORDER BY {} ASC".format(id_col)
-
+# SELECT met fallbacks
+select_parts = [f"{id_col} AS id", f"{name_col} AS name"]
+select_parts.append(f"{size_col} AS size" if size_col else "0 AS size")
+select_parts.append(f"{s3_col} AS s3_key" if s3_col else "'' AS s3_key")
+select_sql = (
+    "SELECT " + ", ".join(select_parts) +
+    " FROM items WHERE token=? AND tenant_id=? ORDER BY " + id_col + " ASC"
+)
 rows = c.execute(select_sql, (token, t)).fetchall()
 
-        c.close()
-
-        # Titel + expiry normaliseren
-        title = pkg.get("title") if isinstance(pkg, dict) else (pkg["title"] if "title" in pkg.keys() else None)
-        expires_at = pkg.get("expires_at") if isinstance(pkg, dict) else (pkg["expires_at"] if "expires_at" in pkg.keys() else None)
-
-        # expiry_ts: string -> datetime -> epoch
-        expiry_ts = None
-        if expires_at:
-            try:
-                # veel DB’s slaan UTC als ISO-string op
-                from datetime import datetime, timezone
-                if isinstance(expires_at, str):
-                    expires_at_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-                else:
-                    expires_at_dt = expires_at
-                expiry_ts = int(expires_at_dt.astimezone(timezone.utc).timestamp())
-            except Exception:
-                expiry_ts = None
-
-        # --- Items normaliseren voor template ---
-        items = []
-        for r in rows:
-            # r kan sqlite Row zijn of dict
-            _id   = r["id"]   if isinstance(r, dict) or hasattr(r, "__getitem__") else r.id
-            _name = r["name"] if isinstance(r, dict) or hasattr(r, "__getitem__") else r.name
-            _size = r["size"] if isinstance(r, dict) or hasattr(r, "__getitem__") else r.size
-            _sha  = r.get("sha256") if isinstance(r, dict) else (r["sha256"] if "sha256" in r.keys() else None)
-
-            # type/None fixes
-            try:
-                _size = int(_size or 0)
-            except Exception:
-                _size = 0
-
-            items.append({
-                "id": _id,
-                "name": _name or "bestand",
-                "size": _size,
-                "sha256": _sha or None,
-            })
-
-        # Zorg dat zip_sha256 altijd bestaat (None is ok)
-        zip_sha256 = None
-
-        # --- Renderen: geef ALLES mee wat de template gebruikt ---
-        return render_template_string(
-            PACKAGE_HTML,
-            token=token,
-            title=title or f"Pakket {token}",
-            items=items,
-            expiry_ts=expiry_ts,
-            zip_sha256=zip_sha256
-        )
-
-    except Exception as e:
-        # Laat dezelfde 500 handler het tonen
-        raise
 
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
