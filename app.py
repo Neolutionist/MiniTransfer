@@ -91,52 +91,11 @@ app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 def resolve_path_for_item(it):
     """
     Bepaalt het fysieke pad van een item.
-    - Als 'disk_path' aanwezig is, gebruik die.
-    - Anders reconstrueer op basis van jouw opslagmap + naam.
-    - Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
     """
-    if 'disk_path' in it and it['disk_path']:
+    if it.get('disk_path'):
         return it['disk_path']
-    BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # <== PAS DIT EVENTUEEL AAN
+    BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # eventueel aanpassen
     return os.path.join(BASE_UPLOAD_DIR, it['name'])
-
-    # === NIEUW: vul sha256 waar mogelijk ===
-    any_sha = False
-    for it in items:
-        if not it.get('sha256'):
-            try:
-                disk_path = resolve_path_for_item(it)
-                if os.path.isfile(disk_path):
-                    it['sha256'] = sha256_file(disk_path)
-                    any_sha = True
-            except Exception:
-                pass
-
-    # === NIEUW: zip-hash indien je een zip serveert voor multi-download ===
-    zip_sha256 = None
-    if len(items) > 1:
-        # Alleen als je vooraf een zip bouwt en op schijf staat:
-        # Stel dat jouw stream_zip route een bestaand pad gebruikt:
-        zip_path = get_zip_path_if_exists(token)  # pas aan of laat op None
-        if zip_path and os.path.isfile(zip_path):
-            try:
-                zip_sha256 = sha256_file(zip_path)
-            except Exception:
-                zip_sha256 = None
-
-    # === NIEUW: expiry_ts meegeven aan template ===
-    expiry_ts = int(expiry_at.timestamp()) if expiry_at else None
-
-    # === Renderen ===
-    return render_template_string(
-        PACKAGE_HTML,
-        token=token,
-        items=items,
-        title=title,
-        expiry_ts=expiry_ts,
-        zip_sha256=zip_sha256
-    )
-
 
 
 # --- Render healthcheck fix ---
