@@ -889,7 +889,9 @@ PACKAGE_HTML = """
         <div class="share-row">
           <input id="shareInput" class="input" style="flex:1; min-width:240px" readonly
                  value="{{ url_for('package_page', token=token, _external=True) }}">
-          <button id="copyShare" class="btn sm">Kopieer link</button>
+<button id="copyShare" class="btn sm">Kopieer link</button>
+<span id="copyState" class="subtle" style="margin-left:8px; display:none;">Gekopieerd!</span>
+
           <img src="{{ url_for('qrcode_png', token=token) }}" alt="QR" width="72" height="72"
                style="border:1px solid #e5e7eb; border-radius:8px">
         </div>
@@ -991,11 +993,21 @@ PACKAGE_HTML = """
   }
 
   // ===== Bindings
-  document.getElementById('copyShare')?.addEventListener('click', async ()=>{
-    const el=document.getElementById('shareInput');
-    try{ await navigator.clipboard.writeText(el.value); }catch{ el.select(); document.execCommand('copy'); }
+ document.getElementById('copyShare')?.addEventListener('click', async ()=>{
+    const el = document.getElementById('shareInput');
+    const state = document.getElementById('copyState');
+    try {
+      await navigator.clipboard.writeText(el.value);
+    } catch {
+      el.select();
+      document.execCommand('copy');
+    }
+    if (state) {
+      state.style.display = 'inline';
+      setTimeout(()=>{ state.style.display = 'none'; }, 1600);
+    }
   });
-
+  
   // Countdown (indien meegegeven)
   {% if expiry_ts %}
   (function(){
@@ -1959,8 +1971,28 @@ def package_page(token):
             return "Pakket niet gevonden", 404
 
         # Let op: jouw kolomnamen kunnen iets verschillen; pas dit evt. aan.
-        rows = c.execute("SELECT id, name, size, s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY id ASC",
-                         (token, t)).fetchall()
+# --- Bepaal dynamisch welke kolommen er zijn ---
+cols = {r["name"] for r in c.execute("PRAGMA table_info(items)").fetchall()}
+size_col = "size" if "size" in cols else ("bytes" if "bytes" in cols else None)
+name_col = "name" if "name" in cols else next((c for c in ["filename","file_name","title"] if c in cols), None)
+s3_col   = "s3_key" if "s3_key" in cols else next((c for c in ["key","path","object_key"] if c in cols), None)
+id_col   = "id" if "id" in cols else next((c for c in ["item_id","pk"] if c in cols), None)
+
+if not id_col or not name_col:
+    c.close()
+    return "Items-tabel mist verplichte kolommen (id/name).", 500
+
+# Bouw veilige SELECT met fallbacks
+select_parts = [id_col + " AS id", name_col + " AS name"]
+select_parts.append((size_col + " AS size") if size_col else ("0 AS size"))
+if s3_col:
+    select_parts.append(s3_col + " AS s3_key")
+else:
+    select_parts.append("'' AS s3_key")
+select_sql = "SELECT " + ", ".join(select_parts) + " FROM items WHERE token=? AND tenant_id=? ORDER BY {} ASC".format(id_col)
+
+rows = c.execute(select_sql, (token, t)).fetchall()
+
         c.close()
 
         # Titel + expiry normaliseren
