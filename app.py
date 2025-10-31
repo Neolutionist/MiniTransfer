@@ -1714,14 +1714,17 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" 
 # -------------- Routes (core) --------------
 
 # === TEMP: 500 debug zichtbaar maken in de browser ===
-import traceback
 from flask import Response
+from werkzeug.exceptions import HTTPException
+import traceback
 
-@app.errorhandler(500)
-def debug_500(e):
-    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+@app.errorhandler(Exception)
+def debug_all(e):
+    # Laat “normale” HTTP-fouten (404, 403, etc.) gewoon door
+    if isinstance(e, HTTPException) and e.code != 500:
+        return e
+    tb = traceback.format_exc()
     return Response("500 Internal Server Error (debug)\n\n" + tb, mimetype="text/plain", status=500)
-
 
 
 @app.route("/debug/dbcols")
@@ -2524,6 +2527,10 @@ def qrcode_png(token):
     buf = io.BytesIO()
     img.save(buf, format='PNG'); buf.seek(0)
     return send_file(buf, mimetype='image/png', max_age=3600)
+
+@app.route("/contact")
+def contact():
+    return render_template_string(CONTACT_HTML)  # of return "Contact", 200
 
 
 if __name__ == "__main__":
