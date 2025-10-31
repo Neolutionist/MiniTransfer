@@ -789,6 +789,10 @@ PACKAGE_HTML = """
     .btn:hover{filter:brightness(1.05)}
     .btn.sm{padding:.48rem .68rem;font-size:.88rem;border-radius:10px}
     .btn.ghost{background:#fff;color:#111827;border:1px solid #e2e8f0}
+    .input{
+      width:100%;display:block;appearance:none;padding:.75rem 1rem;border-radius:10px;border:1px solid #e2e8f0;
+      background:#fff;color:#111827;outline:none
+    }
     .progress{height:14px;background:#f1f5f9;border-radius:999px;overflow:hidden;
               margin-top:.8rem;border:1px solid #dbe5f4;display:none}
     .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);
@@ -803,7 +807,10 @@ PACKAGE_HTML = """
     @keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
     .subtle{font-size:.9rem;color:#475569}
     .meta{margin-top:.6rem;font-size:.9rem;color:#475569}
-    .footer{margin-top:1.4rem;text-align:right}
+    .footer{margin-top:1.0rem;text-align:right}
+    .share-card{margin-top:12px; padding:1rem; border:1px dashed #e5e7eb; border-radius:12px}
+    .share-row{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
   </style>
 </head>
 <body>
@@ -827,18 +834,44 @@ PACKAGE_HTML = """
         <span id="tSpeed">0 B/s</span> •
         <span id="tMoved">0 B</span> •
         <span id="tEta">—</span>
+        {% if expiry_ts %}
+        • Verloopt over: <strong id="expiryLeft">—</strong>
+        {% endif %}
       </div>
 
       {% if items %}
       <table>
-        <thead><tr><th>Bestand</th><th>Grootte</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Bestand</th>
+            <th>Grootte</th>
+            {% if items|selectattr('sha256')|list %}
+              <th>SHA-256</th>
+            {% endif %}
+          </tr>
+        </thead>
         <tbody>
           {% for it in items %}
-          <tr><td>{{ it.name }}</td><td>{{ it.size|filesizeformat }}</td></tr>
+          <tr>
+            <td>{{ it.name }}</td>
+            <td>{{ it.size|filesizeformat }}</td>
+            {% if it.sha256 %}<td class="mono">{{ it.sha256[:16] }}…</td>{% endif %}
+          </tr>
           {% endfor %}
         </tbody>
       </table>
       {% endif %}
+
+      <!-- Delen: link + QR -->
+      <div class="share-card">
+        <div class="share-row">
+          <input id="shareInput" class="input" style="flex:1; min-width:240px" readonly
+                 value="{{ url_for('package_page', token=token, _external=True) }}">
+          <button id="copyShare" class="btn sm">Kopieer link</button>
+          <img src="{{ url_for('qrcode_png', token=token) }}" alt="QR" width="72" height="72"
+               style="border:1px solid #e5e7eb; border-radius:8px">
+        </div>
+      </div>
 
       <div class="footer">
         <a class="btn sm ghost" href="{{ url_for('contact') }}">Eigen omgeving aanvragen</a>
@@ -847,6 +880,14 @@ PACKAGE_HTML = """
   </div>
 
   <script>
+  // ===== Utils
+  function fmtBytes(n){
+    const u=["B","KB","MB","GB","TB"];let i=0;
+    while(n>=1024&&i<u.length-1){n/=1024;i++;}
+    return (i?n.toFixed(1):Math.round(n))+" "+u[i];
+  }
+
+  // ===== Telemetry download
   const bar=document.getElementById('bar'),
         fill=bar?bar.querySelector('i'):null,
         txt=document.getElementById('txt');
@@ -854,31 +895,25 @@ PACKAGE_HTML = """
         tMoved=document.getElementById('tMoved'),
         tEta=document.getElementById('tEta');
 
-  function fmtBytes(n){
-    const u=["B","KB","MB","GB","TB"];let i=0;
-    while(n>=1024&&i<u.length-1){n/=1024;i++;}
-    return (i?n.toFixed(1):Math.round(n))+" "+u[i];
-  }
-
   function show(){bar.style.display='block';txt.style.display='block'}
   function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
 
   function stopTelemetry(iv){
     if(iv) clearInterval(iv);
-    tSpeed.textContent="0 B/s";
-    tEta.textContent="—";
+    if(tSpeed) tSpeed.textContent="0 B/s";
+    if(tEta) tEta.textContent="—";
   }
 
-  async function downloadWithTelemetry(url,fallbackName){
+  async function downloadWithTelemetry(url,fallbackName,expectedSha){
     show(); setPct(0); txt.textContent='Starten…';
     let speedAvg=0,lastT=performance.now(),lastB=0,moved=0,total=0;
     const tick=()=>{
       const now=performance.now(),dt=(now-lastT)/1000;lastT=now;
       const inst=(moved-lastB)/Math.max(dt,0.001);lastB=moved;
       speedAvg=speedAvg?speedAvg*0.7+inst*0.3:inst;
-      tSpeed.textContent=fmtBytes(speedAvg)+"/s";
+      if(tSpeed) tSpeed.textContent=fmtBytes(speedAvg)+"/s";
       const eta=(total&&speedAvg>1)?(total-moved)/speedAvg:0;
-      tEta.textContent=eta?new Date(eta*1000).toISOString().substring(11,19):"—";
+      if(tEta) tEta.textContent=eta?new Date(eta*1000).toISOString().substring(11,19):"—";
     };
     const iv=setInterval(tick,700);
 
@@ -894,12 +929,23 @@ PACKAGE_HTML = """
         if(!total){bar.classList.add('indet');txt.textContent='Downloaden…';}
         while(true){
           const {done,value}=await rdr.read();if(done)break;
-          chunks.push(value);moved+=value.length;tMoved.textContent=fmtBytes(moved);
+          chunks.push(value);moved+=value.length;if(tMoved) tMoved.textContent=fmtBytes(moved);
           if(total){setPct(Math.round(moved/total*100));txt.textContent=Math.round(moved/total*100)+'%';}
         }
         if(!total){bar.classList.remove('indet');setPct(100);txt.textContent='Klaar';}
         stopTelemetry(iv);
+
+        // Blob + (optionele) client-side SHA-check
         const blob=new Blob(chunks);
+        if(expectedSha){
+          try{
+            const buf=await blob.arrayBuffer();
+            const dig=await crypto.subtle.digest("SHA-256", buf);
+            const hex=[...new Uint8Array(dig)].map(b=>b.toString(16).padStart(2,'0')).join('');
+            if(hex!==expectedSha){ alert("Waarschuwing: integriteitscheck mislukt."); }
+          }catch(_){}
+        }
+
         const u=URL.createObjectURL(blob);
         const a=document.createElement('a');
         a.href=u;a.download=name;a.rel='noopener';
@@ -907,10 +953,12 @@ PACKAGE_HTML = """
         return;
       }
 
+      // Fallback zonder streaming
       bar.classList.add('indet');txt.textContent='Downloaden…';
       const blob=await res.blob();
       bar.classList.remove('indet');setPct(100);txt.textContent='Klaar';
       stopTelemetry(iv);
+
       const u=URL.createObjectURL(blob);
       const a=document.createElement('a');
       a.href=u;a.download=fallbackName||'download';
@@ -920,13 +968,41 @@ PACKAGE_HTML = """
     }
   }
 
+  // ===== Bindings
+  document.getElementById('copyShare')?.addEventListener('click', async ()=>{
+    const el=document.getElementById('shareInput');
+    try{ await navigator.clipboard.writeText(el.value); }catch{ el.select(); document.execCommand('copy'); }
+  });
+
+  // Countdown (indien meegegeven)
+  {% if expiry_ts %}
+  (function(){
+    const el=document.getElementById('expiryLeft');
+    function tick(){
+      const s = Math.max(0, {{ expiry_ts }}*1000 - Date.now())/1000;
+      const d = Math.floor(s/86400);
+      const h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+      el.textContent = (d? d+"d ":"") + h+"u "+m+"m "+sec+"s";
+    }
+    tick(); setInterval(tick, 1000);
+  })();
+  {% endif %}
+
   const btn=document.getElementById('btnDownload');
   if(btn){
     btn.addEventListener('click',()=>{
       {% if items|length == 1 %}
-        downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+        downloadWithTelemetry(
+          "{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+          "{{ items[0]['name'] }}",
+          "{{ items[0].get('sha256','') }}"
+        );
       {% else %}
-        downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
+        downloadWithTelemetry(
+          "{{ url_for('stream_zip', token=token) }}",
+          "{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}",
+          "{{ zip_sha256 if zip_sha256 else '' }}"
+        );
       {% endif %}
     });
   }
@@ -934,6 +1010,7 @@ PACKAGE_HTML = """
 </body>
 </html>
 """
+
 
 
 CONTACT_HTML = r"""
@@ -1156,6 +1233,69 @@ const PLAN_MAP = {
   "2":   "{{ paypal_plan_2 }}",
   "5":   "{{ paypal_plan_5 }}"
 };
+
+# === Helper: zet dit handig bij je andere helpers ===
+def resolve_path_for_item(it):
+    """
+    Bepaalt het fysieke pad van een item.
+    - Als 'disk_path' aanwezig is, gebruik die.
+    - Anders reconstrueer op basis van jouw opslagmap + naam.
+    Pas 'BASE_UPLOAD_DIR' aan naar jouw situatie.
+    """
+    if 'disk_path' in it and it['disk_path']:
+        return it['disk_path']
+    BASE_UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")  # <== PAS DIT EVENTUEEL AAN
+    return os.path.join(BASE_UPLOAD_DIR, it['name'])
+
+# === Voorbeeld van een package_page route ===
+@app.route("/p/<token>")
+def package_page(token):
+    # -- haal package + items op zoals jij dat nu doet --
+    # Voorbeeld (pas aan naar jouw logica):
+    pkg = get_package_by_token(token)              # jouw eigen functie
+    if not pkg:
+        return "Pakket niet gevonden", 404
+    items = get_items_for_package(token)           # lijst met dicts: {'id','name','size', ...}
+    title = pkg.get('title') or f"Pakket {token}"
+    expiry_at = pkg.get('expiry_at')               # datetime of None
+
+    # === NIEUW: vul sha256 waar mogelijk ===
+    any_sha = False
+    for it in items:
+        if not it.get('sha256'):
+            try:
+                disk_path = resolve_path_for_item(it)
+                if os.path.isfile(disk_path):
+                    it['sha256'] = sha256_file(disk_path)
+                    any_sha = True
+            except Exception:
+                pass
+
+    # === NIEUW: zip-hash indien je een zip serveert voor multi-download ===
+    zip_sha256 = None
+    if len(items) > 1:
+        # Alleen als je vooraf een zip bouwt en op schijf staat:
+        # Stel dat jouw stream_zip route een bestaand pad gebruikt:
+        zip_path = get_zip_path_if_exists(token)  # pas aan of laat op None
+        if zip_path and os.path.isfile(zip_path):
+            try:
+                zip_sha256 = sha256_file(zip_path)
+            except Exception:
+                zip_sha256 = None
+
+    # === NIEUW: expiry_ts meegeven aan template ===
+    expiry_ts = int(expiry_at.timestamp()) if expiry_at else None
+
+    # === Renderen ===
+    return render_template_string(
+        PACKAGE_HTML,
+        token=token,
+        items=items,
+        title=title,
+        expiry_ts=expiry_ts,
+        zip_sha256=zip_sha256
+    )
+
 
 // ---------- elements ----------
 const form = document.getElementById('contactForm');
@@ -1883,30 +2023,56 @@ def stream_file(token, item_id):
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    if not pkg:
+        c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close(); abort(403)
+
     it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
     c.close()
-    if not it: abort(404)
+    if not it:
+        abort(404)
 
     try:
+        # Probeer metadata op te halen — hiermee vangen we 'NoSuchKey' netjes af
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-        length = int(head.get("ContentLength", 0))
+        length = int(head.get("ContentLength", 0)) if head and head.get("ContentLength") is not None else 0
+
         obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
 
         def gen():
-            for chunk in obj["Body"].iter_chunks(1024*512):
-                if chunk: yield chunk
+            for chunk in obj["Body"].iter_chunks(1024 * 512):
+                if chunk:
+                    yield chunk
 
         resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-        if length: resp.headers["Content-Length"] = str(length)
-        resp.headers["X-Filename"] = it["name"]
+        filename = (it["name"] or "download").replace('"', "")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        if length:
+            resp.headers["Content-Length"] = str(length)
+        resp.headers["X-Filename"] = filename
+        return resp
+
+    except ClientError as ce:
+        # Als het object ontbreekt in S3 -> 404 met nette melding
+        code = (ce.response.get("Error", {}) or {}).get("Code", "")
+        if code in {"NoSuchKey", "NotFound", "404"}:
+            msg = "Bestand niet gevonden (object ontbreekt in opslag)."
+            resp = Response(msg, status=404, mimetype="text/plain")
+            resp.headers["X-Error"] = "NoSuchKey"
+            return resp
+        # Andere S3-fout → log + 502 (bad gateway richting opslag)
+        log.exception("stream_file S3 error")
+        resp = Response("Opslagfout (S3). Probeer later opnieuw.", status=502, mimetype="text/plain")
+        resp.headers["X-Error"] = f"S3:{code or 'Unknown'}"
         return resp
     except Exception:
+        # Echte serverfout
         log.exception("stream_file failed")
-        abort(500)
+        return Response("Interne serverfout bij downloaden.", status=500, mimetype="text/plain")
+
 
 @app.route("/zip/<token>")
 def stream_zip(token):
@@ -2325,6 +2491,41 @@ def package_alias(token): return redirect(url_for("package_page", token=token))
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
+
+# === IMPORTS (bovenaan het bestand) ===
+import io, os, hashlib
+from datetime import datetime
+from flask import send_file
+try:
+    import qrcode  # pip install qrcode[pil]
+except ImportError:
+    qrcode = None
+
+# === Helper: SHA-256 voor een bestandspad ===
+def sha256_file(path, chunk=1024*1024):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        while True:
+            b = f.read(chunk)
+            if not b: break
+            h.update(b)
+    return h.hexdigest()
+
+# === QR-code endpoint ===
+@app.route("/qrcode/<token>.png")
+def qrcode_png(token):
+    if qrcode is None:
+        # Fallback: 1x1 PNG als qrcode-lib ontbreekt
+        b = io.BytesIO()
+        b.write(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xff\xff?\x00\x05\xfe\x02\xfeA\xfa\x88\x9b\x00\x00\x00\x00IEND\xaeB`\x82")
+        b.seek(0)
+        return send_file(b, mimetype="image/png", max_age=300)
+    url = url_for('package_page', token=token, _external=True)
+    img = qrcode.make(url)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG'); buf.seek(0)
+    return send_file(buf, mimetype='image/png', max_age=3600)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
