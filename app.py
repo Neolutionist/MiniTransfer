@@ -495,242 +495,290 @@ BILLING_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}
+
 <style>
 {{ base_css }}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-h1{margin:.25rem 0 1rem;color:var(--brand)}
-.logout a{color:var(--brand);text-decoration:none;font-weight:700}
-.stat{display:grid;gap:.35rem}
-.stat h3{margin:.1rem 0;color:var(--brand)}
-.kv{display:grid;grid-template-columns: 1fr auto; gap:.25rem .75rem; align-items:center}
-.kv div.small{color:#475569}
-.bar{height:12px;background:#e5ecf6;border:1px solid #dbe5f4;border-radius:999px;overflow:hidden}
-.bar>i{display:block;height:100%;width:{{ pct }}%;background:linear-gradient(90deg,#0f4c98,#1e90ff)}
-.table{width:100%;border-collapse:collapse;margin-top:.6rem}
-.table th,.table td{padding:.5rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
-.table td.actions{white-space:nowrap}
-@media(max-width:700px){
-  .table thead{display:none}
-  .table,.table tbody,.table tr,.table td{display:block;width:100%}
-  .table tr{margin-bottom:.6rem;border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem;background:rgba(255,255,255,.9)}
-  .table td{border:0;padding:.25rem 0}
-  .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
-  .table td.actions{white-space:normal;margin-top:.4rem}
-}
-dialog{border:1px solid #e5e7eb;border-radius:16px;padding:0;max-width:min(720px,94vw)}
-dialog::backdrop{background:rgba(15,23,42,.55)}
-.modal-head{display:flex;justify-content:space-between;align-items:center;padding:.8rem 1rem;border-bottom:1px solid #e5e7eb;background:#fff}
-.modal-body{padding:1rem;background:#fff;max-height:min(70vh,70dvh);overflow:auto}
-.modal-foot{padding:0 1rem 1rem;background:#fff}
-.btn.danger{background:#b91c1c}
 
-/* ---- Leesbaarheid / contrast verbeteringen ---- */
-
-body {
-  color: #e5e7eb;
-}
-
-.card {
-  color: #e5e7eb;
-}
-
-.small {
-  color: #cbd5e1 !important;
-}
-
-h1, h3 {
-  color: #f1f5f9 !important;
-}
-
-.table th {
-  color: #f1f5f9;
-}
-
-.table td {
-  color: #e5e7eb;
-}
-
-.tenant-tag {
-  color: #f8fafc;
-  font-weight: 600;
-}
-
-.bar {
-  border: 1px solid rgba(255,255,255,.35);
-}
-
-.btn.small,
-.btn.secondary,
-.btn.danger {
-  color: #ffffff;
-}
-
-.btn.danger {
-  background:#dc2626;
-}
-
-.table tr {
-  border-color: rgba(255,255,255,.15);
-}
-
-
-.table td .expires{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:6px 14px;
-  min-width:160px;
-  border-radius:999px;
-  background:linear-gradient(135deg, rgba(148,163,255,.85), rgba(59,130,246,.9));
-  box-shadow:0 6px 18px rgba(15,23,42,.4);
-  color:#f9fafb;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ===============================
-   🎨 DYNAMIC PREMIUM THEME
-   =============================== */
+/* =========================================
+   DESIGN SYSTEM — PROFESSIONAL PALETTE
+   ========================================= */
 
 :root{
-  --brand: #4ea1ff;
-  --brand-strong: #1b6dff;
-  --accent: #9b8cff;
-  --accent-strong: #6d5bff;
-  --danger: #ff4d5e;
+  --brand: #3b82f6;
+  --brand-strong: #1d4ed8;
 
-  --text-strong: #f4f7ff;
-  --text-soft: #d9e2ff;
+  --accent: #818cf8;
+  --accent-strong: #6366f1;
 
-  --card-fg: #edf2ff;
+  --danger: #ef4444;
+  --danger-strong: #dc2626;
+
+  --text-strong: #f8fafc;
+  --text-soft: #e2e8f0;
+  --text-dim: #cbd5e1;
+
+  --card-fg: #eef2ff;
 }
 
-/* ⬆️ Titel blijft donker voor contrast */
+
+/* =========================================
+   PAGE HEADER
+   ========================================= */
+
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:1.25rem;
+}
+
 .topbar h1{
-  color:#0b1933 !important;
+  margin:.25rem 0 1rem;
+  color:#0b1c33 !important;
+  font-weight:800;
+  letter-spacing:.2px;
 }
 
-/* 💎 Glass cards met depth */
+.logout{
+  color:#64748b;
+}
+
+.logout a{
+  color:var(--brand);
+  text-decoration:none;
+  font-weight:700;
+}
+
+
+/* =========================================
+   CARD — PREMIUM GLASS
+   ========================================= */
+
 .card{
-  color: var(--card-fg);
-  background: linear-gradient(165deg,
-      rgba(22,30,48,.92),
-      rgba(28,35,58,.88),
-      rgba(33,40,66,.92)
+  color:var(--card-fg);
+  background:linear-gradient(165deg,
+    rgba(18,23,38,.94),
+    rgba(22,30,48,.9),
+    rgba(28,35,58,.94)
   );
-  border: 1px solid rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:20px;
+
   box-shadow:
-    0 18px 40px rgba(0,0,0,.28),
-    inset 0 1px 0 rgba(255,255,255,.08);
+    0 22px 48px rgba(0,0,0,.32),
+    inset 0 1px 0 rgba(255,255,255,.1);
+
+  backdrop-filter: blur(8px);
 }
 
-/* headings in cards */
 .card h3{
-  color: var(--text-strong) !important;
+  margin:.2rem 0 .4rem;
+  color:var(--text-strong) !important;
+  font-weight:700;
+  letter-spacing:.15px;
 }
 
-/* tabel */
-.table th{
-  color: var(--text-strong);
-}
-
-.table td{
-  color: var(--text-soft);
-}
-
-/* separator lines */
-.table tr{
-  border-color: rgba(255,255,255,.16);
-}
-
-/* compact text */
 .small{
-  color: #cdd8ff !important;
+  color:var(--text-dim) !important;
 }
 
-/* tenant tag */
+
+/* =========================================
+   STAT GRID
+   ========================================= */
+
+.stat{
+  display:grid;
+  gap:.4rem;
+}
+
+.kv{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:.25rem .75rem;
+  align-items:center;
+}
+
+
+/* tenant label */
+
 .tenant-tag{
   color:#fff;
-  background: linear-gradient(120deg,#4ea1ff,#6cdfff);
-  padding:4px 10px;
+  background:linear-gradient(135deg,#3b82f6,#60a5fa);
+  padding:5px 12px;
   border-radius:999px;
+  font-weight:600;
 }
 
 
-/* ===============================
-   🌈 PROGRESS BAR — dynamic glow
-   =============================== */
+/* =========================================
+   STORAGE BAR — SMOOTH & BALANCED
+   ========================================= */
+
 .bar{
-  border: 1px solid rgba(255,255,255,.35);
-  background: rgba(255,255,255,.12);
+  height:12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.28);
+  overflow:hidden;
 }
 
 .bar>i{
-  background: linear-gradient(90deg,
-      #1b6dff,
-      #4ea1ff,
-      #6cdfff
-  );
-  box-shadow: 0 0 16px rgba(78,161,255,.6);
-  transition: width .3s ease;
+  height:100%;
+  display:block;
+  width:{{ pct }}%;
+  background:linear-gradient(90deg,#2563eb,#3b82f6,#60a5fa);
+  box-shadow:0 0 10px rgba(96,165,250,.6);
+  transition:width .35s cubic-bezier(.4,.2,.2,1);
 }
 
 
-/* ===============================
-   🟦 BUTTONS WITH DEPTH
-   =============================== */
+/* =========================================
+   TABLE
+   ========================================= */
+
+.table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:.6rem;
+}
+
+.table th,
+.table td{
+  padding:.55rem .7rem;
+  border-bottom:1px solid rgba(255,255,255,.12);
+}
+
+.table th{
+  color:var(--text-strong);
+  font-weight:700;
+}
+
+.table td{
+  color:var(--text-soft);
+}
+
+.table td.actions{
+  white-space:nowrap;
+}
+
+
+/* ---------- Mobile Layout ---------- */
+
+@media(max-width:700px){
+
+  .table thead{display:none}
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td{
+    display:block;
+    width:100%;
+  }
+
+  .table tr{
+    margin-bottom:.6rem;
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:12px;
+    padding:.45rem .65rem;
+    background:rgba(255,255,255,.08);
+  }
+
+  .table td{
+    border:0;
+    padding:.25rem 0;
+  }
+
+  .table td[data-label]:before{
+    content:attr(data-label) ": ";
+    font-weight:700;
+    color:#eaf0ff;
+  }
+
+  .table td.actions{
+    white-space:normal;
+    margin-top:.35rem;
+  }
+}
+
+
+/* =========================================
+   EXPIRY BADGE — PROFESSIONAL FORMAT
+   ========================================= */
+
+.expires{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+
+  padding:6px 14px;
+  min-width:160px;
+
+  border-radius:999px;
+  background:linear-gradient(135deg,#818cf8,#6366f1);
+
+  color:#f9fafb;
+  font-variant-numeric:tabular-nums;
+
+  white-space:nowrap;
+  box-shadow:0 6px 18px rgba(15,23,42,.35);
+}
+
+/* almost expiring */
+tr[data-expiring="1"] .expires{
+  background:linear-gradient(135deg,#facc15,#f59e0b);
+  color:#111827;
+}
+
+/* expired */
+tr[data-expired="1"] .expires{
+  background:linear-gradient(135deg,#ef4444,#dc2626);
+}
+
+
+/* =========================================
+   BUTTONS — REDUCED NOISE / HIGH QUALITY
+   ========================================= */
 
 .btn{
   color:#fff !important;
   border:none;
   font-weight:600;
-  border-radius:16px;
-  box-shadow: 0 6px 18px rgba(0,0,0,.25);
-  transition: transform .15s ease, box-shadow .15s ease;
+  border-radius:14px;
+
+  box-shadow:0 6px 18px rgba(0,0,0,.25);
+  transition:
+    transform .14s ease,
+    box-shadow .14s ease,
+    opacity .14s ease;
 }
 
 .btn:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+  transform:translateY(-1px);
+  box-shadow:0 12px 28px rgba(0,0,0,.35);
 }
+
 
 /* primary */
 .btn.small{
-  background: linear-gradient(135deg,#4ea1ff,#1b6dff);
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
 }
 
 /* +30 dagen */
 .btn.secondary{
-  background: linear-gradient(135deg,#9b8cff,#6d5bff);
+  background:linear-gradient(135deg,#818cf8,#6366f1);
 }
 
 /* verwijderen */
 .btn.danger{
-  background: linear-gradient(135deg,#ff5a64,#ff2f3f);
+  background:linear-gradient(135deg,#ef4444,#dc2626);
 }
+</style>
 
 
-/* ===============================
-   📦 PACKAGE STATUS TAG FEEL
-   =============================== */
 
-.expires{
-  display:inline-block;
-  padding:3px 8px;
-  border-radius:10px;
-  background: rgba(255,255,255,.08);
-  color:#fff;
-}
-
-/* bijna verlopen hint */
-tr[data-expiring="1"] .expires{
-  background: rgba(255,99,71,.25);
-}
-
-/* verlopen */
-tr[data-expired="1"] .expires{
-  background: rgba(255,0,0,.35);
-}
-</style></head><body>
+</head><body>
 {{ bg|safe }}
 <div class="wrap">
   <div class="topbar">
