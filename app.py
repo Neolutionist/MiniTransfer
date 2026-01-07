@@ -500,7 +500,7 @@ BILLING_HTML = """
 {{ base_css }}
 
 /* =========================================
-   DESIGN SYSTEM — PROFESSIONAL PALETTE
+   DESIGN SYSTEM — ENTERPRISE PALETTE
    ========================================= */
 
 :root{
@@ -510,8 +510,9 @@ BILLING_HTML = """
   --accent: #818cf8;
   --accent-strong: #6366f1;
 
+  --success: #22c55e;
+  --warn: #f59e0b;
   --danger: #ef4444;
-  --danger-strong: #dc2626;
 
   --text-strong: #f8fafc;
   --text-soft: #e2e8f0;
@@ -551,31 +552,31 @@ BILLING_HTML = """
 
 
 /* =========================================
-   CARD — PREMIUM GLASS
+   GLASS CARDS — PREMIUM + MICRO BORDERS
    ========================================= */
 
 .card{
   color:var(--card-fg);
   background:linear-gradient(165deg,
-    rgba(18,23,38,.94),
-    rgba(22,30,48,.9),
-    rgba(28,35,58,.94)
+    rgba(15,23,42,.94),
+    rgba(23,30,54,.92),
+    rgba(28,35,62,.94)
   );
-  border:1px solid rgba(255,255,255,.14);
+
   border-radius:20px;
+  border:1px solid rgba(255,255,255,.14);
 
   box-shadow:
     0 22px 48px rgba(0,0,0,.32),
-    inset 0 1px 0 rgba(255,255,255,.1);
+    inset 0 1px 0 rgba(255,255,255,.08);
 
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
 }
 
 .card h3{
-  margin:.2rem 0 .4rem;
+  margin:.2rem 0 .35rem;
   color:var(--text-strong) !important;
   font-weight:700;
-  letter-spacing:.15px;
 }
 
 .small{
@@ -587,20 +588,17 @@ BILLING_HTML = """
    STAT GRID
    ========================================= */
 
-.stat{
-  display:grid;
-  gap:.4rem;
-}
+.stat{ display:grid; gap:.4rem; }
 
 .kv{
   display:grid;
   grid-template-columns:1fr auto;
-  gap:.25rem .75rem;
+  gap:.3rem .75rem;
   align-items:center;
 }
 
 
-/* tenant label */
+/* Tenant label */
 
 .tenant-tag{
   color:#fff;
@@ -612,7 +610,7 @@ BILLING_HTML = """
 
 
 /* =========================================
-   STORAGE BAR — SMOOTH & BALANCED
+   STORAGE BAR — DYNAMIC COLOR + STATES
    ========================================= */
 
 .bar{
@@ -623,18 +621,35 @@ BILLING_HTML = """
   overflow:hidden;
 }
 
+/* default (low usage) = calm blue */
 .bar>i{
   height:100%;
   display:block;
   width:{{ pct }}%;
   background:linear-gradient(90deg,#2563eb,#3b82f6,#60a5fa);
-  box-shadow:0 0 10px rgba(96,165,250,.6);
-  transition:width .35s cubic-bezier(.4,.2,.2,1);
+  transition:width .35s cubic-bezier(.4,.2,.2,1),
+             background .25s ease;
+}
+
+/* ≥ 70% → amber */
+[data-usage="warn"] .bar>i{
+  background:linear-gradient(90deg,#f59e0b,#fbbf24);
+}
+
+/* ≥ 90% → red + subtle pulse */
+@keyframes barPulse {
+  0%{ box-shadow:0 0 0 0 rgba(239,68,68,.45); }
+  100%{ box-shadow:0 0 0 12px rgba(239,68,68,0); }
+}
+
+[data-usage="danger"] .bar>i{
+  background:linear-gradient(90deg,#ef4444,#dc2626);
+  animation:barPulse 1.6s ease-out infinite;
 }
 
 
 /* =========================================
-   TABLE
+   TABLE + ROW HOVER MICRO-LIFT
    ========================================= */
 
 .table{
@@ -658,12 +673,16 @@ BILLING_HTML = """
   color:var(--text-soft);
 }
 
-.table td.actions{
-  white-space:nowrap;
+/* premium hover — business subtle */
+.table tr:hover td{
+  background:rgba(255,255,255,.04);
+  transition:background .15s ease;
 }
 
+.table td.actions{ white-space:nowrap; }
 
-/* ---------- Mobile Layout ---------- */
+
+/* ---------- Mobile ---------- */
 
 @media(max-width:700px){
 
@@ -672,10 +691,7 @@ BILLING_HTML = """
   .table,
   .table tbody,
   .table tr,
-  .table td{
-    display:block;
-    width:100%;
-  }
+  .table td{ display:block; width:100%; }
 
   .table tr{
     margin-bottom:.6rem;
@@ -685,10 +701,7 @@ BILLING_HTML = """
     background:rgba(255,255,255,.08);
   }
 
-  .table td{
-    border:0;
-    padding:.25rem 0;
-  }
+  .table td{ border:0; padding:.25rem 0; }
 
   .table td[data-label]:before{
     content:attr(data-label) ": ";
@@ -704,7 +717,7 @@ BILLING_HTML = """
 
 
 /* =========================================
-   EXPIRY BADGE — PROFESSIONAL FORMAT
+   EXPIRY BADGE — STATUS + ANIMATION
    ========================================= */
 
 .expires{
@@ -714,31 +727,43 @@ BILLING_HTML = """
 
   padding:6px 14px;
   min-width:160px;
-
   border-radius:999px;
+
   background:linear-gradient(135deg,#818cf8,#6366f1);
 
   color:#f9fafb;
   font-variant-numeric:tabular-nums;
-
   white-space:nowrap;
+
   box-shadow:0 6px 18px rgba(15,23,42,.35);
 }
 
-/* almost expiring */
+/* nearly expiring (soft pulse amber) */
+@keyframes pulseAmber {
+  0%{ box-shadow:0 0 0 0 rgba(245,158,11,.38); }
+  100%{ box-shadow:0 0 0 12px rgba(245,158,11,0); }
+}
+
 tr[data-expiring="1"] .expires{
   background:linear-gradient(135deg,#facc15,#f59e0b);
   color:#111827;
+  animation:pulseAmber 2s ease-out infinite;
 }
 
-/* expired */
+/* expired (slow calm pulse red) */
+@keyframes pulseRed {
+  0%{ box-shadow:0 0 0 0 rgba(239,68,68,.38); }
+  100%{ box-shadow:0 0 0 14px rgba(239,68,68,0); }
+}
+
 tr[data-expired="1"] .expires{
   background:linear-gradient(135deg,#ef4444,#dc2626);
+  animation:pulseRed 2.2s ease-out infinite;
 }
 
 
 /* =========================================
-   BUTTONS — REDUCED NOISE / HIGH QUALITY
+   BUTTON SYSTEM — MINIMAL & PREMIUM
    ========================================= */
 
 .btn{
@@ -759,18 +784,17 @@ tr[data-expired="1"] .expires{
   box-shadow:0 12px 28px rgba(0,0,0,.35);
 }
 
-
 /* primary */
 .btn.small{
   background:linear-gradient(135deg,#3b82f6,#1d4ed8);
 }
 
-/* +30 dagen */
+/* extend +30 dagen */
 .btn.secondary{
   background:linear-gradient(135deg,#818cf8,#6366f1);
 }
 
-/* verwijderen */
+/* delete */
 .btn.danger{
   background:linear-gradient(135deg,#ef4444,#dc2626);
 }
@@ -1162,6 +1186,12 @@ INDEX_HTML = """
     }
     .share .input{padding:.55rem .7rem}
     .share .btn{padding:.55rem .7rem}
+
+#copyBtn.copied{
+  background: linear-gradient(135deg,#22c55e,#16a34a);
+  box-shadow: 0 8px 18px rgba(22,163,74,.35);
+}
+    
   </style>
 </head>
 <body>
@@ -1429,20 +1459,48 @@ form.addEventListener('submit', async (e)=>{
   setTotal(100,'Klaar');
 
   // Share (compact)
-  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
+  const link = "{{ url_for('package_page', token='__T__', _external=True) }}"
+    .replace("__T__", token);
+
+  resBox.innerHTML = `
+  <div class="card" style="margin-top:8px">
+    <div class="card-b">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div class="subtle" style="font-weight:700">Deelbare link</div>
+        <span class="badge ok">Gereed</span>
+      </div>
+
+      <div class="share">
+        <input id="shareLinkInput" class="input" value="${link}" readonly>
+        <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+      </div>
     </div>
-    <div class="share">
-      <input id="shareLinkInput" class="input" value="${link}" readonly>
-      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
-    </div>
-  </div></div>`;
-  document.getElementById('copyBtn').onclick=async()=>{
-    const input=document.getElementById('shareLinkInput');
-    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
+  </div>`;
+
+  document.getElementById("copyBtn").onclick = async () => {
+
+    const input = document.getElementById("shareLinkInput");
+    const btn   = document.getElementById("copyBtn");
+
+    // kopieer (met jouw fallback)
+    try{
+      await navigator.clipboard.writeText(input.value);
+    }catch(_){
+      input.select();
+      document.execCommand("copy");
+    }
+
+    // feedback
+    const original = btn.innerText;
+    btn.innerText = "Gekopieerd!";
+    btn.classList.add("copied");
+
+    setTimeout(() => {
+      btn.innerText = original;
+      btn.classList.remove("copied");
+    }, 1400);
   };
+
 });
 </script>
 </body>
