@@ -2932,6 +2932,101 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
+@app.route("/file/<token>/<int:item_id>")
+def stream_file(token, item_id):
+    c = db()
+    t = current_tenant()["slug"]
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
+
+    # Pakket bestaat niet meer → pakket verwijderd pagina
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
+
+    # Pakket verlopen → opruimen + nette verlopen pagina
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        rows = c.execute(
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        ).fetchall()
+        for r in rows:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
+
+        c.execute(
+            "DELETE FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        )
+        c.execute(
+            "DELETE FROM packages WHERE token=? AND tenant_id=?",
+            (token, t)
+        )
+        c.commit()
+        c.close()
+
+        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
+
+    # Wachtwoordcontrole
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
+
+    # Enkel bestand ophalen
+    it = c.execute(
+        "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
+        (item_id, token, t)
+    ).fetchone()
+    c.close()
+    if not it:
+        abort(404)
+
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+        length = int(head.get("ContentLength", 0))
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+
+        def gen():
+            for chunk in obj["Body"].iter_chunks(1024 * 512):
+                if chunk:
+                    yield chunk
+
+        resp = Response(
+            stream_with_context(gen()),
+            mimetype="application/octet-stream"
+        )
+        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
+        if length:
+            resp.headers["Content-Length"] = str(length)
+        resp.headers["X-Filename"] = it["name"]
+        return resp
+    except Exception:
+        log.exception("stream_file failed")
+        abort(500)
+
+
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
