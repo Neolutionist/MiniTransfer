@@ -491,6 +491,240 @@ PASS_PROMPT_HTML = """
 </body></html>
 """
 
+BILLING_HTML = """
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+h1{margin:.25rem 0 1rem;color:var(--brand)}
+.logout a{color:var(--brand);text-decoration:none;font-weight:700}
+.stat{display:grid;gap:.35rem}
+.stat h3{margin:.1rem 0;color:var(--brand)}
+.kv{display:grid;grid-template-columns: 1fr auto; gap:.25rem .75rem; align-items:center}
+.kv div.small{color:#475569}
+.bar{height:12px;background:#e5ecf6;border:1px solid #dbe5f4;border-radius:999px;overflow:hidden}
+.bar>i{display:block;height:100%;width:{{ pct }}%;background:linear-gradient(90deg,#0f4c98,#1e90ff)}
+.table{width:100%;border-collapse:collapse;margin-top:.6rem}
+.table th,.table td{padding:.5rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
+.table td.actions{white-space:nowrap}
+@media(max-width:700px){
+  .table thead{display:none}
+  .table,.table tbody,.table tr,.table td{display:block;width:100%}
+  .table tr{margin-bottom:.6rem;border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem;background:rgba(255,255,255,.9)}
+  .table td{border:0;padding:.25rem 0}
+  .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+  .table td.actions{white-space:normal;margin-top:.4rem}
+}
+dialog{border:1px solid #e5e7eb;border-radius:16px;padding:0;max-width:min(720px,94vw)}
+dialog::backdrop{background:rgba(15,23,42,.55)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:.8rem 1rem;border-bottom:1px solid #e5e7eb;background:#fff}
+.modal-body{padding:1rem;background:#fff;max-height:min(70vh,70dvh);overflow:auto}
+.modal-foot{padding:0 1rem 1rem;background:#fff}
+.btn.danger{background:#b91c1c}
+</style></head><body>
+{{ bg|safe }}
+<div class="wrap">
+  <div class="topbar">
+    <h1>Beheer abonnement</h1>
+    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
+
+  <div class="card stat">
+    <h3>Opslaggebruik</h3>
+    <div class="kv">
+      <div class="small">Tenant</div>
+      <div><span class="tenant-tag">{{ tenant_label }}</span></div>
+      <div class="small">Gebruikt</div>
+      <div>{{ used_h }}</div>
+      <div class="small">Limiet</div>
+      <div>{{ limit_h }}</div>
+    </div>
+    <div class="bar" aria-hidden="true"><i style="width:{{ pct }}%"></i></div>
+    {% if over %}
+      <p class="small" style="color:#b91c1c;margin:.2rem 0 0">Je zit boven je ingestelde limiet. Overweeg een groter plan.</p>
+    {% endif %}
+  </div>
+
+  <div class="card stat">
+    <h3>Abonnement</h3>
+    {% if sub %}
+      <p class="small">
+        Actief abonnement voor <strong>{{ sub['login_email'] }}</strong><br>
+        Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong><br>
+        Subscription ID: <code id="subid">{{ sub['subscription_id'] }}</code>
+      </p>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-top:.5rem">
+        <div>
+          <label for="newPlan" class="small">Nieuw plan</label>
+          <select id="newPlan" class="input" style="min-width:160px">
+            <option value="0.5">0,5 TB</option>
+            <option value="1">1 TB</option>
+            <option value="2">2 TB</option>
+            <option value="5">5 TB</option>
+          </select>
+        </div>
+        <button class="btn" id="btnChange">Wijzig plan</button>
+        <button class="btn secondary" id="btnCancel">Opzeggen</button>
+      </div>
+    {% else %}
+      <p class="small">
+        Geen actief abonnement gevonden voor {{ user }}.<br>
+        Start een abonnement via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin:.1rem 0;color:var(--brand)">Pakketten</h3>
+    {% if packs and packs|length > 0 %}
+      <table class="table" id="packsTable">
+        <thead>
+          <tr>
+            <th>Onderwerp</th>
+            <th>Bestanden</th>
+            <th>Verloopt</th>
+            <th style="text-align:right">Totaal</th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in packs %}
+          <tr data-token="{{ p.token }}">
+            <td data-label="Onderwerp">{{ p.title }}</td>
+            <td data-label="Bestanden">{{ p.files_count }}</td>
+            <td data-label="Verloopt"><span class="expires">{{ p.expires_h }}</span></td>
+            <td data-label="Totaal" style="text-align:right">{{ p.total_h }}</td>
+            <td class="actions" data-label="">
+              <button class="btn small" data-action="details">Details</button>
+              <button class="btn small secondary" data-action="extend">+30 dagen</button>
+              <button class="btn small danger" data-action="delete">Verwijderen</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="small" style="color:#475569;margin-top:.5rem">“+30 dagen” verlengt het <strong>hele pakket</strong>.</p>
+    {% else %}
+      <p class="small">Nog geen uploads/pakketten gevonden.</p>
+    {% endif %}
+  </div>
+
+  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
+<dialog id="packDlg" aria-label="Pakketdetails">
+  <div class="modal-head">
+    <strong id="dlgTitle">Pakket</strong>
+    <button class="btn small" id="dlgClose">Sluiten</button>
+  </div>
+  <div class="modal-body">
+    <div id="dlgMeta" class="small" style="margin-bottom:.6rem;color:#475569"></div>
+    <table class="table" id="dlgTable">
+      <thead><tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="modal-foot"></div>
+</dialog>
+
+<script>
+async function api(url, body){
+  const r = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok){ throw new Error(j.error || ('HTTP '+r.status)); }
+  return j;
+}
+
+document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid')?.textContent?.trim();
+  if(!id) return;
+  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
+  try{
+    await api("{{ url_for('billing_cancel') }}", {subscription_id: id});
+    alert('Opgezegd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+
+document.getElementById('btnChange')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid')?.textContent?.trim();
+  const val = document.getElementById('newPlan')?.value;
+  if(!id || !val) return;
+  try{
+    await api("{{ url_for('billing_change') }}", {subscription_id: id, new_plan_value: val});
+    alert('Plan gewijzigd.');
+    location.reload();
+  }catch(e){ alert('Mislukt: ' + e.message); }
+});
+
+const tbl = document.getElementById('packsTable');
+const dlg = document.getElementById('packDlg');
+const dlgClose = document.getElementById('dlgClose');
+const dlgTitle = document.getElementById('dlgTitle');
+const dlgMeta  = document.getElementById('dlgMeta');
+const dlgTBody = document.querySelector('#dlgTable tbody');
+
+dlgClose?.addEventListener('click', ()=> dlg.close());
+
+if (tbl){
+  tbl.addEventListener('click', async (ev)=>{
+    const btn = ev.target.closest('button[data-action]');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    const token = (tr?.dataset?.token || '').trim();
+    const action = btn.dataset.action;
+    if (!token) return;
+
+    try{
+      if (action === 'extend'){
+        const res = await api("{{ url_for('billing_package_extend') }}", { token });
+        const iso = res?.new_expires_at || '';
+        const d = iso ? new Date(iso) : null;
+        const fmt = d ? d.toLocaleString('nl-NL', {
+          day:'2-digit', month:'2-digit', year:'numeric',
+          hour:'2-digit', minute:'2-digit'
+        }) : 'bijgewerkt';
+        tr.querySelector('.expires').textContent = fmt;
+      } else if (action === 'delete'){
+        if (!confirm('Hele pakket verwijderen (alle bestanden)?')) return;
+        await api("{{ url_for('billing_package_delete') }}", { token });
+        tr.remove();
+      } else if (action === 'details'){
+        dlgTitle.textContent = 'Pakket ' + token;
+        dlgMeta.textContent = 'Bestanden laden…';
+        dlgTBody.innerHTML = '';
+        if (typeof dlg.showModal === 'function'){ dlg.showModal(); }
+        const res = await api("{{ url_for('billing_package_files') }}", { token });
+        const files = res?.files || [];
+        dlgMeta.textContent = files.length + ' bestand(en) in dit pakket.';
+        if (!files.length){
+          dlgTBody.innerHTML = '<tr><td colspan="3" class="small">Geen bestanden gevonden.</td></tr>';
+        } else {
+          dlgTBody.innerHTML = files.map(f => (
+            '<tr>' +
+              '<td data-label="Bestand">' + (f.name||'') + '</td>' +
+              '<td data-label="Pad" class="small">' + (f.path||'') + '</td>' +
+              '<td data-label="Grootte" style="text-align:right">' + (f.size_h||'') + '</td>' +
+            '</tr>'
+          )).join('');
+        }
+      }
+    }catch(e){
+      alert('Actie mislukt: ' + (e?.message || e));
+    }
+  });
+}
+</script>
+</body></html>
+"""
+
+
 INDEX_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -681,6 +915,12 @@ INDEX_HTML = """
   <div class="hdr">
     <h1 class="brand">Bestanden uploaden</h1>
     <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  </div>
+
+    <div style="margin-bottom:12px">
+    <a href="{{ url_for('billing_page') }}" style="color:var(--brand);font-weight:600;text-decoration:none">
+      Beheer abonnement
+    </a>
   </div>
 
   <div class="deck">
@@ -1833,6 +2073,113 @@ def paypal_access_token():
         j = json.loads(resp.read().decode())
         return j["access_token"]
 
+# === Usage helper ===
+def tenant_usage_bytes(tenant_slug: str) -> int:
+    """Som van alle item-groottes voor deze tenant."""
+    c = db()
+    try:
+        if _col_exists(c, "items", "tenant_id"):
+            row = c.execute(
+                "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM items WHERE tenant_id=?",
+                (tenant_slug,),
+            ).fetchone()
+        else:
+            # fallback: oud schema zonder tenant_id
+            row = c.execute(
+                "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM items",
+            ).fetchone()
+        return int(row["total"] or 0)
+    finally:
+        c.close()
+
+
+# === Pakket-helpers ===
+def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
+    """Alle pakketten + aantal bestanden + totale grootte per pakket."""
+    c = db()
+    try:
+        has_tenant = _col_exists(c, "packages", "tenant_id") and _col_exists(c, "items", "tenant_id")
+
+        if has_tenant:
+            rows = c.execute(
+                """
+                SELECT p.token, p.title, p.expires_at, p.created_at,
+                       COUNT(i.id) AS files_count,
+                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
+                FROM packages p
+                LEFT JOIN items i
+                  ON i.token = p.token AND i.tenant_id = p.tenant_id
+                WHERE p.tenant_id = ?
+                GROUP BY p.token, p.title, p.expires_at, p.created_at
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (tenant_slug, limit),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                """
+                SELECT p.token, p.title, p.expires_at, p.created_at,
+                       COUNT(i.id) AS files_count,
+                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
+                FROM packages p
+                LEFT JOIN items i
+                  ON i.token = p.token
+                GROUP BY p.token, p.title, p.expires_at, p.created_at
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(r) for r in rows]
+    finally:
+        c.close()
+
+
+def list_files_in_package(token: str, tenant_slug: str) -> list[dict]:
+    """Alle bestanden in één pakket (voor de 'Details'-modal)."""
+    c = db()
+    try:
+        rows = c.execute(
+            """
+            SELECT id AS item_id, name, path, size_bytes
+            FROM items
+            WHERE token = ? AND tenant_id = ?
+            ORDER BY path, name
+            """,
+            (token, tenant_slug),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        c.close()
+
+
+def extend_package_expiry(token: str, tenant_slug: str, days: int = 30) -> str:
+    """Verleng vervaldatum van een pakket met N dagen; return nieuwe ISO datetime."""
+    c = db()
+    try:
+        row = c.execute(
+            "SELECT expires_at FROM packages WHERE token=? AND tenant_id=?",
+            (token, tenant_slug),
+        ).fetchone()
+        if not row:
+            raise ValueError("pakket_niet_gevonden")
+
+        cur = datetime.fromisoformat(row["expires_at"])
+        base = max(cur, datetime.now(timezone.utc))
+        new_dt = base + timedelta(days=days)
+
+        c.execute(
+            "UPDATE packages SET expires_at=? WHERE token=? AND tenant_id=?",
+            (new_dt.isoformat(), token, tenant_slug),
+        )
+        c.commit()
+        return new_dt.isoformat()
+    finally:
+        c.close()
+
+
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
     # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
@@ -2397,6 +2744,156 @@ def privacy_page():
         mail_to=MAIL_TO
     )    
 
+
+# === API: bestanden in pakket (voor details-modal) ===
+@app.route("/billing/package/files", methods=["POST"])
+def billing_package_files():
+    if not logged_in():
+        abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    token = (data.get("token") or "").strip()
+    if not token:
+        return jsonify(ok=False, error="missing_token"), 400
+
+    t = current_tenant()["slug"]
+    files = list_files_in_package(token, t)
+    out = [
+        {
+            "item_id": f["item_id"],
+            "name": f["name"],
+            "path": f.get("path") or f["name"],
+            "size_h": human(int(f["size_bytes"] or 0)),
+        }
+        for f in files
+    ]
+    return jsonify(ok=True, files=out)
+
+
+# === API: compleet pakket verwijderen ===
+@app.route("/billing/package/delete", methods=["POST"])
+def billing_package_delete():
+    if not logged_in():
+        abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    token = (data.get("token") or "").strip()
+    if not token:
+        return jsonify(ok=False, error="missing_token"), 400
+
+    t = current_tenant()["slug"]
+    c = db()
+    try:
+        items = c.execute(
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t),
+        ).fetchall()
+
+        # best effort S3 cleanup
+        for r in items:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                log.exception("S3 delete_object failed (token=%s)", token)
+
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+        c.commit()
+        return jsonify(ok=True)
+    finally:
+        c.close()
+
+
+# === API: pakket +30 dagen ===
+@app.route("/billing/package/extend", methods=["POST"])
+def billing_package_extend():
+    if not logged_in():
+        abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    token = (data.get("token") or "").strip()
+    if not token:
+        return jsonify(ok=False, error="missing_token"), 400
+
+    t = current_tenant()["slug"]
+    try:
+        new_iso = extend_package_expiry(token, t, days=30)
+        return jsonify(ok=True, new_expires_at=new_iso)
+    except ValueError as e:
+        return jsonify(ok=False, error=str(e)), 404
+    except Exception:
+        log.exception("extend failed")
+        return jsonify(ok=False, error="server_error"), 500
+
+
+# === Abonnement opzeggen ===
+@app.route("/billing/cancel", methods=["POST"])
+def billing_cancel():
+    if not logged_in():
+        abort(401)
+    sub_id = (request.json or {}).get("subscription_id") or ""
+    if not sub_id:
+        return jsonify(ok=False, error="missing_id"), 400
+    try:
+        token = paypal_access_token()
+        req = urllib.request.Request(
+            f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel",
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"reason": "Cancelled by customer via portal"}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20):
+            pass
+
+        c = db()
+        c.execute(
+            "UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?",
+            (sub_id,),
+        )
+        c.commit()
+        c.close()
+        return jsonify(ok=True)
+    except Exception:
+        log.exception("PayPal cancel failed")
+        return jsonify(ok=False, error="paypal_cancel_failed"), 502
+
+
+# === Abonnement plan wijzigen ===
+@app.route("/billing/change", methods=["POST"])
+def billing_change():
+    if not logged_in():
+        abort(401)
+    data = request.get_json(force=True, silent=True) or {}
+    sub_id = (data.get("subscription_id") or "").strip()
+    new_plan_value = (data.get("new_plan_value") or "").strip()
+    new_plan_id = PLAN_MAP.get(new_plan_value)
+    if not sub_id or not new_plan_id:
+        return jsonify(ok=False, error="invalid_input"), 400
+
+    try:
+        token = paypal_access_token()
+        req = urllib.request.Request(
+            f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise",
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        body = json.dumps({"plan_id": new_plan_id}).encode()
+        with urllib.request.urlopen(req, data=body, timeout=20):
+            pass
+
+        c = db()
+        c.execute(
+            "UPDATE subscriptions SET plan_value=? WHERE subscription_id=?",
+            (new_plan_value, sub_id),
+        )
+        c.commit()
+        c.close()
+        return jsonify(ok=True)
+    except Exception:
+        log.exception("PayPal revise failed")
+        return jsonify(ok=False, error="paypal_revise_failed"), 502
+
+    
+
 # -------------- Abonnementbeheer (server) --------------
 @app.route("/billing/store", methods=["POST"])
 def paypal_store_subscription():
@@ -2460,6 +2957,90 @@ def paypal_verify_webhook_sig(headers, body_text: str) -> bool:
     except Exception:
         log.exception("paypal_verify_webhook_sig failed")
         return False
+
+
+@app.route("/billing")
+def billing_page():
+    if not logged_in():
+        return redirect(url_for("login"))
+
+    t = current_tenant()["slug"]
+    user_email = (session.get("user") or "").lower().strip()
+
+    used = tenant_usage_bytes(t)
+
+    # laatste subscription ophalen (met/zonder tenant_id)
+    c = db()
+    try:
+        if _col_exists(c, "subscriptions", "tenant_id"):
+            sub = c.execute(
+                """
+                SELECT * FROM subscriptions
+                 WHERE login_email=? AND tenant_id=?
+                 ORDER BY id DESC LIMIT 1
+                """,
+                (user_email, t),
+            ).fetchone()
+        else:
+            sub = c.execute(
+                """
+                SELECT * FROM subscriptions
+                 WHERE login_email=?
+                 ORDER BY id DESC LIMIT 1
+                """,
+                (user_email,),
+            ).fetchone()
+    finally:
+        c.close()
+
+    # Limiet op basis van plan (0.5 / 1 / 2 / 5 TB)
+    if sub and sub.get("plan_value"):
+        try:
+            tb = float(sub["plan_value"])
+            limit = int(tb * 1024**4)  # TB → bytes
+        except Exception:
+            limit = 50 * 1024**3
+    else:
+        # fallback: bv. 50 GB als er (nog) geen abo is
+        limit = 50 * 1024**3
+
+    pct = 0 if limit <= 0 else min(999, round(used / max(1, limit) * 100))
+
+    packs_raw = list_packages_with_stats(t)
+    packs = []
+    for r in packs_raw:
+        try:
+            exp_dt = datetime.fromisoformat(r["expires_at"])
+        except Exception:
+            exp_dt = datetime.now(timezone.utc)
+        packs.append(
+            {
+                "token": r["token"],
+                "title": r["title"] or r["token"],
+                "files_count": int(r["files_count"] or 0),
+                "total_h": human(int(r["total_bytes"] or 0)),
+                "expires_h": exp_dt.strftime("%d-%m-%Y %H:%M"),
+                "expires_iso": r["expires_at"],
+            }
+        )
+
+    return render_template_string(
+        BILLING_HTML,
+        used=used,
+        used_h=human(used),
+        limit=limit,
+        limit_h=human(limit),
+        pct=pct,
+        over=used > limit,
+        tenant_label=t,
+        sub=sub,
+        packs=packs,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON,
+        user=session.get("user"),
+    )
+
 
 @app.route("/webhook/paypal", methods=["POST"])
 def paypal_webhook():
