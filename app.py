@@ -1051,12 +1051,13 @@ PACKAGE_HTML = """
 
     <!-- Call-to-action naar aanvraagformulier -->
     <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
-      <div style="font-weight:600;margin-bottom:4px">Eigen transfer-oplossing?</div>
+      <div style="font-weight:600;margin-bottom:4px">Maatwerk voor uw organisatie</div>
       <p class="small" style="margin:0 0 .6rem 0">
-        Deze downloadpagina is onderdeel van een eigen omgeving. Ook zo'n professionele oplossing voor jouw organisatie?
+        Wilt u voor uw organisatie een eigen, professionele transferomgeving laten inrichten?
+        Via het aanvraagformulier informeren wij u graag over de mogelijkheden.
       </p>
-      <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;">
-        Meer info / aanvraag
+      <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;padding:.4rem .9rem;font-size:.86rem;">
+        Informatie / offerte aanvragen
       </a>
     </div>
   </div>
