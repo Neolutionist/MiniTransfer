@@ -628,13 +628,49 @@ INDEX_HTML = """
     .log p{margin:4px 0}
 
     /* total bar + badges */
-    .totalline{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.22rem .6rem;border-radius:999px;font-weight:800;font-size:.78rem}
-    .badge.ok{background:color-mix(in oklab,#16a34a 18%,white 82%);color:#166534}
-    .badge.warn{background:color-mix(in oklab,#f59e0b 22%,white 78%);color:#b45309}
+    .totalline{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+
+    /* nette, subtiele pill voor 0–100% en “Gereed” */
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:.18rem .7rem;
+      border-radius:999px;
+      font-weight:600;
+      font-size:.78rem;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      border:1px solid rgba(148,163,184,.55);
+      background:rgba(15,23,42,.9);
+      color:var(--muted);
+    }
+
+    /* groene “Gereed”-badge bij de deelbare link */
+    .badge.ok{
+      border-color:rgba(34,197,94,.65);
+      background:rgba(22,163,74,.18);
+      color:#bbf7d0;
+    }
+
+    /* amber 0–100%-badge, maar minder schreeuwerig */
+    .badge.warn{
+      border-color:rgba(245,158,11,.6);
+      background:rgba(245,158,11,.14);
+      color:#fed7aa;
+    }
 
     /* share mini */
-    .share{display:flex;align-items:center;gap:8px}
+    .share{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
     .share .input{padding:.55rem .7rem}
     .share .btn{padding:.55rem .7rem}
   </style>
@@ -1056,9 +1092,21 @@ PACKAGE_HTML = """
         Wilt u voor uw organisatie een eigen, professionele transferomgeving laten inrichten?
         Via het aanvraagformulier informeren wij u graag over de mogelijkheden.
       </p>
-      <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;padding:.4rem .9rem;font-size:.86rem;">
-        Informatie / offerte aanvragen
-      </a>
+<a
+  href="{{ url_for('contact') }}"
+  class="btn ghost sm"
+  style="
+    text-decoration:none;
+    padding:.35rem .9rem;
+    font-size:.84rem;
+    white-space:nowrap;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+  "
+>
+  Informatie / offerte aanvragen
+</a>
     </div>
   </div>
 </div>
