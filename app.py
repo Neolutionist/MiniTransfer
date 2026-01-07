@@ -2936,23 +2936,42 @@ def internal_cleanup():
 def package_page(token):
     c = db()
     t = current_tenant()["slug"]
+
     pkg = c.execute(
         "SELECT * FROM packages WHERE token=? AND tenant_id=?",
         (token, t)
     ).fetchone()
 
-if not pkg:
-    c.close()
-    return render_template_string(
-        LINK_REMOVED_HTML,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON,
-        token=token
-    ), 410
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
 
+    # -----------------------------
+    # LINK VERLOPEN → NETTE PAGINA
+    # -----------------------------
+    from flask import render_template_string
 
-    # Wachtwoordbeveiliging
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+        expired_h = dt.strftime("%d-%m-%Y • %H:%M")
+
+        c.close()
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Bestandspakket",
+            expired_human=expired_h,
+            token=token
+        ), 410
+
+    # -----------------------------
+    # WACHTWOORD BEVEILIGING
+    # -----------------------------
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
             c.close()
@@ -2976,7 +2995,9 @@ if not pkg:
                 )
             session[f"allow_{token}"] = True
 
-    # Bestanden ophalen
+    # -----------------------------
+    # BESTANDEN OPHALEN
+    # -----------------------------
     items = c.execute(
         """SELECT id,name,path,size_bytes FROM items
            WHERE token=? AND tenant_id=?
