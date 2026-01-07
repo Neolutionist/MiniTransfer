@@ -523,6 +523,57 @@ dialog::backdrop{background:rgba(15,23,42,.55)}
 .modal-body{padding:1rem;background:#fff;max-height:min(70vh,70dvh);overflow:auto}
 .modal-foot{padding:0 1rem 1rem;background:#fff}
 .btn.danger{background:#b91c1c}
+
+/* ---- Leesbaarheid / contrast verbeteringen ---- */
+
+body {
+  color: #e5e7eb;
+}
+
+.card {
+  color: #e5e7eb;
+}
+
+.small {
+  color: #cbd5e1 !important;
+}
+
+h1, h3 {
+  color: #f1f5f9 !important;
+}
+
+.table th {
+  color: #f1f5f9;
+}
+
+.table td {
+  color: #e5e7eb;
+}
+
+.tenant-tag {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.bar {
+  border: 1px solid rgba(255,255,255,.35);
+}
+
+.btn.small,
+.btn.secondary,
+.btn.danger {
+  color: #ffffff;
+}
+
+.btn.danger {
+  background:#dc2626;
+}
+
+.table tr {
+  border-color: rgba(255,255,255,.15);
+}
+
+
 </style></head><body>
 {{ bg|safe }}
 <div class="wrap">
