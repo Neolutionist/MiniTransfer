@@ -2932,7 +2932,6 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
-# -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
