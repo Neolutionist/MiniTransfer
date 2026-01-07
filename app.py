@@ -596,6 +596,77 @@ btn.onclick = async () => {
 """
 
 
+LINK_REMOVED_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pakket verwijderd</title>
+
+<style>
+body{
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
+  background: linear-gradient(135deg,#eef2ff,#e0f2fe);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:100vh;
+  margin:0;
+}
+.box{
+  background:#fff;
+  border-radius:18px;
+  padding:28px 30px;
+  max-width:520px;
+  width:92%;
+  box-shadow:0 20px 40px rgba(0,0,0,.12);
+}
+.badge{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:10px;
+  background:#fee2e2;
+  color:#991b1b;
+  font-weight:600;
+}
+h1{ margin:8px 0; color:#0f172a; }
+p{ margin:6px 0 12px; color:#334155; }
+.actions{ display:flex; gap:.5rem; margin-top:10px; }
+.btn{
+  border-radius:12px;
+  padding:10px 14px;
+  border:none;
+  font-weight:600;
+  cursor:pointer;
+}
+.btn.primary{ background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:#fff; }
+.btn.secondary{ background:#e5e7eb; }
+</style>
+</head>
+
+<body>
+<div class="box">
+
+  <span class="badge">Niet meer beschikbaar</span>
+
+  <h1>Pakket verwijderd</h1>
+
+  <p>
+    Dit downloadpakket is verwijderd door de verzender<br>
+    of automatisch opgeschoond na verloop van tijd.
+  </p>
+
+  <div class="actions">
+    <button class="btn secondary" onclick="history.back()">Ga terug</button>
+    <a href="/" class="btn primary">Naar startpagina</a>
+  </div>
+
+</div>
+</body>
+</html>
+"""
+
 
 BILLING_HTML = """
 <!doctype html><html lang="nl"><head>
@@ -2932,7 +3003,11 @@ def stream_file(token, item_id):
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
+if not pkg:
+    c.close()
+    return render_template_string(
+        LINK_REMOVED_HTML
+    ), 410
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
     it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
@@ -2962,7 +3037,11 @@ def stream_zip(token):
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
+if not pkg:
+    c.close()
+    return render_template_string(
+        LINK_REMOVED_HTML
+    ), 410
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
     if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
     rows = c.execute("""SELECT name,path,s3_key FROM items
