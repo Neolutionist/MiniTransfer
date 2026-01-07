@@ -573,6 +573,20 @@ h1, h3 {
   border-color: rgba(255,255,255,.15);
 }
 
+
+.table td .expires{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:6px 14px;
+  min-width:160px;
+  border-radius:999px;
+  background:linear-gradient(135deg, rgba(148,163,255,.85), rgba(59,130,246,.9));
+  box-shadow:0 6px 18px rgba(15,23,42,.4);
+  color:#f9fafb;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===============================
    🎨 DYNAMIC PREMIUM THEME
    =============================== */
@@ -3212,7 +3226,7 @@ def billing_page():
                 "title": r["title"] or r["token"],
                 "files_count": int(r["files_count"] or 0),
                 "total_h": human(int(r["total_bytes"] or 0)),
-                "expires_h": exp_dt.strftime("%d-%m-%Y %H:%M"),
+               "expires_h": exp_dt.strftime("%d-%m-%Y • %H:%M"),
                 "expires_iso": r["expires_at"],
             }
         )
