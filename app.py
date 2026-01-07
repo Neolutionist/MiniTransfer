@@ -526,23 +526,98 @@ INDEX_HTML = """
     .toggle{display:flex;gap:14px;align-items:center}
     .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
 
-    /* filepicker compact */
-    .picker{display:flex;flex-direction:column;gap:6px}
-    .picker-ctl{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 92%,white 8%);height:42px;padding:0 10px}
-    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .btn{padding:.7rem .95rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
-    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
-    .muted{color:var(--muted)}
-    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* filepicker compact */
+.picker{display:flex;flex-direction:column;gap:6px}
 
-    /* queue tabel */
-    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
-    .rowc{display:grid;grid-template-columns:22px 1fr 100px 90px;align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
-    .ico{width:22px;height:22px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
-    .size,.eta{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
-    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
+/* hou het kader rustig en de knop mooi gecentreerd */
+.picker-ctl{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface-2) 92%,white 8%);
+  padding:6px 10px;
+  min-height:42px;
+}
+.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+
+/* basisknop overal */
+.btn{
+  padding:.7rem .95rem;
+  border:0;
+  border-radius:11px;
+  background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+}
+
+/* iets compacter binnen de picker zodat de verticale margins gelijk zijn aan de zijkanten */
+.picker-ctl .btn{
+  padding:.45rem .8rem;
+  font-size:.9rem;
+}
+
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+.btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
+.muted{color:var(--muted)}
+.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+
+.table{width:100%;border-collapse:separate;border-spacing:0 6px}
+
+/* compactere rij: minder padding + kleinere tekst */
+.rowc{
+  display:grid;
+  grid-template-columns:22px 1fr 90px 80px;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface) 90%,white 10%);
+  font-size:.9rem;
+}
+.ico{width:20px;height:20px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
+
+/* bestandsnaam iets kleiner en strak */
+.rowc .ellipsis strong{
+  display:block;
+  font-size:.86rem;
+  font-weight:600;
+  line-height:1.25;
+}
+
+/* voortgangsbalk in de rij smaller */
+.rowc .progress{
+  margin-top:3px;
+  height:8px;
+}
+
+.size,.eta{
+  text-align:right;
+  color:var(--muted);
+  font-variant-numeric:tabular-nums;
+  font-size:.85rem;
+}
+
+/* algemene progress (total) blijft zoals hij was */
+.progress{
+  height:10px;
+  border-radius:999px;
+  overflow:hidden;
+  border:1px solid #dbe5f4;
+  background:#eef2ff;
+}
+.progress>i{
+  display:block;
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#0f4c98,#1e90ff);
+  transition:width .12s;
+}
 
     /* telemetry */
     .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -856,28 +931,42 @@ PACKAGE_HTML = """
   <style>
     {{ base_css }}
 
-    /* ===== Downloadlijst: nette uitlijning ===== */
-    .filecard{
-      display:grid;
-      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
-      align-items:center;
-      gap:.6rem .8rem;
-      padding:.70rem 1rem;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);
-    }
-    .filecard .name{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      line-height:1.25;
-      overflow-wrap:anywhere;
-    }
-    .filecard .size{ width:6.5rem; text-align:right; }
-    .filecard .action{ width:auto; text-align:right; }
-    .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
+/* ===== Downloadlijst: nette uitlijning + compacter ===== */
+.filecard{
+  display:grid;
+  grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
+  align-items:center;
+  gap:.45rem .6rem;
+  padding:.55rem .85rem;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface) 86%,white 14%);
+  font-size:.9rem;
+}
+.filecard .name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.filecard .size{
+  width:6.2rem;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.filecard .action{
+  width:auto;
+  text-align:right;
+}
+.filecard .action a{
+  display:inline-block;
+  padding:.15rem .35rem;
+  white-space:nowrap;
+  font-size:.85rem;
+}
+
 
     /* Progressbalk ruimte */
     #bar{ margin-top:.75rem }
@@ -946,17 +1035,33 @@ PACKAGE_HTML = """
       </div>
     </div>
 
-    <!-- Rechterkaart -->
-    <div class="card">
-      <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
-      <div class="card-b kv">
-        <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-        <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-        <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
-        <div class="k">ETA</div><div class="v" id="tEta">—</div>
-      </div>
+<!-- Rechterkaart -->
+<div class="card">
+  <div class="card-h">
+    <div>Live Telemetry</div>
+    <div class="subtle">Sessie</div>
+  </div>
+  <div class="card-b grid" style="gap:12px">
+    <div class="kv">
+      <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
+      <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
+      <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
+      <div class="k">ETA</div><div class="v" id="tEta">—</div>
+    </div>
+
+    <!-- Call-to-action naar aanvraagformulier -->
+    <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
+      <div style="font-weight:600;margin-bottom:4px">Eigen transfer-oplossing?</div>
+      <p class="small" style="margin:0 0 .6rem 0">
+        Deze downloadpagina is onderdeel van een eigen omgeving. Ook zo'n professionele oplossing voor jouw organisatie?
+      </p>
+      <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;">
+        Meer info / aanvraag
+      </a>
     </div>
   </div>
+</div>
+
 
   <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
