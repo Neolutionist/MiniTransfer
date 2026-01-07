@@ -1087,10 +1087,9 @@ PACKAGE_HTML = """
 
     <!-- Call-to-action naar aanvraagformulier -->
     <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
-      <div style="font-weight:600;margin-bottom:4px">Maatwerk voor uw organisatie</div>
+      <div style="font-weight:600;margin-bottom:4px">Aanvraagformulier</div>
       <p class="small" style="margin:0 0 .6rem 0">
-        Wilt u voor uw organisatie een eigen, professionele transferomgeving laten inrichten?
-        Via het aanvraagformulier informeren wij u graag over de mogelijkheden.
+        Interesse in een eigen uploadservice, welke geheel naar wens ingericht kan worden? Neem dan contact met ons op.
       </p>
 <a
   href="{{ url_for('contact') }}"
