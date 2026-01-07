@@ -491,6 +491,93 @@ PASS_PROMPT_HTML = """
 </body></html>
 """
 
+LINK_EXPIRED_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Link verlopen</title>
+
+<style>
+body{
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  background: linear-gradient(135deg,#eef2ff,#e0f2fe);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:100vh;
+  margin:0;
+}
+.box{
+  background:#fff;
+  border-radius:18px;
+  padding:28px 30px;
+  max-width:520px;
+  width:92%;
+  box-shadow:0 20px 40px rgba(0,0,0,.12);
+}
+.badge{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:10px;
+  background:#fee2e2;
+  color:#991b1b;
+  font-weight:600;
+}
+h1{
+  margin:8px 0;
+  color:#0f172a;
+}
+p{
+  margin:4px 0 14px;
+  color:#334155;
+}
+.actions{
+  display:flex;
+  gap:.5rem;
+  margin-top:10px;
+}
+.btn{
+  border-radius:12px;
+  padding:10px 14px;
+  border:none;
+  font-weight:600;
+  cursor:pointer;
+}
+.btn.primary{
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
+  color:#fff;
+}
+.btn.secondary{
+  background:#e5e7eb;
+}
+</style>
+</head>
+
+<body>
+<div class="box">
+
+  <span class="badge">Link verlopen</span>
+
+  <h1>{{ title }}</h1>
+
+  <p>
+    Deze downloadlink is niet meer actief.<br>
+    Het pakket is verlopen of door de verzender verwijderd.
+  </p>
+
+  <div class="actions">
+    <button class="btn secondary" onclick="history.back()">Ga terug</button>
+    <a href="/" class="btn primary">Naar startpagina</a>
+  </div>
+
+</div>
+</body>
+</html>
+"""
+
+
 BILLING_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -2736,14 +2823,14 @@ def package_page(token):
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
     if not pkg: c.close(); abort(404)
 
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-        for r in rows:
-            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception: pass
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit(); c.close(); abort(410)
+from flask import render_template_string
+
+if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+    c.close()
+    return render_template_string(
+        LINK_EXPIRED_HTML,
+        title=pkg["title"] or "Bestandspakket"
+    ), 410
 
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
