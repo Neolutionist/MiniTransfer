@@ -573,7 +573,149 @@ h1, h3 {
   border-color: rgba(255,255,255,.15);
 }
 
+/* ===============================
+   🎨 DYNAMIC PREMIUM THEME
+   =============================== */
 
+:root{
+  --brand: #4ea1ff;
+  --brand-strong: #1b6dff;
+  --accent: #9b8cff;
+  --accent-strong: #6d5bff;
+  --danger: #ff4d5e;
+
+  --text-strong: #f4f7ff;
+  --text-soft: #d9e2ff;
+
+  --card-fg: #edf2ff;
+}
+
+/* ⬆️ Titel blijft donker voor contrast */
+.topbar h1{
+  color:#0b1933 !important;
+}
+
+/* 💎 Glass cards met depth */
+.card{
+  color: var(--card-fg);
+  background: linear-gradient(165deg,
+      rgba(22,30,48,.92),
+      rgba(28,35,58,.88),
+      rgba(33,40,66,.92)
+  );
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow:
+    0 18px 40px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+/* headings in cards */
+.card h3{
+  color: var(--text-strong) !important;
+}
+
+/* tabel */
+.table th{
+  color: var(--text-strong);
+}
+
+.table td{
+  color: var(--text-soft);
+}
+
+/* separator lines */
+.table tr{
+  border-color: rgba(255,255,255,.16);
+}
+
+/* compact text */
+.small{
+  color: #cdd8ff !important;
+}
+
+/* tenant tag */
+.tenant-tag{
+  color:#fff;
+  background: linear-gradient(120deg,#4ea1ff,#6cdfff);
+  padding:4px 10px;
+  border-radius:999px;
+}
+
+
+/* ===============================
+   🌈 PROGRESS BAR — dynamic glow
+   =============================== */
+.bar{
+  border: 1px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.12);
+}
+
+.bar>i{
+  background: linear-gradient(90deg,
+      #1b6dff,
+      #4ea1ff,
+      #6cdfff
+  );
+  box-shadow: 0 0 16px rgba(78,161,255,.6);
+  transition: width .3s ease;
+}
+
+
+/* ===============================
+   🟦 BUTTONS WITH DEPTH
+   =============================== */
+
+.btn{
+  color:#fff !important;
+  border:none;
+  font-weight:600;
+  border-radius:16px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.btn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+}
+
+/* primary */
+.btn.small{
+  background: linear-gradient(135deg,#4ea1ff,#1b6dff);
+}
+
+/* +30 dagen */
+.btn.secondary{
+  background: linear-gradient(135deg,#9b8cff,#6d5bff);
+}
+
+/* verwijderen */
+.btn.danger{
+  background: linear-gradient(135deg,#ff5a64,#ff2f3f);
+}
+
+
+/* ===============================
+   📦 PACKAGE STATUS TAG FEEL
+   =============================== */
+
+.expires{
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:10px;
+  background: rgba(255,255,255,.08);
+  color:#fff;
+}
+
+/* bijna verlopen hint */
+tr[data-expiring="1"] .expires{
+  background: rgba(255,99,71,.25);
+}
+
+/* verlopen */
+tr[data-expired="1"] .expires{
+  background: rgba(255,0,0,.35);
+}
 </style></head><body>
 {{ bg|safe }}
 <div class="wrap">
