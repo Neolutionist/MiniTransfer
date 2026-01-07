@@ -2835,55 +2835,97 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
+# -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
     t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
 
-from flask import render_template_string
+    if not pkg:
+        c.close()
+        abort(404)
 
-if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
-    expired_h = dt.strftime("%d-%m-%Y • %H:%M")
+    # Link verlopen → toon nette pagina
+    from flask import render_template_string
 
-    c.close()
-    return render_template_string(
-        LINK_EXPIRED_HTML,
-        title=pkg["title"] or "Bestandspakket",
-        expired_human=expired_h,
-        token=token
-    ), 410
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+        expired_h = dt.strftime("%d-%m-%Y • %H:%M")
 
+        c.close()
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Bestandspakket",
+            expired_human=expired_h,
+            token=token
+        ), 410
+
+    # Wachtwoordbeveiliging
     if pkg["password_hash"]:
         if request.method == "GET" and not session.get(f"allow_{token}", False):
             c.close()
-            return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
+            return render_template_string(
+                PASS_PROMPT_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                error=None,
+                head_icon=HTML_HEAD_ICON
+            )
+
         if request.method == "POST":
             if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
                 c.close()
-                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
+                return render_template_string(
+                    PASS_PROMPT_HTML,
+                    base_css=BASE_CSS,
+                    bg=BG_DIV,
+                    error="Onjuist wachtwoord. Probeer opnieuw.",
+                    head_icon=HTML_HEAD_ICON
+                )
             session[f"allow_{token}"] = True
 
-    items = c.execute("""SELECT id,name,path,size_bytes FROM items
-                         WHERE token=? AND tenant_id=?
-                         ORDER BY path""", (token, t)).fetchall()
+    # Bestanden ophalen
+    items = c.execute(
+        """SELECT id,name,path,size_bytes FROM items
+           WHERE token=? AND tenant_id=?
+           ORDER BY path""",
+        (token, t)
+    ).fetchall()
+
     c.close()
 
     total_bytes = sum(int(r["size_bytes"]) for r in items)
     total_h = human(total_bytes)
+
     dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
     expires_h = dt.strftime("%d-%m-%Y %H:%M")
 
-    its = [{"id":r["id"], "name":r["name"], "path":r["path"], "size_h":human(int(r["size_bytes"]))} for r in items]
+    its = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "path": r["path"],
+            "size_h": human(int(r["size_bytes"]))
+        }
+        for r in items
+    ]
 
     return render_template_string(
         PACKAGE_HTML,
-        token=token, title=pkg["title"],
-        items=its, total_human=total_h,
-        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+        token=token,
+        title=pkg["title"],
+        items=its,
+        total_human=total_h,
+        expires_human=expires_h,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON
     )
+
 
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
