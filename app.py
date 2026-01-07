@@ -3036,177 +3036,195 @@ def package_page(token):
     )
 
 
-@app.route("/file/<token>/<int:item_id>")
-def stream_file(token, item_id):
-    c = db()
-    t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-if not pkg:
-    c.close()
-    return render_template_string(
-        LINK_REMOVED_HTML
-    ), 410
-if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-
-    rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-    for r in rows:
-        try:
-            s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-        except Exception:
-            pass
-
-    c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-    c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-    c.commit()
-    c.close()
-
-    expired_human = datetime.fromisoformat(pkg["expires_at"])\
-        .replace(second=0, microsecond=0)\
-        .strftime("%d-%m-%Y %H:%M")
-
-    return render_template_string(
-        LINK_EXPIRED_HTML,
-        title=pkg["title"] or "Downloadpakket",
-        expired_human=expired_human,
-        token=token,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON
-    ), 410
-
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
-    c.close()
-    if not it: abort(404)
-
-    try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-        length = int(head.get("ContentLength", 0))
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-        def gen():
-            for chunk in obj["Body"].iter_chunks(1024*512):
-                if chunk: yield chunk
-
-        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-        if length: resp.headers["Content-Length"] = str(length)
-        resp.headers["X-Filename"] = it["name"]
-        return resp
-    except Exception:
-        log.exception("stream_file failed")
-        abort(500)
-
 @app.route("/zip/<token>")
 def stream_zip(token):
     c = db()
     t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-if not pkg:
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
+
+    # Pakket bestaat niet meer → pakket verwijderd pagina
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
+
+    # Pakket verlopen → opruimen + nette verlopen pagina
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        rows = c.execute(
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        ).fetchall()
+        for r in rows:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
+
+        c.execute(
+            "DELETE FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        )
+        c.execute(
+            "DELETE FROM packages WHERE token=? AND tenant_id=?",
+            (token, t)
+        )
+        c.commit()
+        c.close()
+
+        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
+
+    # Wachtwoordcontrole
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
+
+    # Alle items voor ZIP
+    rows = c.execute(
+        """SELECT name,path,s3_key FROM items
+           WHERE token=? AND tenant_id=?
+           ORDER BY path""",
+        (token, t)
+    ).fetchall()
     c.close()
-    return render_template_string(
-        LINK_REMOVED_HTML
-    ), 410
-if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-
-    rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-    for r in rows:
-        try:
-            s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-        except Exception:
-            pass
-
-    c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-    c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-    c.commit()
-    c.close()
-
-    expired_human = datetime.fromisoformat(pkg["expires_at"])\
-        .replace(second=0, microsecond=0)\
-        .strftime("%d-%m-%Y %H:%M")
-
-    return render_template_string(
-        LINK_EXPIRED_HTML,
-        title=pkg["title"] or "Downloadpakket",
-        expired_human=expired_human,
-        token=token,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON
-    ), 410
-
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    rows = c.execute("""SELECT name,path,s3_key FROM items
-                        WHERE token=? AND tenant_id=?
-                        ORDER BY path""", (token, t)).fetchall()
-    c.close()
-    if not rows: abort(404)
+    if not rows:
+        abort(404)
 
     # Precheck ontbrekende objecten
-    missing=[]
+    missing = []
     try:
         for r in rows:
-            try: s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            try:
+                s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
             except ClientError as ce:
-                code=ce.response.get("Error",{}).get("Code","")
-                if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
-                else: raise
+                code = ce.response.get("Error", {}).get("Code", "")
+                if code in {"NoSuchKey", "NotFound", "404"}:
+                    missing.append(r["path"] or r["name"])
+                else:
+                    raise
     except Exception:
         log.exception("zip precheck failed")
-        resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
-        resp.headers["X-Error"]="zip_precheck_failed"; return resp
+        resp = Response(
+            "ZIP precheck mislukt. Zie serverlogs.",
+            status=500,
+            mimetype="text/plain"
+        )
+        resp.headers["X-Error"] = "zip_precheck_failed"
+        return resp
+
     if missing:
-        text="De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
-        resp=Response(text, mimetype="text/plain", status=422)
-        resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
+        text = (
+            "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- "
+            + "\n- ".join(missing)
+        )
+        resp = Response(text, mimetype="text/plain", status=422)
+        resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
+        return resp
 
     try:
         z = ZipStream()
 
         class _GenReader:
-            def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
+            def __init__(self, gen):
+                self._it = gen
+                self._buf = b""
+                self._done = False
+
             def read(self, n=-1):
-                if self._done and not self._buf: return b""
-                if n is None or n<0:
-                    chunks=[self._buf]; self._buf=b""
-                    for ch in self._it: chunks.append(ch)
-                    self._done=True; return b"".join(chunks)
-                while len(self._buf)<n and not self._done:
-                    try: self._buf += next(self._it)
-                    except StopIteration: self._done=True; break
-                out,self._buf=self._buf[:n],self._buf[n:]; return out
+                if self._done and not self._buf:
+                    return b""
+                if n is None or n < 0:
+                    chunks = [self._buf]
+                    self._buf = b""
+                    for ch in self._it:
+                        chunks.append(ch)
+                    self._done = True
+                    return b"".join(chunks)
+                while len(self._buf) < n and not self._done:
+                    try:
+                        self._buf += next(self._it)
+                    except StopIteration:
+                        self._done = True
+                        break
+                out, self._buf = self._buf[:n], self._buf[n:]
+                return out
 
         def add_compat(arcname, gen_factory):
-            if hasattr(z,"add_iter"):
-                try: z.add_iter(arcname, gen_factory()); return
-                except Exception: pass
-            try: z.add(arcname=arcname, iterable=gen_factory()); return
-            except Exception: pass
-            try: z.add(arcname=arcname, stream=gen_factory()); return
-            except Exception: pass
-            try: z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
-            except Exception: pass
-            try: z.add(arcname, gen_factory()); return
-            except Exception: pass
-            try: z.add(gen_factory(), arcname); return
-            except Exception: pass
+            if hasattr(z, "add_iter"):
+                try:
+                    z.add_iter(arcname, gen_factory())
+                    return
+                except Exception:
+                    pass
+            try:
+                z.add(arcname=arcname, iterable=gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname=arcname, stream=gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname=arcname, fileobj=_GenReader(gen_factory()))
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname, gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(gen_factory(), arcname)
+                return
+            except Exception:
+                pass
             raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
 
         for r in rows:
             arcname = r["path"] or r["name"]
+
             def reader(key=r["s3_key"]):
                 obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-                for chunk in obj["Body"].iter_chunks(1024*512):
-                    if chunk: yield chunk
+                for chunk in obj["Body"].iter_chunks(1024 * 512):
+                    if chunk:
+                        yield chunk
+
             add_compat(arcname, lambda: reader())
 
         def generate():
-            for chunk in z: yield chunk
+            for chunk in z:
+                yield chunk
 
-        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
-        if not filename.lower().endswith(".zip"): filename += ".zip"
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"', "")
+        if not filename.lower().endswith(".zip"):
+            filename += ".zip"
 
-        resp = Response(stream_with_context(generate()), mimetype="application/zip")
+        resp = Response(
+            stream_with_context(generate()),
+            mimetype="application/zip"
+        )
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
@@ -3216,6 +3234,7 @@ if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         resp = Response(msg, status=500, mimetype="text/plain")
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
+
         
 @app.route("/terms")
 def terms_page():
