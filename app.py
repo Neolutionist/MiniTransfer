@@ -501,7 +501,7 @@ LINK_EXPIRED_HTML = """
 
 <style>
 body{
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
   background: linear-gradient(135deg,#eef2ff,#e0f2fe);
   display:flex;
   align-items:center;
@@ -525,18 +525,14 @@ body{
   color:#991b1b;
   font-weight:600;
 }
-h1{
-  margin:8px 0;
-  color:#0f172a;
-}
-p{
-  margin:4px 0 14px;
-  color:#334155;
-}
+h1{ margin:8px 0; color:#0f172a; }
+p{ margin:4px 0 10px; color:#334155; }
+.meta{ color:#64748b; font-size:.9rem; margin-bottom:12px; }
+
 .actions{
   display:flex;
   gap:.5rem;
-  margin-top:10px;
+  margin-top:12px;
 }
 .btn{
   border-radius:12px;
@@ -545,13 +541,9 @@ p{
   font-weight:600;
   cursor:pointer;
 }
-.btn.primary{
-  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
-  color:#fff;
-}
-.btn.secondary{
-  background:#e5e7eb;
-}
+.btn.primary{ background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:#fff; }
+.btn.secondary{ background:#e5e7eb; }
+.btn.primary[disabled]{opacity:.6;pointer-events:none}
 </style>
 </head>
 
@@ -562,20 +554,47 @@ p{
 
   <h1>{{ title }}</h1>
 
-  <p>
-    Deze downloadlink is niet meer actief.<br>
-    Het pakket is verlopen of door de verzender verwijderd.
-  </p>
+  <p>Deze downloadlink is niet meer actief.</p>
+
+  <div class="meta">
+    Verlopen op <strong>{{ expired_human }}</strong>
+  </div>
+
+  <p>Je kunt de verzender vragen om een nieuwe link.</p>
 
   <div class="actions">
     <button class="btn secondary" onclick="history.back()">Ga terug</button>
-    <a href="/" class="btn primary">Naar startpagina</a>
+    <button id="reqBtn" class="btn primary">Vraag nieuwe link aan</button>
   </div>
 
 </div>
+
+<script>
+const btn = document.getElementById("reqBtn");
+
+btn.onclick = async () => {
+  btn.innerText = "Verzoek verstuurd…";
+  btn.disabled = true;
+
+  try{
+    await fetch("/expired/request", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ token: "{{ token }}" })
+    });
+
+    btn.innerText = "Aangevraagd ✔";
+  }catch(e){
+    btn.innerText = "Mislukt — probeer opnieuw";
+    btn.disabled = false;
+  }
+};
+</script>
+
 </body>
 </html>
 """
+
 
 
 BILLING_HTML = """
@@ -2826,10 +2845,15 @@ def package_page(token):
 from flask import render_template_string
 
 if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+    expired_h = dt.strftime("%d-%m-%Y • %H:%M")
+
     c.close()
     return render_template_string(
         LINK_EXPIRED_HTML,
-        title=pkg["title"] or "Bestandspakket"
+        title=pkg["title"] or "Bestandspakket",
+        expired_human=expired_h,
+        token=token
     ), 410
 
     if pkg["password_hash"]:
@@ -3546,3 +3570,40 @@ def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
+import smtplib
+from email.message import EmailMessage
+
+MAIL_TO = "patrick@oldehanter.nl"
+
+@app.route("/expired/request", methods=["POST"])
+def expired_request():
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+
+    if not token:
+        return {"ok": False}, 400
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Verzoek nieuwe downloadlink — token {token}"
+    msg["From"] = "no-reply@oldehanter.nl"
+    msg["To"] = MAIL_TO
+
+    msg.set_content(f"""
+Er is een verzoek ingediend om een nieuwe downloadlink te sturen.
+
+Token: {token}
+
+De oorspronkelijke link is verlopen.
+""".strip())
+
+    try:
+        with smtplib.SMTP("localhost") as s:
+            s.send_message(msg)
+    except Exception:
+        log.exception("expired link email failed")
+        return {"ok": False}, 500
+
+    return {"ok": True}
+
