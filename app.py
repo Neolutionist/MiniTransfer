@@ -15,29 +15,21 @@ import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from functools import wraps
-from io import BytesIO
 
 from flask import (
-    Flask,
-    request,
-    session,
-    redirect,
-    url_for,
-    render_template_string,
-    jsonify,
-    abort,
-    Response,
-    make_response,
+    Flask, request, redirect, url_for, abort, render_template_string,
+    session, jsonify, Response, stream_with_context
 )
+from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 import boto3
 from botocore.config import Config as BotoConfig
-from werkzeug.datastructures import FileStorage
+from botocore.exceptions import ClientError, BotoCoreError
+from zipstream import ZipStream  # zipstream-ng
 
-# ---------------- Logging ----------------
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
-log = logging.getLogger("minitransfer")
+# --- Internal cleanup endpoint (cron -> webservice) ---
+from cleanup_expired import cleanup_expired, resolve_data_dir
 
 # ---------------- Config ----------------
 BASE_DIR = Path(__file__).parent
@@ -52,8 +44,38 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_REGION = os.getenv("S3_REGION", "eu-central-003")
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
 
-if not S3_BUCKET:
-    raise SystemExit("S3_BUCKET moet gezet zijn in de environment")
+if not S3_BUCKET or not S3_ENDPOINT_URL:
+    raise RuntimeError(
+        "❌ S3-configuratie mist! Controleer of 'S3_BUCKET' en 'S3_ENDPOINT_URL' zijn ingesteld in Render → Environment."
+    )
+
+
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASS = os.environ.get("SMTP_PASS")
+SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
+MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
+
+# PayPal Subscriptions
+PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
+PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
+
+PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
+PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
+PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
+PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
+
+PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID")  # vanuit Developer Dashboard → My Apps & Credentials → jouw app → Webhooks
+
+PLAN_MAP = {
+    "0.5": PAYPAL_PLAN_0_5,
+    "1":   PAYPAL_PLAN_1,
+    "2":   PAYPAL_PLAN_2,
+    "5":   PAYPAL_PLAN_5,
+}
+REVERSE_PLAN_MAP = {v: k for k, v in PLAN_MAP.items() if v}
 
 s3 = boto3.client(
     "s3",
@@ -63,7 +85,7 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "change-me-in-prod")
+app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
@@ -72,304 +94,402 @@ HEALTH_PATHS = ("/health", "/health-s3", "/__health")
 def allow_health():
     """Laat Render healthchecks (en vergelijkbare) gewoon 200 OK teruggeven."""
     if request.path.startswith(HEALTH_PATHS):
-        return "ok", 200
+        return  # Geen redirect of blokkade; laat de route doorgaan
 
-@app.route("/health")
-def health():
-    return "ok", 200
+# ---- Multi-tenant configuratie (HOST -> tenant) ----
+TENANTS = {
+    "oldehanter.downloadlink.nl": {
+        "slug": "oldehanter",
+        "mail_to": os.environ.get("MAIL_TO", "Patrick@oldehanter.nl"),
+    }
+}
 
-@app.route("/health-s3")
-def health_s3():
-    try:
-        s3.list_objects_v2(Bucket=S3_BUCKET, MaxKeys=1)
-        return "ok", 200
-    except Exception as e:
-        log.exception("S3 healthcheck faalt: %s", e)
-        return "s3 error", 500
+def current_tenant():
+    host = (request.headers.get("Host") or "").lower()
+    return TENANTS.get(host) or TENANTS["oldehanter.downloadlink.nl"]
+# ----------------------------------------------------
 
-# ---------------- Helpers ----------------
+# --- Redirect config toevoegen ---
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+app.config.update(PREFERRED_URL_SCHEME="https", SESSION_COOKIE_SECURE=True)
 
-def human_bytes(n: int) -> str:
-    units = ["B", "KB", "MB", "GB", "TB"]
-    i = 0
-    f = float(n)
-    while f >= 1024 and i < len(units) - 1:
-        f /= 1024.0
-        i += 1
-    return (f"{f:.1f}" if i else f"{int(f)}") + " " + units[i]
+import os
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "oldehanter.downloadlink.nl").lower()
+OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
 
-def is_logged_in() -> bool:
-    return bool(session.get("auth_ok"))
+@app.before_request
+def _redirect_old_host():
+    host = (request.headers.get("Host") or "").lower()
+    if host == OLD_HOST:
+        new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
+        return redirect(new_url, code=308)
+# --- Einde redirect config ---
 
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*a, **k):
-        if not is_logged_in():
-            return redirect(url_for("login", next=request.path))
-        return fn(*a, **k)
-    return wrapper
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
 
-def get_base_host() -> str:
-    """Gebruik voor absolute links in mails."""
-    host = request.headers.get("X-Forwarded-Host") or request.host
-    scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
-    return f"{scheme}://{host}"
-
-# ---------------- Database ----------------
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# --------------- DB --------------------
+def db():
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
 
 def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS packages (
-          id TEXT PRIMARY KEY,
-          subject TEXT,
-          expires_at TEXT,
-          password TEXT,
-          created_at TEXT,
-          created_by TEXT,
-          total_size INTEGER DEFAULT 0
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS files (
-          id TEXT PRIMARY KEY,
-          package_id TEXT,
-          filename TEXT,
-          size INTEGER,
-          s3_key TEXT,
-          created_at TEXT,
-          FOREIGN KEY(package_id) REFERENCES packages(id) ON DELETE CASCADE
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS subs (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT,
-          subscription_id TEXT,
-          plan_id TEXT,
-          status TEXT,
-          created_at TEXT
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
+    c = db()
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS packages (
+        token TEXT PRIMARY KEY,
+        expires_at TEXT NOT NULL,
+        password_hash TEXT,
+        created_at TEXT NOT NULL,
+        title TEXT
+      )
+    """)
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL,
+        s3_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL
+      )
+    """)
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        login_email TEXT NOT NULL,
+        plan_value TEXT NOT NULL,
+        subscription_id TEXT UNIQUE NOT NULL,
+        status TEXT DEFAULT 'ACTIVE',
+        created_at TEXT NOT NULL
+      )
+    """)
+    c.commit(); c.close()
 init_db()
 
-# ---------------- Base CSS & ICON ----------------
+def _col_exists(conn, table, col):
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return any(r[1] == col for r in cur.fetchall())
 
-BASE_CSS = r"""
+def migrate_add_tenant_columns():
+    conn = db()
+    try:
+        # packages
+        if not _col_exists(conn, "packages", "tenant_id"):
+            conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+        # items
+        if not _col_exists(conn, "items", "tenant_id"):
+            conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+        # subscriptions
+        if not _col_exists(conn, "subscriptions", "tenant_id"):
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
+            conn.execute("UPDATE subscriptions SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_tenant_columns()
+
+# -------------- CSS --------------
+BASE_CSS = """
+*,*:before,*:after{box-sizing:border-box}
 :root{
-  color-scheme:dark;
-  --bg:#020617;
-  --surface:#020818;
-  --surface-2:#020617;
-  --brand:#38bdf8;
-  --brand-soft:rgba(56,189,248,.1);
-  --brand-soft-2:rgba(56,189,248,.16);
-  --line:rgba(148,163,184,.35);
-  --text:#e5e7eb;
-  --muted:#9ca3af;
-  --danger:#f97373;
+  /* Kleuren */
+  --c1:#86b6ff; --c2:#b59cff; --c3:#5ce1b9; --c4:#ffe08a; --c5:#ffa2c0;
+  --brand:#0f4c98; --brand-2:#003366;
+  --text:#0f172a; --muted:#475569; --line:#d1d5db; --ring:#2563eb;
+  --surface:#ffffff; --surface-2:#f1f5f9;
+  --panel:rgba(255,255,255,.82); --panel-b:rgba(255,255,255,.45);
+  /* Animatie snelheden */
+  --t-slow: 28s;
+  --t-med:  18s;
+  --t-fast:  8s;
 }
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;background:radial-gradient(circle at top,#1d2538 0,#020617 55%);color:var(--text)}
-body{min-height:100vh}
-a{color:var(--brand);text-decoration:none}
-a:hover{text-decoration:underline}
-p{margin:.4rem 0}
-h1,h2,h3{margin:0 0 .4rem}
-small{font-size:.85rem;color:var(--muted)}
+/* Dark mode (volgt OS) */
+@media (prefers-color-scheme: dark){
+  :root{
+    --brand:#7db4ff; --brand-2:#4a7fff;
+    --text:#e5e7eb; --muted:#9aa3b2; --line:#3b4252; --ring:#8ab4ff;
+    --surface:#0b1020; --surface-2:#0f172a;
+    --panel:rgba(13,20,40,.72); --panel-b:rgba(13,20,40,.4);
+  }
+}
 
-/* cards / layout */
-.card{border-radius:18px;background:linear-gradient(145deg,rgba(15,23,42,.98),rgba(15,23,42,.9));border:1px solid rgba(148,163,184,.45);box-shadow:0 22px 40px rgba(15,23,42,.75);padding:14px 16px}
-.card-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:8px;gap:10px}
-.card-h h2{font-size:1.05rem}
-.card-b{font-size:.95rem}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;background:rgba(15,118,110,.22);color:#a5f3fc;border:1px solid rgba(34,211,238,.4);font-size:.75rem;font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+html,body{height:100%}
+body{
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--text); margin:0; position:relative; overflow-x:hidden;
+  background: var(--surface);
+}
 
-.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 7px;border-radius:999px;font-size:.75rem;background:rgba(15,23,42,.88);border:1px solid rgba(148,163,184,.45);color:var(--muted)}
+/* ======= Nieuwe achtergrond ======= */
+.bg{
+  position:fixed; inset:0; z-index:-2; overflow:hidden;
+  /* Basismix (zachte radialen + subtiele vertical fade) */
+  background:
+    radial-gradient(40vmax 40vmax at 14% 24%, var(--c1) 0%, transparent 60%),
+    radial-gradient(38vmax 38vmax at 86% 30%, var(--c2) 0%, transparent 60%),
+    radial-gradient(50vmax 50vmax at 52% 92%, var(--c3) 0%, transparent 60%),
+    linear-gradient(180deg, #edf3ff 0%, #eef4fb 100%);
+  filter:saturate(1.06);
+  animation: hueShift var(--t-slow) linear infinite;
+}
 
-.tagpill{display:inline-flex;gap:6px;align-items:center;padding:2px 9px;border-radius:999px;background:rgba(15,23,42,.85);border:1px solid rgba(148,163,184,.6);font-size:.75rem;color:var(--muted)}
+/* Aurora laag */
+.bg::before,
+.bg::after{
+  content:""; position:absolute; inset:-10%;
+  /* Aurora met conic-gradients; de mask maakt vloeiende vormen */
+  background:
+    conic-gradient(from 0deg at 30% 60%, rgba(255,255,255,.14), rgba(255,255,255,0) 60%),
+    conic-gradient(from 180deg at 70% 40%, rgba(255,255,255,.10), rgba(255,255,255,0) 60%);
+  mix-blend-mode: overlay;
+  will-change: transform, opacity;
+}
+.bg::before{
+  animation: driftA var(--t-med) ease-in-out infinite alternate;
+  opacity:.85;
+  -webkit-mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(65% 55% at 35% 60%, #000 0 60%, transparent 62%);
+}
+.bg::after{
+  animation: driftB var(--t-slow) ease-in-out infinite;
+  opacity:.65;
+  -webkit-mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+          mask-image: radial-gradient(75% 65% at 70% 40%, #000 0 60%, transparent 62%);
+}
 
-.monochip{display:inline-flex;gap:6px;align-items:center;padding:3px 8px;border-radius:999px;background:rgba(15,23,42,.92);font-size:.75rem;border:1px solid rgba(148,163,184,.45);color:var(--muted)}
+/* Subtiele korrel / film grain (zonder externe asset) */
+.bg::marker{display:none}
+.bg > i{display:none}
+.bg::before, .bg::after { backdrop-filter: saturate(1.05) blur(2px); }
+.bg + .grain{ /* aparte overlay via pseudo-element lukt niet overal; gebruik extra div niet nodig – we faken ruis met gradients */
+  display:none;
+}
 
-/* pill tabs */
-.tabs{display:flex;gap:10px;margin-bottom:6px}
-.tab{flex:0 0 auto;padding:5px 10px;border-radius:999px;border:1px solid rgba(148,163,184,.35);font-size:.82rem;color:var(--muted);cursor:pointer;user-select:none;background:rgba(15,23,42,.9)}
-.tab.act{background:rgba(56,189,248,.18);border-color:rgba(56,189,248,.55);color:#e0f2fe}
+/* Glass kaarten en UI */
+.wrap{max-width:980px;margin:6vh auto;padding:0 1rem}
+.card{
+  padding:1.5rem; background:var(--panel); border:1px solid var(--panel-b);
+  border-radius:18px; box-shadow:0 18px 40px rgba(0,0,0,.12);
+  backdrop-filter: blur(10px) saturate(1.05);
+}
+h1{line-height:1.15}
+.footer{color:#334155;margin-top:1.2rem;text-align:center}
+.small{font-size:.9rem;color:var(--muted)}
 
-/* meter pill */
-.meter{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--muted)}
-.meter span{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:rgba(15,23,42,.9);border:1px solid rgba(148,163,184,.6);font-size:.75rem}
+/* Forms/Buttons */
+label{display:block;margin:.65rem 0 .35rem;font-weight:600;color:var(--text)}
+.input, input[type=text], input[type=password], input[type=email], input[type=number],
+select, textarea{
+  width:100%; display:block; appearance:none;
+  padding:.85rem 1rem; border-radius:12px; border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface-2) 90%, white 10%); color:var(--text);
+  outline:none; transition: box-shadow .15s, border-color .15s, background .15s;
+}
+input:focus, .input:focus, select:focus, textarea:focus{
+  border-color: var(--ring); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
+}
+input[type=file]{padding:.55rem 1rem; background:var(--surface-2); cursor:pointer}
+input[type=file]::file-selector-button{
+  margin-right:.75rem; border:1px solid var(--line);
+  background:var(--surface); color:var(--text);
+  padding:.55rem .9rem; border-radius:10px; cursor:pointer;
+}
+.btn{
+  padding:.85rem 1.05rem;border:0;border-radius:12px;
+  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 85%, black 15%));
+  color:#fff;font-weight:700;cursor:pointer;
+  box-shadow:0 4px 14px rgba(15,76,152,.25); transition:filter .15s, transform .02s;
+  font-size:.95rem; line-height:1;
+}
+.btn.small{padding:.55rem .8rem;font-size:.9rem}
+.btn:hover{filter:brightness(1.05)}
+.btn:active{transform:translateY(1px)}
+.btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
 
-/* buttons & statuses */
-.statuspill{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 9px;border-radius:999px;border:1px solid rgba(148,163,184,.4);background:rgba(15,23,42,.92);color:var(--muted)}
-.statuspill .dot{width:7px;height:7px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 5px rgba(34,197,94,.12)}
+/* Progress */
+.progress{
+  height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
+  border-radius:999px;overflow:hidden;margin-top:.75rem;border:1px solid #dbe5f4; position:relative;
+}
+.progress > i{
+  display:block;height:100%;width:0%;
+  background:linear-gradient(90deg,#0f4c98,#1e90ff);
+  transition:width .12s ease; position:relative;
+}
+.progress > i::after{
+  content:""; position:absolute; inset:0;
+  background-image: linear-gradient(135deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent);
+  background-size:24px 24px; animation: stripes 1s linear infinite; mix-blend-mode: overlay;
+}
+.progress.indet > i{ width:40%; animation: indet-move 1.2s linear infinite; }
 
-.btnline{display:flex;gap:6px;flex-wrap:wrap}
-.btnline .hint{font-size:.8rem;color:var(--muted)}
+@keyframes indet-move{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+@keyframes stripes{0%{transform:translateX(0)}100%{transform:translateX(24px)}}
 
-.tagrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+/* Tabel */
+.table{width:100%;border-collapse:collapse;margin-top:.6rem}
+.table th,.table td{padding:.55rem .7rem;border-bottom:1px solid #e5e7eb;text-align:left}
 
-.badge-soft{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;padding:3px 8px;border-radius:999px;background:rgba(15,23,42,.9);border:1px dashed rgba(56,189,248,.45);color:#e0f2fe}
+/* Responsive tabel */
+@media (max-width: 680px){
+  .table thead{display:none}
+  .table, .table tbody, .table tr, .table td{display:block;width:100%}
+  .table tr{margin-bottom:.6rem;background:rgba(255,255,255,.55);border:1px solid #e5e7eb;border-radius:10px;padding:.4rem .6rem}
+  .table td{border:0;padding:.25rem 0}
+  .table td[data-label]:before{content:attr(data-label) ": ";font-weight:600;color:#334155}
+  .cols-2{ grid-template-columns: 1fr !important; }
+}
 
-.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:.9rem}
-.kv .k{color:var(--muted)}
-.kv .v{text-align:right}
+/* ZIP lijst kolombreedte */
+.table th.col-size,
+.table td.col-size,
+.table td[data-label="Grootte"]{
+  white-space:nowrap; text-align:right; min-width:72px;
+}
 
-.boxy{padding:7px 10px;border-radius:12px;background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.42);font-size:.86rem}
-.boxy strong{color:#e5e7eb}
+/* Aurora animaties */
+@keyframes driftA{
+  0%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
+  100%{transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes driftB{
+  0%{transform:rotate(0deg) translateY(0)}
+  50%{transform:rotate(180deg) translateY(-1%)}
+  100%{transform:rotate(360deg) translateY(0)}
+}
+/* Kleurverschuiving over tijd */
+@keyframes hueShift{
+  0%{filter:hue-rotate(0deg) saturate(1.06)}
+  100%{filter:hue-rotate(360deg) saturate(1.06)}
+}
 
-/* little copy badge */
-.copytag{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:2px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.5);background:rgba(15,23,42,.9);cursor:pointer}
-.copytag i{width:14px;height:14px;border-radius:4px;background:rgba(148,163,184,.8)}
-
-/* text utilities */
-.small{font-size:.85rem}
-.subtle{color:var(--muted);font-size:.92rem}
-
-.grid{display:grid;gap:12px}
-.cols2{grid-template-columns:1fr 1fr}
-@media (max-width:720px){.cols2{grid-template-columns:1fr}}
-
-label{display:block;margin:0 0 6px;font-weight:650}
-.input, select{width:100%;padding:.7rem .9rem;border-radius:11px;border:1px solid rgba(148,163,184,.45);background:rgba(15,23,42,.95);color:var(--text);font-size:.95rem;box-sizing:border-box}
-.input:focus, select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 1px rgba(56,189,248,.4)}
-.toggle{display:flex;gap:14px;align-items:center}
-.toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
-
-/* filepicker compact */
-    .picker{display:flex;flex-direction:column;gap:6px}
-
-/* hou het kader rustig en de knop mooi gecentreerd */
-    .picker-ctl{
-      position:relative;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface-2) 92%,white 8%);
-      padding:6px 10px;
-      min-height:42px;
-    }
-    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-
-/* basisknop overal */
-    .btn{
-      padding:.7rem .95rem;
-      border:0;
-      border-radius:11px;
-      background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
-      color:#fff;
-      font-weight:700;
-      cursor:pointer;
-    }
-
-/* iets compacter binnen de picker zodat de verticale margins gelijk zijn aan de zijkanten */
-    .picker-ctl .btn{
-      padding:.45rem .8rem;
-      font-size:.9rem;
-    }
-
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
-    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
-    .muted{color:var(--muted)}
-    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-/* queue tabel */
-    .table{width:100%;border-collapse:separate;border-spacing:0 6px}
-
-/* compactere rij: minder padding + kleinere tekst */
-    .rowc{
-      display:grid;
-      grid-template-columns:22px 1fr 90px 80px;
-      align-items:center;
-      gap:8px;
-      padding:6px 10px;
-      border:1px solid rgba(0,0,0,.08);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 90%,white 10%);
-      font-size:.9rem;
-    }
-    .ico{width:20px;height:20px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
-
-/* bestandsnaam iets kleiner en strak */
-    .rowc .ellipsis strong{
-      display:block;
-      font-size:.86rem;
-      font-weight:600;
-      line-height:1.25;
-    }
-
-/* voortgangsbalk in de rij smaller */
-    .rowc .progress{
-      margin-top:3px;
-      height:8px;
-    }
-
-    .size,.eta{
-      text-align:right;
-      color:var(--muted);
-      font-variant-numeric:tabular-nums;
-      font-size:.85rem;
-    }
-
-/* algemene progress (total) blijft zoals hij was */
-    .progress{
-      height:10px;
-      border-radius:999px;
-      overflow:hidden;
-      border:1px solid #dbe5f4;
-      background:#eef2ff;
-    }
-    .progress>i{
-      display:block;
-      height:100%;
-      width:0%;
-      background:linear-gradient(90deg,#0f4c98,#1e90ff);
-      transition:width .12s;
-    }
-
-/* checkbox */
-.chx{width:18px;height:18px;border-radius:6px;border:1px solid rgba(148,163,184,.6);display:inline-flex;align-items:center;justify-content:center}
-.chx i{width:10px;height:10px;border-radius:4px;background:rgba(56,189,248,.9);transform:scale(0);transition:transform .12s}
-input[type=radio]:checked + .chx i,input[type=checkbox]:checked + .chx i{transform:scale(1)}
-
-/* radio */
-input[type=radio],input[type=checkbox]{position:absolute;opacity:0}
-
-/* toast */
-.toast{position:fixed;right:16px;bottom:16px;background:rgba(15,23,42,.98);border-radius:999px;padding:8px 12px;border:1px solid rgba(148,163,184,.6);display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--muted);box-shadow:0 16px 30px rgba(15,23,42,.75);z-index:50}
-.toast i{width:18px;height:18px;border-radius:5px;background:linear-gradient(180deg,#22c55e,#16a34a)}
-
-/* progress pill */
-.progpill{display:flex;gap:6px;align-items:center;font-size:.86rem;color:var(--muted)}
-.progpill span{font-variant-numeric:tabular-nums}
-
+/* Respecteer reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .bg, .bg::before, .bg::after{ animation: none !important; }
+}
 """
 
-HEAD_ICON = """
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230f172a'/%3E%3Cpath d='M16 40L30 18l8 12 10-6 0 20H16z' fill='%2338bdf8'/%3E%3C/svg%3E">
+# --- Favicon (SVG) ---
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
+  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
+        font-family="Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700"
+        fill="white">OH</text>
+</svg>"""
+
+from urllib.parse import quote as _q
+FAVICON_DATA_URL = "data:image/svg+xml;utf8," + _q(FAVICON_SVG)
+
+@app.route("/favicon.svg")
+def favicon_svg():
+    return Response(FAVICON_SVG, mimetype="image/svg+xml")
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    # browsers die /favicon.ico hardcoderen -> redirect naar svg
+    return redirect(url_for("favicon_svg"), code=302)
+    
+# -------------- Templates --------------
+BG_DIV = '<div class="bg" aria-hidden="true"></div>'
+HTML_HEAD_ICON = f"""
+<link rel="icon" href="{FAVICON_DATA_URL}" type="image/svg+xml"/>
+<link rel="alternate icon" href="{{{{ url_for('favicon_svg') }}}}" type="image/svg+xml"/>
+<link rel="shortcut icon" href="{{{{ url_for('favicon_ico') }}}}"/>
 """
 
-# ---------------- HTML templates ----------------
+LOGIN_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap"><div class="card" style="max-width:460px;margin:auto">
+  <h1 style="color:var(--brand)">Inloggen</h1>
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+<style>
+/* Masker een tekstveld als een wachtwoordveld */
+.input.pw-mask {
+  -webkit-text-security: disc;    /* Chrome/Safari */
+  text-security: disc;            /* sommige browsers */
+}
+</style>
+
+<form method="post" autocomplete="off">
+  <!-- honeypots tegen autofill -->
+  <input type="text" name="x" style="display:none">
+  <input type="password" name="y" style="display:none" autocomplete="new-password">
+
+  <label for="email">E-mail</label>
+  <input id="email" class="input" name="email" type="email"
+         value="{{ auth_email }}" autocomplete="username" required>
+
+  <label for="pw_ui">Wachtwoord</label>
+  <!-- Zichtbaar veld is GEEN password-type -> geen generator/autofill -->
+  <input id="pw_ui"
+         class="input pw-mask"
+         type="text"
+         name="pw_ui"
+         placeholder="Wachtwoord"
+         autocomplete="off"
+         autocapitalize="off"
+         autocorrect="off"
+         spellcheck="false"
+         inputmode="text"
+         data-lpignore="true"
+         data-1p-ignore="true">
+
+  <!-- Echt verborgen password-veld voor submit naar server -->
+  <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
+
+  <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
+</form>
+
+<script>
+(function(){
+  const form   = document.currentScript.previousElementSibling;
+  const pwUI   = document.getElementById('pw_ui');
+  const pwReal = document.getElementById('pw_real');
+
+  // extra defensie
+  setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
+
+  form.addEventListener('submit', function(){
+    pwReal.value = pwUI.value || '';
+  }, {passive:true});
+})();
+</script>
+
+  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
+"""
+
+PASS_PROMPT_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap"><div class="card" style="max-width:560px;margin:6vh auto">
+  <h1>Beveiligd pakket</h1>
+  <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+  <form method="post" autocomplete="off">
+    <input type="text" name="a" style="display:none"><input type="password" name="b" style="display:none">
+    <label for="pw">Wachtwoord</label>
+    <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
+           required autocomplete="new-password" autocapitalize="off" spellcheck="false">
+    <button class="btn" style="margin-top:1rem">Ontgrendel</button>
+  </form>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
+"""
 
 INDEX_HTML = """
 <!doctype html>
@@ -388,36 +508,139 @@ INDEX_HTML = """
     .brand{color:var(--brand);margin:0;font-weight:800;letter-spacing:.2px}
     .who{color:var(--muted);font-size:.9rem}.who a{color:var(--brand)}
 
-    .deck{display:grid;grid-template-columns: minmax(0,2.1fr) minmax(0,1.2fr);gap:18px;align-items:flex-start}
-    @media (max-width:960px){.deck{grid-template-columns:minmax(0,1fr)}}
+    .deck{display:grid;grid-template-columns:1.4fr .9fr;gap:14px}
+    @media (max-width:920px){.deck{grid-template-columns:1fr}}
 
-    .card.upload .card-h{align-items:center}
-    .card.upload h2{font-size:1rem}
-    .card.upload .subtle{font-size:.85rem}
+    .card{border-radius:16px;background:var(--panel);backdrop-filter:blur(10px) saturate(1.05);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14)}
+    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
+    .card-h h2{margin:0;font-size:1.02rem}
+    .card-b{padding:14px 16px}
+    .subtle{color:var(--muted);font-size:.92rem}
 
-    .sec-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
-    .sec-title h3{font-size:.92rem;margin:0}
-    .sec-title small{font-size:.8rem;color:var(--muted)}
+    .grid{display:grid;gap:12px}
+    .cols2{grid-template-columns:1fr 1fr}
+    @media (max-width:720px){.cols2{grid-template-columns:1fr}}
 
-    .footer{margin-top:18px;color:var(--muted);font-size:.82rem}
+    label{display:block;margin:0 0 6px;font-weight:650}
+    .input, select{width:100%;padding:.7rem .9rem;border-radius:12px;border:1px solid var(--line);background:color-mix(in oklab,var(--surface-2) 92%,white 8%);box-sizing:border-box}
+    .toggle{display:flex;gap:14px;align-items:center}
+    .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
 
-    .pillnote{display:flex;gap:10px;align-items:center;font-size:.82rem;color:var(--muted);padding:6px 9px;border-radius:999px;background:rgba(15,23,42,.9);border:1px dashed rgba(148,163,184,.4)}
-    .pillnote i{width:16px;height:16px;border-radius:5px;background:linear-gradient(180deg,#38bdf8,#0ea5e9)}
+/* filepicker compact */
+.picker{display:flex;flex-direction:column;gap:6px}
 
-    .kv-light{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.86rem}
-    .kv-light .k{color:var(--muted)}
-    .kv-light .v{text-align:right}
+/* hou het kader rustig en de knop mooi gecentreerd */
+.picker-ctl{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface-2) 92%,white 8%);
+  padding:6px 10px;
+  min-height:42px;
+}
+.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
 
-    .monotag{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid rgba(148,163,184,.4);font-size:.78rem;color:var(--muted);background:rgba(15,23,42,.9)}
+/* basisknop overal */
+.btn{
+  padding:.7rem .95rem;
+  border:0;
+  border-radius:11px;
+  background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+}
 
-    .log{max-height:260px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem;background:rgba(15,23,42,.96);border-radius:14px;border:1px solid rgba(30,64,175,.75);padding:7px 10px}
-    .log-line{display:flex;gap:7px}
-    .log-line span:first-child{color:#4b5563}
-    .log-line span:last-child{color:#e5e7eb}
+/* iets compacter binnen de picker zodat de verticale margins gelijk zijn aan de zijkanten */
+.picker-ctl .btn{
+  padding:.45rem .8rem;
+  font-size:.9rem;
+}
 
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+.btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
+.muted{color:var(--muted)}
+.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+
+.table{width:100%;border-collapse:separate;border-spacing:0 6px}
+
+/* compactere rij: minder padding + kleinere tekst */
+.rowc{
+  display:grid;
+  grid-template-columns:22px 1fr 90px 80px;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface) 90%,white 10%);
+  font-size:.9rem;
+}
+.ico{width:20px;height:20px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
+
+/* bestandsnaam iets kleiner en strak */
+.rowc .ellipsis strong{
+  display:block;
+  font-size:.86rem;
+  font-weight:600;
+  line-height:1.25;
+}
+
+/* voortgangsbalk in de rij smaller */
+.rowc .progress{
+  margin-top:3px;
+  height:8px;
+}
+
+.size,.eta{
+  text-align:right;
+  color:var(--muted);
+  font-variant-numeric:tabular-nums;
+  font-size:.85rem;
+}
+
+/* algemene progress (total) blijft zoals hij was */
+.progress{
+  height:10px;
+  border-radius:999px;
+  overflow:hidden;
+  border:1px solid #dbe5f4;
+  background:#eef2ff;
+}
+.progress>i{
+  display:block;
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#0f4c98,#1e90ff);
+  transition:width .12s;
+}
+
+    /* telemetry */
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv .k{font-size:.85rem;color:var(--muted)}
+    .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+    @media(max-width:420px){.kv{grid-template-columns:1fr}}
+    .log{max-height:200px;overflow:auto;border:1px solid rgba(0,0,0,.08);border-radius:10px;background:color-mix(in oklab,var(--surface)92%,white 8%);padding:8px 10px;font-size:.9rem}
+    .log p{margin:4px 0}
+
+    /* total bar + badges */
+    .totalline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.22rem .6rem;border-radius:999px;font-weight:800;font-size:.78rem}
+    .badge.ok{background:color-mix(in oklab,#16a34a 18%,white 82%);color:#166534}
+    .badge.warn{background:color-mix(in oklab,#f59e0b 22%,white 78%);color:#b45309}
+
+    /* share mini */
+    .share{display:flex;align-items:center;gap:8px}
+    .share .input{padding:.55rem .7rem}
+    .share .btn{padding:.55rem .7rem}
   </style>
 </head>
 <body>
+{{ bg|safe }}
 <div class="shell">
   <div class="hdr">
     <h1 class="brand">Bestanden uploaden</h1>
@@ -426,7 +649,7 @@ INDEX_HTML = """
 
   <div class="deck">
     <!-- LEFT: Controls & Queue -->
-    <div class="card upload">
+    <div class="card">
       <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">3</span></div></div>
       <div class="card-b">
         <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
@@ -434,391 +657,110 @@ INDEX_HTML = """
             <div>
               <label>Uploadtype</label>
               <div class="toggle">
-                <label><input type="radio" name="kind" value="files" checked><span class="chx"><i></i></span><span>Bestand(en)</span></label>
-                <label><input type="radio" name="kind" value="folder"><span class="chx"><i></i></span><span>Map</span></label>
+                <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
+                <label id="folderLabel"><input type="radio" name="upmode" value="folder"> Map</label>
               </div>
             </div>
             <div>
-              <label>Onderwerp</label>
-              <input name="subject" class="input" placeholder="Bijv. Tekeningen project X" required>
+              <label for="title">Onderwerp</label>
+              <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
             </div>
           </div>
 
           <div class="grid cols2">
             <div>
-              <label>Verloopt na</label>
-              <select name="days" class="input">
-                <option value="7">7 dagen</option>
-                <option value="14">14 dagen</option>
-                <option value="30" selected>30 dagen</option>
-                <option value="90">90 dagen</option>
+              <label for="expDays">Verloopt na</label>
+              <select id="expDays" class="input">
+                <option value="1">1 dag</option><option value="3">3 dagen</option>
+                <option value="7">7 dagen</option><option value="30" selected>30 dagen</option>
+                <option value="60">60 dagen</option><option value="365">1 jaar</option>
               </select>
             </div>
             <div>
-              <label>Wachtwoord (optioneel)</label>
-              <input name="password" class="input" placeholder="Optioneel">
+              <label for="pw">Wachtwoord (optioneel)</label>
+              <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password">
             </div>
           </div>
 
-          <div class="picker">
-            <label>Kies een map</label>
+          <div id="fileRow" class="picker">
+            <label for="fileInput">Kies bestand(en)</label>
             <div class="picker-ctl">
-              <button type="button" id="pickBtn" class="btn sm">Kies {{ 'map' if default_kind=='folder' else 'bestanden' }}</button>
-              <span id="pickLabel" class="muted ellipsis" style="margin-left:8px">Nog niets geselecteerd</span>
-              <input id="fileInput" type="file" name="files" multiple webkitdirectory mozdirectory>
+              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
+              <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
+              <input id="fileInput" type="file" multiple>
             </div>
-            <small class="subtle">Tip: maphandle werkt niet op iOS.</small>
           </div>
 
-          <div class="sec-title">
-            <h3>Uploaden</h3>
-            <small id="queueSummary">Queue: 0 • Bestanden: 0</small>
-          </div>
-
-          <div class="table" id="queue"></div>
-
-          <div>
-            <div class="sec-title">
-              <h3>Voortgang upload</h3>
-              <div class="progpill"><span id="progPct">0%</span><span id="progBytes">0 B / 0 B</span></div>
+          <div id="folderRow" class="picker" style="display:none">
+            <label for="folderInput">Kies een map</label>
+            <div class="picker-ctl">
+              <button type="button" id="btnFolder" class="btn ghost">Kies map</button>
+              <div id="folderName" class="ellipsis muted">Nog geen map gekozen</div>
+              <input id="folderInput" type="file" multiple webkitdirectory directory>
             </div>
-            <div class="progress" id="totalBar"><i></i></div>
+            <div class="muted" style="margin-top:2px">Tip: mapselectie werkt niet op iOS.</div>
           </div>
 
-          <div class="btnline">
-            <button type="submit" class="btn" id="startBtn">Uploaden</button>
-            <button type="button" class="btn ghost" id="resetBtn">Leegmaken</button>
-            <span class="hint">Bestanden blijven {{ default_expiry_days }} dagen beschikbaar.</span>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+            <button id="btnStart" class="btn" type="submit">Uploaden</button>
+            <span class="muted">Queue: <span id="kvQueue">0</span> • Bestanden: <span id="kvFiles">0</span></span>
           </div>
         </form>
-      </div>
-    </div>
 
-    <!-- RIGHT: Info & Log -->
-    <div class="card">
-      <div class="card-h">
-        <div>
-          <div class="badge">Sessie</div>
-          <h2>Live Telemetry</h2>
-        </div>
-        <div class="kv-light">
-          <span class="k">Actieve workers</span> <span class="v" id="kvWorkersLive">0</span>
-          <span class="k">Verplaatst</span> <span class="v" id="kvMoved">0 B</span>
-          <span class="k">ETA</span> <span class="v" id="kvEta">—</span>
-        </div>
-      </div>
-      <div class="card-b">
-        <div class="monotag" style="margin-bottom:6px">
-          <span>Upload naar B2 (S3)</span>
-        </div>
-        <div class="pillnote" style="margin-bottom:8px">
-          <i></i>
-          <span>Hou dit venster open tijdens de upload. Je krijgt een unieke downloadlink zodra alles klaar is.</span>
-        </div>
+        <!-- Queue -->
+        <div id="queue" class="grid" style="margin-top:14px"></div>
 
-        <div style="margin-bottom:10px">
-          <div class="sec-title"><h3>Activiteitenlog</h3><small>Realtime</small></div>
-          <div class="log" id="log"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div>
-
-<script>
-const qEl=document.getElementById('queue');
-const totalBar=document.getElementById('totalBar').querySelector('i');
-const progPct=document.getElementById('progPct');
-const progBytes=document.getElementById('progBytes');
-const logEl=document.getElementById('log');
-const startBtn=document.getElementById('startBtn');
-const resetBtn=document.getElementById('resetBtn');
-const queueSummary=document.getElementById('queueSummary');
-const kvWorkers=document.getElementById('kvWorkers');
-const kvWorkersLive=document.getElementById('kvWorkersLive');
-const kvMoved=document.getElementById('kvMoved');
-const kvEta=document.getElementById('kvEta');
-const fileInput=document.getElementById('fileInput');
-const pickBtn=document.getElementById('pickBtn');
-const pickLabel=document.getElementById('pickLabel');
-
-let queue=[], totalBytes=0, uploadedBytes=0, activeWorkers=0;
-kvWorkers.textContent = "3";
-
-function fmtBytes(n){
-  const u=["B","KB","MB","GB","TB"];let i=0,f=n;
-  while(f>=1024 && i<u.length-1){f/=1024;i++;}
-  return (i?f.toFixed(1):Math.round(f))+" "+u[i];
-}
-
-function addLog(msg){
-  const ts=new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const div=document.createElement('div');
-  div.className='log-line';
-  div.innerHTML=`<span>[${ts}]</span><span>${msg}</span>`;
-  logEl.prepend(div);
-}
-
-function updateSummary(){
-  queueSummary.textContent=`Queue: ${queue.length} • Bestanden: ${queue.length}`;
-}
-
-function renderQueue(){
-  qEl.innerHTML='';
-  queue.forEach((item,idx)=>{
-    const row=document.createElement('div');
-    row.className='rowc';
-    row.dataset.idx=idx;
-    row.innerHTML=`
-      <div class="ico"></div>
-      <div class="ellipsis">
-        <strong>${item.name}</strong>
-        <div class="progress"><i style="width:${item.progress||0}%"></i></div>
-      </div>
-      <div class="size">${fmtBytes(item.size)}</div>
-      <div class="eta">${item.done?'Klaar':'Wacht'}</div>
-    `;
-    qEl.appendChild(row);
-  });
-  updateSummary();
-}
-
-pickBtn.addEventListener('click',()=>fileInput.click());
-fileInput.addEventListener('change',()=>{
-  queue=[];
-  totalBytes=0;uploadedBytes=0;
-  Array.from(fileInput.files).forEach(f=>{
-    queue.push({file:f,name:f.webkitRelativePath||f.name,size:f.size,progress:0,done:false});
-    totalBytes+=f.size;
-  });
-  pickLabel.textContent=queue.length?`${queue.length} items geselecteerd`:'Nog niets geselecteerd';
-  totalBar.style.width='0%';
-  progPct.textContent='0%';
-  progBytes.textContent=`0 B / ${fmtBytes(totalBytes)}`;
-  renderQueue();
-  addLog(`Selected ${queue.length} items (${fmtBytes(totalBytes)})`);
-});
-
-resetBtn.addEventListener('click',()=>{
-  queue=[];totalBytes=0;uploadedBytes=0;fileInput.value='';
-  pickLabel.textContent='Nog niets geselecteerd';
-  qEl.innerHTML='';
-  totalBar.style.width='0%';
-  progPct.textContent='0%';
-  progBytes.textContent='0 B / 0 B';
-  updateSummary();
-  addLog('Queue geleegd.');
-});
-
-function updateGlobalProgress(){
-  const pct=totalBytes?Math.round(uploadedBytes/totalBytes*100):0;
-  totalBar.style.width=pct+'%';
-  progPct.textContent=pct+'%';
-  progBytes.textContent=`${fmtBytes(uploadedBytes)} / ${fmtBytes(totalBytes)}`;
-}
-
-async function uploadAll(evt){
-  evt.preventDefault();
-  if(!queue.length){alert('Geen bestanden geselecteerd.');return;}
-  startBtn.disabled=true;
-  addLog('Start upload…');
-
-  const form=new FormData(document.getElementById('form'));
-  form.delete('files');
-  form.append('meta','1');
-
-  const metaResp=await fetch('{{ url_for("api_prepare_upload") }}',{method:'POST',body:form});
-  if(!metaResp.ok){alert('Fout bij voorbereiden upload.');startBtn.disabled=false;return;}
-  const meta=await metaResp.json();
-  const packageId=meta.id;
-
-  for(let i=0;i<queue.length;i++){
-    const item=queue[i];
-    const row=qEl.children[i];
-    const bar=row.querySelector('.progress i');
-    const etaCell=row.querySelector('.eta');
-
-    const fd=new FormData();
-    fd.append('package_id',packageId);
-    fd.append('file',item.file,item.name);
-
-    const resp=await fetch('{{ url_for("api_upload_chunk") }}',{method:'POST',body:fd});
-    if(!resp.ok){etaCell.textContent='Fout';addLog(`Fout bij uploaden: ${item.name}`);continue;}
-    const data=await resp.json();
-    item.done=true;
-    item.progress=100;
-    uploadedBytes+=item.size;
-    bar.style.width='100%';
-    etaCell.textContent='Klaar';
-    addLog(`Klaar: ${item.name}`);
-    updateGlobalProgress();
-  }
-
-  const finalizeResp=await fetch('{{ url_for("api_finalize_package") }}?id='+encodeURIComponent(packageId));
-  if(!finalizeResp.ok){alert('Fout bij afronden pakket.');startBtn.disabled=false;return;}
-  const fin=await finalizeResp.json();
-  addLog('Pakket afgerond. Link: '+fin.url);
-  alert('Upload afgerond. Link: '+fin.url);
-  startBtn.disabled=false;
-}
-
-document.getElementById('form').addEventListener('submit',uploadAll);
-</script>
-</body>
-</html>
-"""
-
-PACKAGE_HTML = """
-<!doctype html>
-<html lang="nl">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Download • Olde Hanter</title>
-  {{ head_icon|safe }}
-  <style>
-    {{ base_css }}
-    body{display:flex;align-items:center;justify-content:center}
-    .shell{max-width:900px;width:100%;padding:5vh 16px}
-    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
-    .brand{color:var(--brand);margin:0;font-weight:800;letter-spacing:.18px}
-    .meta{color:var(--muted);font-size:.9rem}
-
-    .deck{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(0,1.2fr);gap:18px;align-items:flex-start}
-    @media (max-width:900px){.deck{grid-template-columns:minmax(0,1fr)}}
-
-    .card-headline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
-    .card-headline h2{font-size:1.02rem;margin:0}
-    .card-headline small{font-size:.8rem;color:var(--muted)}
-
-    .filelist{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-
-.filecard{
-      display:grid;
-      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
-      align-items:center;
-      gap:.45rem .6rem;
-      padding:.55rem .85rem;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);
-      font-size:.9rem;
-    }
-    .filecard .name{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      line-height:1.25;
-      overflow-wrap:anywhere;
-    }
-    .filecard .size{
-      width:6.2rem;
-      text-align:right;
-      font-variant-numeric:tabular-nums;
-    }
-    .filecard .action{
-      width:auto;
-      text-align:right;
-    }
-    .filecard .action a{
-      display:inline-block;
-      padding:.15rem .35rem;
-      white-space:nowrap;
-      font-size:.85rem;
-    }
-
-    /* Progressbalk ruimte */
-    #bar{ margin-top:.75rem }
-
-    /* Kaarten & grid */
-    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
-    .footer{margin-top:18px;color:var(--muted);font-size:.82rem;text-align:center}
-
-    @media (max-width:640px){
-      .filecard{grid-template-columns:1fr;align-items:flex-start}
-      .filecard .size,.filecard .action{text-align:left;width:auto}
-    }
-
-  </style>
-</head>
-<body>
-<div class="shell">
-  <div class="hdr">
-    <h1 class="brand">Bestanden downloaden</h1>
-    <div class="meta">{{ subject }} • Verloopt op {{ expires }}</div>
-  </div>
-
-  <div class="deck">
-    <!-- Linkerkaart -->
-    <div class="card">
-      <div class="card-h">
-        <div>
-          <div class="badge">Pakket</div>
-          <h2>Overzicht bestanden</h2>
-        </div>
-        <div class="statuspill">
-          <span class="dot"></span>
-          <span>{{ file_count }} bestand(en)</span>
-        </div>
-      </div>
-      <div class="card-b">
-        {% if password_required %}
-        <div class="boxy" style="margin-bottom:10px;">
-          <strong>Beveiligd pakket</strong><br>
-          Deze set is beveiligd met een wachtwoord. Voer het wachtwoord in om de bestanden te kunnen downloaden.
-          <form method="post" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-            <input type="password" name="password" class="input" placeholder="Wachtwoord" required style="flex:1 1 160px">
-            <button class="btn sm">Ontgrendel</button>
-          </form>
-        </div>
-        {% endif %}
-
-        <div class="filelist">
-          {% for f in files %}
-          <div class="filecard">
-            <div class="name">{{ f.filename }}</div>
-            <div class="size">{{ f.size_h }}</div>
-            <div class="action">
-              <a href="{{ url_for('download_file', fid=f.id) }}" class="btn ghost sm">Download</a>
-            </div>
+        <!-- Total -->
+        <div style="margin-top:14px">
+          <div class="totalline">
+            <div class="subtle">Totaalvoortgang</div>
+            <span id="totalPct" class="badge warn">0%</span>
           </div>
-          {% endfor %}
+          <div class="progress"><i id="totalFill"></i></div>
+          <div class="subtle" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
         </div>
 
-        <div id="bar" class="progress" style="display:none;margin-top:10px"><i></i></div>
-        <div id="txt" class="subtle" style="display:none;margin-top:4px">Download gestart…</div>
+        <!-- Share -->
+        <div id="result" style="margin-top:12px"></div>
       </div>
     </div>
 
-    <!-- Rechterkaart -->
+    <!-- RIGHT: Telemetry -->
     <div class="card">
-      <div class="card-h">
-        <div>Live Telemetry</div>
-        <div class="subtle">Sessie</div>
-      </div>
-      <div class="card-b grid" style="gap:12px">
+      <div class="card-h"><h2>Live Telemetry</h2><div class="subtle">Sessie</div></div>
+      <div class="card-b grid">
         <div class="kv">
-          <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-          <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-          <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
-          <div class="k">ETA</div><div class="v" id="tEta">—</div>
+          <div>
+            <div class="k">Actieve workers</div>
+            <div class="v" id="tWorkers">0</div>
+          </div>
+          <div>
+            <div class="k">Doorvoersnelheid</div>
+            <div class="v"><span id="tSpeed">0</span> /s</div>
+          </div>
+          <div>
+            <div class="k">Verplaatst</div>
+            <div class="v" id="tMoved">0 B</div>
+          </div>
+          <div>
+            <div class="k">Nog te gaan</div>
+            <div class="v" id="tLeft">0 B</div>
+          </div>
+          <div>
+            <div class="k">ETA</div>
+            <div class="v" id="tEta">—</div>
+          </div>
+          <div>
+            <div class="k">Bestanden klaar</div>
+            <div class="v" id="tDone">0</div>
+          </div>
         </div>
 
-        <!-- Call-to-action naar aanvraagformulier -->
-        <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
-          <div style="font-weight:600;margin-bottom:4px">Eigen transfer-oplossing?</div>
-          <p class="small" style="margin:0 0 .6rem 0">
-            Deze downloadpagina is onderdeel van een eigen omgeving. Ook zo'n professionele oplossing voor jouw organisatie?
-          </p>
-          <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;">
-            Meer info / aanvraag
-          </a>
+        <div>
+          <div class="k" style="margin-bottom:6px">Activiteitenlog</div>
+          <div id="log" class="log" aria-live="polite"></div>
         </div>
       </div>
-
     </div>
   </div>
 
@@ -826,10 +768,355 @@ PACKAGE_HTML = """
 </div>
 
 <script>
+/* ==== Settings & iOS ==== */
+const FILE_PAR = 3;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+
+/* Elements */
+const folderLabel=document.getElementById('folderLabel');
+const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
+const fileInput=document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
+const btnFiles=document.getElementById('btnFiles'), btnFolder=document.getElementById('btnFolder');
+const fileName=document.getElementById('fileName'), folderName=document.getElementById('folderName');
+const queue=document.getElementById('queue'); const form=document.getElementById('form');
+const totalFill=document.getElementById('totalFill'), totalPct=document.getElementById('totalPct'), totalStatus=document.getElementById('totalStatus');
+const kvWorkers=document.getElementById('kvWorkers'), kvQueue=document.getElementById('kvQueue'), kvFiles=document.getElementById('kvFiles');
+const tWorkers=document.getElementById('tWorkers'), tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tLeft=document.getElementById('tLeft'), tEta=document.getElementById('tEta'), tDone=document.getElementById('tDone');
+const logEl=document.getElementById('log'), resBox=document.getElementById('result');
+
+if(isIOS){ folderLabel.style.display='none'; }
+
+/* Utils */
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
+function log(msg){const p=document.createElement('p');const t=new Date().toLocaleTimeString();p.textContent=`[${t}] ${msg}`;logEl.prepend(p)}
+function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
+
+/* API */
+async function packageInit(expiry,password,title){
+  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
+  const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
+}
+async function putInit(token,filename,type){
+  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
+  const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_init'); return j;
+}
+async function putComplete(token,key,name,path){
+  const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
+  const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
+}
+function putWithProgress(url,blob,onProgress){
+  return new Promise((resolve,reject)=>{
+    const x=new XMLHttpRequest();
+    x.open("PUT",url,true);
+    x.setRequestHeader("Content-Type",blob.type||"application/octet-stream");
+    x.upload.onprogress=(e)=>{const loaded=e.loaded||0,total=e.total||blob.size||1;onProgress(loaded,total);};
+    x.onload=()=> (x.status>=200&&x.status<300)?resolve():reject(new Error('HTTP '+x.status));
+    x.onerror=()=>reject(new Error('Netwerkfout')); x.send(blob);
+  });
+}
+
+/* Queue rows */
+function addRow(rel,size){
+  const r=document.createElement('div'); r.className='rowc';
+  r.innerHTML=`<div class="ico"></div>
+               <div class="ellipsis"><strong>${rel}</strong><div class="progress"><i style="width:0%"></i></div></div>
+               <div class="size">${fmtBytes(size)}</div>
+               <div class="eta" data-eta>—</div>`;
+  queue.appendChild(r);
+  return {row:r,fill:r.querySelector('i'),eta:r.querySelector('[data-eta]')};
+}
+
+/* Telemetry state */
+let totBytes=0, moved=0, done=0, workers=0;
+let speedAvg=0; let lastTick=performance.now(), lastMoved=0;
+setInterval(()=>{
+  const now=performance.now(); const dt=(now-lastTick)/1000; lastTick=now;
+  const delta = moved - lastMoved; lastMoved = moved;
+  const inst = delta / Math.max(dt,0.001);
+  // EMA
+  speedAvg = speedAvg ? speedAvg*0.7 + inst*0.3 : inst;
+  tSpeed.textContent = fmtBytes(speedAvg)+"/s";
+  tMoved.textContent = fmtBytes(moved);
+  tLeft.textContent  = fmtBytes(Math.max(0, totBytes - moved));
+  tWorkers.textContent = workers;
+  tDone.textContent = done;
+  const etaSec = speedAvg>1 ? Math.max(0,(totBytes-moved)/speedAvg) : 0;
+  tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
+}, 700);
+
+/* UI bindings */
+btnFiles.onclick=()=>fileInput.click();
+btnFolder && (btnFolder.onclick=()=>folderInput.click());
+fileInput.onchange=()=>{kvFiles.textContent=fileInput.files.length; kvQueue.textContent=fileInput.files.length; fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
+folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
+document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
+  const use = (r.value==='folder' && !isIOS);
+  fileRow.style.display = use ? 'none' : '';
+  folderRow.style.display = use ? '' : 'none';
+  setTimeout(()=> (use?folderInput:fileInput).click(), 0);
+}));
+
+/* Main submit */
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  queue.innerHTML=''; moved=0; done=0; speedAvg=0; setTotal(0,'Voorbereiden…');
+  const mode=document.querySelector('input[name=upmode]:checked').value;
+  const useFolder = mode==='folder' && !isIOS;
+  const files = Array.from(useFolder ? folderInput.files : fileInput.files);
+  if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
+  const expiry=document.getElementById('expDays').value, pw=document.getElementById('pw').value||'', title=document.getElementById('title').value||'';
+  const token = await packageInit(expiry,pw,title);
+
+  totBytes = files.reduce((s,f)=>s+f.size,0)||1;
+  kvQueue.textContent = files.length; kvFiles.textContent = files.length;
+  const list = files.map(f=>({f,rel:useFolder?(f.webkitRelativePath||f.name):f.name,ui:addRow(useFolder?(f.webkitRelativePath||f.name):f.name,f.size),start:0,uploaded:0}));
+  const q=[...list];
+
+  async function worker(){
+    workers++; kvWorkers.textContent=FILE_PAR; try{
+      while(q.length){
+        const it=q.shift();
+        it.start=performance.now(); log("Start: "+it.rel);
+        try{
+          const init=await putInit(token,it.f.name,it.f.type);
+          let last=0;
+          await putWithProgress(init.url,it.f,(loaded,total)=>{
+            const pct=Math.round(loaded/total*100);
+            it.ui.fill.style.width=pct+'%';
+            const d=loaded-last; last=loaded; moved+=d; it.uploaded=loaded;
+            const spent=(performance.now()-it.start)/1000; const sp = loaded/Math.max(spent,0.001);
+            const left=total-loaded; const etaS= sp>1 ? left/sp : 0; it.ui.eta.textContent = etaS? new Date(etaS*1000).toISOString().substring(11,19) : '—';
+            setTotal(moved/totBytes*100,'Uploaden…');
+          });
+          await putComplete(token,init.key,it.f.name,it.rel);
+          it.ui.fill.style.width='100%'; it.ui.eta.textContent='Klaar'; done++; log("Klaar: "+it.rel);
+        }catch(err){ it.ui.eta.textContent='Fout'; log("Fout: "+it.rel); }
+      }
+    } finally { workers--; }
+  }
+  await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
+  setTotal(100,'Klaar');
+
+  // Share (compact)
+  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
+    </div>
+    <div class="share">
+      <input id="shareLinkInput" class="input" value="${link}" readonly>
+      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+    </div>
+  </div></div>`;
+  document.getElementById('copyBtn').onclick=async()=>{
+    const input=document.getElementById('shareLinkInput');
+    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
+  };
+});
+</script>
+</body>
+</html>
+"""
+
+
+
+PACKAGE_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+  <title>Download • Olde Hanter</title>
+  {{ head_icon|safe }}
+  <style>
+    {{ base_css }}
+
+/* ===== Downloadlijst: nette uitlijning + compacter ===== */
+.filecard{
+  display:grid;
+  grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
+  align-items:center;
+  gap:.45rem .6rem;
+  padding:.55rem .85rem;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface) 86%,white 14%);
+  font-size:.9rem;
+}
+.filecard .name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  line-height:1.25;
+  overflow-wrap:anywhere;
+}
+.filecard .size{
+  width:6.2rem;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.filecard .action{
+  width:auto;
+  text-align:right;
+}
+.filecard .action a{
+  display:inline-block;
+  padding:.15rem .35rem;
+  white-space:nowrap;
+  font-size:.85rem;
+}
+
+
+    /* Progressbalk ruimte */
+    #bar{ margin-top:.75rem }
+
+    /* Kaarten & grid */
+    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
+    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+    .brand{color:var(--brand);margin:0;font-weight:800}
+    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+    @media(max-width:900px){.deck{grid-template-columns:1fr}}
+    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
+    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
+    .card-b{padding:14px 16px}
+    .subtle{color:var(--muted);font-size:.92rem}
+    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
+    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
+    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
+    @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
+
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+
+    .deck > .card { min-width: 0; }
+    .card h1, .card h2, .card h3 { line-height: 1.2; }
+    .card p, .card li, .card div { line-height: 1.25; }
+
+    @media (max-width:700px){
+      .filecard{grid-template-columns:1fr;gap:.35rem;}
+      .filecard .name{white-space:normal;}
+      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+    }
+  </style>
+</head>
+<body>
+{{ bg|safe }}
+<div class="shell">
+  <div class="hdr">
+    <h1 class="brand">Bestanden downloaden</h1>
+    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
+  </div>
+
+  <div class="deck">
+    <!-- Linkerkaart -->
+    <div class="card">
+      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
+      <div class="card-b">
+        {% if items|length == 1 %}
+          <button id="btnDownload" class="btn">Download bestand</button>
+        {% else %}
+          <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
+        {% endif %}
+        <div id="bar" class="progress" style="display:none"><i></i></div>
+        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
+
+        {% if items|length > 1 %}
+        <h4 style="margin-top:14px;">Inhoud</h4>
+        {% for it in items %}
+          <div class="filecard">
+            <div class="name">{{ it["path"] }}</div>
+            <div class="size">{{ it["size_h"] }}</div>
+            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
+          </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+
+<!-- Rechterkaart -->
+<div class="card">
+  <div class="card-h">
+    <div>Live Telemetry</div>
+    <div class="subtle">Sessie</div>
+  </div>
+  <div class="card-b grid" style="gap:12px">
+    <div class="kv">
+      <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
+      <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
+      <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
+      <div class="k">ETA</div><div class="v" id="tEta">—</div>
+    </div>
+
+    <!-- Call-to-action naar aanvraagformulier -->
+    <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
+      <div style="font-weight:600;margin-bottom:4px">Eigen transfer-oplossing?</div>
+      <p class="small" style="margin:0 0 .6rem 0">
+        Deze downloadpagina is onderdeel van een eigen omgeving. Ook zo'n professionele oplossing voor jouw organisatie?
+      </p>
+      <a href="{{ url_for('contact') }}" class="btn ghost sm" style="text-decoration:none;">
+        Meer info / aanvraag
+      </a>
+    </div>
+  </div>
+</div>
+
+
+  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div>
+
+<script>
 const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
 const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
-function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0,f=n;while(f>=1024 && i<u.length-1){f/=1024;i++;}return (i?f.toFixed(1):Math.round(f))+" "+u[i]}
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function show(){bar.style.display='block';txt.style.display='block'}
+function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
+
+async function downloadWithTelemetry(url, fallbackName){
+  show(); setPct(0); txt.textContent='Starten…';
+  let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
+
+  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
+  const iv=setInterval(tick,700);
+
+  try{
+    const res=await fetch(url,{credentials:'same-origin'});
+    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
+    total=parseInt(res.headers.get('Content-Length')||'0',10);
+    const name=res.headers.get('X-Filename')||fallbackName||'download';
+
+    const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
+    if(rdr){
+      const chunks=[];
+      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
+      while(true){
+        const {done,value}=await rdr.read(); if(done) break;
+        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
+        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
+      }
+      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
+      clearInterval(iv);
+      const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+      return;
+    }
+    bar.classList.add('indet'); txt.textContent='Downloaden…';
+    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
+    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
+  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
+}
+
+const btn=document.getElementById('btnDownload');
+if(btn){
+  btn.addEventListener('click',()=>{
+    {% if items|length == 1 %}
+      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+    {% else %}
+      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
+    {% endif %}
+  });
+}
 </script>
 </body>
 </html>
