@@ -2936,12 +2936,13 @@ def internal_cleanup():
 def stream_file(token, item_id):
     c = db()
     t = current_tenant()["slug"]
+
     pkg = c.execute(
         "SELECT * FROM packages WHERE token=? AND tenant_id=?",
         (token, t)
     ).fetchone()
 
-    # Pakket bestaat niet meer → pakket verwijderd pagina
+    # pakket bestaat niet meer → mooie "verwijderd" pagina
     if not pkg:
         c.close()
         return render_template_string(
@@ -2952,26 +2953,22 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
-    # Pakket verlopen → opruimen + nette verlopen pagina
+    # pakket verlopen → verwijder + toon "verlopen" pagina
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+
         rows = c.execute(
             "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t)
         ).fetchall()
+
         for r in rows:
             try:
                 s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
             except Exception:
                 pass
 
-        c.execute(
-            "DELETE FROM items WHERE token=? AND tenant_id=?",
-            (token, t)
-        )
-        c.execute(
-            "DELETE FROM packages WHERE token=? AND tenant_id=?",
-            (token, t)
-        )
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
         c.commit()
         c.close()
 
@@ -2989,39 +2986,64 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Wachtwoordcontrole
+    # wachtwoordcontrole
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
         c.close()
         abort(403)
 
-    # Enkel bestand ophalen
+    # item ophalen
     it = c.execute(
         "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
         (item_id, token, t)
     ).fetchone()
     c.close()
-    if not it:
-        abort(404)
 
+    # item ontbreekt → toon jouw pagina (niet een kale 404)
+    if not it:
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
+
+    # bestand streamen vanuit S3
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
         obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
 
         def gen():
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
+            for chunk in obj["Body"].iter_chunks(1024*512):
                 if chunk:
                     yield chunk
 
-        resp = Response(
-            stream_with_context(gen()),
-            mimetype="application/octet-stream"
-        )
-        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
+        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+        resp.headers["Content-Disposition"] = f'attachment; filename=\"{it['name']}\""
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
+
+    # ⬇️ DIT IS DE BELANGRIJKE FIX
+    except ClientError as ce:
+        code = ce.response.get("Error", {}).get("Code", "")
+
+        # bestand ontbreekt in S3 → toon jouw mooie pagina
+        if code in {"NoSuchKey", "NotFound", "404"}:
+            log.warning("stream_file: S3 object ontbreekt %s", it["s3_key"])
+            return render_template_string(
+                LINK_REMOVED_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+                token=token
+            ), 410
+
+        log.exception("stream_file failed (ClientError)")
+        abort(500)
+
     except Exception:
         log.exception("stream_file failed")
         abort(500)
