@@ -761,352 +761,169 @@ btn.onclick = async () => {
 
 
 BILLING_HTML = """
-<!doctype html><html lang="nl"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Beheer abonnement – Olde Hanter</title>{{ head_icon|safe }}
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beheer abonnement – Olde Hanter</title>
+{{ head_icon|safe }}
 
 <style>
 {{ base_css }}
 
-/* =========================================
-   DESIGN SYSTEM — ENTERPRISE PALETTE
-   ========================================= */
+/* ==================================================
+   ENTERPRISE LAYOUT — CLEAN & PROFESSIONAL
+   ================================================== */
 
-:root{
-  --brand: #3b82f6;
-  --brand-strong: #1d4ed8;
-
-  --accent: #818cf8;
-  --accent-strong: #6366f1;
-
-  --success: #22c55e;
-  --warn: #f59e0b;
-  --danger: #ef4444;
-
-  --text-strong: #f8fafc;
-  --text-soft: #e2e8f0;
-  --text-dim: #cbd5e1;
-
-  --card-fg: #eef2ff;
-}
-
-
-/* =========================================
-   PAGE HEADER
-   ========================================= */
-
+.wrap{max-width:1100px;margin:5vh auto;padding:0 16px}
 .topbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:1.25rem;
+  display:flex;justify-content:space-between;align-items:center;
+  gap:12px;flex-wrap:wrap;margin-bottom:18px
 }
-
 .topbar h1{
-  margin:.25rem 0 1rem;
-  color:#0b1c33 !important;
-  font-weight:800;
-  letter-spacing:.2px;
+  margin:0;font-weight:800;color:var(--brand);letter-spacing:.2px
 }
+.logout{font-size:.9rem;color:var(--muted)}
+.logout a{color:var(--brand);font-weight:600;text-decoration:none}
 
-.logout{
-  color:#64748b;
-}
-
-.logout a{
-  color:var(--brand);
-  text-decoration:none;
-  font-weight:700;
-}
-
-
-/* =========================================
-   GLASS CARDS — PREMIUM + MICRO BORDERS
-   ========================================= */
-
+/* Cards */
 .card{
-  color:var(--card-fg);
-  background:linear-gradient(165deg,
-    rgba(15,23,42,.94),
-    rgba(23,30,54,.92),
-    rgba(28,35,62,.94)
-  );
-
-  border-radius:20px;
-  border:1px solid rgba(255,255,255,.14);
-
-  box-shadow:
-    0 22px 48px rgba(0,0,0,.32),
-    inset 0 1px 0 rgba(255,255,255,.08);
-
-  backdrop-filter: blur(10px);
+  background:var(--panel);
+  border:1px solid var(--panel-b);
+  border-radius:18px;
+  box-shadow:0 14px 36px rgba(0,0,0,.14);
+  padding:16px;
+  margin-bottom:14px
 }
-
 .card h3{
-  margin:.2rem 0 .35rem;
-  color:var(--text-strong) !important;
+  margin:.1rem 0 .6rem 0;
   font-weight:700;
+  color:var(--brand)
 }
+.small{font-size:.9rem;color:var(--muted)}
 
-.small{
-  color:var(--text-dim) !important;
-}
-
-
-/* =========================================
-   STAT GRID
-   ========================================= */
-
-.stat{ display:grid; gap:.4rem; }
-
+/* Key–value blocks */
 .kv{
   display:grid;
   grid-template-columns:1fr auto;
-  gap:.3rem .75rem;
-  align-items:center;
+  gap:.35rem .8rem;
+  align-items:center
 }
 
-
-/* Tenant label */
-
-.tenant-tag{
-  color:#fff;
-  background:linear-gradient(135deg,#3b82f6,#60a5fa);
-  padding:5px 12px;
-  border-radius:999px;
-  font-weight:600;
-}
-
-
-/* =========================================
-   STORAGE BAR — DYNAMIC COLOR + STATES
-   ========================================= */
-
+/* Storage bar */
 .bar{
-  height:12px;
-  border-radius:999px;
-  background:rgba(255,255,255,.12);
-  border:1px solid rgba(255,255,255,.28);
-  overflow:hidden;
+  height:12px;border-radius:999px;overflow:hidden;
+  background:rgba(0,0,0,.06);
+  border:1px solid rgba(0,0,0,.08);
+  margin-top:.5rem
 }
-
-/* default (low usage) = calm blue */
 .bar>i{
-  height:100%;
-  display:block;
-  width:{{ pct }}%;
-  background:linear-gradient(90deg,#2563eb,#3b82f6,#60a5fa);
-  transition:width .35s cubic-bezier(.4,.2,.2,1),
-             background .25s ease;
+  height:100%;display:block;width:{{ pct }}%;
+  background:linear-gradient(90deg,#2563eb,#60a5fa);
+  transition:width .3s ease
 }
 
-/* ≥ 70% → amber */
-[data-usage="warn"] .bar>i{
-  background:linear-gradient(90deg,#f59e0b,#fbbf24);
+/* Buttons */
+.btn{
+  padding:.6rem .9rem;border-radius:12px;border:0;
+  font-weight:700;cursor:pointer;
+  background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
+  color:#fff
 }
-
-/* ≥ 90% → red + subtle pulse */
-@keyframes barPulse {
-  0%{ box-shadow:0 0 0 0 rgba(239,68,68,.45); }
-  100%{ box-shadow:0 0 0 12px rgba(239,68,68,0); }
+.btn.secondary{
+  background:var(--surface);
+  color:var(--text);
+  border:1px solid var(--line)
 }
-
-[data-usage="danger"] .bar>i{
-  background:linear-gradient(90deg,#ef4444,#dc2626);
-  animation:barPulse 1.6s ease-out infinite;
+.btn.danger{
+  background:linear-gradient(135deg,#ef4444,#dc2626)
 }
+.btn.small{font-size:.85rem;padding:.45rem .7rem}
 
-
-/* =========================================
-   TABLE + ROW HOVER MICRO-LIFT
-   ========================================= */
-
+/* Table */
 .table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:.6rem;
+  width:100%;border-collapse:collapse;margin-top:.5rem
+}
+.table th,.table td{
+  padding:.55rem .7rem;border-bottom:1px solid rgba(0,0,0,.08);
+  text-align:left
+}
+.table th{font-weight:700}
+.table td.actions{white-space:nowrap}
+.table tr:hover td{background:rgba(0,0,0,.03)}
+
+/* Expiry badge */
+.expires{
+  padding:5px 12px;border-radius:999px;
+  background:linear-gradient(135deg,#818cf8,#6366f1);
+  color:#fff;font-size:.85rem;font-weight:600;
+  white-space:nowrap
 }
 
-.table th,
-.table td{
-  padding:.55rem .7rem;
-  border-bottom:1px solid rgba(255,255,255,.12);
-}
-
-.table th{
-  color:var(--text-strong);
-  font-weight:700;
-}
-
-.table td{
-  color:var(--text-soft);
-}
-
-/* premium hover — business subtle */
-.table tr:hover td{
-  background:rgba(255,255,255,.04);
-  transition:background .15s ease;
-}
-
-.table td.actions{ white-space:nowrap; }
-
-
-/* ---------- Mobile ---------- */
-
-@media(max-width:700px){
-
+/* Mobile */
+@media(max-width:720px){
   .table thead{display:none}
-
-  .table,
-  .table tbody,
-  .table tr,
-  .table td{ display:block; width:100%; }
-
+  .table,.table tbody,.table tr,.table td{display:block;width:100%}
   .table tr{
     margin-bottom:.6rem;
-    border:1px solid rgba(255,255,255,.18);
+    border:1px solid rgba(0,0,0,.08);
     border-radius:12px;
-    padding:.45rem .65rem;
-    background:rgba(255,255,255,.08);
+    padding:.45rem .6rem
   }
-
-  .table td{ border:0; padding:.25rem 0; }
-
+  .table td{border:0;padding:.25rem 0}
   .table td[data-label]:before{
     content:attr(data-label) ": ";
-    font-weight:700;
-    color:#eaf0ff;
+    font-weight:700
   }
-
-  .table td.actions{
-    white-space:normal;
-    margin-top:.35rem;
-  }
-}
-
-
-/* =========================================
-   EXPIRY BADGE — STATUS + ANIMATION
-   ========================================= */
-
-.expires{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-
-  padding:6px 14px;
-  min-width:160px;
-  border-radius:999px;
-
-  background:linear-gradient(135deg,#818cf8,#6366f1);
-
-  color:#f9fafb;
-  font-variant-numeric:tabular-nums;
-  white-space:nowrap;
-
-  box-shadow:0 6px 18px rgba(15,23,42,.35);
-}
-
-/* nearly expiring (soft pulse amber) */
-@keyframes pulseAmber {
-  0%{ box-shadow:0 0 0 0 rgba(245,158,11,.38); }
-  100%{ box-shadow:0 0 0 12px rgba(245,158,11,0); }
-}
-
-tr[data-expiring="1"] .expires{
-  background:linear-gradient(135deg,#facc15,#f59e0b);
-  color:#111827;
-  animation:pulseAmber 2s ease-out infinite;
-}
-
-/* expired (slow calm pulse red) */
-@keyframes pulseRed {
-  0%{ box-shadow:0 0 0 0 rgba(239,68,68,.38); }
-  100%{ box-shadow:0 0 0 14px rgba(239,68,68,0); }
-}
-
-tr[data-expired="1"] .expires{
-  background:linear-gradient(135deg,#ef4444,#dc2626);
-  animation:pulseRed 2.2s ease-out infinite;
-}
-
-
-/* =========================================
-   BUTTON SYSTEM — MINIMAL & PREMIUM
-   ========================================= */
-
-.btn{
-  color:#fff !important;
-  border:none;
-  font-weight:600;
-  border-radius:14px;
-
-  box-shadow:0 6px 18px rgba(0,0,0,.25);
-  transition:
-    transform .14s ease,
-    box-shadow .14s ease,
-    opacity .14s ease;
-}
-
-.btn:hover{
-  transform:translateY(-1px);
-  box-shadow:0 12px 28px rgba(0,0,0,.35);
-}
-
-/* primary */
-.btn.small{
-  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
-}
-
-/* extend +30 dagen */
-.btn.secondary{
-  background:linear-gradient(135deg,#818cf8,#6366f1);
-}
-
-/* delete */
-.btn.danger{
-  background:linear-gradient(135deg,#ef4444,#dc2626);
 }
 </style>
+</head>
 
-
-
-</head><body>
+<body>
 {{ bg|safe }}
+
 <div class="wrap">
+
+  <!-- ================= HEADER ================= -->
   <div class="topbar">
     <h1>Beheer abonnement</h1>
-    <div class="logout">Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    <div class="logout">
+      Ingelogd als <strong>{{ user }}</strong> •
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
+    </div>
   </div>
 
-  <div class="card stat">
+  <!-- ================= STORAGE ================= -->
+  <div class="card">
     <h3>Opslaggebruik</h3>
     <div class="kv">
-      <div class="small">Tenant</div>
-      <div><span class="tenant-tag">{{ tenant_label }}</span></div>
-      <div class="small">Gebruikt</div>
-      <div>{{ used_h }}</div>
-      <div class="small">Limiet</div>
-      <div>{{ limit_h }}</div>
+      <div class="small">Tenant</div><div>{{ tenant_label }}</div>
+      <div class="small">Gebruikt</div><div>{{ used_h }}</div>
+      <div class="small">Limiet</div><div>{{ limit_h }}</div>
     </div>
-    <div class="bar" aria-hidden="true"><i style="width:{{ pct }}%"></i></div>
+    <div class="bar"><i></i></div>
     {% if over %}
-      <p class="small" style="color:#b91c1c;margin:.2rem 0 0">Je zit boven je ingestelde limiet. Overweeg een groter plan.</p>
+      <p class="small" style="color:#b91c1c;margin-top:.3rem">
+        Je zit boven je ingestelde limiet. Overweeg een groter plan.
+      </p>
     {% endif %}
   </div>
 
-  <div class="card stat">
+  <!-- ================= SUBSCRIPTION ================= -->
+  <div class="card">
     <h3>Abonnement</h3>
     {% if sub %}
       <p class="small">
-        Actief abonnement voor <strong>{{ sub['login_email'] }}</strong><br>
+        Actief voor <strong>{{ sub['login_email'] }}</strong><br>
         Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong><br>
-        Subscription ID: <code id="subid">{{ sub['subscription_id'] }}</code>
+        ID: <code id="subid">{{ sub['subscription_id'] }}</code>
       </p>
-      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-top:.5rem">
+
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
         <div>
-          <label for="newPlan" class="small">Nieuw plan</label>
-          <select id="newPlan" class="input" style="min-width:160px">
+          <label class="small">Nieuw plan</label>
+          <select id="newPlan" class="input">
             <option value="0.5">0,5 TB</option>
             <option value="1">1 TB</option>
             <option value="2">2 TB</option>
@@ -1118,158 +935,145 @@ tr[data-expired="1"] .expires{
       </div>
     {% else %}
       <p class="small">
-        Geen actief abonnement gevonden voor {{ user }}.<br>
-        Start een abonnement via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.
+        Geen actief abonnement gevonden.<br>
+        Start via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.
       </p>
     {% endif %}
   </div>
 
+  <!-- ================= PACKAGES ================= -->
   <div class="card">
-    <h3 style="margin:.1rem 0;color:var(--brand)">Pakketten</h3>
+    <h3>Pakketten</h3>
+
     {% if packs and packs|length > 0 %}
-      <table class="table" id="packsTable">
-        <thead>
-          <tr>
-            <th>Onderwerp</th>
-            <th>Bestanden</th>
-            <th>Verloopt</th>
-            <th style="text-align:right">Totaal</th>
-            <th style="width:1%"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in packs %}
-          <tr data-token="{{ p.token }}">
-            <td data-label="Onderwerp">{{ p.title }}</td>
-            <td data-label="Bestanden">{{ p.files_count }}</td>
-            <td data-label="Verloopt"><span class="expires">{{ p.expires_h }}</span></td>
-            <td data-label="Totaal" style="text-align:right">{{ p.total_h }}</td>
-            <td class="actions" data-label="">
-              <button class="btn small" data-action="details">Details</button>
-              <button class="btn small secondary" data-action="extend">+30 dagen</button>
-              <button class="btn small danger" data-action="delete">Verwijderen</button>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <p class="small" style="color:#475569;margin-top:.5rem">“+30 dagen” verlengt het <strong>hele pakket</strong>.</p>
+    <table class="table" id="packsTable">
+      <thead>
+        <tr>
+          <th>Onderwerp</th>
+          <th>Bestanden</th>
+          <th>Downloads</th>
+          <th>Verloopt</th>
+          <th style="text-align:right">Totaal</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in packs %}
+        <tr data-token="{{ p.token }}">
+          <td data-label="Onderwerp">{{ p.title }}</td>
+          <td data-label="Bestanden">{{ p.files_count }}</td>
+          <td data-label="Downloads">
+            {{ p.downloads if p.downloads is defined else "—" }}
+          </td>
+          <td data-label="Verloopt">
+            <span class="expires">{{ p.expires_h }}</span>
+          </td>
+          <td data-label="Totaal" style="text-align:right">{{ p.total_h }}</td>
+          <td class="actions">
+            <button class="btn small" data-action="details">Details</button>
+            <button class="btn small secondary" data-action="extend">+30 dagen</button>
+            <button class="btn small danger" data-action="delete">Verwijderen</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="small" style="margin-top:.5rem">
+      “+30 dagen” verlengt het volledige pakket.
+    </p>
     {% else %}
-      <p class="small">Nog geen uploads/pakketten gevonden.</p>
+      <p class="small">Nog geen uploads of pakketten.</p>
     {% endif %}
   </div>
 
-  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer small" style="text-align:center">
+    Olde Hanter Bouwconstructies • Bestandentransfer
+  </p>
 </div>
 
-<dialog id="packDlg" aria-label="Pakketdetails">
-  <div class="modal-head">
-    <strong id="dlgTitle">Pakket</strong>
-    <button class="btn small" id="dlgClose">Sluiten</button>
-  </div>
-  <div class="modal-body">
-    <div id="dlgMeta" class="small" style="margin-bottom:.6rem;color:#475569"></div>
-    <table class="table" id="dlgTable">
-      <thead><tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr></thead>
-      <tbody></tbody>
+<!-- ================= MODAL ================= -->
+<dialog id="packDlg">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong id="dlgTitle">Pakket</strong>
+      <button class="btn small" id="dlgClose">Sluiten</button>
+    </div>
+    <div id="dlgMeta" class="small" style="margin:.6rem 0"></div>
+    <table class="table">
+      <thead>
+        <tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr>
+      </thead>
+      <tbody id="dlgTableBody"></tbody>
     </table>
   </div>
-  <div class="modal-foot"></div>
 </dialog>
 
 <script>
 async function api(url, body){
-  const r = await fetch(url, {
+  const r = await fetch(url,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(body||{})
+    body:JSON.stringify(body||{})
   });
   const j = await r.json().catch(()=>({}));
-  if(!r.ok){ throw new Error(j.error || ('HTTP '+r.status)); }
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
   return j;
 }
 
-document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid')?.textContent?.trim();
-  if(!id) return;
+/* Subscription actions */
+document.getElementById('btnCancel')?.onclick = async ()=>{
   if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
-  try{
-    await api("{{ url_for('billing_cancel') }}", {subscription_id: id});
-    alert('Opgezegd.');
-    location.reload();
-  }catch(e){ alert('Mislukt: ' + e.message); }
-});
-
-document.getElementById('btnChange')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid')?.textContent?.trim();
-  const val = document.getElementById('newPlan')?.value;
-  if(!id || !val) return;
-  try{
-    await api("{{ url_for('billing_change') }}", {subscription_id: id, new_plan_value: val});
-    alert('Plan gewijzigd.');
-    location.reload();
-  }catch(e){ alert('Mislukt: ' + e.message); }
-});
-
-const tbl = document.getElementById('packsTable');
-const dlg = document.getElementById('packDlg');
-const dlgClose = document.getElementById('dlgClose');
-const dlgTitle = document.getElementById('dlgTitle');
-const dlgMeta  = document.getElementById('dlgMeta');
-const dlgTBody = document.querySelector('#dlgTable tbody');
-
-dlgClose?.addEventListener('click', ()=> dlg.close());
-
-if (tbl){
-  tbl.addEventListener('click', async (ev)=>{
-    const btn = ev.target.closest('button[data-action]');
-    if (!btn) return;
-    const tr = btn.closest('tr');
-    const token = (tr?.dataset?.token || '').trim();
-    const action = btn.dataset.action;
-    if (!token) return;
-
-    try{
-      if (action === 'extend'){
-        const res = await api("{{ url_for('billing_package_extend') }}", { token });
-        const iso = res?.new_expires_at || '';
-        const d = iso ? new Date(iso) : null;
-        const fmt = d ? d.toLocaleString('nl-NL', {
-          day:'2-digit', month:'2-digit', year:'numeric',
-          hour:'2-digit', minute:'2-digit'
-        }) : 'bijgewerkt';
-        tr.querySelector('.expires').textContent = fmt;
-      } else if (action === 'delete'){
-        if (!confirm('Hele pakket verwijderen (alle bestanden)?')) return;
-        await api("{{ url_for('billing_package_delete') }}", { token });
-        tr.remove();
-      } else if (action === 'details'){
-        dlgTitle.textContent = 'Pakket ' + token;
-        dlgMeta.textContent = 'Bestanden laden…';
-        dlgTBody.innerHTML = '';
-        if (typeof dlg.showModal === 'function'){ dlg.showModal(); }
-        const res = await api("{{ url_for('billing_package_files') }}", { token });
-        const files = res?.files || [];
-        dlgMeta.textContent = files.length + ' bestand(en) in dit pakket.';
-        if (!files.length){
-          dlgTBody.innerHTML = '<tr><td colspan="3" class="small">Geen bestanden gevonden.</td></tr>';
-        } else {
-          dlgTBody.innerHTML = files.map(f => (
-            '<tr>' +
-              '<td data-label="Bestand">' + (f.name||'') + '</td>' +
-              '<td data-label="Pad" class="small">' + (f.path||'') + '</td>' +
-              '<td data-label="Grootte" style="text-align:right">' + (f.size_h||'') + '</td>' +
-            '</tr>'
-          )).join('');
-        }
-      }
-    }catch(e){
-      alert('Actie mislukt: ' + (e?.message || e));
-    }
+  await api("{{ url_for('billing_cancel') }}",{subscription_id:subid.textContent});
+  location.reload();
+};
+document.getElementById('btnChange')?.onclick = async ()=>{
+  await api("{{ url_for('billing_change') }}",{
+    subscription_id:subid.textContent,
+    new_plan_value:newPlan.value
   });
-}
+  location.reload();
+};
+
+/* Package actions */
+const tbl=document.getElementById('packsTable');
+const dlg=document.getElementById('packDlg');
+const dlgClose=document.getElementById('dlgClose');
+const dlgTitle=document.getElementById('dlgTitle');
+const dlgMeta=document.getElementById('dlgMeta');
+const dlgBody=document.getElementById('dlgTableBody');
+
+dlgClose?.onclick=()=>dlg.close();
+
+tbl?.addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-action]');
+  if(!b) return;
+  const tr=b.closest('tr'); const token=tr.dataset.token;
+
+  if(b.dataset.action==='delete'){
+    if(confirm('Hele pakket verwijderen?')){
+      await api("{{ url_for('billing_package_delete') }}",{token});
+      tr.remove();
+    }
+  }
+  if(b.dataset.action==='extend'){
+    await api("{{ url_for('billing_package_extend') }}",{token});
+    location.reload();
+  }
+  if(b.dataset.action==='details'){
+    dlgTitle.textContent='Pakket '+token;
+    dlgMeta.textContent='Bestanden laden…';
+    dlgBody.innerHTML='';
+    dlg.showModal();
+    const r=await api("{{ url_for('billing_package_files') }}",{token});
+    dlgMeta.textContent=r.files.length+' bestand(en)';
+    dlgBody.innerHTML=r.files.map(f=>(
+      '<tr><td>'+f.name+'</td><td>'+f.path+'</td><td style="text-align:right">'+f.size_h+'</td></tr>'
+    )).join('');
+  }
+});
 </script>
-</body></html>
+</body>
+</html>
 """
 
 
