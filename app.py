@@ -176,7 +176,7 @@ def _col_exists(conn, table, col):
 
 def migrate_add_tenant_columns():
 
-    def migrate_add_download_counters():
+def migrate_add_download_counters():
     conn = db()
     try:
         # packages.downloads_count
@@ -950,6 +950,74 @@ BILLING_HTML = r"""
     .dlg-h strong{font-size:1rem}
     .dlg-b{padding:14px 16px}
     .hint{padding:10px 12px;border-radius:12px;background:rgba(2,6,23,.04);border:1px solid rgba(2,6,23,.08);color:var(--muted);font-size:.9rem}
+
+
+/* ============================
+   Contrast & leesbaarheid FIX
+   ============================ */
+
+/* Basis tekst */
+body{
+  color:#0f172a;               /* veel donkerder */
+}
+
+/* Kaarten: geen puur wit */
+.card{
+  background: #f8fafc;         /* licht blauwgrijs */
+  border:1px solid #dbe3f0;
+  box-shadow: 0 12px 32px rgba(15,23,42,.08);
+}
+
+/* Card titels */
+.card h2,
+.card h3{
+  color:#0b1c33;
+}
+
+/* Subtiele tekst */
+.small,
+.mini,
+.subtle{
+  color:#475569;               /* beter contrast */
+}
+
+/* Key-value labels */
+.kv .k{
+  color:#334155;
+}
+.kv .v{
+  color:#0f172a;
+}
+
+/* Tabellen */
+.table th{
+  color:#1e293b;
+  background:#eef2ff;          /* zachte header */
+}
+
+.table td{
+  color:#0f172a;
+  background:#f8fafc;
+}
+
+.table tr:hover td{
+  background:#eef2ff;
+}
+
+/* Verloopt badge (leesbaarder) */
+.badge,
+.pill{
+  background:#e0e7ff;
+  color:#1e3a8a;
+  border:1px solid #c7d2fe;
+}
+
+/* Inactieve / lege waarden */
+.table td:has(s
+
+
+
+    
   </style>
 </head>
 
