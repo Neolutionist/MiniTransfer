@@ -772,110 +772,176 @@ BILLING_HTML = """
 <style>
 {{ base_css }}
 
-/* ==================================================
-   ENTERPRISE LAYOUT — CLEAN & PROFESSIONAL
-   ================================================== */
-
-.wrap{max-width:1100px;margin:5vh auto;padding:0 16px}
-.topbar{
-  display:flex;justify-content:space-between;align-items:center;
-  gap:12px;flex-wrap:wrap;margin-bottom:18px
+/* ===============================
+   Layout
+   =============================== */
+.wrap{
+  max-width:1200px;
+  margin:4vh auto;
+  padding:0 18px;
 }
-.topbar h1{
-  margin:0;font-weight:800;color:var(--brand);letter-spacing:.2px
-}
-.logout{font-size:.9rem;color:var(--muted)}
-.logout a{color:var(--brand);font-weight:600;text-decoration:none}
 
-/* Cards */
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  margin-bottom:22px;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.header h1{
+  margin:0;
+  font-weight:800;
+  color:var(--brand);
+}
+
+.header .user{
+  font-size:.9rem;
+  color:var(--muted);
+}
+.header .user a{
+  color:var(--brand);
+  font-weight:600;
+  text-decoration:none;
+}
+
+/* ===============================
+   Cards
+   =============================== */
 .card{
   background:var(--panel);
   border:1px solid var(--panel-b);
-  border-radius:18px;
-  box-shadow:0 14px 36px rgba(0,0,0,.14);
+  border-radius:14px;
   padding:16px;
-  margin-bottom:14px
+  margin-bottom:18px;
 }
-.card h3{
-  margin:.1rem 0 .6rem 0;
-  font-weight:700;
-  color:var(--brand)
-}
-.small{font-size:.9rem;color:var(--muted)}
 
-/* Key–value blocks */
+.card h2{
+  margin:0 0 10px 0;
+  font-size:1.05rem;
+  font-weight:700;
+}
+
+/* ===============================
+   Key/Value blocks
+   =============================== */
 .kv{
   display:grid;
-  grid-template-columns:1fr auto;
-  gap:.35rem .8rem;
-  align-items:center
+  grid-template-columns:180px 1fr;
+  gap:6px 12px;
+  font-size:.95rem;
 }
 
-/* Storage bar */
 .bar{
-  height:12px;border-radius:999px;overflow:hidden;
-  background:rgba(0,0,0,.06);
-  border:1px solid rgba(0,0,0,.08);
-  margin-top:.5rem
+  margin-top:10px;
+  height:10px;
+  background:#e5e7eb;
+  border-radius:999px;
+  overflow:hidden;
 }
-.bar>i{
-  height:100%;display:block;width:{{ pct }}%;
-  background:linear-gradient(90deg,#2563eb,#60a5fa);
-  transition:width .3s ease
+.bar > i{
+  display:block;
+  height:100%;
+  width:{{ pct }}%;
+  background:#3b82f6;
 }
 
-/* Buttons */
+/* ===============================
+   Buttons
+   =============================== */
 .btn{
-  padding:.6rem .9rem;border-radius:12px;border:0;
-  font-weight:700;cursor:pointer;
-  background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
-  color:#fff
+  padding:.42rem .75rem;
+  font-size:.85rem;
+  font-weight:600;
+  border-radius:8px;
+  border:1px solid transparent;
+  cursor:pointer;
+  background:#2563eb;
+  color:#fff;
 }
+
 .btn.secondary{
-  background:var(--surface);
-  color:var(--text);
-  border:1px solid var(--line)
+  background:#111827;
 }
+
 .btn.danger{
-  background:linear-gradient(135deg,#ef4444,#dc2626)
+  background:#dc2626;
 }
-.btn.small{font-size:.85rem;padding:.45rem .7rem}
 
-/* Table */
+.btn.outline{
+  background:#fff;
+  color:#2563eb;
+  border-color:#2563eb;
+}
+
+.btn:disabled{
+  opacity:.6;
+  cursor:not-allowed;
+}
+
+/* ===============================
+   Table
+   =============================== */
 .table{
-  width:100%;border-collapse:collapse;margin-top:.5rem
-}
-.table th,.table td{
-  padding:.55rem .7rem;border-bottom:1px solid rgba(0,0,0,.08);
-  text-align:left
-}
-.table th{font-weight:700}
-.table td.actions{white-space:nowrap}
-.table tr:hover td{background:rgba(0,0,0,.03)}
-
-/* Expiry badge */
-.expires{
-  padding:5px 12px;border-radius:999px;
-  background:linear-gradient(135deg,#818cf8,#6366f1);
-  color:#fff;font-size:.85rem;font-weight:600;
-  white-space:nowrap
+  width:100%;
+  border-collapse:collapse;
+  font-size:.92rem;
 }
 
-/* Mobile */
-@media(max-width:720px){
-  .table thead{display:none}
-  .table,.table tbody,.table tr,.table td{display:block;width:100%}
-  .table tr{
-    margin-bottom:.6rem;
-    border:1px solid rgba(0,0,0,.08);
-    border-radius:12px;
-    padding:.45rem .6rem
-  }
-  .table td{border:0;padding:.25rem 0}
-  .table td[data-label]:before{
-    content:attr(data-label) ": ";
-    font-weight:700
-  }
+.table th{
+  text-align:left;
+  padding:10px 8px;
+  border-bottom:2px solid var(--line);
+  font-weight:700;
+}
+
+.table td{
+  padding:10px 8px;
+  border-bottom:1px solid var(--line);
+  vertical-align:middle;
+}
+
+.table td.actions{
+  white-space:nowrap;
+  display:flex;
+  gap:6px;
+}
+
+/* ===============================
+   Badges
+   =============================== */
+.badge{
+  display:inline-block;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:.8rem;
+  font-weight:600;
+  background:#eef2ff;
+  color:#1e40af;
+}
+
+/* ===============================
+   Modal
+   =============================== */
+dialog{
+  border:0;
+  border-radius:14px;
+  padding:0;
+  max-width:700px;
+  width:100%;
+}
+.modal{
+  padding:16px;
+}
+.modal h3{
+  margin:0 0 10px 0;
+}
+.modal header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
 }
 </style>
 </head>
@@ -885,67 +951,60 @@ BILLING_HTML = """
 
 <div class="wrap">
 
-  <!-- ================= HEADER ================= -->
-  <div class="topbar">
+  <div class="header">
     <h1>Beheer abonnement</h1>
-    <div class="logout">
-      Ingelogd als <strong>{{ user }}</strong> •
+    <div class="user">
+      Ingelogd als <strong>{{ user }}</strong> ·
       <a href="{{ url_for('logout') }}">Uitloggen</a>
     </div>
   </div>
 
-  <!-- ================= STORAGE ================= -->
+  <!-- Opslag -->
   <div class="card">
-    <h3>Opslaggebruik</h3>
+    <h2>Opslaggebruik</h2>
     <div class="kv">
-      <div class="small">Tenant</div><div>{{ tenant_label }}</div>
-      <div class="small">Gebruikt</div><div>{{ used_h }}</div>
-      <div class="small">Limiet</div><div>{{ limit_h }}</div>
+      <div>Tenant</div><div>{{ tenant_label }}</div>
+      <div>Gebruikt</div><div>{{ used_h }}</div>
+      <div>Limiet</div><div>{{ limit_h }}</div>
     </div>
     <div class="bar"><i></i></div>
     {% if over %}
-      <p class="small" style="color:#b91c1c;margin-top:.3rem">
-        Je zit boven je ingestelde limiet. Overweeg een groter plan.
+      <p class="small" style="color:#b91c1c;margin-top:6px">
+        Opslaglimiet overschreden.
       </p>
     {% endif %}
   </div>
 
-  <!-- ================= SUBSCRIPTION ================= -->
+  <!-- Abonnement -->
   <div class="card">
-    <h3>Abonnement</h3>
+    <h2>Abonnement</h2>
     {% if sub %}
       <p class="small">
-        Actief voor <strong>{{ sub['login_email'] }}</strong><br>
-        Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong><br>
+        Plan: <strong>{{ sub['plan_value'] }} TB</strong><br>
+        Status: <strong>{{ sub['status'] }}</strong><br>
         ID: <code id="subid">{{ sub['subscription_id'] }}</code>
       </p>
 
-      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
-        <div>
-          <label class="small">Nieuw plan</label>
-          <select id="newPlan" class="input">
-            <option value="0.5">0,5 TB</option>
-            <option value="1">1 TB</option>
-            <option value="2">2 TB</option>
-            <option value="5">5 TB</option>
-          </select>
-        </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="newPlan" class="input">
+          <option value="0.5">0,5 TB</option>
+          <option value="1">1 TB</option>
+          <option value="2">2 TB</option>
+          <option value="5">5 TB</option>
+        </select>
         <button class="btn" id="btnChange">Wijzig plan</button>
-        <button class="btn secondary" id="btnCancel">Opzeggen</button>
+        <button class="btn outline" id="btnCancel">Opzeggen</button>
       </div>
     {% else %}
-      <p class="small">
-        Geen actief abonnement gevonden.<br>
-        Start via de <a href="{{ url_for('contact') }}">aanvraagpagina</a>.
-      </p>
+      <p class="small">Geen actief abonnement.</p>
     {% endif %}
   </div>
 
-  <!-- ================= PACKAGES ================= -->
+  <!-- Pakketten -->
   <div class="card">
-    <h3>Pakketten</h3>
+    <h2>Pakketten</h2>
 
-    {% if packs and packs|length > 0 %}
+    {% if packs %}
     <table class="table" id="packsTable">
       <thead>
         <tr>
@@ -953,36 +1012,29 @@ BILLING_HTML = """
           <th>Bestanden</th>
           <th>Downloads</th>
           <th>Verloopt</th>
-          <th style="text-align:right">Totaal</th>
+          <th>Totaal</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for p in packs %}
         <tr data-token="{{ p.token }}">
-          <td data-label="Onderwerp">{{ p.title }}</td>
-          <td data-label="Bestanden">{{ p.files_count }}</td>
-          <td data-label="Downloads">
-            {{ p.downloads if p.downloads is defined else "—" }}
-          </td>
-          <td data-label="Verloopt">
-            <span class="expires">{{ p.expires_h }}</span>
-          </td>
-          <td data-label="Totaal" style="text-align:right">{{ p.total_h }}</td>
+          <td>{{ p.title }}</td>
+          <td>{{ p.files_count }}</td>
+          <td>{{ p.downloads if p.downloads is defined else "—" }}</td>
+          <td><span class="badge">{{ p.expires_h }}</span></td>
+          <td>{{ p.total_h }}</td>
           <td class="actions">
-            <button class="btn small" data-action="details">Details</button>
-            <button class="btn small secondary" data-action="extend">+30 dagen</button>
-            <button class="btn small danger" data-action="delete">Verwijderen</button>
+            <button class="btn outline" data-action="details">Details</button>
+            <button class="btn secondary" data-action="extend">+30 dagen</button>
+            <button class="btn danger" data-action="delete">Verwijderen</button>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    <p class="small" style="margin-top:.5rem">
-      “+30 dagen” verlengt het volledige pakket.
-    </p>
     {% else %}
-      <p class="small">Nog geen uploads of pakketten.</p>
+      <p class="small">Geen pakketten gevonden.</p>
     {% endif %}
   </div>
 
@@ -991,19 +1043,19 @@ BILLING_HTML = """
   </p>
 </div>
 
-<!-- ================= MODAL ================= -->
+<!-- Modal -->
 <dialog id="packDlg">
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <strong id="dlgTitle">Pakket</strong>
-      <button class="btn small" id="dlgClose">Sluiten</button>
-    </div>
-    <div id="dlgMeta" class="small" style="margin:.6rem 0"></div>
+  <div class="modal">
+    <header>
+      <h3 id="dlgTitle">Pakket</h3>
+      <button class="btn outline" id="dlgClose">Sluiten</button>
+    </header>
+    <div id="dlgMeta" class="small"></div>
     <table class="table">
       <thead>
-        <tr><th>Bestand</th><th>Pad</th><th style="text-align:right">Grootte</th></tr>
+        <tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr>
       </thead>
-      <tbody id="dlgTableBody"></tbody>
+      <tbody id="dlgBody"></tbody>
     </table>
   </div>
 </dialog>
@@ -1020,61 +1072,60 @@ async function api(url, body){
   return j;
 }
 
-/* Subscription actions */
-document.getElementById('btnCancel')?.onclick = async ()=>{
-  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
+/* Subscription */
+btnCancel?.addEventListener('click', async ()=>{
+  if(!confirm('Abonnement opzeggen?')) return;
   await api("{{ url_for('billing_cancel') }}",{subscription_id:subid.textContent});
   location.reload();
-};
-document.getElementById('btnChange')?.onclick = async ()=>{
+});
+
+btnChange?.addEventListener('click', async ()=>{
   await api("{{ url_for('billing_change') }}",{
     subscription_id:subid.textContent,
     new_plan_value:newPlan.value
   });
   location.reload();
-};
+});
 
-/* Package actions */
-const tbl=document.getElementById('packsTable');
-const dlg=document.getElementById('packDlg');
-const dlgClose=document.getElementById('dlgClose');
-const dlgTitle=document.getElementById('dlgTitle');
-const dlgMeta=document.getElementById('dlgMeta');
-const dlgBody=document.getElementById('dlgTableBody');
+/* Packages */
+packsTable?.addEventListener('click', async e=>{
+  const btn=e.target.closest('button[data-action]');
+  if(!btn) return;
+  const tr=btn.closest('tr');
+  const token=tr.dataset.token;
 
-dlgClose?.onclick=()=>dlg.close();
-
-tbl?.addEventListener('click',async e=>{
-  const b=e.target.closest('button[data-action]');
-  if(!b) return;
-  const tr=b.closest('tr'); const token=tr.dataset.token;
-
-  if(b.dataset.action==='delete'){
-    if(confirm('Hele pakket verwijderen?')){
+  if(btn.dataset.action==='delete'){
+    if(confirm('Pakket verwijderen?')){
       await api("{{ url_for('billing_package_delete') }}",{token});
       tr.remove();
     }
   }
-  if(b.dataset.action==='extend'){
+
+  if(btn.dataset.action==='extend'){
     await api("{{ url_for('billing_package_extend') }}",{token});
     location.reload();
   }
-  if(b.dataset.action==='details'){
+
+  if(btn.dataset.action==='details'){
     dlgTitle.textContent='Pakket '+token;
-    dlgMeta.textContent='Bestanden laden…';
+    dlgMeta.textContent='Laden…';
     dlgBody.innerHTML='';
-    dlg.showModal();
+    packDlg.showModal();
     const r=await api("{{ url_for('billing_package_files') }}",{token});
     dlgMeta.textContent=r.files.length+' bestand(en)';
     dlgBody.innerHTML=r.files.map(f=>(
-      '<tr><td>'+f.name+'</td><td>'+f.path+'</td><td style="text-align:right">'+f.size_h+'</td></tr>'
+      `<tr><td>${f.name}</td><td>${f.path}</td><td>${f.size_h}</td></tr>`
     )).join('');
   }
 });
+
+dlgClose?.addEventListener('click',()=>packDlg.close());
 </script>
+
 </body>
 </html>
 """
+
 
 
 INDEX_HTML = """
@@ -1785,7 +1836,7 @@ PACKAGE_HTML = """
             Interesse in een eigen uploadservice, volledig naar wens ingericht?
           </p>
   <a href="{{ url_for('contact') }}" class="btn secondary">
-    Informatie / offerte aanvragen
+    Offerte aanvragen
   </a>
         </div>
       </div>
