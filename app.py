@@ -1789,203 +1789,248 @@ PACKAGE_HTML = """
   <style>
     {{ base_css }}
 
-/* ===== Downloadlijst: nette uitlijning + compacter ===== */
-.filecard{
-  display:grid;
-  grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
-  align-items:center;
-  gap:.45rem .6rem;
-  padding:.55rem .85rem;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:color-mix(in oklab,var(--surface) 86%,white 14%);
-  font-size:.9rem;
-}
-.filecard .name{
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  line-height:1.25;
-  overflow-wrap:anywhere;
-}
-.filecard .size{
-  width:6.2rem;
-  text-align:right;
-  font-variant-numeric:tabular-nums;
-}
-.filecard .action{
-  width:auto;
-  text-align:right;
-}
-.filecard .action a{
-  display:inline-block;
-  padding:.15rem .35rem;
-  white-space:nowrap;
-  font-size:.85rem;
-}
-
-
-    /* Progressbalk ruimte */
-    #bar{ margin-top:.75rem }
-
-    /* Kaarten & grid */
-    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
-    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
-    .brand{color:var(--brand);margin:0;font-weight:800}
+    /* ========== Layout ========== */
+    .shell{max-width:1000px;margin:5vh auto;padding:0 16px}
+    .hdr{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .brand{font-weight:800;color:var(--brand);margin:0}
     .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
     @media(max-width:900px){.deck{grid-template-columns:1fr}}
-    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
-    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
-    .card-b{padding:14px 16px}
+
+    .card{
+      background:var(--panel);
+      border:1px solid var(--panel-b);
+      border-radius:18px;
+      box-shadow:0 14px 36px rgba(0,0,0,.14);
+      overflow:hidden
+    }
+    .card-h{
+      padding:14px 16px;
+      border-bottom:1px solid rgba(0,0,0,.06);
+      display:flex;
+      justify-content:space-between;
+      align-items:center
+    }
+    .card-b{padding:16px}
     .subtle{color:var(--muted);font-size:.92rem}
-    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
-    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
-    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
+
+    /* ========== File list ========== */
+    .filecard{
+      display:grid;
+      grid-template-columns:1fr auto auto;
+      gap:.5rem .75rem;
+      align-items:center;
+      padding:.55rem .85rem;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:color-mix(in oklab,var(--surface) 86%,white 14%);
+      font-size:.9rem;
+      margin-top:.45rem
+    }
+    .filecard .name{
+      min-width:0;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      font-weight:600
+    }
+    .filecard .size{
+      font-variant-numeric:tabular-nums;
+      text-align:right;
+      white-space:nowrap
+    }
+    .filecard .action a{
+      font-size:.85rem;
+      color:var(--brand);
+      text-decoration:none
+    }
+
+    @media(max-width:700px){
+      .filecard{grid-template-columns:1fr}
+      .filecard .name{white-space:normal}
+      .filecard .size,.filecard .action{
+        display:flex;
+        justify-content:space-between
+      }
+    }
+
+    /* ========== Buttons & progress ========== */
+    .btn{
+      padding:.7rem 1.05rem;
+      border-radius:12px;
+      border:0;
+      font-weight:800;
+      cursor:pointer;
+      background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
+      color:#fff
+    }
+    .btn.secondary{
+      background:var(--surface);
+      color:var(--text);
+      border:1px solid var(--line)
+    }
+
+    .progress{
+      height:10px;
+      border-radius:999px;
+      border:1px solid #dbe5f4;
+      background:#eef2ff;
+      overflow:hidden;
+      margin-top:.75rem
+    }
+    .progress i{
+      display:block;
+      height:100%;
+      width:0%;
+      background:linear-gradient(90deg,#0f4c98,#1e90ff);
+      transition:width .12s
+    }
+    .progress.indet i{
+      width:40%;
+      animation:ind 1.1s linear infinite
+    }
     @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
 
-    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
-
-    .deck > .card { min-width: 0; }
-    .card h1, .card h2, .card h3 { line-height: 1.2; }
-    .card p, .card li, .card div { line-height: 1.25; }
-
-    @media (max-width:700px){
-      .filecard{grid-template-columns:1fr;gap:.35rem;}
-      .filecard .name{white-space:normal;}
-      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+    .kv{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px
     }
+    .kv .k{font-size:.85rem;color:var(--muted)}
+    .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
   </style>
 </head>
+
 <body>
 {{ bg|safe }}
+
 <div class="shell">
   <div class="hdr">
     <h1 class="brand">Bestanden downloaden</h1>
-    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
+    <div class="subtle">
+      Pakket: <strong>{{ title or token }}</strong><br>
+      Verloopt: <strong>{{ expires_human }}</strong>
+    </div>
   </div>
 
   <div class="deck">
-    <!-- Linkerkaart -->
+
+    <!-- ================= DOWNLOAD ================= -->
     <div class="card">
-      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
+      <div class="card-h">
+        <div>Download</div>
+        <div class="subtle">Bestanden: {{ items|length }}</div>
+      </div>
       <div class="card-b">
+
         {% if items|length == 1 %}
+          <div class="subtle" style="margin-bottom:8px">
+            <strong>Bestand:</strong><br>
+            {{ items[0]["name"] }}
+          </div>
           <button id="btnDownload" class="btn">Download bestand</button>
         {% else %}
           <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
-        {% endif %}
-        <div id="bar" class="progress" style="display:none"><i></i></div>
-        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
 
-        {% if items|length > 1 %}
-        <h4 style="margin-top:14px;">Inhoud</h4>
-        {% for it in items %}
-          <div class="filecard">
-            <div class="name">{{ it["path"] }}</div>
-            <div class="size">{{ it["size_h"] }}</div>
-            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
-          </div>
-        {% endfor %}
+          <h4 style="margin:14px 0 6px 0">Inhoud</h4>
+          {% for it in items %}
+            <div class="filecard">
+              <div class="name">{{ it["path"] }}</div>
+              <div class="size">{{ it["size_h"] }}</div>
+              <div class="action">
+                <a href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a>
+              </div>
+            </div>
+          {% endfor %}
         {% endif %}
+
+        <div id="bar" class="progress" style="display:none"><i></i></div>
+        <div id="txt" class="subtle" style="margin-top:6px;display:none">Starten…</div>
       </div>
     </div>
 
-<!-- Rechterkaart -->
-<div class="card">
-  <div class="card-h">
-    <div>Live Telemetry</div>
-    <div class="subtle">Sessie</div>
-  </div>
-  <div class="card-b grid" style="gap:12px">
-    <div class="kv">
-      <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-      <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-      <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
-      <div class="k">ETA</div><div class="v" id="tEta">—</div>
+    <!-- ================= TELEMETRY ================= -->
+    <div class="card">
+      <div class="card-h">
+        <div>Live Telemetry</div>
+        <div class="subtle">Sessie</div>
+      </div>
+      <div class="card-b">
+        <div class="kv">
+          <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
+          <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
+          <div class="k">Totale grootte</div><div class="v">{{ total_human }}</div>
+          <div class="k">ETA</div><div class="v" id="tEta">—</div>
+        </div>
+
+        <div class="subtle" style="border-top:1px solid rgba(0,0,0,.08);margin-top:12px;padding-top:10px">
+          <strong>Aanvraagformulier</strong>
+          <p class="small" style="margin:.4rem 0 .6rem 0">
+            Interesse in een eigen uploadservice, volledig naar wens ingericht?
+          </p>
+          <a href="{{ url_for('contact') }}" class="btn secondary" style="text-decoration:none;font-size:.85rem">
+            Informatie / offerte aanvragen
+          </a>
+        </div>
+      </div>
     </div>
 
-    <!-- Call-to-action naar aanvraagformulier -->
-    <div class="subtle" style="border-top:1px solid rgba(15,23,42,.06);padding-top:10px">
-      <div style="font-weight:600;margin-bottom:4px">Aanvraagformulier</div>
-      <p class="small" style="margin:0 0 .6rem 0">
-        Interesse in een eigen uploadservice, welke geheel naar wens ingericht kan worden? Neem dan contact met ons op.
-      </p>
-<a
-  href="{{ url_for('contact') }}"
-  class="btn ghost sm"
-  style="
-    text-decoration:none;
-    padding:.35rem .9rem;
-    font-size:.84rem;
-    white-space:nowrap;
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-  "
->
-  Informatie / offerte aanvragen
-</a>
-    </div>
   </div>
-</div>
 
-
-  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer" style="text-align:center;margin-top:14px">
+    Olde Hanter Bouwconstructies • Bestandentransfer
+  </p>
 </div>
 
 <script>
-const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
-const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
-function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
+const bar=document.getElementById('bar'),
+      fill=bar?bar.querySelector('i'):null,
+      txt=document.getElementById('txt'),
+      tSpeed=document.getElementById('tSpeed'),
+      tMoved=document.getElementById('tMoved'),
+      tEta=document.getElementById('tEta');
+
+function fmt(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function show(){bar.style.display='block';txt.style.display='block'}
-function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
+function pct(p){if(fill)fill.style.width=Math.max(0,Math.min(100,p))+'%'}
 
-async function downloadWithTelemetry(url, fallbackName){
-  show(); setPct(0); txt.textContent='Starten…';
-  let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
+async function download(url,name){
+  show(); pct(0); txt.textContent='Starten…';
+  let moved=0,total=0,last=performance.now(),lastB=0,speed=0;
+  const iv=setInterval(()=>{
+    const now=performance.now(),dt=(now-last)/1000;last=now;
+    const inst=(moved-lastB)/Math.max(dt,.001);lastB=moved;
+    speed=speed?speed*.7+inst*.3:inst;
+    tSpeed.textContent=fmt(speed)+"/s";
+    tEta.textContent=(total&&speed>1)?new Date(((total-moved)/speed)*1000).toISOString().substring(11,19):"—";
+  },700);
 
-  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
-  const iv=setInterval(tick,700);
+  const r=await fetch(url,{credentials:'same-origin'});
+  total=parseInt(r.headers.get('Content-Length')||'0',10);
+  const reader=r.body.getReader(), chunks=[];
+  if(!total)bar.classList.add('indet');
 
-  try{
-    const res=await fetch(url,{credentials:'same-origin'});
-    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
-    total=parseInt(res.headers.get('Content-Length')||'0',10);
-    const name=res.headers.get('X-Filename')||fallbackName||'download';
-
-    const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
-    if(rdr){
-      const chunks=[];
-      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
-      while(true){
-        const {done,value}=await rdr.read(); if(done) break;
-        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
-        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
-      }
-      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
-      clearInterval(iv);
-      const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
-      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
-      return;
-    }
-    bar.classList.add('indet'); txt.textContent='Downloaden…';
-    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
-    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
-  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
+  while(true){
+    const {done,value}=await reader.read();
+    if(done)break;
+    chunks.push(value); moved+=value.length;
+    tMoved.textContent=fmt(moved);
+    if(total)pct(Math.round(moved/total*100));
+  }
+  clearInterval(iv); pct(100); txt.textContent='Klaar';
+  const blob=new Blob(chunks), u=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=u; a.download=name; a.click();
+  URL.revokeObjectURL(u);
 }
 
 const btn=document.getElementById('btnDownload');
 if(btn){
-  btn.addEventListener('click',()=>{
+  btn.onclick=()=>{
     {% if items|length == 1 %}
-      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+      download("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
     {% else %}
-      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
+      download("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) ~ '.zip' }}");
     {% endif %}
-  });
+  };
 }
 </script>
 </body>
