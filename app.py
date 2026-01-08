@@ -1911,16 +1911,20 @@ PACKAGE_HTML = """
         <div id="bar" class="progress" style="display:none"><i></i></div>
         <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
 
-        {% if items|length > 1 %}
-        <h4 style="margin-top:14px;">Inhoud</h4>
-        {% for it in items %}
-          <div class="filecard">
-            <div class="name">{{ it["path"] }}</div>
-            <div class="size">{{ it["size_h"] }}</div>
-            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
-          </div>
-        {% endfor %}
-        {% endif %}
+<h4 style="margin-top:14px;">Inhoud</h4>
+
+{% for it in items %}
+  <div class="filecard">
+    <div class="name">{{ it["path"] }}</div>
+    <div class="size">{{ it["size_h"] }}</div>
+    <div class="action">
+      {% if items|length > 1 %}
+        <a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+
       </div>
     </div>
 
