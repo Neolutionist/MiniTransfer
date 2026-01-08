@@ -1703,8 +1703,11 @@ setInterval(()=>{
 /* UI bindings */
 
 btnFolder && (btnFolder.onclick=()=>folderInput.click());
-fileInput.onchange = () => {
-  const n = fileInput.files.length;
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'fileInput') return;
+
+  const files = e.target.files;
+  const n = files.length;
 
   kvFiles.textContent = n;
   kvQueue.textContent = n;
@@ -1715,16 +1718,14 @@ fileInput.onchange = () => {
     return;
   }
 
-  const names = Array.from(fileInput.files).map(f => f.name);
+  const names = Array.from(files).map(f => f.name);
 
-  // Toon compact
   fileName.textContent = n === 1
     ? names[0]
     : `${names[0]} (+${n-1} andere bestanden)`;
 
-  // Tooltip met volledige lijst
   fileName.title = names.join('\n');
-};
+});
 
 folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
 document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
