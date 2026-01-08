@@ -780,660 +780,279 @@ btn.onclick = async () => {
 """
 
 
-BILLING_HTML = r"""
+BILLING_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Beheer • Olde Hanter</title>
-  {{ head_icon|safe }}
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beheer abonnement • Olde Hanter</title>
+{{ head_icon|safe }}
 
-  <style>
-    {{ base_css }}
+<style>
+{{ base_css }}
 
-    /* ========== Page polish (professional, calm) ========== */
-    :root{
-      --ink:#0b1220;
-      --muted2:#64748b;
-      --card: color-mix(in oklab, var(--panel) 92%, white 8%);
-      --card-b: color-mix(in oklab, var(--panel-b) 55%, #cbd5e1 45%);
-      --shadow: 0 16px 40px rgba(2,6,23,.10);
-      --radius: 16px;
-    }
+/* ========== KLEUREN & BASIS ========== */
+:root{
+  --bg:#0f172a;
+  --panel:#111827;
+  --card:#1f2933;
+  --border:#334155;
+  --text:#e5e7eb;
+  --muted:#94a3b8;
+  --brand:#3b82f6;
+  --danger:#ef4444;
+}
 
-    .wrap{max-width:1120px;margin:5vh auto;padding:0 16px}
-    .top{
-      display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;
-      margin-bottom:14px
-    }
-    .h1{margin:0;color:var(--brand);font-weight:900;letter-spacing:.2px}
-    .who{color:var(--muted);font-size:.92rem}
-    .who a{color:var(--brand);text-decoration:none;font-weight:700}
-
-    .grid{display:grid;gap:14px}
-    .cols{grid-template-columns:1fr}
-    @media(min-width:980px){ .cols{grid-template-columns: 1fr 1fr} }
-
-    .card{
-      border:1px solid var(--card-b);
-      background:var(--card);
-      border-radius:var(--radius);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      min-width:0;
-    }
-    .card-h{
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
-      padding:14px 16px;
-      border-bottom:1px solid rgba(2,6,23,.06);
-    }
-    .card-h h2{margin:0;font-size:1.02rem}
-    .card-b{padding:14px 16px}
-
-    .pill{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:.25rem .6rem;border-radius:999px;
-      font-size:.8rem;font-weight:700;
-      border:1px solid rgba(2,6,23,.10);
-      background: rgba(255,255,255,.35);
-      color: var(--muted);
-      white-space:nowrap;
-    }
-    .pill strong{color:var(--text)}
-    .pill.ok{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#166534}
-    .pill.warn{border-color:rgba(245,158,11,.35); background:rgba(245,158,11,.12); color:#92400e}
-    .pill.bad{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#991b1b}
-
-    .kv{display:grid;grid-template-columns:1fr auto;gap:.35rem .9rem;align-items:center}
-    .k{color:var(--muted);font-size:.9rem}
-    .v{font-weight:800;font-variant-numeric:tabular-nums}
-
-    .bar{
-      height:10px;border-radius:999px;overflow:hidden;
-      border:1px solid rgba(2,6,23,.12);
-      background:rgba(2,6,23,.06);
-      margin-top:10px;
-    }
-    .bar>i{display:block;height:100%;width:{{ pct }}%;background:linear-gradient(90deg,var(--brand),color-mix(in oklab,var(--brand) 70%, #000 30%));transition:width .25s ease}
-
-    /* Controls */
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
-    .input, select{
-      width:100%;
-      padding:.62rem .70rem;
-      border-radius:12px;
-      border:1px solid rgba(2,6,23,.14);
-      background: rgba(255,255,255,.55);
-      outline:none;
-    }
-    .input:focus, select:focus{border-color: var(--ring); box-shadow:0 0 0 3px rgba(37,99,235,.15)}
-    label{display:block;font-size:.86rem;color:var(--muted);margin:0 0 6px}
-
-    .btn{
-      appearance:none;
-      border:1px solid rgba(2,6,23,.14);
-      background: linear-gradient(180deg, #ffffff, rgba(255,255,255,.65));
-      color: var(--text);
-      font-weight:800;
-      border-radius:12px;
-      padding:.58rem .78rem;
-      cursor:pointer;
-      transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
-      box-shadow: 0 10px 22px rgba(2,6,23,.08);
-    }
-    .btn:hover{transform: translateY(-1px)}
-    .btn:active{transform: translateY(0px)}
-    .btn.primary{
-      border:0;
-      color:#fff;
-      background: linear-gradient(180deg, var(--brand), color-mix(in oklab,var(--brand) 75%, #000 25%));
-    }
-    .btn.danger{
-      border:0;color:#fff;
-      background: linear-gradient(180deg, #ef4444, #b91c1c);
-    }
-    .btn.ghost{
-      background: transparent;
-      box-shadow:none;
-    }
-    .btn.sm{padding:.42rem .6rem; font-size:.88rem; border-radius:11px}
-
-    /* Table */
-    .table{width:100%;border-collapse:collapse;margin-top:10px}
-    .table th,.table td{padding:.62rem .65rem;border-bottom:1px solid rgba(2,6,23,.08);vertical-align:middle}
-    .table th{text-align:left;font-size:.82rem;color:var(--muted);font-weight:800;letter-spacing:.04em;text-transform:uppercase}
-    .table td{font-size:.92rem}
-    .table tr:hover td{background: rgba(255,255,255,.35)}
-    .num{text-align:right;font-variant-numeric:tabular-nums}
-    .actions{white-space:nowrap;text-align:right}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
-
-    .mini{color:var(--muted);font-size:.88rem}
-    .footer{margin-top:14px;text-align:center;color:var(--muted);font-size:.9rem}
-
-    /* Mobile table -> cards */
-    @media(max-width:760px){
-      .table thead{display:none}
-      .table, .table tbody, .table tr, .table td{display:block;width:100%}
-      .table tr{
-        border:1px solid rgba(2,6,23,.10);
-        border-radius:14px;
-        margin-top:10px;
-        overflow:hidden;
-        background: rgba(255,255,255,.30);
-      }
-      .table td{border:0;display:flex;justify-content:space-between;gap:10px}
-      .table td::before{
-        content: attr(data-label);
-        color: var(--muted);
-        font-weight:800;
-        text-transform:uppercase;
-        letter-spacing:.04em;
-        font-size:.78rem;
-      }
-      .actions{white-space:normal;text-align:left}
-    }
-
-    /* Dialog */
-    dialog{
-      width:min(920px, 92vw);
-      border:1px solid rgba(2,6,23,.14);
-      border-radius:18px;
-      background: var(--card);
-      box-shadow: 0 26px 70px rgba(2,6,23,.22);
-      padding:0;
-    }
-    dialog::backdrop{background: rgba(2,6,23,.45)}
-    .dlg-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(2,6,23,.08)}
-    .dlg-h strong{font-size:1rem}
-    .dlg-b{padding:14px 16px}
-    .hint{padding:10px 12px;border-radius:12px;background:rgba(2,6,23,.04);border:1px solid rgba(2,6,23,.08);color:var(--muted);font-size:.9rem}
-
-
-/* ============================
-   Contrast & leesbaarheid FIX
-   ============================ */
-
-/* Basis tekst */
 body{
-  color:#0f172a;               /* veel donkerder */
+  background:linear-gradient(135deg,#0f172a,#020617);
+  color:var(--text);
 }
 
-/* Kaarten: geen puur wit */
+/* ========== LAYOUT ========== */
+.wrap{
+  max-width:1200px;
+  margin:4rem auto;
+  padding:0 1.25rem;
+}
+
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:2rem;
+}
+
+h1{
+  margin:0;
+  font-size:1.8rem;
+  font-weight:800;
+}
+
+.logout{
+  color:var(--muted);
+}
+.logout a{
+  color:var(--brand);
+  text-decoration:none;
+  font-weight:600;
+}
+
+/* ========== CARDS ========== */
 .card{
-  background: #f8fafc;         /* licht blauwgrijs */
-  border:1px solid #dbe3f0;
-  box-shadow: 0 12px 32px rgba(15,23,42,.08);
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:1.25rem 1.4rem;
+  margin-bottom:1.4rem;
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
 }
 
-/* Card titels */
-.card h2,
 .card h3{
-  color:#0b1c33;
+  margin:0 0 .75rem;
+  font-size:1.15rem;
 }
 
-/* Subtiele tekst */
-.small,
-.mini,
-.subtle{
-  color:#475569;               /* beter contrast */
+/* ========== OPSLAG ========== */
+.kv{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:.4rem .8rem;
+  font-size:.95rem;
+}
+.kv .k{ color:var(--muted); }
+.kv .v{ font-weight:600; }
+
+.bar{
+  height:10px;
+  border-radius:999px;
+  background:#020617;
+  border:1px solid var(--border);
+  overflow:hidden;
+  margin-top:.6rem;
+}
+.bar>i{
+  display:block;
+  height:100%;
+  background:linear-gradient(90deg,#2563eb,#60a5fa);
 }
 
-/* Key-value labels */
-.kv .k{
-  color:#334155;
+/* ========== TABLE ========== */
+.table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:.5rem;
+  font-size:.95rem;
 }
-.kv .v{
-  color:#0f172a;
-}
-
-/* Tabellen */
 .table th{
-  color:#1e293b;
-  background:#eef2ff;          /* zachte header */
+  text-align:left;
+  color:#c7d2fe;
+  font-weight:700;
+  padding:.55rem .6rem;
+  border-bottom:1px solid var(--border);
 }
-
 .table td{
-  color:#0f172a;
-  background:#f8fafc;
+  padding:.55rem .6rem;
+  border-bottom:1px solid rgba(148,163,184,.15);
 }
-
 .table tr:hover td{
-  background:#eef2ff;
+  background:rgba(255,255,255,.03);
 }
 
-/* Verloopt badge (leesbaarder) */
-.badge,
+/* ========== BADGES ========== */
 .pill{
-  background:#e0e7ff;
-  color:#1e3a8a;
-  border:1px solid #c7d2fe;
+  display:inline-block;
+  padding:.25rem .65rem;
+  border-radius:999px;
+  background:#1e3a8a;
+  color:#e0e7ff;
+  font-size:.85rem;
+  font-weight:600;
 }
 
-/* Inactieve / lege waarden */
-.table td:has(s
+/* ========== BUTTONS ========== */
+.btn{
+  border:0;
+  border-radius:10px;
+  padding:.4rem .7rem;
+  font-weight:700;
+  cursor:pointer;
+  color:white;
+  box-shadow:0 4px 12px rgba(0,0,0,.35);
+}
+.btn.primary{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
+.btn.secondary{ background:#020617; border:1px solid #334155; }
+.btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
 
+.actions{
+  white-space:nowrap;
+}
 
-
-    
-  </style>
+/* ========== FOOTER ========== */
+.footer{
+  text-align:center;
+  margin-top:2rem;
+  color:var(--muted);
+  font-size:.85rem;
+}
+</style>
 </head>
 
 <body>
-{{ bg|safe }}
 <div class="wrap">
 
-  <div class="top">
-    <div>
-      <h1 class="h1">Beheer</h1>
-      <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
-    </div>
-
-    <div class="pill">
-      Tenant: <strong>{{ tenant_label }}</strong>
+  <div class="topbar">
+    <h1>Beheer abonnement</h1>
+    <div class="logout">
+      Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a>
     </div>
   </div>
 
-  <div class="grid cols">
-
-    <!-- Opslag -->
-    <div class="card">
-      <div class="card-h">
-        <h2>Opslag</h2>
-        {% if over %}
-          <span class="pill bad">Boven limiet</span>
-        {% else %}
-          <span class="pill ok">OK</span>
-        {% endif %}
-      </div>
-      <div class="card-b">
-        <div class="kv">
-          <div class="k">Gebruikt</div><div class="v">{{ used_h }}</div>
-          <div class="k">Limiet</div><div class="v">{{ limit_h }}</div>
-          <div class="k">Gebruik</div><div class="v">{{ pct }}%</div>
-        </div>
-        <div class="bar" aria-hidden="true"><i></i></div>
-        {% if over %}
-          <p class="mini" style="margin:.6rem 0 0;color:#991b1b;font-weight:700">
-            Je zit boven je limiet. Overweeg een groter plan.
-          </p>
-        {% endif %}
-      </div>
+  <div class="card">
+    <h3>Opslaggebruik</h3>
+    <div class="kv">
+      <div class="k">Tenant</div><div class="v">{{ tenant_label }}</div>
+      <div class="k">Gebruikt</div><div class="v">{{ used_h }}</div>
+      <div class="k">Limiet</div><div class="v">{{ limit_h }}</div>
     </div>
-
-    <!-- Abonnement -->
-    <div class="card">
-      <div class="card-h">
-        <h2>Abonnement</h2>
-        {% if sub %}
-          <span class="pill ok">Actief</span>
-        {% else %}
-          <span class="pill warn">Geen abonnement</span>
-        {% endif %}
-      </div>
-      <div class="card-b">
-        {% if sub %}
-          <div class="kv" style="margin-bottom:10px">
-            <div class="k">Account</div><div class="v">{{ sub['login_email'] }}</div>
-            <div class="k">Plan</div><div class="v">{{ sub['plan_value'] }} TB</div>
-            <div class="k">Status</div><div class="v">{{ sub['status'] }}</div>
-            <div class="k">Subscription ID</div><div class="v mono" id="subid">{{ sub['subscription_id'] }}</div>
-          </div>
-
-          <div class="row">
-            <div style="min-width:220px;flex:1">
-              <label for="newPlan">Nieuw plan</label>
-              <select id="newPlan">
-                <option value="0.5">0,5 TB</option>
-                <option value="1">1 TB</option>
-                <option value="2">2 TB</option>
-                <option value="5">5 TB</option>
-              </select>
-            </div>
-            <button type="button" class="btn primary" id="btnChange">Wijzig plan</button>
-            <button type="button" class="btn danger" id="btnCancel">Opzeggen</button>
-          </div>
-        {% else %}
-          <p class="mini" style="margin:0">
-            Geen actief abonnement gevonden voor {{ user }}.
-            Start een abonnement via de aanvraagpagina.
-          </p>
-          <p style="margin:.7rem 0 0">
-            <a class="btn primary" style="display:inline-block;text-decoration:none" href="{{ url_for('contact') }}">Aanvraag starten</a>
-          </p>
-        {% endif %}
-      </div>
-    </div>
-
+    <div class="bar"><i style="width:{{ pct }}%"></i></div>
   </div>
 
-  <!-- Pakketten -->
-  <div class="card" style="margin-top:14px">
-    <div class="card-h">
-      <h2>Pakketten</h2>
-      <span class="pill">Totaal: <strong>{{ (packs|length) if packs else 0 }}</strong></span>
-    </div>
+  <div class="card">
+    <h3>Abonnement</h3>
+    {% if sub %}
+      <p class="small">
+        Actief abonnement voor <strong>{{ sub['login_email'] }}</strong><br>
+        Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong>
+      </p>
+      <button class="btn danger" id="btnCancel">Abonnement opzeggen</button>
+    {% else %}
+      <p class="small">Geen actief abonnement.</p>
+    {% endif %}
+  </div>
 
-    <div class="card-b">
-
-      <div class="row">
-        <div style="min-width:260px;flex:1">
-          <label for="q">Zoeken</label>
-          <input id="q" class="input" placeholder="Zoek op onderwerp of token…">
-        </div>
-
-        <div style="min-width:200px">
-          <label for="flt">Filter</label>
-          <select id="flt">
-            <option value="all">Alles</option>
-            <option value="active">Actief</option>
-            <option value="expired">Verlopen</option>
-          </select>
-        </div>
-
-        <div style="min-width:220px">
-          <label for="sort">Sorteren</label>
-          <select id="sort">
-            <option value="created_desc">Nieuwste eerst</option>
-            <option value="created_asc">Oudste eerst</option>
-            <option value="expires_asc">Verloopt eerst</option>
-            <option value="expires_desc">Verloopt laatst</option>
-            <option value="downloads_desc">Meest gedownload</option>
-            <option value="downloads_asc">Minst gedownload</option>
-          </select>
-        </div>
-      </div>
-
-      {% if packs and packs|length > 0 %}
-        <table class="table" id="packsTable">
-          <thead>
-            <tr>
-              <th>Onderwerp</th>
-              <th class="num">Bestanden</th>
-              <th>Verloopt</th>
-              <th class="num">Downloads</th>
-              <th class="num">Totaal</th>
-              <th class="actions"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for p in packs %}
-              <tr
-                data-token="{{ p.token }}"
-                data-title="{{ (p.title or '')|e }}"
-                data-created="{{ p.created_at }}"
-                data-expires="{{ p.expires_at }}"
-                data-downloads="{{ p.downloads_count or 0 }}"
-              >
-                <td data-label="Onderwerp">
-                  <div style="font-weight:900">{{ p.title or '—' }}</div>
-                  <div class="mini">Token: <span class="mono">{{ p.token }}</span></div>
-                </td>
-
-                <td data-label="Bestanden" class="num">{{ p.files_count }}</td>
-
-                <td data-label="Verloopt">
-                  <span class="pill {% if p.is_expired %}bad{% else %}ok{% endif %}">
-                    {{ p.expires_h }}
-                  </span>
-                </td>
-
-                <td data-label="Downloads" class="num">
-                  <span class="pill">{{ p.downloads_count or 0 }}</span>
-                </td>
-
-                <td data-label="Totaal" class="num">{{ p.total_h }}</td>
-
-                <td data-label="Acties" class="actions">
-                  <button type="button" class="btn sm" data-action="details">Details</button>
-                  <button type="button" class="btn sm" data-action="extend">+30 dagen</button>
-                  <button type="button" class="btn sm danger" data-action="delete">Verwijderen</button>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-
-        <div class="hint" style="margin-top:10px">
-          Tip: “+30 dagen” verlengt het <strong>hele pakket</strong>. “Downloads” is het totaal aantal downloads (ZIP en losse bestanden).
-        </div>
-      {% else %}
-        <p class="mini">Nog geen uploads/pakketten gevonden.</p>
-      {% endif %}
-    </div>
+  <div class="card">
+    <h3>Pakketten</h3>
+    {% if packs %}
+    <table class="table" id="packsTable">
+      <thead>
+        <tr>
+          <th>Onderwerp</th>
+          <th>Bestanden</th>
+          <th>Downloads</th>
+          <th>Verloopt</th>
+          <th style="text-align:right">Totaal</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in packs %}
+        <tr data-token="{{ p.token }}">
+          <td>{{ p.title }}</td>
+          <td>{{ p.files_count }}</td>
+          <td>{{ p.downloads_count or 0 }}</td>
+          <td><span class="pill">{{ p.expires_h }}</span></td>
+          <td style="text-align:right">{{ p.total_h }}</td>
+          <td class="actions">
+            <button class="btn primary" data-action="details">Details</button>
+            <button class="btn secondary" data-action="extend">+30 dagen</button>
+            <button class="btn danger" data-action="delete">Verwijderen</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="small">Nog geen pakketten.</p>
+    {% endif %}
   </div>
 
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
-<!-- Details dialog -->
-<dialog id="packDlg" aria-label="Pakketdetails">
-  <div class="dlg-h">
-    <strong id="dlgTitle">Pakket</strong>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span class="pill" id="dlgDownloads">Downloads: <strong>0</strong></span>
-      <button type="button" class="btn sm" id="dlgClose">Sluiten</button>
-    </div>
-  </div>
-  <div class="dlg-b">
-    <div id="dlgMeta" class="mini" style="margin-bottom:10px"></div>
-    <table class="table" id="dlgTable">
-      <thead>
-        <tr>
-          <th>Bestand</th>
-          <th>Pad</th>
-          <th class="num">Grootte</th>
-          <th class="num">Downloads</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</dialog>
-
 <script>
-/* ----------------- Helpers ----------------- */
-function norm(s){ return (s||"").toString().toLowerCase().trim(); }
-
 async function api(url, body){
-  const r = await fetch(url, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body || {})
+  const r = await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})
   });
-
-  // altijd proberen json te lezen (handig bij errors)
-  const j = await r.json().catch(()=> ({}));
-  if(!r.ok){
-    throw new Error(j.error || ('HTTP ' + r.status));
-  }
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||'Fout');
   return j;
 }
 
-/* ----------------- Abonnement knoppen ----------------- */
-document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid')?.textContent?.trim();
-  if(!id) return;
-  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
-  try{
-    await api("{{ url_for('billing_cancel') }}", { subscription_id: id });
-    alert('Opgezegd.');
+document.getElementById('packsTable')?.addEventListener('click', async e=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+  const tr = btn.closest('tr');
+  const token = tr.dataset.token;
+  if(btn.dataset.action==='delete'){
+    if(confirm('Pakket verwijderen?')){
+      await api('{{ url_for("billing_package_delete") }}',{token});
+      tr.remove();
+    }
+  }
+  if(btn.dataset.action==='extend'){
+    await api('{{ url_for("billing_package_extend") }}',{token});
     location.reload();
-  }catch(e){
-    alert('Mislukt: ' + (e?.message || e));
+  }
+  if(btn.dataset.action==='details'){
+    await api('{{ url_for("billing_package_files") }}',{token});
+    alert('Details geladen (zie console/backend)');
   }
 });
 
-document.getElementById('btnChange')?.addEventListener('click', async ()=>{
-  const id = document.getElementById('subid')?.textContent?.trim();
-  const val = document.getElementById('newPlan')?.value;
-  if(!id || !val) return;
-  try{
-    await api("{{ url_for('billing_change') }}", { subscription_id: id, new_plan_value: val });
-    alert('Plan gewijzigd.');
+document.getElementById('btnCancel')?.addEventListener('click',async()=>{
+  if(confirm('Abonnement opzeggen?')){
+    await api('{{ url_for("billing_cancel") }}');
     location.reload();
-  }catch(e){
-    alert('Mislukt: ' + (e?.message || e));
   }
 });
-
-/* ----------------- Dialog ----------------- */
-const dlg = document.getElementById('packDlg');
-const dlgClose = document.getElementById('dlgClose');
-const dlgTitle = document.getElementById('dlgTitle');
-const dlgMeta  = document.getElementById('dlgMeta');
-const dlgTBody = document.querySelector('#dlgTable tbody');
-const dlgDownloads = document.getElementById('dlgDownloads');
-
-dlgClose?.addEventListener('click', ()=> dlg.close());
-
-/* ----------------- Table actions (robust delegation) ----------------- */
-const tbl = document.getElementById('packsTable');
-
-async function openDetails(token, downloads){
-  dlgTitle.textContent = 'Pakket ' + token;
-  dlgDownloads.innerHTML = 'Downloads: <strong>' + (downloads || 0) + '</strong>';
-  dlgMeta.textContent = 'Bestanden laden…';
-  dlgTBody.innerHTML = '<tr><td colspan="4" class="mini">Laden…</td></tr>';
-  if (typeof dlg.showModal === 'function') dlg.showModal();
-
-  const res = await api("{{ url_for('billing_package_files') }}", { token });
-  const files = res?.files || [];
-
-  dlgMeta.textContent = files.length + ' bestand(en) in dit pakket.';
-  if(!files.length){
-    dlgTBody.innerHTML = '<tr><td colspan="4" class="mini">Geen bestanden gevonden.</td></tr>';
-    return;
-  }
-
-  dlgTBody.innerHTML = files.map(f => (
-    '<tr>' +
-      '<td data-label="Bestand"><strong>' + (f.name||'') + '</strong></td>' +
-      '<td data-label="Pad" class="mini">' + (f.path||'') + '</td>' +
-      '<td data-label="Grootte" class="num">' + (f.size_h||'') + '</td>' +
-      '<td data-label="Downloads" class="num"><span class="pill">' + (f.downloads_count ?? 0) + '</span></td>' +
-    '</tr>'
-  )).join('');
-}
-
-if (tbl){
-  tbl.addEventListener('click', async (ev)=>{
-    const btn = ev.target.closest('button[data-action]');
-    if(!btn) return;
-
-    const tr = btn.closest('tr');
-    const token = (tr?.dataset?.token || '').trim();
-    const action = btn.dataset.action;
-    const downloads = parseInt(tr?.dataset?.downloads || '0', 10) || 0;
-    if(!token) return;
-
-    try{
-      if(action === 'extend'){
-        const res = await api("{{ url_for('billing_package_extend') }}", { token });
-        const iso = res?.new_expires_at || '';
-        if(iso){
-          const d = new Date(iso);
-          const fmt = d.toLocaleString('nl-NL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-          const pill = tr.querySelector('td:nth-child(3) .pill');
-          if(pill) pill.textContent = fmt;
-          tr.dataset.expires = iso;
-        }
-      }
-
-      if(action === 'delete'){
-        if(!confirm('Hele pakket verwijderen (alle bestanden)?')) return;
-        await api("{{ url_for('billing_package_delete') }}", { token });
-        tr.remove();
-        applyFilterSort(); // keep UI consistent
-      }
-
-      if(action === 'details'){
-        await openDetails(token, downloads);
-      }
-    }catch(e){
-      alert('Actie mislukt: ' + (e?.message || e));
-    }
-  });
-}
-
-/* ----------------- Search / filter / sort ----------------- */
-const q = document.getElementById('q');
-const flt = document.getElementById('flt');
-const sort = document.getElementById('sort');
-
-function isExpiredISO(iso){
-  try{ return new Date(iso).getTime() <= Date.now(); }catch(_){ return false; }
-}
-
-function getRows(){
-  return Array.from(document.querySelectorAll('#packsTable tbody tr'));
-}
-
-function applyFilterSort(){
-  if(!tbl) return;
-
-  const query = norm(q?.value);
-  const f = flt?.value || 'all';
-  const s = sort?.value || 'created_desc';
-
-  const rows = getRows();
-
-  // filter
-  for(const tr of rows){
-    const title = norm(tr.dataset.title);
-    const token = norm(tr.dataset.token);
-    const expires = tr.dataset.expires || '';
-    const expired = isExpiredISO(expires);
-
-    let ok = true;
-
-    if(query){
-      ok = (title.includes(query) || token.includes(query));
-    }
-
-    if(ok && f === 'active') ok = !expired;
-    if(ok && f === 'expired') ok = expired;
-
-    tr.style.display = ok ? '' : 'none';
-  }
-
-  // sort (only visible rows)
-  const visible = rows.filter(r => r.style.display !== 'none');
-  const key = (tr)=>{
-    const created = new Date(tr.dataset.created || 0).getTime() || 0;
-    const expires = new Date(tr.dataset.expires || 0).getTime() || 0;
-    const downloads = parseInt(tr.dataset.downloads || '0', 10) || 0;
-    return {created, expires, downloads};
-  };
-
-  visible.sort((a,b)=>{
-    const A=key(a), B=key(b);
-    if(s==='created_desc') return B.created - A.created;
-    if(s==='created_asc')  return A.created - B.created;
-    if(s==='expires_asc')  return A.expires - B.expires;
-    if(s==='expires_desc') return B.expires - A.expires;
-    if(s==='downloads_desc') return B.downloads - A.downloads;
-    if(s==='downloads_asc')  return A.downloads - B.downloads;
-    return 0;
-  });
-
-  const tbody = tbl.querySelector('tbody');
-  for(const tr of visible) tbody.appendChild(tr);
-}
-
-q?.addEventListener('input', applyFilterSort);
-flt?.addEventListener('change', applyFilterSort);
-sort?.addEventListener('change', applyFilterSort);
-
-// initial
-applyFilterSort();
 </script>
 </body>
 </html>
 """
-
 
 
 
