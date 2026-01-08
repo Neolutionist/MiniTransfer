@@ -2891,101 +2891,88 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
+
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
-    c = db()
     t = current_tenant()["slug"]
+    c = db()
 
-    # Pakket ophalen
-    pkg = c.execute(
-        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-        (token, t)
-    ).fetchone()
+    try:
+        # Pakket ophalen
+        pkg = c.execute(
+            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+            (token, t),
+        ).fetchone()
 
-    # Pakket bestaat niet meer → nette “pakket verwijderd” pagina
-    if not pkg:
-        c.close()
-        return render_template_string(
-            LINK_REMOVED_HTML,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-            token=token
-        ), 410
+        if not pkg:
+            return render_template_string(
+                LINK_REMOVED_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+                token=token,
+            ), 410
 
-        
-        # Download counter verhogen
-        conn.execute(
-            "UPDATE items SET downloads_count = downloads_count + 1 WHERE id = ?",
-            (item_id,)
-        )
-        conn.commit()
+        # Verlopen pakket → opruimen
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+            rows = c.execute(
+                "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+                (token, t),
+            ).fetchall()
+
+            for r in rows:
+                try:
+                    s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+                except Exception:
+                    pass
+
+            c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+            c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+            c.commit()
+
+            expired_human = datetime.fromisoformat(pkg["expires_at"]) \
+                .replace(second=0, microsecond=0) \
+                .strftime("%d-%m-%Y %H:%M")
+
+            return render_template_string(
+                LINK_EXPIRED_HTML,
+                title=pkg["title"] or "Downloadpakket",
+                expired_human=expired_human,
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+            ), 410
+
+        # Wachtwoordcontrole
+        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+            abort(403)
+
+        # Item ophalen
+        it = c.execute(
+            "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
+            (item_id, token, t),
+        ).fetchone()
+
+        if not it:
+            expired_human = datetime.now(timezone.utc) \
+                .replace(second=0, microsecond=0) \
+                .strftime("%d-%m-%Y %H:%M")
+
+            return render_template_string(
+                LINK_EXPIRED_HTML,
+                title=pkg["title"] or "Downloadpakket",
+                expired_human=expired_human,
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+            ), 410
 
     finally:
-        conn.close()
-
-    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        rows = c.execute(
-            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t)
-        ).fetchall()
-
-        for r in rows:
-            try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception:
-                pass
-
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit()
         c.close()
 
-        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=expired_human,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
-
-    # Wachtwoordcontrole indien actief
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close()
-        abort(403)
-
-    # Item ophalen
-    it = c.execute(
-        "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
-        (item_id, token, t)
-    ).fetchone()
-
-    c.close()
-
-    # Item bestaat niet meer (bv. via bestandsbeheer verwijderd) → toon als verlopen link
-    if not it:
-        expired_human = datetime.now(timezone.utc) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=expired_human,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
-
-    # Bestand uit S3 streamen
+    # Bestand streamen + download counters
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
@@ -2996,17 +2983,30 @@ def stream_file(token, item_id):
                 if chunk:
                     yield chunk
 
-        resp = Response(
-            stream_with_context(gen()),
-            mimetype="application/octet-stream"
-        )
+        # download counters
+        c2 = db()
+        try:
+            c2.execute(
+                "UPDATE packages SET downloads_count = COALESCE(downloads_count,0)+1 "
+                "WHERE token=? AND tenant_id=?",
+                (token, t),
+            )
+            c2.execute(
+                "UPDATE items SET downloads_count = COALESCE(downloads_count,0)+1 "
+                "WHERE id=? AND token=? AND tenant_id=?",
+                (item_id, token, t),
+            )
+            c2.commit()
+        finally:
+            c2.close()
+
+        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
 
-    # Ontbrekend object in S3 → behandel als verlopen link i.p.v. 500
     except ClientError as ce:
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
@@ -3021,380 +3021,94 @@ def stream_file(token, item_id):
                 token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON
+                head_icon=HTML_HEAD_ICON,
             ), 410
 
-        # andere S3-fouten → echte 500
         log.exception("stream_file S3 ClientError")
         abort(500)
 
     except Exception:
-        # Fallback: wat er ook misgaat in deze route,
-        # toon voor de gebruiker gewoon de 'link verlopen' pagina.
-        log.exception("stream_file failed; falling back to LINK_EXPIRED_HTML")
-        expired_human = datetime.now(timezone.utc) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=expired_human,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
+        log.exception("stream_file failed")
+        abort(500)
 
 
-        # downloads_count ophogen (pakket + item)
-try:
-    c2 = db()
-    c2.execute(
-        "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE token=? AND tenant_id=?",
-        (token, t),
-    )
-    c2.execute(
-        "UPDATE items SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE id=? AND token=? AND tenant_id=?",
-        (item_id, token, t),
-    )
-    c2.commit()
-finally:
-    try:
-        c2.close()
-    except Exception:
-        pass
-
-
-
-        
-@app.route("/p/<token>", methods=["GET","POST"])
-def package_page(token):
-    c = db()
-    t = current_tenant()["slug"]
-
-    pkg = c.execute(
-        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-        (token, t)
-    ).fetchone()
-
-    if not pkg:
-        c.close()
-        return render_template_string(
-            LINK_REMOVED_HTML,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-            token=token
-        ), 410
-
-    # -----------------------------
-    # LINK VERLOPEN → NETTE PAGINA
-    # -----------------------------
-    from flask import render_template_string
-
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
-        expired_h = dt.strftime("%d-%m-%Y • %H:%M")
-
-        c.close()
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Bestandspakket",
-            expired_human=expired_h,
-            token=token
-        ), 410
-
-    # -----------------------------
-    # WACHTWOORD BEVEILIGING
-    # -----------------------------
-    if pkg["password_hash"]:
-        if request.method == "GET" and not session.get(f"allow_{token}", False):
-            c.close()
-            return render_template_string(
-                PASS_PROMPT_HTML,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                error=None,
-                head_icon=HTML_HEAD_ICON
-            )
-
-        if request.method == "POST":
-            if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
-                c.close()
-                return render_template_string(
-                    PASS_PROMPT_HTML,
-                    base_css=BASE_CSS,
-                    bg=BG_DIV,
-                    error="Onjuist wachtwoord. Probeer opnieuw.",
-                    head_icon=HTML_HEAD_ICON
-                )
-            session[f"allow_{token}"] = True
-
-    # -----------------------------
-    # BESTANDEN OPHALEN
-    # -----------------------------
-    items = c.execute(
-        """SELECT id,name,path,size_bytes FROM items
-           WHERE token=? AND tenant_id=?
-           ORDER BY path""",
-        (token, t)
-    ).fetchall()
-
-    c.close()
-
-    total_bytes = sum(int(r["size_bytes"]) for r in items)
-    total_h = human(total_bytes)
-
-    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
-    expires_h = dt.strftime("%d-%m-%Y %H:%M")
-
-    its = [
-        {
-            "id": r["id"],
-            "name": r["name"],
-            "path": r["path"],
-            "size_h": human(int(r["size_bytes"]))
-        }
-        for r in items
-    ]
-
-    return render_template_string(
-        PACKAGE_HTML,
-        token=token,
-        title=pkg["title"],
-        items=its,
-        total_human=total_h,
-        expires_human=expires_h,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON
-    )
-
+# -------------- ZIP Download --------------
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    c = db()
     t = current_tenant()["slug"]
+    c = db()
 
-    # Pakket ophalen
-    pkg = c.execute(
-        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-        (token, t)
-    ).fetchone()
+    try:
+        pkg = c.execute(
+            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+            (token, t),
+        ).fetchone()
 
-    # Pakket bestaat niet meer → nette "pakket verwijderd" pagina
-    if not pkg:
-        c.close()
-        return render_template_string(
-            LINK_REMOVED_HTML,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-            token=token
-        ), 410
+        if not pkg:
+            return render_template_string(
+                LINK_REMOVED_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+                token=token,
+            ), 410
 
-    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+            return render_template_string(
+                LINK_EXPIRED_HTML,
+                title=pkg["title"] or "Downloadpakket",
+                expired_human=datetime.fromisoformat(pkg["expires_at"])
+                    .replace(second=0, microsecond=0)
+                    .strftime("%d-%m-%Y %H:%M"),
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+            ), 410
+
+        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+            abort(403)
+
         rows = c.execute(
-            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t)
+            "SELECT name,path,s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY path",
+            (token, t),
         ).fetchall()
 
-        for r in rows:
-            try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception:
-                pass
+        if not rows:
+            abort(404)
 
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit()
+    finally:
         c.close()
 
-        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
+    z = ZipStream()
 
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=expired_human,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
+    def add_file(r):
+        arcname = r["path"] or r["name"]
 
-    # Wachtwoordcontrole
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close()
-        abort(403)
+        def reader():
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            for chunk in obj["Body"].iter_chunks(1024 * 512):
+                if chunk:
+                    yield chunk
 
-    # Items voor ZIP ophalen
-    rows = c.execute(
-        """SELECT name,path,s3_key FROM items
-           WHERE token=? AND tenant_id=?
-           ORDER BY path""",
-        (token, t)
-    ).fetchall()
-    c.close()
+        z.add(arcname=arcname, iterable=reader())
 
-    if not rows:
-        abort(404)
+    for r in rows:
+        add_file(r)
 
- # Precheck ontbrekende objecten in S3
-    missing = []
-    try:
-        for r in rows:
-            try:
-                s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except ClientError as ce:
-                code = ce.response.get("Error", {}).get("Code", "")
-                if code in {"NoSuchKey", "NotFound", "404"}:
-                    missing.append(r["path"] or r["name"])
-                else:
-                    raise
-    except Exception:
-        log.exception("zip precheck failed")
-        resp = Response(
-            "ZIP precheck mislukt. Zie serverlogs.",
-            status=500,
-            mimetype="text/plain"
-        )
-        resp.headers["X-Error"] = "zip_precheck_failed"
-        return resp
+    def generate():
+        for chunk in z:
+            yield chunk
 
-    # ⬇️ DIT MOEST INSINGEPRINGEN ⬇️
-    if missing:
-        expired_human = datetime.now(timezone.utc) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
+    filename = (pkg["title"] or f"pakket-{token}").replace('"', '')
+    if not filename.lower().endswith(".zip"):
+        filename += ".zip"
 
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=expired_human,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
-
-
-    # ZIP stream bouwen
-    try:
-        z = ZipStream()
-
-        class _GenReader:
-            def __init__(self, gen):
-                self._it = gen
-                self._buf = b""
-                self._done = False
-
-            def read(self, n=-1):
-                if self._done and not self._buf:
-                    return b""
-                if n is None or n < 0:
-                    chunks = [self._buf]
-                    self._buf = b""
-                    for ch in self._it:
-                        chunks.append(ch)
-                    self._done = True
-                    return b"".join(chunks)
-                while len(self._buf) < n and not self._done:
-                    try:
-                        self._buf += next(self._it)
-                    except StopIteration:
-                        self._done = True
-                        break
-                out, self._buf = self._buf[:n], self._buf[n:]
-                return out
-
-        def add_compat(arcname, gen_factory):
-            # zipstream-ng heeft verschillende add()-signaturen
-            if hasattr(z, "add_iter"):
-                try:
-                    z.add_iter(arcname, gen_factory())
-                    return
-                except Exception:
-                    pass
-            try:
-                z.add(arcname=arcname, iterable=gen_factory())
-                return
-            except Exception:
-                pass
-            try:
-                z.add(arcname=arcname, stream=gen_factory())
-                return
-            except Exception:
-                pass
-            try:
-                z.add(arcname=arcname, fileobj=_GenReader(gen_factory()))
-                return
-            except Exception:
-                pass
-            try:
-                z.add(arcname, gen_factory())
-                return
-            except Exception:
-                pass
-            try:
-                z.add(gen_factory(), arcname)
-                return
-            except Exception:
-                pass
-            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
-
-        for r in rows:
-            arcname = r["path"] or r["name"]
-
-            def reader(key=r["s3_key"]):
-                obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-                for chunk in obj["Body"].iter_chunks(1024 * 512):
-                    if chunk:
-                        yield chunk
-
-            add_compat(arcname, lambda: reader())
-
-        def generate():
-            for chunk in z:
-                yield chunk
-
-        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"', '')
-        if not filename.lower().endswith(".zip"):
-            filename += ".zip"
-
-        resp = Response(
-            stream_with_context(generate()),
-            mimetype="application/zip"
-        )
-        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-        resp.headers["X-Filename"] = filename
-        return resp
-
-    except Exception as e:
-        log.exception("stream_zip failed")
-        msg = f"ZIP generatie mislukte. Err: {e}"
-        resp = Response(msg, status=500, mimetype="text/plain")
-        resp.headers["X-Error"] = "zipstream_failed"
-        return resp
-
-
-
-        # downloads_count ophogen (pakket)
-try:
-    c = db()
-    c.execute(
-        "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE token=? AND tenant_id=?",
-        (token, t),
-    )
-    c.commit()
-finally:
-    try:
-        c.close()
-    except Exception:
-        pass
+    resp = Response(stream_with_context(generate()), mimetype="application/zip")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["X-Filename"] = filename
+    return resp
 
 
         
