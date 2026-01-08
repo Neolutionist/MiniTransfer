@@ -1625,13 +1625,13 @@ INDEX_HTML = """
 
 <script>
 /* ==== Settings & iOS ==== */
-const FILE_PAR = 3;
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const FILE_PAR = isIOS ? 3 : 5;
+kvWorkers.textContent = FILE_PAR;
 
 /* Elements */
 const folderLabel=document.getElementById('folderLabel');
 const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
-const fileInput=document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
+const fileInput = () => document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
 const btnFiles=document.getElementById('btnFiles'), btnFolder=document.getElementById('btnFolder');
 const fileName=document.getElementById('fileName'), folderName=document.getElementById('folderName');
 const queue=document.getElementById('queue'); const form=document.getElementById('form');
@@ -1882,7 +1882,7 @@ PACKAGE_HTML = """
     .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
     .brand{color:var(--brand);margin:0;font-weight:800}
     .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-    @media(max-width:900px){.deck{grid-template-columns:1fr}}
+    @media(max-width:800px){.deck{grid-template-columns:1fr}}
     .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
     .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
     .card-b{padding:14px 16px}
