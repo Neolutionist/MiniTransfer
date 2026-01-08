@@ -181,12 +181,10 @@ def migrate_add_tenant_columns():
         if not _col_exists(conn, "packages", "tenant_id"):
             conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
-
         # items
         if not _col_exists(conn, "items", "tenant_id"):
             conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
-
         # subscriptions
         if not _col_exists(conn, "subscriptions", "tenant_id"):
             conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
@@ -196,24 +194,6 @@ def migrate_add_tenant_columns():
     finally:
         conn.close()
 
-
-def migrate_add_download_counters():
-    conn = db()
-    try:
-        if not _col_exists(conn, "packages", "downloads_count"):
-            conn.execute("ALTER TABLE packages ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE packages SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        if not _col_exists(conn, "items", "downloads_count"):
-            conn.execute("ALTER TABLE items ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE items SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        conn.commit()
-    finally:
-        conn.close()
-
-
-migrate_add_download_counters()
 migrate_add_tenant_columns()
 
 # -------------- CSS --------------
@@ -784,195 +764,258 @@ BILLING_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Beheer abonnement • Olde Hanter</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beheer abonnement – Olde Hanter</title>
 {{ head_icon|safe }}
 
 <style>
 {{ base_css }}
 
-/* ========== KLEUREN & BASIS ========== */
-:root{
-  --bg:#0f172a;
-  --panel:#111827;
-  --card:#1f2933;
-  --border:#334155;
-  --text:#e5e7eb;
-  --muted:#94a3b8;
-  --brand:#3b82f6;
-  --danger:#ef4444;
-}
+/* ===========================
+   Algemene layout
+   =========================== */
 
-body{
-  background:linear-gradient(135deg,#0f172a,#020617);
-  color:var(--text);
-}
+body{background:#f4f6fb}
 
-/* ========== LAYOUT ========== */
 .wrap{
   max-width:1200px;
-  margin:4rem auto;
-  padding:0 1.25rem;
+  margin:4vh auto;
+  padding:0 18px;
 }
 
-.topbar{
+.header{
   display:flex;
   justify-content:space-between;
   align-items:center;
-  margin-bottom:2rem;
+  margin-bottom:22px;
+  gap:12px;
+  flex-wrap:wrap;
 }
 
-h1{
+.header h1{
   margin:0;
-  font-size:1.8rem;
   font-weight:800;
+  color:#1e40af;
 }
 
-.logout{
-  color:var(--muted);
+.user{
+  font-size:.9rem;
+  color:#475569;
 }
-.logout a{
-  color:var(--brand);
-  text-decoration:none;
+.user a{
+  color:#1e40af;
   font-weight:600;
+  text-decoration:none;
 }
 
-/* ========== CARDS ========== */
+/* ===========================
+   Cards
+   =========================== */
+
 .card{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:1.25rem 1.4rem;
-  margin-bottom:1.4rem;
-  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  background:#ffffff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:18px;
+  margin-bottom:20px;
 }
 
-.card h3{
-  margin:0 0 .75rem;
-  font-size:1.15rem;
+.card h2{
+  margin:0 0 12px 0;
+  font-size:1.05rem;
+  font-weight:700;
+  color:#1e3a8a;
 }
 
-/* ========== OPSLAG ========== */
+/* ===========================
+   Key-value blokken
+   =========================== */
+
 .kv{
   display:grid;
-  grid-template-columns:1fr auto;
-  gap:.4rem .8rem;
+  grid-template-columns:180px 1fr;
+  gap:6px 12px;
   font-size:.95rem;
 }
-.kv .k{ color:var(--muted); }
-.kv .v{ font-weight:600; }
 
 .bar{
+  margin-top:10px;
   height:10px;
+  background:#e5e7eb;
   border-radius:999px;
-  background:#020617;
-  border:1px solid var(--border);
   overflow:hidden;
-  margin-top:.6rem;
 }
-.bar>i{
+.bar > i{
   display:block;
   height:100%;
-  background:linear-gradient(90deg,#2563eb,#60a5fa);
+  width:{{ pct }}%;
+  background:#2563eb;
 }
 
-/* ========== TABLE ========== */
+/* ===========================
+   Buttons
+   =========================== */
+
+.btn{
+  padding:.45rem .8rem;
+  font-size:.85rem;
+  font-weight:600;
+  border-radius:6px;
+  border:1px solid transparent;
+  cursor:pointer;
+  background:#2563eb;
+  color:#ffffff;
+}
+
+.btn.secondary{
+  background:#0f172a;
+}
+
+.btn.outline{
+  background:#ffffff;
+  color:#2563eb;
+  border-color:#2563eb;
+}
+
+.btn.danger{
+  background:#dc2626;
+}
+
+.btn:disabled{
+  opacity:.6;
+  cursor:not-allowed;
+}
+
+/* ===========================
+   Table
+   =========================== */
+
 .table{
   width:100%;
   border-collapse:collapse;
-  margin-top:.5rem;
-  font-size:.95rem;
+  font-size:.92rem;
 }
+
 .table th{
   text-align:left;
-  color:#c7d2fe;
+  padding:10px 8px;
+  border-bottom:2px solid #e5e7eb;
   font-weight:700;
-  padding:.55rem .6rem;
-  border-bottom:1px solid var(--border);
+  color:#0f172a;
 }
+
 .table td{
-  padding:.55rem .6rem;
-  border-bottom:1px solid rgba(148,163,184,.15);
-}
-.table tr:hover td{
-  background:rgba(255,255,255,.03);
+  padding:10px 8px;
+  border-bottom:1px solid #e5e7eb;
+  vertical-align:middle;
 }
 
-/* ========== BADGES ========== */
-.pill{
-  display:inline-block;
-  padding:.25rem .65rem;
-  border-radius:999px;
-  background:#1e3a8a;
-  color:#e0e7ff;
-  font-size:.85rem;
-  font-weight:600;
-}
-
-/* ========== BUTTONS ========== */
-.btn{
-  border:0;
-  border-radius:10px;
-  padding:.4rem .7rem;
-  font-weight:700;
-  cursor:pointer;
-  color:white;
-  box-shadow:0 4px 12px rgba(0,0,0,.35);
-}
-.btn.primary{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
-.btn.secondary{ background:#020617; border:1px solid #334155; }
-.btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
-
-.actions{
+.table td.actions{
+  display:flex;
+  gap:6px;
   white-space:nowrap;
 }
 
-/* ========== FOOTER ========== */
-.footer{
-  text-align:center;
-  margin-top:2rem;
-  color:var(--muted);
-  font-size:.85rem;
+.badge{
+  display:inline-block;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:.8rem;
+  font-weight:600;
+  background:#e0e7ff;
+  color:#1e40af;
+}
+
+/* ===========================
+   Modal
+   =========================== */
+
+dialog{
+  border:0;
+  border-radius:10px;
+  padding:0;
+  max-width:720px;
+  width:100%;
+}
+
+.modal{
+  padding:18px;
+}
+
+.modal header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+.modal h3{
+  margin:0;
+  font-size:1.05rem;
 }
 </style>
 </head>
 
 <body>
+{{ bg|safe }}
+
 <div class="wrap">
 
-  <div class="topbar">
+  <!-- Header -->
+  <div class="header">
     <h1>Beheer abonnement</h1>
-    <div class="logout">
-      Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a>
+    <div class="user">
+      Ingelogd als <strong>{{ user }}</strong> ·
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
     </div>
   </div>
 
+  <!-- Opslag -->
   <div class="card">
-    <h3>Opslaggebruik</h3>
+    <h2>Opslaggebruik</h2>
     <div class="kv">
-      <div class="k">Tenant</div><div class="v">{{ tenant_label }}</div>
-      <div class="k">Gebruikt</div><div class="v">{{ used_h }}</div>
-      <div class="k">Limiet</div><div class="v">{{ limit_h }}</div>
+      <div>Tenant</div><div>{{ tenant_label }}</div>
+      <div>Gebruikt</div><div>{{ used_h }}</div>
+      <div>Limiet</div><div>{{ limit_h }}</div>
     </div>
-    <div class="bar"><i style="width:{{ pct }}%"></i></div>
-  </div>
-
-  <div class="card">
-    <h3>Abonnement</h3>
-    {% if sub %}
-      <p class="small">
-        Actief abonnement voor <strong>{{ sub['login_email'] }}</strong><br>
-        Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong>
+    <div class="bar"><i></i></div>
+    {% if over %}
+      <p style="color:#b91c1c;margin-top:8px">
+        Opslaglimiet overschreden.
       </p>
-      <button class="btn danger" id="btnCancel">Abonnement opzeggen</button>
-    {% else %}
-      <p class="small">Geen actief abonnement.</p>
     {% endif %}
   </div>
 
+  <!-- Abonnement -->
   <div class="card">
-    <h3>Pakketten</h3>
+    <h2>Abonnement</h2>
+    {% if sub %}
+      <p>
+        Plan: <strong>{{ sub['plan_value'] }} TB</strong><br>
+        Status: <strong>{{ sub['status'] }}</strong><br>
+        ID: <code id="subid">{{ sub['subscription_id'] }}</code>
+      </p>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="newPlan" class="input">
+          <option value="0.5">0,5 TB</option>
+          <option value="1">1 TB</option>
+          <option value="2">2 TB</option>
+          <option value="5">5 TB</option>
+        </select>
+        <button class="btn" id="btnChange">Wijzig plan</button>
+        <button class="btn outline" id="btnCancel">Opzeggen</button>
+      </div>
+    {% else %}
+      <p>Geen actief abonnement.</p>
+    {% endif %}
+  </div>
+
+  <!-- Pakketten -->
+  <div class="card">
+    <h2>Pakketten</h2>
+
     {% if packs %}
     <table class="table" id="packsTable">
       <thead>
@@ -981,7 +1024,7 @@ h1{
           <th>Bestanden</th>
           <th>Downloads</th>
           <th>Verloopt</th>
-          <th style="text-align:right">Totaal</th>
+          <th>Totaal</th>
           <th></th>
         </tr>
       </thead>
@@ -990,11 +1033,11 @@ h1{
         <tr data-token="{{ p.token }}">
           <td>{{ p.title }}</td>
           <td>{{ p.files_count }}</td>
-          <td>{{ p.downloads_count or 0 }}</td>
-          <td><span class="pill">{{ p.expires_h }}</span></td>
-          <td style="text-align:right">{{ p.total_h }}</td>
+          <td>{{ p.downloads if p.downloads is defined else "—" }}</td>
+          <td><span class="badge">{{ p.expires_h }}</span></td>
+          <td>{{ p.total_h }}</td>
           <td class="actions">
-            <button class="btn primary" data-action="details">Details</button>
+            <button class="btn outline" data-action="details">Details</button>
             <button class="btn secondary" data-action="extend">+30 dagen</button>
             <button class="btn danger" data-action="delete">Verwijderen</button>
           </td>
@@ -1003,14 +1046,53 @@ h1{
       </tbody>
     </table>
     {% else %}
-      <p class="small">Nog geen pakketten.</p>
+      <p>Geen pakketten gevonden.</p>
     {% endif %}
   </div>
 
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p style="text-align:center;color:#64748b;font-size:.85rem">
+    Olde Hanter Bouwconstructies • Bestandentransfer
+  </p>
 </div>
 
+<!-- Modal -->
+<dialog id="packDlg">
+  <div class="modal">
+    <header>
+      <h3 id="dlgTitle">Pakket</h3>
+      <button class="btn outline" id="dlgClose">Sluiten</button>
+    </header>
+    <div id="dlgMeta" style="margin-bottom:10px"></div>
+    <table class="table">
+      <thead>
+        <tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr>
+      </thead>
+      <tbody id="dlgBody"></tbody>
+    </table>
+  </div>
+</dialog>
+
 <script>
+/* ===========================
+   Element refs (CRUCIAAL)
+   =========================== */
+
+const btnCancel  = document.getElementById('btnCancel');
+const btnChange  = document.getElementById('btnChange');
+const newPlan    = document.getElementById('newPlan');
+const subid      = document.getElementById('subid');
+const packsTable = document.getElementById('packsTable');
+
+const packDlg  = document.getElementById('packDlg');
+const dlgClose = document.getElementById('dlgClose');
+const dlgTitle = document.getElementById('dlgTitle');
+const dlgMeta  = document.getElementById('dlgMeta');
+const dlgBody  = document.getElementById('dlgBody');
+
+/* ===========================
+   API helper
+   =========================== */
+
 async function api(url, body){
   const r = await fetch(url,{
     method:'POST',
@@ -1018,41 +1100,71 @@ async function api(url, body){
     body:JSON.stringify(body||{})
   });
   const j = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(j.error||'Fout');
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
   return j;
 }
 
-document.getElementById('packsTable')?.addEventListener('click', async e=>{
+/* ===========================
+   Subscription acties
+   =========================== */
+
+btnCancel?.addEventListener('click', async ()=>{
+  if(!confirm('Abonnement opzeggen?')) return;
+  await api("{{ url_for('billing_cancel') }}",{subscription_id:subid.textContent});
+  location.reload();
+});
+
+btnChange?.addEventListener('click', async ()=>{
+  await api("{{ url_for('billing_change') }}",{
+    subscription_id:subid.textContent,
+    new_plan_value:newPlan.value
+  });
+  location.reload();
+});
+
+/* ===========================
+   Pakket acties
+   =========================== */
+
+packsTable?.addEventListener('click', async e=>{
   const btn = e.target.closest('button[data-action]');
   if(!btn) return;
+
   const tr = btn.closest('tr');
   const token = tr.dataset.token;
-  if(btn.dataset.action==='delete'){
-    if(confirm('Pakket verwijderen?')){
-      await api('{{ url_for("billing_package_delete") }}',{token});
-      tr.remove();
-    }
+
+  if(btn.dataset.action === 'delete'){
+    if(!confirm('Pakket verwijderen?')) return;
+    await api("{{ url_for('billing_package_delete') }}",{token});
+    tr.remove();
   }
-  if(btn.dataset.action==='extend'){
-    await api('{{ url_for("billing_package_extend") }}',{token});
+
+  if(btn.dataset.action === 'extend'){
+    await api("{{ url_for('billing_package_extend') }}",{token});
     location.reload();
   }
-  if(btn.dataset.action==='details'){
-    await api('{{ url_for("billing_package_files") }}',{token});
-    alert('Details geladen (zie console/backend)');
+
+  if(btn.dataset.action === 'details'){
+    dlgTitle.textContent = 'Pakket ' + token;
+    dlgMeta.textContent = 'Laden…';
+    dlgBody.innerHTML = '';
+    packDlg.showModal();
+
+    const r = await api("{{ url_for('billing_package_files') }}",{token});
+    dlgMeta.textContent = r.files.length + ' bestand(en)';
+    dlgBody.innerHTML = r.files.map(f =>
+      `<tr><td>${f.name}</td><td>${f.path}</td><td>${f.size_h}</td></tr>`
+    ).join('');
   }
 });
 
-document.getElementById('btnCancel')?.addEventListener('click',async()=>{
-  if(confirm('Abonnement opzeggen?')){
-    await api('{{ url_for("billing_cancel") }}');
-    location.reload();
-  }
-});
+dlgClose?.addEventListener('click', ()=>packDlg.close());
 </script>
+
 </body>
 </html>
 """
+
 
 
 
@@ -2521,38 +2633,23 @@ def tenant_usage_bytes(tenant_slug: str) -> int:
 
 
 # === Pakket-helpers ===
-
 def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
     """Alle pakketten + aantal bestanden + totale grootte per pakket."""
     c = db()
     try:
-        has_tenant = (
-            _col_exists(c, "packages", "tenant_id")
-            and _col_exists(c, "items", "tenant_id")
-        )
+        has_tenant = _col_exists(c, "packages", "tenant_id") and _col_exists(c, "items", "tenant_id")
 
         if has_tenant:
             rows = c.execute(
                 """
-                SELECT
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    COUNT(i.id) AS files_count,
-                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                    COALESCE(p.downloads_count, 0) AS downloads_count
+                SELECT p.token, p.title, p.expires_at, p.created_at,
+                       COUNT(i.id) AS files_count,
+                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
                 FROM packages p
                 LEFT JOIN items i
-                    ON i.token = p.token
-                   AND i.tenant_id = p.tenant_id
+                  ON i.token = p.token AND i.tenant_id = p.tenant_id
                 WHERE p.tenant_id = ?
-                GROUP BY
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    p.downloads_count
+                GROUP BY p.token, p.title, p.expires_at, p.created_at
                 ORDER BY p.created_at DESC
                 LIMIT ?
                 """,
@@ -2561,23 +2658,13 @@ def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
         else:
             rows = c.execute(
                 """
-                SELECT
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    COUNT(i.id) AS files_count,
-                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                    COALESCE(p.downloads_count, 0) AS downloads_count
+                SELECT p.token, p.title, p.expires_at, p.created_at,
+                       COUNT(i.id) AS files_count,
+                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
                 FROM packages p
                 LEFT JOIN items i
-                    ON i.token = p.token
-                GROUP BY
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    p.downloads_count
+                  ON i.token = p.token
+                GROUP BY p.token, p.title, p.expires_at, p.created_at
                 ORDER BY p.created_at DESC
                 LIMIT ?
                 """,
@@ -2585,7 +2672,6 @@ def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
             ).fetchall()
 
         return [dict(r) for r in rows]
-
     finally:
         c.close()
 
@@ -2596,22 +2682,14 @@ def list_files_in_package(token: str, tenant_slug: str) -> list[dict]:
     try:
         rows = c.execute(
             """
-            SELECT
-                id AS item_id,
-                name,
-                path,
-                size_bytes,
-                COALESCE(downloads_count, 0) AS downloads_count
+            SELECT id AS item_id, name, path, size_bytes
             FROM items
-            WHERE token = ?
-              AND tenant_id = ?
+            WHERE token = ? AND tenant_id = ?
             ORDER BY path, name
             """,
             (token, tenant_slug),
         ).fetchall()
-
         return [dict(r) for r in rows]
-
     finally:
         c.close()
 
@@ -2621,38 +2699,24 @@ def extend_package_expiry(token: str, tenant_slug: str, days: int = 30) -> str:
     c = db()
     try:
         row = c.execute(
-            """
-            SELECT expires_at
-            FROM packages
-            WHERE token = ?
-              AND tenant_id = ?
-            """,
+            "SELECT expires_at FROM packages WHERE token=? AND tenant_id=?",
             (token, tenant_slug),
         ).fetchone()
-
         if not row:
             raise ValueError("pakket_niet_gevonden")
 
-        current_expiry = datetime.fromisoformat(row["expires_at"])
-        base_time = max(current_expiry, datetime.now(timezone.utc))
-        new_expiry = base_time + timedelta(days=days)
+        cur = datetime.fromisoformat(row["expires_at"])
+        base = max(cur, datetime.now(timezone.utc))
+        new_dt = base + timedelta(days=days)
 
         c.execute(
-            """
-            UPDATE packages
-            SET expires_at = ?
-            WHERE token = ?
-              AND tenant_id = ?
-            """,
-            (new_expiry.isoformat(), token, tenant_slug),
+            "UPDATE packages SET expires_at=? WHERE token=? AND tenant_id=?",
+            (new_dt.isoformat(), token, tenant_slug),
         )
         c.commit()
-
-        return new_expiry.isoformat()
-
+        return new_dt.isoformat()
     finally:
         c.close()
-
 
 
 # --------- Basishost voor subdomein-preview ----------
@@ -2891,88 +2955,90 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
-
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
-    t = current_tenant()["slug"]
     c = db()
+    t = current_tenant()["slug"]
 
-    try:
-        # Pakket ophalen
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
+    # Pakket ophalen
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
 
-        if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-                token=token,
-            ), 410
+    # Pakket bestaat niet meer → nette “pakket verwijderd” pagina
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
 
-        # Verlopen pakket → opruimen
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            rows = c.execute(
-                "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
-                (token, t),
-            ).fetchall()
+    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        rows = c.execute(
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        ).fetchall()
 
-            for r in rows:
-                try:
-                    s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-                except Exception:
-                    pass
+        for r in rows:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
 
-            c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-            c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-            c.commit()
-
-            expired_human = datetime.fromisoformat(pkg["expires_at"]) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_human,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        # Wachtwoordcontrole
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
-
-        # Item ophalen
-        it = c.execute(
-            "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
-        ).fetchone()
-
-        if not it:
-            expired_human = datetime.now(timezone.utc) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_human,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-    finally:
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+        c.commit()
         c.close()
 
-    # Bestand streamen + download counters
+        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
+
+    # Wachtwoordcontrole indien actief
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
+
+    # Item ophalen
+    it = c.execute(
+        "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
+        (item_id, token, t)
+    ).fetchone()
+
+    c.close()
+
+    # Item bestaat niet meer (bv. via bestandsbeheer verwijderd) → toon als verlopen link
+    if not it:
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
+
+    # Bestand uit S3 streamen
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
@@ -2983,30 +3049,17 @@ def stream_file(token, item_id):
                 if chunk:
                     yield chunk
 
-        # download counters
-        c2 = db()
-        try:
-            c2.execute(
-                "UPDATE packages SET downloads_count = COALESCE(downloads_count,0)+1 "
-                "WHERE token=? AND tenant_id=?",
-                (token, t),
-            )
-            c2.execute(
-                "UPDATE items SET downloads_count = COALESCE(downloads_count,0)+1 "
-                "WHERE id=? AND token=? AND tenant_id=?",
-                (item_id, token, t),
-            )
-            c2.commit()
-        finally:
-            c2.close()
-
-        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+        resp = Response(
+            stream_with_context(gen()),
+            mimetype="application/octet-stream"
+        )
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
 
+    # Ontbrekend object in S3 → behandel als verlopen link i.p.v. 500
     except ClientError as ce:
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
@@ -3021,95 +3074,344 @@ def stream_file(token, item_id):
                 token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
+                head_icon=HTML_HEAD_ICON
             ), 410
 
+        # andere S3-fouten → echte 500
         log.exception("stream_file S3 ClientError")
         abort(500)
 
     except Exception:
-        log.exception("stream_file failed")
-        abort(500)
+        # Fallback: wat er ook misgaat in deze route,
+        # toon voor de gebruiker gewoon de 'link verlopen' pagina.
+        log.exception("stream_file failed; falling back to LINK_EXPIRED_HTML")
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
 
 
-# -------------- ZIP Download --------------
+        
+@app.route("/p/<token>", methods=["GET","POST"])
+def package_page(token):
+    c = db()
+    t = current_tenant()["slug"]
+
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
+
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
+
+    # -----------------------------
+    # LINK VERLOPEN → NETTE PAGINA
+    # -----------------------------
+    from flask import render_template_string
+
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+        expired_h = dt.strftime("%d-%m-%Y • %H:%M")
+
+        c.close()
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Bestandspakket",
+            expired_human=expired_h,
+            token=token
+        ), 410
+
+    # -----------------------------
+    # WACHTWOORD BEVEILIGING
+    # -----------------------------
+    if pkg["password_hash"]:
+        if request.method == "GET" and not session.get(f"allow_{token}", False):
+            c.close()
+            return render_template_string(
+                PASS_PROMPT_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                error=None,
+                head_icon=HTML_HEAD_ICON
+            )
+
+        if request.method == "POST":
+            if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
+                c.close()
+                return render_template_string(
+                    PASS_PROMPT_HTML,
+                    base_css=BASE_CSS,
+                    bg=BG_DIV,
+                    error="Onjuist wachtwoord. Probeer opnieuw.",
+                    head_icon=HTML_HEAD_ICON
+                )
+            session[f"allow_{token}"] = True
+
+    # -----------------------------
+    # BESTANDEN OPHALEN
+    # -----------------------------
+    items = c.execute(
+        """SELECT id,name,path,size_bytes FROM items
+           WHERE token=? AND tenant_id=?
+           ORDER BY path""",
+        (token, t)
+    ).fetchall()
+
+    c.close()
+
+    total_bytes = sum(int(r["size_bytes"]) for r in items)
+    total_h = human(total_bytes)
+
+    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+    expires_h = dt.strftime("%d-%m-%Y %H:%M")
+
+    its = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "path": r["path"],
+            "size_h": human(int(r["size_bytes"]))
+        }
+        for r in items
+    ]
+
+    return render_template_string(
+        PACKAGE_HTML,
+        token=token,
+        title=pkg["title"],
+        items=its,
+        total_human=total_h,
+        expires_human=expires_h,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON
+    )
+
 
 @app.route("/zip/<token>")
 def stream_zip(token):
-    t = current_tenant()["slug"]
     c = db()
+    t = current_tenant()["slug"]
 
-    try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
+    # Pakket ophalen
+    pkg = c.execute(
+        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+        (token, t)
+    ).fetchone()
 
-        if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-                token=token,
-            ), 410
+    # Pakket bestaat niet meer → nette "pakket verwijderd" pagina
+    if not pkg:
+        c.close()
+        return render_template_string(
+            LINK_REMOVED_HTML,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+            token=token
+        ), 410
 
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=datetime.fromisoformat(pkg["expires_at"])
-                    .replace(second=0, microsecond=0)
-                    .strftime("%d-%m-%Y %H:%M"),
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
-
+    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute(
-            "SELECT name,path,s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY path",
-            (token, t),
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
         ).fetchall()
 
-        if not rows:
-            abort(404)
+        for r in rows:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
 
-    finally:
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+        c.commit()
         c.close()
 
-    z = ZipStream()
+        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
 
-    def add_file(r):
-        arcname = r["path"] or r["name"]
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
 
-        def reader():
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
+    # Wachtwoordcontrole
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+        c.close()
+        abort(403)
 
-        z.add(arcname=arcname, iterable=reader())
+    # Items voor ZIP ophalen
+    rows = c.execute(
+        """SELECT name,path,s3_key FROM items
+           WHERE token=? AND tenant_id=?
+           ORDER BY path""",
+        (token, t)
+    ).fetchall()
+    c.close()
 
-    for r in rows:
-        add_file(r)
+    if not rows:
+        abort(404)
 
-    def generate():
-        for chunk in z:
-            yield chunk
+ # Precheck ontbrekende objecten in S3
+    missing = []
+    try:
+        for r in rows:
+            try:
+                s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except ClientError as ce:
+                code = ce.response.get("Error", {}).get("Code", "")
+                if code in {"NoSuchKey", "NotFound", "404"}:
+                    missing.append(r["path"] or r["name"])
+                else:
+                    raise
+    except Exception:
+        log.exception("zip precheck failed")
+        resp = Response(
+            "ZIP precheck mislukt. Zie serverlogs.",
+            status=500,
+            mimetype="text/plain"
+        )
+        resp.headers["X-Error"] = "zip_precheck_failed"
+        return resp
 
-    filename = (pkg["title"] or f"pakket-{token}").replace('"', '')
-    if not filename.lower().endswith(".zip"):
-        filename += ".zip"
+    # ⬇️ DIT MOEST INSINGEPRINGEN ⬇️
+    if missing:
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
 
-    resp = Response(stream_with_context(generate()), mimetype="application/zip")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    resp.headers["X-Filename"] = filename
-    return resp
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
 
+
+    # ZIP stream bouwen
+    try:
+        z = ZipStream()
+
+        class _GenReader:
+            def __init__(self, gen):
+                self._it = gen
+                self._buf = b""
+                self._done = False
+
+            def read(self, n=-1):
+                if self._done and not self._buf:
+                    return b""
+                if n is None or n < 0:
+                    chunks = [self._buf]
+                    self._buf = b""
+                    for ch in self._it:
+                        chunks.append(ch)
+                    self._done = True
+                    return b"".join(chunks)
+                while len(self._buf) < n and not self._done:
+                    try:
+                        self._buf += next(self._it)
+                    except StopIteration:
+                        self._done = True
+                        break
+                out, self._buf = self._buf[:n], self._buf[n:]
+                return out
+
+        def add_compat(arcname, gen_factory):
+            # zipstream-ng heeft verschillende add()-signaturen
+            if hasattr(z, "add_iter"):
+                try:
+                    z.add_iter(arcname, gen_factory())
+                    return
+                except Exception:
+                    pass
+            try:
+                z.add(arcname=arcname, iterable=gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname=arcname, stream=gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname=arcname, fileobj=_GenReader(gen_factory()))
+                return
+            except Exception:
+                pass
+            try:
+                z.add(arcname, gen_factory())
+                return
+            except Exception:
+                pass
+            try:
+                z.add(gen_factory(), arcname)
+                return
+            except Exception:
+                pass
+            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
+
+        for r in rows:
+            arcname = r["path"] or r["name"]
+
+            def reader(key=r["s3_key"]):
+                obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+                for chunk in obj["Body"].iter_chunks(1024 * 512):
+                    if chunk:
+                        yield chunk
+
+            add_compat(arcname, lambda: reader())
+
+        def generate():
+            for chunk in z:
+                yield chunk
+
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"', '')
+        if not filename.lower().endswith(".zip"):
+            filename += ".zip"
+
+        resp = Response(
+            stream_with_context(generate()),
+            mimetype="application/zip"
+        )
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.headers["X-Filename"] = filename
+        return resp
+
+    except Exception as e:
+        log.exception("stream_zip failed")
+        msg = f"ZIP generatie mislukte. Err: {e}"
+        resp = Response(msg, status=500, mimetype="text/plain")
+        resp.headers["X-Error"] = "zipstream_failed"
+        return resp
 
         
 @app.route("/terms")
@@ -3282,7 +3584,6 @@ def privacy_page():
 def billing_package_files():
     if not logged_in():
         abort(401)
-
     data = request.get_json(force=True, silent=True) or {}
     token = (data.get("token") or "").strip()
     if not token:
@@ -3290,15 +3591,15 @@ def billing_package_files():
 
     t = current_tenant()["slug"]
     files = list_files_in_package(token, t)
-
-    out = [{
-        "item_id": f["item_id"],
-        "name": f["name"],
-        "path": f.get("path") or f["name"],
-        "size_h": human(int(f["size_bytes"] or 0)),
-        "downloads_count": int(f.get("downloads_count") or 0),
-    } for f in files]
-
+    out = [
+        {
+            "item_id": f["item_id"],
+            "name": f["name"],
+            "path": f.get("path") or f["name"],
+            "size_h": human(int(f["size_bytes"] or 0)),
+        }
+        for f in files
+    ]
     return jsonify(ok=True, files=out)
 
 
@@ -3673,8 +3974,6 @@ def health():
 def package_alias(token): return redirect(url_for("package_page", token=token))
 @app.route("/stream/<token>/<int:item_id>")
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
-
-
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
