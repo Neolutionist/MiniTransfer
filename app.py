@@ -963,8 +963,78 @@ h1{
   color:var(--muted);
   font-size:.8rem;
 }
+
+/* ==============================
+   MODAL
+   ============================== */
+.modal{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:999;
+}
+.modal.hidden{ display:none; }
+
+.modal-box{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:14px;
+  width:100%;
+  max-width:640px;
+  max-height:80vh;
+  overflow:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+
+.modal-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:.75rem 1rem;
+  border-bottom:1px solid var(--border);
+}
+
+.modal-header button{
+  background:none;
+  border:0;
+  color:var(--muted);
+  font-size:18px;
+  cursor:pointer;
+}
+
+.modal-box table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+}
+.modal-box th,
+.modal-box td{
+  padding:6px 8px;
+  border-bottom:1px solid rgba(148,163,184,.15);
+  white-space:nowrap;
+}
+
 </style>
 </head>
+
+<!-- ==============================
+     DETAILS MODAL
+     ============================== -->
+<div id="detailsModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <strong>Pakketdetails</strong>
+      <button id="closeModal">✕</button>
+    </div>
+    <div id="modalContent">
+      Laden…
+    </div>
+  </div>
+</div>
+
 
 <body>
 <div class="wrap">
@@ -1069,10 +1139,52 @@ document.getElementById('packsTable')?.addEventListener('click', async e=>{
     location.reload();
   }
 
-  if(btn.dataset.action==='details'){
-    await api('{{ url_for("billing_package_files") }}',{token});
-    alert('Details geladen (zie backend)');
+if(btn.dataset.action === 'details'){
+  const modal = document.getElementById("detailsModal");
+  const content = document.getElementById("modalContent");
+  modal.classList.remove("hidden");
+  content.innerHTML = "Laden…";
+
+  try{
+    const data = await api('{{ url_for("billing_package_files") }}', {token});
+
+    if(!data.files || !data.files.length){
+      content.innerHTML = "<p>Geen bestanden.</p>";
+      return;
+    }
+
+    let html = `
+      <table>
+        <thead>
+          <tr>
+            <th>Bestand</th>
+            <th>Pad</th>
+            <th>Grootte</th>
+            <th>Downloads</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    for(const f of data.files){
+      html += `
+        <tr>
+          <td>${f.name}</td>
+          <td>${f.path || ""}</td>
+          <td>${f.size_h}</td>
+          <td>${f.downloads_count}</td>
+        </tr>
+      `;
+    }
+
+    html += "</tbody></table>";
+    content.innerHTML = html;
+
+  }catch(e){
+    content.innerHTML = "<p>Fout bij laden van details.</p>";
   }
+}
+
 });
 
 document.getElementById('btnCancel')?.addEventListener('click',async()=>{
@@ -1081,6 +1193,11 @@ document.getElementById('btnCancel')?.addEventListener('click',async()=>{
     location.reload();
   }
 });
+
+document.getElementById("closeModal")?.addEventListener("click",()=>{
+  document.getElementById("detailsModal").classList.add("hidden");
+});
+
 </script>
 </body>
 </html>
