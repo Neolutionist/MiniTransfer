@@ -85,7 +85,7 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
+app.secret_key = os.environ.get("SECRET_KEY")
 
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
@@ -3207,21 +3207,20 @@ def stream_file(token, item_id):
     # =============================
     # 2. DOWNLOAD TELLER (EERST!)
     # =============================
-    c2 = db()
-    try:
-        c2.execute(
-            "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 "
-            "WHERE token=? AND tenant_id=?",
-            (token, t),
-        )
-        c2.execute(
-            "UPDATE items SET downloads_count = COALESCE(downloads_count,0) + 1 "
-            "WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
-        )
-        c2.commit()
-    finally:
-        c2.close()
+c2 = db()
+try:
+    c2.execute(
+        "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
+        (token, t),
+    )
+    c2.execute(
+        "UPDATE items SET downloads_count = downloads_count + 1 WHERE id=? AND token=? AND tenant_id=?",
+        (item_id, token, t),
+    )
+    c2.commit()
+finally:
+    c2.close()
+
 
     # =============================
     # 3. S3 STREAM
@@ -3252,8 +3251,6 @@ def stream_file(token, item_id):
 
 
 # -------------- ZIP Download --------------
-
-from zipstream import ZipStream
 
 from zipstream import ZipStream
 
@@ -3291,19 +3288,30 @@ def stream_zip(token):
     # -----------------------------
     # 2. ZIP STREAM (CORRECT)
     # -----------------------------
-    z = ZipStream()
+z = ZipStream()
 
-    for r in rows:
-        arcname = r["path"] or r["name"]
+for r in rows:
+    arcname = r["path"] or r["name"]
 
-        def reader(key=r["s3_key"]):
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
+    def reader(key=r["s3_key"]):
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+        for chunk in obj["Body"].iter_chunks(1024 * 512):
+            if chunk:
+                yield chunk
 
-        # ⬇️ BELANGRIJK: GEEN reader()
-        z.add(arcname, reader)
+    z.add(arcname, reader())
+
+def generate():
+    for chunk in z:
+        yield chunk
+
+resp = Response(
+    stream_with_context(generate()),
+    mimetype="application/zip"
+)
+resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+resp.headers["X-Filename"] = filename
+return resp
 
     # -----------------------------
     # 3. RESPONSE (ALLEEN ZIP)
