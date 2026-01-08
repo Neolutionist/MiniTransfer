@@ -3041,13 +3041,18 @@ def internal_cleanup():
 
 # -------------- Download Pages --------------
 
+from flask import Response, stream_with_context, abort, request, session
 from werkzeug.security import check_password_hash
+from zipstream import ZipStream
+from datetime import datetime, timezone
 
+# =============================
+# PAKKET PAGINA
+# =============================
 @app.route("/p/<token>", methods=["GET", "POST"])
 def package_page(token):
-    c = db()
     t = current_tenant()["slug"]
-
+    c = db()
     try:
         pkg = c.execute(
             "SELECT * FROM packages WHERE token=? AND tenant_id=?",
@@ -3063,7 +3068,6 @@ def package_page(token):
                 head_icon=HTML_HEAD_ICON,
             ), 410
 
-        # Verlopen?
         if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
             expired_h = datetime.fromisoformat(pkg["expires_at"]) \
                 .replace(second=0, microsecond=0) \
@@ -3079,11 +3083,8 @@ def package_page(token):
                 head_icon=HTML_HEAD_ICON,
             ), 410
 
-        # -----------------------------
-        # WACHTWOORD BEVEILIGING
-        # -----------------------------
+        # -------- Wachtwoord --------
         if pkg["password_hash"]:
-            # Nog niet geautoriseerd → toon prompt
             if request.method == "GET" and not session.get(f"allow_{token}", False):
                 return render_template_string(
                     PASS_PROMPT_HTML,
@@ -3093,7 +3094,6 @@ def package_page(token):
                     head_icon=HTML_HEAD_ICON,
                 )
 
-            # POST → controleer wachtwoord
             if request.method == "POST":
                 pw = request.form.get("password", "")
                 if not check_password_hash(pkg["password_hash"], pw):
@@ -3101,16 +3101,11 @@ def package_page(token):
                         PASS_PROMPT_HTML,
                         base_css=BASE_CSS,
                         bg=BG_DIV,
-                        error="Onjuist wachtwoord. Probeer opnieuw.",
+                        error="Onjuist wachtwoord.",
                         head_icon=HTML_HEAD_ICON,
                     )
                 session[f"allow_{token}"] = True
 
-            # Als GET met allow=True, of POST succesvol, ga door.
-
-        # -----------------------------
-        # ITEMS OPHALEN
-        # -----------------------------
         items = c.execute(
             """
             SELECT id, name, path, size_bytes
@@ -3149,18 +3144,17 @@ def package_page(token):
             bg=BG_DIV,
             head_icon=HTML_HEAD_ICON,
         )
-
     finally:
         c.close()
 
 
+# =============================
+# INDIVIDUEEL BESTAND DOWNLOAD
+# =============================
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     t = current_tenant()["slug"]
 
-    # =============================
-    # 1. Pakket + item ophalen
-    # =============================
     c = db()
     try:
         pkg = c.execute(
@@ -3169,26 +3163,10 @@ def stream_file(token, item_id):
         ).fetchone()
 
         if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
+            abort(404)
 
         if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=datetime.fromisoformat(pkg["expires_at"])
-                    .replace(second=0, microsecond=0)
-                    .strftime("%d-%m-%Y %H:%M"),
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
+            abort(410)
 
         if pkg["password_hash"] and not session.get(f"allow_{token}", False):
             abort(403)
@@ -3200,68 +3178,44 @@ def stream_file(token, item_id):
 
         if not it:
             abort(404)
-
     finally:
         c.close()
 
-    # =============================
-    # 2. DOWNLOAD TELLER (EERST!)
-    # =============================
-c2 = db()
-try:
-    c2.execute(
-        "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
-        (token, t),
-    )
-    c2.execute(
-        "UPDATE items SET downloads_count = downloads_count + 1 WHERE id=? AND token=? AND tenant_id=?",
-        (item_id, token, t),
-    )
-    c2.commit()
-finally:
-    c2.close()
-
-
-    # =============================
-    # 3. S3 STREAM
-    # =============================
+    # download teller
+    c2 = db()
     try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-        length = int(head.get("ContentLength", 0))
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-        def gen():
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
-
-        resp = Response(
-            stream_with_context(gen()),
-            mimetype="application/octet-stream",
+        c2.execute(
+            "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
+            (token, t),
         )
-        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-        if length:
-            resp.headers["Content-Length"] = str(length)
-        resp.headers["X-Filename"] = it["name"]
-        return resp
+        c2.execute(
+            "UPDATE items SET downloads_count = downloads_count + 1 WHERE id=? AND token=? AND tenant_id=?",
+            (item_id, token, t),
+        )
+        c2.commit()
+    finally:
+        c2.close()
 
-    except ClientError as ce:
-        log.exception("S3 error during download")
-        abort(500)
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+
+    def gen():
+        for chunk in obj["Body"].iter_chunks(1024 * 512):
+            if chunk:
+                yield chunk
+
+    resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
+    resp.headers["X-Filename"] = it["name"]
+    return resp
 
 
-# -------------- ZIP Download --------------
-
-from zipstream import ZipStream
-from flask import Response, stream_with_context
-
+# =============================
+# ZIP DOWNLOAD
+# =============================
 @app.route("/zip/<token>")
 def stream_zip(token):
     t = current_tenant()["slug"]
 
-    # -----------------------------
-    # Pakket + permissie
-    # -----------------------------
     c = db()
     try:
         pkg = c.execute(
@@ -3282,13 +3236,9 @@ def stream_zip(token):
 
         if not rows:
             abort(404)
-
     finally:
         c.close()
 
-    # -----------------------------
-    # ZIP STREAM (CORRECT)
-    # -----------------------------
     z = ZipStream()
 
     for r in rows:
@@ -3300,25 +3250,18 @@ def stream_zip(token):
                 if chunk:
                     yield chunk
 
-        z.add(arcname, reader())
+        z.add(arcname, reader)
 
-    # -----------------------------
-    # DOWNLOAD COUNTER
-    # -----------------------------
     c2 = db()
     try:
         c2.execute(
-            "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 "
-            "WHERE token=? AND tenant_id=?",
+            "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
             (token, t),
         )
         c2.commit()
     finally:
         c2.close()
 
-    # -----------------------------
-    # RESPONSE
-    # -----------------------------
     filename = f"pakket-{token}.zip"
 
     return Response(
