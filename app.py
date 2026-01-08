@@ -3008,7 +3008,7 @@ def stream_file(token, item_id):
         (token, t)
     ).fetchone()
 
-    # pakket bestaat niet meer → mooie "verwijderd" pagina
+    # Pakket bestaat niet meer → nette “pakket verwijderd” pagina
     if not pkg:
         c.close()
         return render_template_string(
@@ -3019,7 +3019,7 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
-    # pakket verlopen → verwijder + toon "verlopen" pagina
+    # Link verlopen → opruimen + mooie verlopen pagina
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
 
         rows = c.execute(
@@ -3052,67 +3052,38 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # wachtwoordcontrole
+    # Wachtwoordcheck indien actief
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
         c.close()
         abort(403)
 
-    # item ophalen
+    # Item ophalen
     it = c.execute(
         "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
         (item_id, token, t)
     ).fetchone()
+
     c.close()
-
-    # item ontbreekt → toon jouw pagina (niet een kale 404)
     if not it:
-        return render_template_string(
-            LINK_REMOVED_HTML,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-            token=token
-        ), 410
+        abort(404)
 
-    # bestand streamen vanuit S3
+    # Stream bestand uit S3
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
         obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
 
         def gen():
-            for chunk in obj["Body"].iter_chunks(1024*512):
+            for chunk in obj["Body"].iter_chunks(1024 * 512):
                 if chunk:
                     yield chunk
 
         resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-filename = it["name"].replace('"', '')
-filename = it["name"].replace('"', '')
-resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-
-
+        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
-
-    # ⬇️ DIT IS DE BELANGRIJKE FIX
-    except ClientError as ce:
-        code = ce.response.get("Error", {}).get("Code", "")
-
-        # bestand ontbreekt in S3 → toon jouw mooie pagina
-        if code in {"NoSuchKey", "NotFound", "404"}:
-            log.warning("stream_file: S3 object ontbreekt %s", it["s3_key"])
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-                token=token
-            ), 410
-
-        log.exception("stream_file failed (ClientError)")
-        abort(500)
 
     except Exception:
         log.exception("stream_file failed")
@@ -3227,12 +3198,14 @@ def package_page(token):
 def stream_zip(token):
     c = db()
     t = current_tenant()["slug"]
+
+    # Pakket ophalen
     pkg = c.execute(
         "SELECT * FROM packages WHERE token=? AND tenant_id=?",
         (token, t)
     ).fetchone()
 
-    # Pakket bestaat niet meer → pakket verwijderd pagina
+    # Pakket bestaat niet meer → nette "pakket verwijderd" pagina
     if not pkg:
         c.close()
         return render_template_string(
@@ -3243,26 +3216,21 @@ def stream_zip(token):
             token=token
         ), 410
 
-    # Pakket verlopen → opruimen + nette verlopen pagina
+    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute(
             "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t)
         ).fetchall()
+
         for r in rows:
             try:
                 s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
             except Exception:
                 pass
 
-        c.execute(
-            "DELETE FROM items WHERE token=? AND tenant_id=?",
-            (token, t)
-        )
-        c.execute(
-            "DELETE FROM packages WHERE token=? AND tenant_id=?",
-            (token, t)
-        )
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
         c.commit()
         c.close()
 
@@ -3285,7 +3253,7 @@ def stream_zip(token):
         c.close()
         abort(403)
 
-    # Alle items voor ZIP
+    # Items voor ZIP ophalen
     rows = c.execute(
         """SELECT name,path,s3_key FROM items
            WHERE token=? AND tenant_id=?
@@ -3293,10 +3261,11 @@ def stream_zip(token):
         (token, t)
     ).fetchall()
     c.close()
+
     if not rows:
         abort(404)
 
-    # Precheck ontbrekende objecten
+    # Precheck ontbrekende objecten in S3
     missing = []
     try:
         for r in rows:
@@ -3327,6 +3296,7 @@ def stream_zip(token):
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
+    # ZIP stream bouwen
     try:
         z = ZipStream()
 
@@ -3356,6 +3326,7 @@ def stream_zip(token):
                 return out
 
         def add_compat(arcname, gen_factory):
+            # zipstream-ng heeft verschillende add()-signaturen
             if hasattr(z, "add_iter"):
                 try:
                     z.add_iter(arcname, gen_factory())
@@ -3404,7 +3375,7 @@ def stream_zip(token):
             for chunk in z:
                 yield chunk
 
-        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"', "")
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"', '')
         if not filename.lower().endswith(".zip"):
             filename += ".zip"
 
@@ -3412,10 +3383,10 @@ def stream_zip(token):
             stream_with_context(generate()),
             mimetype="application/zip"
         )
-filename = it["name"].replace('"', '')
-resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
+
     except Exception as e:
         log.exception("stream_zip failed")
         msg = f"ZIP generatie mislukte. Err: {e}"
