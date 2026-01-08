@@ -3253,14 +3253,14 @@ finally:
 # -------------- ZIP Download --------------
 
 from zipstream import ZipStream
-from flask import Response, stream_with_context, abort
+from flask import Response, stream_with_context
 
 @app.route("/zip/<token>")
 def stream_zip(token):
     t = current_tenant()["slug"]
 
     # -----------------------------
-    # 1. Pakket + permissie
+    # Pakket + permissie
     # -----------------------------
     c = db()
     try:
@@ -3287,7 +3287,7 @@ def stream_zip(token):
         c.close()
 
     # -----------------------------
-    # 2. ZIP stream bouwen
+    # ZIP STREAM (CORRECT)
     # -----------------------------
     z = ZipStream()
 
@@ -3300,17 +3300,15 @@ def stream_zip(token):
                 if chunk:
                     yield chunk
 
-        # BELANGRIJK: GEEN reader() AANROEPEN
-        z.add(arcname, reader)
+        z.add(arcname, reader())
 
     # -----------------------------
-    # 3. Download teller ophogen
+    # DOWNLOAD COUNTER
     # -----------------------------
     c2 = db()
     try:
         c2.execute(
-            "UPDATE packages "
-            "SET downloads_count = COALESCE(downloads_count, 0) + 1 "
+            "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 "
             "WHERE token=? AND tenant_id=?",
             (token, t),
         )
@@ -3319,7 +3317,7 @@ def stream_zip(token):
         c2.close()
 
     # -----------------------------
-    # 4. Response (echte ZIP)
+    # RESPONSE
     # -----------------------------
     filename = f"pakket-{token}.zip"
 
