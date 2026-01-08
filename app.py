@@ -3233,18 +3233,46 @@ def stream_file(token, item_id):
     finally:
         c.close()
 
-    # -----------------------------
-    # 2. Bestand streamen
-    # -----------------------------
+# -----------------------------
+# 2. Bestand streamen
+# -----------------------------
+try:
+    # ⬅️ DOWNLOAD TELLERS EERST VERHOGEN
+    c2 = db()
     try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-        length = int(head.get("ContentLength", 0))
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+        c2.execute(
+            "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 "
+            "WHERE token=? AND tenant_id=?",
+            (token, t),
+        )
+        c2.execute(
+            "UPDATE items SET downloads_count = COALESCE(downloads_count,0) + 1 "
+            "WHERE id=? AND token=? AND tenant_id=?",
+            (item_id, token, t),
+        )
+        c2.commit()
+    finally:
+        c2.close()
 
-        def gen():
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
+    # ⬅️ DAARNA PAS S3 STREAMEN
+    head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+    length = int(head.get("ContentLength", 0))
+    obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+
+    def gen():
+        for chunk in obj["Body"].iter_chunks(1024 * 512):
+            if chunk:
+                yield chunk
+
+    resp = Response(
+        stream_with_context(gen()),
+        mimetype="application/octet-stream",
+    )
+    resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
+    if length:
+        resp.headers["Content-Length"] = str(length)
+    resp.headers["X-Filename"] = it["name"]
+    return resp
 
         # -----------------------------
         # 3. Download counters
