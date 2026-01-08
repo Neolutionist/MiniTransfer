@@ -792,27 +792,36 @@ BILLING_HTML = """
 <style>
 {{ base_css }}
 
-/* ========== KLEUREN & BASIS ========== */
+/* ==============================
+   DESIGN TOKENS
+   ============================== */
 :root{
-  --bg:#0f172a;
-  --panel:#111827;
-  --card:#1f2933;
-  --border:#334155;
+  --bg:#0b1220;
+  --panel:#0f172a;
+  --card:#111827;
+  --border:#1f2937;
   --text:#e5e7eb;
   --muted:#94a3b8;
   --brand:#3b82f6;
   --danger:#ef4444;
 }
 
-body{
-  background:linear-gradient(135deg,#0f172a,#020617);
+/* ==============================
+   BASE
+   ============================== */
+html,body{
+  background:radial-gradient(1200px 600px at 10% -10%,#111827,#020617);
   color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell;
+  font-size:14px;
 }
 
-/* ========== LAYOUT ========== */
+/* ==============================
+   LAYOUT
+   ============================== */
 .wrap{
   max-width:1200px;
-  margin:4rem auto;
+  margin:3rem auto;
   padding:0 1.25rem;
 }
 
@@ -820,16 +829,17 @@ body{
   display:flex;
   justify-content:space-between;
   align-items:center;
-  margin-bottom:2rem;
+  margin-bottom:1.8rem;
 }
 
 h1{
-  margin:0;
-  font-size:1.8rem;
+  font-size:1.6rem;
   font-weight:800;
+  margin:0;
 }
 
 .logout{
+  font-size:.9rem;
   color:var(--muted);
 }
 .logout a{
@@ -838,102 +848,120 @@ h1{
   font-weight:600;
 }
 
-/* ========== CARDS ========== */
+/* ==============================
+   CARDS
+   ============================== */
 .card{
-  background:var(--card);
+  background:linear-gradient(180deg,#0f172a,#0b1220);
   border:1px solid var(--border);
-  border-radius:16px;
-  padding:1.25rem 1.4rem;
-  margin-bottom:1.4rem;
-  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  border-radius:14px;
+  padding:1.1rem 1.25rem;
+  margin-bottom:1.2rem;
 }
 
 .card h3{
-  margin:0 0 .75rem;
-  font-size:1.15rem;
+  margin:0 0 .7rem;
+  font-size:1.05rem;
+  font-weight:700;
 }
 
-/* ========== OPSLAG ========== */
+/* ==============================
+   KEY / VALUE
+   ============================== */
 .kv{
   display:grid;
   grid-template-columns:1fr auto;
-  gap:.4rem .8rem;
-  font-size:.95rem;
+  gap:.35rem .75rem;
 }
 .kv .k{ color:var(--muted); }
-.kv .v{ font-weight:600; }
+.kv .v{ font-weight:600; white-space:nowrap; }
 
+/* ==============================
+   PROGRESS BAR
+   ============================== */
 .bar{
-  height:10px;
+  height:8px;
   border-radius:999px;
   background:#020617;
   border:1px solid var(--border);
   overflow:hidden;
   margin-top:.6rem;
 }
-.bar>i{
+.bar i{
   display:block;
   height:100%;
   background:linear-gradient(90deg,#2563eb,#60a5fa);
 }
 
-/* ========== TABLE ========== */
+/* ==============================
+   TABLE
+   ============================== */
 .table{
   width:100%;
   border-collapse:collapse;
-  margin-top:.5rem;
-  font-size:.95rem;
+  font-size:13px;
 }
 .table th{
   text-align:left;
   color:#c7d2fe;
   font-weight:700;
-  padding:.55rem .6rem;
+  padding:6px 8px;
   border-bottom:1px solid var(--border);
+  white-space:nowrap;
 }
 .table td{
-  padding:.55rem .6rem;
+  padding:6px 8px;
   border-bottom:1px solid rgba(148,163,184,.15);
+  white-space:nowrap;
+  vertical-align:middle;
 }
 .table tr:hover td{
-  background:rgba(255,255,255,.03);
+  background:rgba(255,255,255,.035);
 }
 
-/* ========== BADGES ========== */
+/* ==============================
+   BADGES
+   ============================== */
 .pill{
-  display:inline-block;
-  padding:.25rem .65rem;
+  display:inline-flex;
+  align-items:center;
+  padding:3px 8px;
   border-radius:999px;
   background:#1e3a8a;
   color:#e0e7ff;
-  font-size:.85rem;
+  font-size:12px;
   font-weight:600;
 }
 
-/* ========== BUTTONS ========== */
+/* ==============================
+   BUTTONS
+   ============================== */
 .btn{
   border:0;
-  border-radius:10px;
-  padding:.4rem .7rem;
+  border-radius:9px;
+  padding:4px 9px;
+  font-size:12.5px;
   font-weight:700;
   cursor:pointer;
   color:white;
-  box-shadow:0 4px 12px rgba(0,0,0,.35);
 }
 .btn.primary{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
 .btn.secondary{ background:#020617; border:1px solid #334155; }
 .btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
 
 .actions{
-  white-space:nowrap;
+  display:flex;
+  gap:6px;
 }
 
-/* ========== FOOTER ========== */
+/* ==============================
+   FOOTER
+   ============================== */
 .footer{
   text-align:center;
   margin-top:2rem;
   color:var(--muted);
-  font-size:.85rem;
+  font-size:.8rem;
 }
 </style>
 </head>
@@ -961,13 +989,14 @@ h1{
   <div class="card">
     <h3>Abonnement</h3>
     {% if sub %}
-      <p class="small">
-        Actief abonnement voor <strong>{{ sub['login_email'] }}</strong><br>
-        Plan: <strong>{{ sub['plan_value'] }} TB</strong> • Status: <strong>{{ sub['status'] }}</strong>
+      <p>
+        <strong>{{ sub['login_email'] }}</strong> •
+        {{ sub['plan_value'] }} TB •
+        Status: <strong>{{ sub['status'] }}</strong>
       </p>
       <button class="btn danger" id="btnCancel">Abonnement opzeggen</button>
     {% else %}
-      <p class="small">Geen actief abonnement.</p>
+      <p>Geen actief abonnement.</p>
     {% endif %}
   </div>
 
@@ -978,8 +1007,8 @@ h1{
       <thead>
         <tr>
           <th>Onderwerp</th>
-          <th>Bestanden</th>
-          <th>Downloads</th>
+          <th>Best.</th>
+          <th>DL</th>
           <th>Verloopt</th>
           <th style="text-align:right">Totaal</th>
           <th></th>
@@ -995,19 +1024,21 @@ h1{
           <td style="text-align:right">{{ p.total_h }}</td>
           <td class="actions">
             <button class="btn primary" data-action="details">Details</button>
-            <button class="btn secondary" data-action="extend">+30 dagen</button>
-            <button class="btn danger" data-action="delete">Verwijderen</button>
+            <button class="btn secondary" data-action="extend">+30d</button>
+            <button class="btn danger" data-action="delete">✕</button>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-      <p class="small">Nog geen pakketten.</p>
+      <p>Nog geen pakketten.</p>
     {% endif %}
   </div>
 
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <div class="footer">
+    Olde Hanter Bouwconstructies • Bestandentransfer
+  </div>
 </div>
 
 <script>
@@ -1027,19 +1058,20 @@ document.getElementById('packsTable')?.addEventListener('click', async e=>{
   if(!btn) return;
   const tr = btn.closest('tr');
   const token = tr.dataset.token;
-  if(btn.dataset.action==='delete'){
-    if(confirm('Pakket verwijderen?')){
-      await api('{{ url_for("billing_package_delete") }}',{token});
-      tr.remove();
-    }
+
+  if(btn.dataset.action==='delete' && confirm('Pakket verwijderen?')){
+    await api('{{ url_for("billing_package_delete") }}',{token});
+    tr.remove();
   }
+
   if(btn.dataset.action==='extend'){
     await api('{{ url_for("billing_package_extend") }}',{token});
     location.reload();
   }
+
   if(btn.dataset.action==='details'){
     await api('{{ url_for("billing_package_files") }}',{token});
-    alert('Details geladen (zie console/backend)');
+    alert('Details geladen (zie backend)');
   }
 });
 
