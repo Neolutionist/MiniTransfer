@@ -1884,7 +1884,11 @@ async function download(url,name){
     tMoved.textContent=fmt(moved);
     if(total)pct(Math.round(moved/total*100));
   }
-  clearInterval(iv); pct(100); txt.textContent='Klaar';
+clearInterval(iv);
+bar.classList.remove('indet');
+fill.style.width = '100%';
+txt.textContent = 'Klaar';
+
   const blob=new Blob(chunks), u=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=u; a.download=name; a.click();
   URL.revokeObjectURL(u);
