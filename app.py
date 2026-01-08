@@ -1332,14 +1332,20 @@ INDEX_HTML = """
   padding:6px 10px;
   min-height:42px;
 }
-/* file input niet als overlay; we openen 'm via de knop */
+
+.picker-ctl label.btn{
+  position:relative;
+  overflow:hidden;
+  cursor:pointer;
+}
+
 .picker-ctl input[type=file]{
   position:absolute;
-  left:-9999px;
-  width:1px;
-  height:1px;
+  inset:0;
   opacity:0;
+  cursor:pointer;
 }
+
 
 /* basisknop overal */
 .btn{
@@ -1530,10 +1536,14 @@ INDEX_HTML = """
 
           <div id="fileRow" class="picker">
             <label for="fileInput">Kies bestand(en)</label>
-            <div class="picker-ctl">
-              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
-              <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
-              <input id="fileInput" type="file" multiple>
+<div class="picker-ctl">
+  <label class="btn ghost">
+    Kies bestanden
+    <input id="fileInput" type="file" multiple>
+  </label>
+  <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
+</div>
+
             </div>
           </div>
 
@@ -1691,12 +1701,6 @@ setInterval(()=>{
 }, 700);
 
 /* UI bindings */
-btnFiles.addEventListener('click', (e) => {
-  e.preventDefault();
-  // optioneel: reset zodat dezelfde file opnieuw kiezen ook onchange triggert
-  fileInput.value = '';
-  fileInput.click();
-});
 
 btnFolder && (btnFolder.onclick=()=>folderInput.click());
 fileInput.onchange = () => {
