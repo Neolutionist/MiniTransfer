@@ -3253,44 +3253,19 @@ def stream_file(token, item_id):
 
 # -------------- ZIP Download --------------
 
+from zipstream import ZipStream
+
 @app.route("/zip/<token>")
 def stream_zip(token):
     t = current_tenant()["slug"]
+
+    # -----------------------------
+    # 1. Items ophalen
+    # -----------------------------
     c = db()
-
     try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
-
-        if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-                token=token,
-            ), 410
-
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=datetime.fromisoformat(pkg["expires_at"])
-                    .replace(second=0, microsecond=0)
-                    .strftime("%d-%m-%Y %H:%M"),
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
-
         rows = c.execute(
-            "SELECT name,path,s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY path",
+            "SELECT name, path, s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t),
         ).fetchall()
 
@@ -3300,34 +3275,35 @@ def stream_zip(token):
     finally:
         c.close()
 
+    # -----------------------------
+    # 2. ZIP STREAM (PUUR)
+    # -----------------------------
     z = ZipStream()
 
-    def add_file(r):
+    for r in rows:
         arcname = r["path"] or r["name"]
 
-        def reader():
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+        def reader(key=r["s3_key"]):
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
             for chunk in obj["Body"].iter_chunks(1024 * 512):
                 if chunk:
                     yield chunk
 
-        z.add(arcname=arcname, iterable=reader())
+        z.add(arcname, reader())
 
-    for r in rows:
-        add_file(r)
+    # -----------------------------
+    # 3. RESPONSE (GEEN EXTRA LOGICA)
+    # -----------------------------
+    filename = f"pakket-{token}.zip"
 
-    def generate():
-        for chunk in z:
-            yield chunk
-
-    filename = (pkg["title"] or f"pakket-{token}").replace('"', '')
-    if not filename.lower().endswith(".zip"):
-        filename += ".zip"
-
-    resp = Response(stream_with_context(generate()), mimetype="application/zip")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    resp.headers["X-Filename"] = filename
-    return resp
+    return Response(
+        stream_with_context(z),
+        mimetype="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
         
