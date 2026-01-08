@@ -175,6 +175,27 @@ def _col_exists(conn, table, col):
     return any(r[1] == col for r in cur.fetchall())
 
 def migrate_add_tenant_columns():
+
+    def migrate_add_download_counters():
+    conn = db()
+    try:
+        # packages.downloads_count
+        if not _col_exists(conn, "packages", "downloads_count"):
+            conn.execute("ALTER TABLE packages ADD COLUMN downloads_count INTEGER DEFAULT 0")
+            conn.execute("UPDATE packages SET downloads_count = 0 WHERE downloads_count IS NULL")
+
+        # items.downloads_count
+        if not _col_exists(conn, "items", "downloads_count"):
+            conn.execute("ALTER TABLE items ADD COLUMN downloads_count INTEGER DEFAULT 0")
+            conn.execute("UPDATE items SET downloads_count = 0 WHERE downloads_count IS NULL")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_download_counters()
+
+    
     conn = db()
     try:
         # packages
@@ -760,407 +781,588 @@ btn.onclick = async () => {
 """
 
 
-BILLING_HTML = """
+BILLING_HTML = r"""
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Beheer abonnement – Olde Hanter</title>
-{{ head_icon|safe }}
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Beheer • Olde Hanter</title>
+  {{ head_icon|safe }}
 
-<style>
-{{ base_css }}
+  <style>
+    {{ base_css }}
 
-/* ===========================
-   Algemene layout
-   =========================== */
+    /* ========== Page polish (professional, calm) ========== */
+    :root{
+      --ink:#0b1220;
+      --muted2:#64748b;
+      --card: color-mix(in oklab, var(--panel) 92%, white 8%);
+      --card-b: color-mix(in oklab, var(--panel-b) 55%, #cbd5e1 45%);
+      --shadow: 0 16px 40px rgba(2,6,23,.10);
+      --radius: 16px;
+    }
 
-body{background:#f4f6fb}
+    .wrap{max-width:1120px;margin:5vh auto;padding:0 16px}
+    .top{
+      display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;
+      margin-bottom:14px
+    }
+    .h1{margin:0;color:var(--brand);font-weight:900;letter-spacing:.2px}
+    .who{color:var(--muted);font-size:.92rem}
+    .who a{color:var(--brand);text-decoration:none;font-weight:700}
 
-.wrap{
-  max-width:1200px;
-  margin:4vh auto;
-  padding:0 18px;
-}
+    .grid{display:grid;gap:14px}
+    .cols{grid-template-columns:1fr}
+    @media(min-width:980px){ .cols{grid-template-columns: 1fr 1fr} }
 
-.header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:22px;
-  gap:12px;
-  flex-wrap:wrap;
-}
+    .card{
+      border:1px solid var(--card-b);
+      background:var(--card);
+      border-radius:var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      min-width:0;
+    }
+    .card-h{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:14px 16px;
+      border-bottom:1px solid rgba(2,6,23,.06);
+    }
+    .card-h h2{margin:0;font-size:1.02rem}
+    .card-b{padding:14px 16px}
 
-.header h1{
-  margin:0;
-  font-weight:800;
-  color:#1e40af;
-}
+    .pill{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:.25rem .6rem;border-radius:999px;
+      font-size:.8rem;font-weight:700;
+      border:1px solid rgba(2,6,23,.10);
+      background: rgba(255,255,255,.35);
+      color: var(--muted);
+      white-space:nowrap;
+    }
+    .pill strong{color:var(--text)}
+    .pill.ok{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#166534}
+    .pill.warn{border-color:rgba(245,158,11,.35); background:rgba(245,158,11,.12); color:#92400e}
+    .pill.bad{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#991b1b}
 
-.user{
-  font-size:.9rem;
-  color:#475569;
-}
-.user a{
-  color:#1e40af;
-  font-weight:600;
-  text-decoration:none;
-}
+    .kv{display:grid;grid-template-columns:1fr auto;gap:.35rem .9rem;align-items:center}
+    .k{color:var(--muted);font-size:.9rem}
+    .v{font-weight:800;font-variant-numeric:tabular-nums}
 
-/* ===========================
-   Cards
-   =========================== */
+    .bar{
+      height:10px;border-radius:999px;overflow:hidden;
+      border:1px solid rgba(2,6,23,.12);
+      background:rgba(2,6,23,.06);
+      margin-top:10px;
+    }
+    .bar>i{display:block;height:100%;width:{{ pct }}%;background:linear-gradient(90deg,var(--brand),color-mix(in oklab,var(--brand) 70%, #000 30%));transition:width .25s ease}
 
-.card{
-  background:#ffffff;
-  border:1px solid #e5e7eb;
-  border-radius:10px;
-  padding:18px;
-  margin-bottom:20px;
-}
+    /* Controls */
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+    .input, select{
+      width:100%;
+      padding:.62rem .70rem;
+      border-radius:12px;
+      border:1px solid rgba(2,6,23,.14);
+      background: rgba(255,255,255,.55);
+      outline:none;
+    }
+    .input:focus, select:focus{border-color: var(--ring); box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+    label{display:block;font-size:.86rem;color:var(--muted);margin:0 0 6px}
 
-.card h2{
-  margin:0 0 12px 0;
-  font-size:1.05rem;
-  font-weight:700;
-  color:#1e3a8a;
-}
+    .btn{
+      appearance:none;
+      border:1px solid rgba(2,6,23,.14);
+      background: linear-gradient(180deg, #ffffff, rgba(255,255,255,.65));
+      color: var(--text);
+      font-weight:800;
+      border-radius:12px;
+      padding:.58rem .78rem;
+      cursor:pointer;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+      box-shadow: 0 10px 22px rgba(2,6,23,.08);
+    }
+    .btn:hover{transform: translateY(-1px)}
+    .btn:active{transform: translateY(0px)}
+    .btn.primary{
+      border:0;
+      color:#fff;
+      background: linear-gradient(180deg, var(--brand), color-mix(in oklab,var(--brand) 75%, #000 25%));
+    }
+    .btn.danger{
+      border:0;color:#fff;
+      background: linear-gradient(180deg, #ef4444, #b91c1c);
+    }
+    .btn.ghost{
+      background: transparent;
+      box-shadow:none;
+    }
+    .btn.sm{padding:.42rem .6rem; font-size:.88rem; border-radius:11px}
 
-/* ===========================
-   Key-value blokken
-   =========================== */
+    /* Table */
+    .table{width:100%;border-collapse:collapse;margin-top:10px}
+    .table th,.table td{padding:.62rem .65rem;border-bottom:1px solid rgba(2,6,23,.08);vertical-align:middle}
+    .table th{text-align:left;font-size:.82rem;color:var(--muted);font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+    .table td{font-size:.92rem}
+    .table tr:hover td{background: rgba(255,255,255,.35)}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .actions{white-space:nowrap;text-align:right}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
 
-.kv{
-  display:grid;
-  grid-template-columns:180px 1fr;
-  gap:6px 12px;
-  font-size:.95rem;
-}
+    .mini{color:var(--muted);font-size:.88rem}
+    .footer{margin-top:14px;text-align:center;color:var(--muted);font-size:.9rem}
 
-.bar{
-  margin-top:10px;
-  height:10px;
-  background:#e5e7eb;
-  border-radius:999px;
-  overflow:hidden;
-}
-.bar > i{
-  display:block;
-  height:100%;
-  width:{{ pct }}%;
-  background:#2563eb;
-}
+    /* Mobile table -> cards */
+    @media(max-width:760px){
+      .table thead{display:none}
+      .table, .table tbody, .table tr, .table td{display:block;width:100%}
+      .table tr{
+        border:1px solid rgba(2,6,23,.10);
+        border-radius:14px;
+        margin-top:10px;
+        overflow:hidden;
+        background: rgba(255,255,255,.30);
+      }
+      .table td{border:0;display:flex;justify-content:space-between;gap:10px}
+      .table td::before{
+        content: attr(data-label);
+        color: var(--muted);
+        font-weight:800;
+        text-transform:uppercase;
+        letter-spacing:.04em;
+        font-size:.78rem;
+      }
+      .actions{white-space:normal;text-align:left}
+    }
 
-/* ===========================
-   Buttons
-   =========================== */
-
-.btn{
-  padding:.45rem .8rem;
-  font-size:.85rem;
-  font-weight:600;
-  border-radius:6px;
-  border:1px solid transparent;
-  cursor:pointer;
-  background:#2563eb;
-  color:#ffffff;
-}
-
-.btn.secondary{
-  background:#0f172a;
-}
-
-.btn.outline{
-  background:#ffffff;
-  color:#2563eb;
-  border-color:#2563eb;
-}
-
-.btn.danger{
-  background:#dc2626;
-}
-
-.btn:disabled{
-  opacity:.6;
-  cursor:not-allowed;
-}
-
-/* ===========================
-   Table
-   =========================== */
-
-.table{
-  width:100%;
-  border-collapse:collapse;
-  font-size:.92rem;
-}
-
-.table th{
-  text-align:left;
-  padding:10px 8px;
-  border-bottom:2px solid #e5e7eb;
-  font-weight:700;
-  color:#0f172a;
-}
-
-.table td{
-  padding:10px 8px;
-  border-bottom:1px solid #e5e7eb;
-  vertical-align:middle;
-}
-
-.table td.actions{
-  display:flex;
-  gap:6px;
-  white-space:nowrap;
-}
-
-.badge{
-  display:inline-block;
-  padding:4px 10px;
-  border-radius:999px;
-  font-size:.8rem;
-  font-weight:600;
-  background:#e0e7ff;
-  color:#1e40af;
-}
-
-/* ===========================
-   Modal
-   =========================== */
-
-dialog{
-  border:0;
-  border-radius:10px;
-  padding:0;
-  max-width:720px;
-  width:100%;
-}
-
-.modal{
-  padding:18px;
-}
-
-.modal header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:10px;
-}
-
-.modal h3{
-  margin:0;
-  font-size:1.05rem;
-}
-</style>
+    /* Dialog */
+    dialog{
+      width:min(920px, 92vw);
+      border:1px solid rgba(2,6,23,.14);
+      border-radius:18px;
+      background: var(--card);
+      box-shadow: 0 26px 70px rgba(2,6,23,.22);
+      padding:0;
+    }
+    dialog::backdrop{background: rgba(2,6,23,.45)}
+    .dlg-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(2,6,23,.08)}
+    .dlg-h strong{font-size:1rem}
+    .dlg-b{padding:14px 16px}
+    .hint{padding:10px 12px;border-radius:12px;background:rgba(2,6,23,.04);border:1px solid rgba(2,6,23,.08);color:var(--muted);font-size:.9rem}
+  </style>
 </head>
 
 <body>
 {{ bg|safe }}
-
 <div class="wrap">
 
-  <!-- Header -->
-  <div class="header">
-    <h1>Beheer abonnement</h1>
-    <div class="user">
-      Ingelogd als <strong>{{ user }}</strong> ·
-      <a href="{{ url_for('logout') }}">Uitloggen</a>
+  <div class="top">
+    <div>
+      <h1 class="h1">Beheer</h1>
+      <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    </div>
+
+    <div class="pill">
+      Tenant: <strong>{{ tenant_label }}</strong>
     </div>
   </div>
 
-  <!-- Opslag -->
-  <div class="card">
-    <h2>Opslaggebruik</h2>
-    <div class="kv">
-      <div>Tenant</div><div>{{ tenant_label }}</div>
-      <div>Gebruikt</div><div>{{ used_h }}</div>
-      <div>Limiet</div><div>{{ limit_h }}</div>
-    </div>
-    <div class="bar"><i></i></div>
-    {% if over %}
-      <p style="color:#b91c1c;margin-top:8px">
-        Opslaglimiet overschreden.
-      </p>
-    {% endif %}
-  </div>
+  <div class="grid cols">
 
-  <!-- Abonnement -->
-  <div class="card">
-    <h2>Abonnement</h2>
-    {% if sub %}
-      <p>
-        Plan: <strong>{{ sub['plan_value'] }} TB</strong><br>
-        Status: <strong>{{ sub['status'] }}</strong><br>
-        ID: <code id="subid">{{ sub['subscription_id'] }}</code>
-      </p>
-
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <select id="newPlan" class="input">
-          <option value="0.5">0,5 TB</option>
-          <option value="1">1 TB</option>
-          <option value="2">2 TB</option>
-          <option value="5">5 TB</option>
-        </select>
-        <button class="btn" id="btnChange">Wijzig plan</button>
-        <button class="btn outline" id="btnCancel">Opzeggen</button>
+    <!-- Opslag -->
+    <div class="card">
+      <div class="card-h">
+        <h2>Opslag</h2>
+        {% if over %}
+          <span class="pill bad">Boven limiet</span>
+        {% else %}
+          <span class="pill ok">OK</span>
+        {% endif %}
       </div>
-    {% else %}
-      <p>Geen actief abonnement.</p>
-    {% endif %}
+      <div class="card-b">
+        <div class="kv">
+          <div class="k">Gebruikt</div><div class="v">{{ used_h }}</div>
+          <div class="k">Limiet</div><div class="v">{{ limit_h }}</div>
+          <div class="k">Gebruik</div><div class="v">{{ pct }}%</div>
+        </div>
+        <div class="bar" aria-hidden="true"><i></i></div>
+        {% if over %}
+          <p class="mini" style="margin:.6rem 0 0;color:#991b1b;font-weight:700">
+            Je zit boven je limiet. Overweeg een groter plan.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Abonnement -->
+    <div class="card">
+      <div class="card-h">
+        <h2>Abonnement</h2>
+        {% if sub %}
+          <span class="pill ok">Actief</span>
+        {% else %}
+          <span class="pill warn">Geen abonnement</span>
+        {% endif %}
+      </div>
+      <div class="card-b">
+        {% if sub %}
+          <div class="kv" style="margin-bottom:10px">
+            <div class="k">Account</div><div class="v">{{ sub['login_email'] }}</div>
+            <div class="k">Plan</div><div class="v">{{ sub['plan_value'] }} TB</div>
+            <div class="k">Status</div><div class="v">{{ sub['status'] }}</div>
+            <div class="k">Subscription ID</div><div class="v mono" id="subid">{{ sub['subscription_id'] }}</div>
+          </div>
+
+          <div class="row">
+            <div style="min-width:220px;flex:1">
+              <label for="newPlan">Nieuw plan</label>
+              <select id="newPlan">
+                <option value="0.5">0,5 TB</option>
+                <option value="1">1 TB</option>
+                <option value="2">2 TB</option>
+                <option value="5">5 TB</option>
+              </select>
+            </div>
+            <button type="button" class="btn primary" id="btnChange">Wijzig plan</button>
+            <button type="button" class="btn danger" id="btnCancel">Opzeggen</button>
+          </div>
+        {% else %}
+          <p class="mini" style="margin:0">
+            Geen actief abonnement gevonden voor {{ user }}.
+            Start een abonnement via de aanvraagpagina.
+          </p>
+          <p style="margin:.7rem 0 0">
+            <a class="btn primary" style="display:inline-block;text-decoration:none" href="{{ url_for('contact') }}">Aanvraag starten</a>
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
   </div>
 
   <!-- Pakketten -->
-  <div class="card">
-    <h2>Pakketten</h2>
+  <div class="card" style="margin-top:14px">
+    <div class="card-h">
+      <h2>Pakketten</h2>
+      <span class="pill">Totaal: <strong>{{ (packs|length) if packs else 0 }}</strong></span>
+    </div>
 
-    {% if packs %}
-    <table class="table" id="packsTable">
-      <thead>
-        <tr>
-          <th>Onderwerp</th>
-          <th>Bestanden</th>
-          <th>Downloads</th>
-          <th>Verloopt</th>
-          <th>Totaal</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in packs %}
-        <tr data-token="{{ p.token }}">
-          <td>{{ p.title }}</td>
-          <td>{{ p.files_count }}</td>
-          <td>{{ p.downloads if p.downloads is defined else "—" }}</td>
-          <td><span class="badge">{{ p.expires_h }}</span></td>
-          <td>{{ p.total_h }}</td>
-          <td class="actions">
-            <button class="btn outline" data-action="details">Details</button>
-            <button class="btn secondary" data-action="extend">+30 dagen</button>
-            <button class="btn danger" data-action="delete">Verwijderen</button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p>Geen pakketten gevonden.</p>
-    {% endif %}
+    <div class="card-b">
+
+      <div class="row">
+        <div style="min-width:260px;flex:1">
+          <label for="q">Zoeken</label>
+          <input id="q" class="input" placeholder="Zoek op onderwerp of token…">
+        </div>
+
+        <div style="min-width:200px">
+          <label for="flt">Filter</label>
+          <select id="flt">
+            <option value="all">Alles</option>
+            <option value="active">Actief</option>
+            <option value="expired">Verlopen</option>
+          </select>
+        </div>
+
+        <div style="min-width:220px">
+          <label for="sort">Sorteren</label>
+          <select id="sort">
+            <option value="created_desc">Nieuwste eerst</option>
+            <option value="created_asc">Oudste eerst</option>
+            <option value="expires_asc">Verloopt eerst</option>
+            <option value="expires_desc">Verloopt laatst</option>
+            <option value="downloads_desc">Meest gedownload</option>
+            <option value="downloads_asc">Minst gedownload</option>
+          </select>
+        </div>
+      </div>
+
+      {% if packs and packs|length > 0 %}
+        <table class="table" id="packsTable">
+          <thead>
+            <tr>
+              <th>Onderwerp</th>
+              <th class="num">Bestanden</th>
+              <th>Verloopt</th>
+              <th class="num">Downloads</th>
+              <th class="num">Totaal</th>
+              <th class="actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in packs %}
+              <tr
+                data-token="{{ p.token }}"
+                data-title="{{ (p.title or '')|e }}"
+                data-created="{{ p.created_at }}"
+                data-expires="{{ p.expires_at }}"
+                data-downloads="{{ p.downloads_count or 0 }}"
+              >
+                <td data-label="Onderwerp">
+                  <div style="font-weight:900">{{ p.title or '—' }}</div>
+                  <div class="mini">Token: <span class="mono">{{ p.token }}</span></div>
+                </td>
+
+                <td data-label="Bestanden" class="num">{{ p.files_count }}</td>
+
+                <td data-label="Verloopt">
+                  <span class="pill {% if p.is_expired %}bad{% else %}ok{% endif %}">
+                    {{ p.expires_h }}
+                  </span>
+                </td>
+
+                <td data-label="Downloads" class="num">
+                  <span class="pill">{{ p.downloads_count or 0 }}</span>
+                </td>
+
+                <td data-label="Totaal" class="num">{{ p.total_h }}</td>
+
+                <td data-label="Acties" class="actions">
+                  <button type="button" class="btn sm" data-action="details">Details</button>
+                  <button type="button" class="btn sm" data-action="extend">+30 dagen</button>
+                  <button type="button" class="btn sm danger" data-action="delete">Verwijderen</button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="hint" style="margin-top:10px">
+          Tip: “+30 dagen” verlengt het <strong>hele pakket</strong>. “Downloads” is het totaal aantal downloads (ZIP en losse bestanden).
+        </div>
+      {% else %}
+        <p class="mini">Nog geen uploads/pakketten gevonden.</p>
+      {% endif %}
+    </div>
   </div>
 
-  <p style="text-align:center;color:#64748b;font-size:.85rem">
-    Olde Hanter Bouwconstructies • Bestandentransfer
-  </p>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
-<!-- Modal -->
-<dialog id="packDlg">
-  <div class="modal">
-    <header>
-      <h3 id="dlgTitle">Pakket</h3>
-      <button class="btn outline" id="dlgClose">Sluiten</button>
-    </header>
-    <div id="dlgMeta" style="margin-bottom:10px"></div>
-    <table class="table">
+<!-- Details dialog -->
+<dialog id="packDlg" aria-label="Pakketdetails">
+  <div class="dlg-h">
+    <strong id="dlgTitle">Pakket</strong>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="pill" id="dlgDownloads">Downloads: <strong>0</strong></span>
+      <button type="button" class="btn sm" id="dlgClose">Sluiten</button>
+    </div>
+  </div>
+  <div class="dlg-b">
+    <div id="dlgMeta" class="mini" style="margin-bottom:10px"></div>
+    <table class="table" id="dlgTable">
       <thead>
-        <tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr>
+        <tr>
+          <th>Bestand</th>
+          <th>Pad</th>
+          <th class="num">Grootte</th>
+          <th class="num">Downloads</th>
+        </tr>
       </thead>
-      <tbody id="dlgBody"></tbody>
+      <tbody></tbody>
     </table>
   </div>
 </dialog>
 
 <script>
-/* ===========================
-   Element refs (CRUCIAAL)
-   =========================== */
-
-const btnCancel  = document.getElementById('btnCancel');
-const btnChange  = document.getElementById('btnChange');
-const newPlan    = document.getElementById('newPlan');
-const subid      = document.getElementById('subid');
-const packsTable = document.getElementById('packsTable');
-
-const packDlg  = document.getElementById('packDlg');
-const dlgClose = document.getElementById('dlgClose');
-const dlgTitle = document.getElementById('dlgTitle');
-const dlgMeta  = document.getElementById('dlgMeta');
-const dlgBody  = document.getElementById('dlgBody');
-
-/* ===========================
-   API helper
-   =========================== */
+/* ----------------- Helpers ----------------- */
+function norm(s){ return (s||"").toString().toLowerCase().trim(); }
 
 async function api(url, body){
-  const r = await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body||{})
+  const r = await fetch(url, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body || {})
   });
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+
+  // altijd proberen json te lezen (handig bij errors)
+  const j = await r.json().catch(()=> ({}));
+  if(!r.ok){
+    throw new Error(j.error || ('HTTP ' + r.status));
+  }
   return j;
 }
 
-/* ===========================
-   Subscription acties
-   =========================== */
-
-btnCancel?.addEventListener('click', async ()=>{
-  if(!confirm('Abonnement opzeggen?')) return;
-  await api("{{ url_for('billing_cancel') }}",{subscription_id:subid.textContent});
-  location.reload();
-});
-
-btnChange?.addEventListener('click', async ()=>{
-  await api("{{ url_for('billing_change') }}",{
-    subscription_id:subid.textContent,
-    new_plan_value:newPlan.value
-  });
-  location.reload();
-});
-
-/* ===========================
-   Pakket acties
-   =========================== */
-
-packsTable?.addEventListener('click', async e=>{
-  const btn = e.target.closest('button[data-action]');
-  if(!btn) return;
-
-  const tr = btn.closest('tr');
-  const token = tr.dataset.token;
-
-  if(btn.dataset.action === 'delete'){
-    if(!confirm('Pakket verwijderen?')) return;
-    await api("{{ url_for('billing_package_delete') }}",{token});
-    tr.remove();
-  }
-
-  if(btn.dataset.action === 'extend'){
-    await api("{{ url_for('billing_package_extend') }}",{token});
+/* ----------------- Abonnement knoppen ----------------- */
+document.getElementById('btnCancel')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid')?.textContent?.trim();
+  if(!id) return;
+  if(!confirm('Weet je zeker dat je wil opzeggen?')) return;
+  try{
+    await api("{{ url_for('billing_cancel') }}", { subscription_id: id });
+    alert('Opgezegd.');
     location.reload();
-  }
-
-  if(btn.dataset.action === 'details'){
-    dlgTitle.textContent = 'Pakket ' + token;
-    dlgMeta.textContent = 'Laden…';
-    dlgBody.innerHTML = '';
-    packDlg.showModal();
-
-    const r = await api("{{ url_for('billing_package_files') }}",{token});
-    dlgMeta.textContent = r.files.length + ' bestand(en)';
-    dlgBody.innerHTML = r.files.map(f =>
-      `<tr><td>${f.name}</td><td>${f.path}</td><td>${f.size_h}</td></tr>`
-    ).join('');
+  }catch(e){
+    alert('Mislukt: ' + (e?.message || e));
   }
 });
 
-dlgClose?.addEventListener('click', ()=>packDlg.close());
-</script>
+document.getElementById('btnChange')?.addEventListener('click', async ()=>{
+  const id = document.getElementById('subid')?.textContent?.trim();
+  const val = document.getElementById('newPlan')?.value;
+  if(!id || !val) return;
+  try{
+    await api("{{ url_for('billing_change') }}", { subscription_id: id, new_plan_value: val });
+    alert('Plan gewijzigd.');
+    location.reload();
+  }catch(e){
+    alert('Mislukt: ' + (e?.message || e));
+  }
+});
 
+/* ----------------- Dialog ----------------- */
+const dlg = document.getElementById('packDlg');
+const dlgClose = document.getElementById('dlgClose');
+const dlgTitle = document.getElementById('dlgTitle');
+const dlgMeta  = document.getElementById('dlgMeta');
+const dlgTBody = document.querySelector('#dlgTable tbody');
+const dlgDownloads = document.getElementById('dlgDownloads');
+
+dlgClose?.addEventListener('click', ()=> dlg.close());
+
+/* ----------------- Table actions (robust delegation) ----------------- */
+const tbl = document.getElementById('packsTable');
+
+async function openDetails(token, downloads){
+  dlgTitle.textContent = 'Pakket ' + token;
+  dlgDownloads.innerHTML = 'Downloads: <strong>' + (downloads || 0) + '</strong>';
+  dlgMeta.textContent = 'Bestanden laden…';
+  dlgTBody.innerHTML = '<tr><td colspan="4" class="mini">Laden…</td></tr>';
+  if (typeof dlg.showModal === 'function') dlg.showModal();
+
+  const res = await api("{{ url_for('billing_package_files') }}", { token });
+  const files = res?.files || [];
+
+  dlgMeta.textContent = files.length + ' bestand(en) in dit pakket.';
+  if(!files.length){
+    dlgTBody.innerHTML = '<tr><td colspan="4" class="mini">Geen bestanden gevonden.</td></tr>';
+    return;
+  }
+
+  dlgTBody.innerHTML = files.map(f => (
+    '<tr>' +
+      '<td data-label="Bestand"><strong>' + (f.name||'') + '</strong></td>' +
+      '<td data-label="Pad" class="mini">' + (f.path||'') + '</td>' +
+      '<td data-label="Grootte" class="num">' + (f.size_h||'') + '</td>' +
+      '<td data-label="Downloads" class="num"><span class="pill">' + (f.downloads_count ?? 0) + '</span></td>' +
+    '</tr>'
+  )).join('');
+}
+
+if (tbl){
+  tbl.addEventListener('click', async (ev)=>{
+    const btn = ev.target.closest('button[data-action]');
+    if(!btn) return;
+
+    const tr = btn.closest('tr');
+    const token = (tr?.dataset?.token || '').trim();
+    const action = btn.dataset.action;
+    const downloads = parseInt(tr?.dataset?.downloads || '0', 10) || 0;
+    if(!token) return;
+
+    try{
+      if(action === 'extend'){
+        const res = await api("{{ url_for('billing_package_extend') }}", { token });
+        const iso = res?.new_expires_at || '';
+        if(iso){
+          const d = new Date(iso);
+          const fmt = d.toLocaleString('nl-NL', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+          const pill = tr.querySelector('td:nth-child(3) .pill');
+          if(pill) pill.textContent = fmt;
+          tr.dataset.expires = iso;
+        }
+      }
+
+      if(action === 'delete'){
+        if(!confirm('Hele pakket verwijderen (alle bestanden)?')) return;
+        await api("{{ url_for('billing_package_delete') }}", { token });
+        tr.remove();
+        applyFilterSort(); // keep UI consistent
+      }
+
+      if(action === 'details'){
+        await openDetails(token, downloads);
+      }
+    }catch(e){
+      alert('Actie mislukt: ' + (e?.message || e));
+    }
+  });
+}
+
+/* ----------------- Search / filter / sort ----------------- */
+const q = document.getElementById('q');
+const flt = document.getElementById('flt');
+const sort = document.getElementById('sort');
+
+function isExpiredISO(iso){
+  try{ return new Date(iso).getTime() <= Date.now(); }catch(_){ return false; }
+}
+
+function getRows(){
+  return Array.from(document.querySelectorAll('#packsTable tbody tr'));
+}
+
+function applyFilterSort(){
+  if(!tbl) return;
+
+  const query = norm(q?.value);
+  const f = flt?.value || 'all';
+  const s = sort?.value || 'created_desc';
+
+  const rows = getRows();
+
+  // filter
+  for(const tr of rows){
+    const title = norm(tr.dataset.title);
+    const token = norm(tr.dataset.token);
+    const expires = tr.dataset.expires || '';
+    const expired = isExpiredISO(expires);
+
+    let ok = true;
+
+    if(query){
+      ok = (title.includes(query) || token.includes(query));
+    }
+
+    if(ok && f === 'active') ok = !expired;
+    if(ok && f === 'expired') ok = expired;
+
+    tr.style.display = ok ? '' : 'none';
+  }
+
+  // sort (only visible rows)
+  const visible = rows.filter(r => r.style.display !== 'none');
+  const key = (tr)=>{
+    const created = new Date(tr.dataset.created || 0).getTime() || 0;
+    const expires = new Date(tr.dataset.expires || 0).getTime() || 0;
+    const downloads = parseInt(tr.dataset.downloads || '0', 10) || 0;
+    return {created, expires, downloads};
+  };
+
+  visible.sort((a,b)=>{
+    const A=key(a), B=key(b);
+    if(s==='created_desc') return B.created - A.created;
+    if(s==='created_asc')  return A.created - B.created;
+    if(s==='expires_asc')  return A.expires - B.expires;
+    if(s==='expires_desc') return B.expires - A.expires;
+    if(s==='downloads_desc') return B.downloads - A.downloads;
+    if(s==='downloads_asc')  return A.downloads - B.downloads;
+    return 0;
+  });
+
+  const tbody = tbl.querySelector('tbody');
+  for(const tr of visible) tbody.appendChild(tr);
+}
+
+q?.addEventListener('input', applyFilterSort);
+flt?.addEventListener('change', applyFilterSort);
+sort?.addEventListener('change', applyFilterSort);
+
+// initial
+applyFilterSort();
+</script>
 </body>
 </html>
 """
@@ -2640,36 +2842,41 @@ def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
         has_tenant = _col_exists(c, "packages", "tenant_id") and _col_exists(c, "items", "tenant_id")
 
         if has_tenant:
-            rows = c.execute(
-                """
-                SELECT p.token, p.title, p.expires_at, p.created_at,
-                       COUNT(i.id) AS files_count,
-                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
-                FROM packages p
-                LEFT JOIN items i
-                  ON i.token = p.token AND i.tenant_id = p.tenant_id
-                WHERE p.tenant_id = ?
-                GROUP BY p.token, p.title, p.expires_at, p.created_at
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (tenant_slug, limit),
-            ).fetchall()
+rows = c.execute(
+    """
+    SELECT p.token, p.title, p.expires_at, p.created_at,
+           COUNT(i.id) AS files_count,
+           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+           COALESCE(p.downloads_count, 0) AS downloads_count
+    FROM packages p
+    LEFT JOIN items i
+      ON i.token = p.token AND i.tenant_id = p.tenant_id
+    WHERE p.tenant_id = ?
+    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
+    ORDER BY p.created_at DESC
+    LIMIT ?
+    """,
+    (tenant_slug, limit),
+).fetchall()
+
         else:
-            rows = c.execute(
-                """
-                SELECT p.token, p.title, p.expires_at, p.created_at,
-                       COUNT(i.id) AS files_count,
-                       COALESCE(SUM(i.size_bytes), 0) AS total_bytes
-                FROM packages p
-                LEFT JOIN items i
-                  ON i.token = p.token
-                GROUP BY p.token, p.title, p.expires_at, p.created_at
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+        
+rows = c.execute(
+    """
+    SELECT p.token, p.title, p.expires_at, p.created_at,
+           COUNT(i.id) AS files_count,
+           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+           COALESCE(p.downloads_count, 0) AS downloads_count
+    FROM packages p
+    LEFT JOIN items i
+      ON i.token = p.token
+    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
+    ORDER BY p.created_at DESC
+    LIMIT ?
+    """,
+    (limit,),
+).fetchall()
+
 
         return [dict(r) for r in rows]
     finally:
@@ -2680,15 +2887,17 @@ def list_files_in_package(token: str, tenant_slug: str) -> list[dict]:
     """Alle bestanden in één pakket (voor de 'Details'-modal)."""
     c = db()
     try:
-        rows = c.execute(
-            """
-            SELECT id AS item_id, name, path, size_bytes
-            FROM items
-            WHERE token = ? AND tenant_id = ?
-            ORDER BY path, name
-            """,
-            (token, tenant_slug),
-        ).fetchall()
+  rows = c.execute(
+    """
+    SELECT id AS item_id, name, path, size_bytes,
+           COALESCE(downloads_count, 0) AS downloads_count
+    FROM items
+    WHERE token = ? AND tenant_id = ?
+    ORDER BY path, name
+    """,
+    (token, tenant_slug),
+).fetchall()
+
         return [dict(r) for r in rows]
     finally:
         c.close()
@@ -2977,6 +3186,17 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
+        
+        # Download counter verhogen
+        conn.execute(
+            "UPDATE items SET downloads_count = downloads_count + 1 WHERE id = ?",
+            (item_id,)
+        )
+        conn.commit()
+
+    finally:
+        conn.close()
+
     # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute(
@@ -3098,6 +3318,26 @@ def stream_file(token, item_id):
             bg=BG_DIV,
             head_icon=HTML_HEAD_ICON
         ), 410
+
+
+        # downloads_count ophogen (pakket + item)
+try:
+    c2 = db()
+    c2.execute(
+        "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE token=? AND tenant_id=?",
+        (token, t),
+    )
+    c2.execute(
+        "UPDATE items SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE id=? AND token=? AND tenant_id=?",
+        (item_id, token, t),
+    )
+    c2.commit()
+finally:
+    try:
+        c2.close()
+    except Exception:
+        pass
+
 
 
         
@@ -3413,6 +3653,23 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zipstream_failed"
         return resp
 
+
+
+        # downloads_count ophogen (pakket)
+try:
+    c = db()
+    c.execute(
+        "UPDATE packages SET downloads_count = COALESCE(downloads_count,0) + 1 WHERE token=? AND tenant_id=?",
+        (token, t),
+    )
+    c.commit()
+finally:
+    try:
+        c.close()
+    except Exception:
+        pass
+
+
         
 @app.route("/terms")
 def terms_page():
@@ -3584,6 +3841,7 @@ def privacy_page():
 def billing_package_files():
     if not logged_in():
         abort(401)
+
     data = request.get_json(force=True, silent=True) or {}
     token = (data.get("token") or "").strip()
     if not token:
@@ -3591,15 +3849,15 @@ def billing_package_files():
 
     t = current_tenant()["slug"]
     files = list_files_in_package(token, t)
-    out = [
-        {
-            "item_id": f["item_id"],
-            "name": f["name"],
-            "path": f.get("path") or f["name"],
-            "size_h": human(int(f["size_bytes"] or 0)),
-        }
-        for f in files
-    ]
+
+    out = [{
+        "item_id": f["item_id"],
+        "name": f["name"],
+        "path": f.get("path") or f["name"],
+        "size_h": human(int(f["size_bytes"] or 0)),
+        "downloads_count": int(f.get("downloads_count") or 0),
+    } for f in files]
+
     return jsonify(ok=True, files=out)
 
 
@@ -3974,6 +4232,8 @@ def health():
 def package_alias(token): return redirect(url_for("package_page", token=token))
 @app.route("/stream/<token>/<int:item_id>")
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
+
+
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
