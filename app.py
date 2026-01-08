@@ -3286,7 +3286,7 @@ def stream_zip(token):
     if not rows:
         abort(404)
 
-    # Precheck ontbrekende objecten in S3
+ # Precheck ontbrekende objecten in S3
     missing = []
     try:
         for r in rows:
@@ -3308,20 +3308,21 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zip_precheck_failed"
         return resp
 
-if missing:
-    expired_human = datetime.now(timezone.utc) \
-        .replace(second=0, microsecond=0) \
-        .strftime("%d-%m-%Y %H:%M")
+    # ⬇️ DIT MOEST INSINGEPRINGEN ⬇️
+    if missing:
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
 
-    return render_template_string(
-        LINK_EXPIRED_HTML,
-        title=pkg["title"] or "Downloadpakket",
-        expired_human=expired_human,
-        token=token,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON
-    ), 410
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
 
 
     # ZIP stream bouwen
