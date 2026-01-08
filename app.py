@@ -1480,7 +1480,7 @@ INDEX_HTML = """
   <div class="deck">
     <!-- LEFT: Controls & Queue -->
     <div class="card">
-      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">3</span></div></div>
+      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">5</span></div></div>
       <div class="card-b">
         <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
           <div class="grid cols2">
@@ -1599,7 +1599,7 @@ INDEX_HTML = """
 
 <script>
 /* ==== Settings & iOS ==== */
-const FILE_PAR = 3;
+const FILE_PAR = 5;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
 /* Elements */
