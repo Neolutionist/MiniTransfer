@@ -1284,15 +1284,6 @@ INDEX_HTML = """
   <style>
     {{ base_css }}
 
-    /* === Fix: lange bestandsnamen bij upload === */
-#fileName, #folderName{
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
     /* ===== PRO LAYOUT ===== */
     .shell{max-width:1100px;margin:5vh auto;padding:0 16px}
     .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
@@ -1332,20 +1323,7 @@ INDEX_HTML = """
   padding:6px 10px;
   min-height:42px;
 }
-
-.picker-ctl label.btn{
-  position:relative;
-  overflow:hidden;
-  cursor:pointer;
-}
-
-.picker-ctl input[type=file]{
-  position:absolute;
-  inset:0;
-  opacity:0;
-  cursor:pointer;
-}
-
+.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
 
 /* basisknop overal */
 .btn{
@@ -1536,14 +1514,10 @@ INDEX_HTML = """
 
           <div id="fileRow" class="picker">
             <label for="fileInput">Kies bestand(en)</label>
-<div class="picker-ctl">
-  <label class="btn ghost">
-    Kies bestanden
-    <input id="fileInput" type="file" multiple>
-  </label>
-  <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
-</div>
-
+            <div class="picker-ctl">
+              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
+              <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
+              <input id="fileInput" type="file" multiple>
             </div>
           </div>
 
@@ -1625,13 +1599,13 @@ INDEX_HTML = """
 
 <script>
 /* ==== Settings & iOS ==== */
-const FILE_PAR = isIOS ? 3 : 5;
-kvWorkers.textContent = FILE_PAR;
+const FILE_PAR = 3;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
 /* Elements */
 const folderLabel=document.getElementById('folderLabel');
 const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
-const fileInput = () => document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
+const fileInput=document.getElementById('fileInput'), folderInput=document.getElementById('folderInput');
 const btnFiles=document.getElementById('btnFiles'), btnFolder=document.getElementById('btnFolder');
 const fileName=document.getElementById('fileName'), folderName=document.getElementById('folderName');
 const queue=document.getElementById('queue'); const form=document.getElementById('form');
@@ -1701,32 +1675,9 @@ setInterval(()=>{
 }, 700);
 
 /* UI bindings */
-
+btnFiles.onclick=()=>fileInput.click();
 btnFolder && (btnFolder.onclick=()=>folderInput.click());
-document.addEventListener('change', (e) => {
-  if (e.target.id !== 'fileInput') return;
-
-  const files = e.target.files;
-  const n = files.length;
-
-  kvFiles.textContent = n;
-  kvQueue.textContent = n;
-
-  if (!n){
-    fileName.textContent = 'Nog geen bestanden gekozen';
-    fileName.title = '';
-    return;
-  }
-
-  const names = Array.from(files).map(f => f.name);
-
-  fileName.textContent = n === 1
-    ? names[0]
-    : `${names[0]} (+${n-1} andere bestanden)`;
-
-  fileName.title = names.join('\n');
-});
-
+fileInput.onchange=()=>{kvFiles.textContent=fileInput.files.length; kvQueue.textContent=fileInput.files.length; fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
 folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
 document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
   const use = (r.value==='folder' && !isIOS);
@@ -1883,7 +1834,7 @@ PACKAGE_HTML = """
     .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
     .brand{color:var(--brand);margin:0;font-weight:800}
     .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-    @media(max-width:800px){.deck{grid-template-columns:1fr}}
+    @media(max-width:900px){.deck{grid-template-columns:1fr}}
     .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
     .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
     .card-b{padding:14px 16px}
@@ -1929,20 +1880,16 @@ PACKAGE_HTML = """
         <div id="bar" class="progress" style="display:none"><i></i></div>
         <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
 
-<h4 style="margin-top:14px;">Inhoud</h4>
-
-{% for it in items %}
-  <div class="filecard">
-    <div class="name">{{ it["path"] }}</div>
-    <div class="size">{{ it["size_h"] }}</div>
-    <div class="action">
-      {% if items|length > 1 %}
-        <a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a>
-      {% endif %}
-    </div>
-  </div>
-{% endfor %}
-
+        {% if items|length > 1 %}
+        <h4 style="margin-top:14px;">Inhoud</h4>
+        {% for it in items %}
+          <div class="filecard">
+            <div class="name">{{ it["path"] }}</div>
+            <div class="size">{{ it["size_h"] }}</div>
+            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
+          </div>
+        {% endfor %}
+        {% endif %}
       </div>
     </div>
 
