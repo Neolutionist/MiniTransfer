@@ -85,7 +85,7 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY")
+app.config["SECRET_KEY"] = "olde-hanter-simple-secret"
 
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
@@ -121,15 +121,10 @@ OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
 
 @app.before_request
 def _redirect_old_host():
-    # ZIP / download routes NOOIT redirecten
-    if request.path.startswith(("/download", "/package", "/zip")):
-        return
-
     host = (request.headers.get("Host") or "").lower()
     if host == OLD_HOST:
         new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
         return redirect(new_url, code=308)
-
 # --- Einde redirect config ---
 
 logging.basicConfig(level=logging.INFO)
@@ -186,12 +181,10 @@ def migrate_add_tenant_columns():
         if not _col_exists(conn, "packages", "tenant_id"):
             conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
-
         # items
         if not _col_exists(conn, "items", "tenant_id"):
             conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
-
         # subscriptions
         if not _col_exists(conn, "subscriptions", "tenant_id"):
             conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
@@ -201,24 +194,6 @@ def migrate_add_tenant_columns():
     finally:
         conn.close()
 
-
-def migrate_add_download_counters():
-    conn = db()
-    try:
-        if not _col_exists(conn, "packages", "downloads_count"):
-            conn.execute("ALTER TABLE packages ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE packages SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        if not _col_exists(conn, "items", "downloads_count"):
-            conn.execute("ALTER TABLE items ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE items SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        conn.commit()
-    finally:
-        conn.close()
-
-
-migrate_add_download_counters()
 migrate_add_tenant_columns()
 
 # -------------- CSS --------------
@@ -385,7 +360,6 @@ input[type=file]::file-selector-button{
   0%{transform:translate3d(0,0,0) scale(1)}
   50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
   100%{transform:translate3d(0,0,0) scale(1)}
-
 }
 @keyframes driftB{
   0%{transform:rotate(0deg) translateY(0)}
@@ -517,700 +491,6 @@ PASS_PROMPT_HTML = """
 </body></html>
 """
 
-LINK_EXPIRED_HTML = """
-<!doctype html>
-<html lang="nl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Link verlopen</title>
-
-<style>
-body{
-  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
-  background: linear-gradient(135deg,#eef2ff,#e0f2fe);
-  display:flex;align-items:center;justify-content:center;
-  min-height:100vh;margin:0;
-}
-.box{
-  background:#fff;border-radius:18px;padding:26px 28px;
-  max-width:580px;width:92%;
-  box-shadow:0 20px 40px rgba(0,0,0,.12);
-}
-.badge{
-  display:inline-block;padding:6px 10px;border-radius:10px;
-  background:#fee2e2;color:#991b1b;font-weight:600;
-}
-h1{margin:10px 0 6px;color:#0f172a}
-p{margin:4px 0 10px;color:#334155}
-.meta{
-  margin:10px 0 14px;padding:10px 12px;border-radius:12px;
-  background:#f1f5f9;border:1px solid #e2e8f0;font-size:.9rem;
-}
-.meta strong{color:#0f172a}
-.meta-list{list-style:none;padding:0;margin:6px 0 0}
-.meta-list li{
-  display:flex;justify-content:space-between;
-  gap:10px;margin:2px 0;
-}
-.meta-list span.label{color:#64748b}
-.meta-list span.value{font-weight:600;color:#0f172a}
-.meta-list code{
-  font-family:ui-monospace,Menlo,Consolas,monospace;
-  background:#e5e7eb;border-radius:6px;padding:2px 6px;
-  font-size:.82rem;
-}
-.note{font-size:.85rem;color:#64748b;margin-top:4px}
-
-.actions{display:flex;gap:.5rem;margin-top:12px}
-.btn{
-  border-radius:12px;padding:10px 14px;border:none;
-  font-weight:600;cursor:pointer;
-}
-.btn.primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
-.btn.secondary{background:#e5e7eb}
-.btn.primary[disabled]{opacity:.6;pointer-events:none}
-</style>
-</head>
-
-<body>
-<div class="box">
-
-  <span class="badge">Link verlopen</span>
-
-  <h1>{{ title or "Downloadpakket" }}</h1>
-
-  <p>Deze downloadlink is niet meer actief.</p>
-
-  <div class="meta">
-    {% if expired_human %}
-      Deze link is verlopen op <strong>{{ expired_human }}</strong>.
-    {% else %}
-      Deze link is verlopen en niet langer beschikbaar.
-    {% endif %}
-
-    <ul class="meta-list">
-      {% if created_human %}
-        <li><span class="label">Aangemaakt op</span>
-            <span class="value">{{ created_human }}</span></li>
-      {% endif %}
-      {% if expired_human %}
-        <li><span class="label">Verlopen op</span>
-            <span class="value">{{ expired_human }}</span></li>
-      {% endif %}
-      {% if token %}
-        <li><span class="label">Referentie</span>
-            <span class="value"><code>{{ token }}</code></span></li>
-      {% endif %}
-    </ul>
-  </div>
-
-  <p>Je kunt de verzender vragen om een nieuwe link.</p>
-
-  <p class="note">
-    Contactpersoon: <strong>{{ contact_mail or "patrick@oldehanter.nl" }}</strong>
-  </p>
-
-  <div class="actions">
-    <button class="btn secondary" onclick="history.back()">Ga terug</button>
-    <button id="reqBtn" class="btn primary">Vraag nieuwe link aan</button>
-  </div>
-
-</div>
-
-<script>
-const btn = document.getElementById("reqBtn");
-
-btn.onclick = async () => {
-  btn.innerText = "Verzoek versturen…";
-  btn.disabled = true;
-
-  try{
-    await fetch("/expired/request", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ token: "{{ token }}", remark: null })
-    });
-    btn.innerText = "Verzoek verzonden ✔";
-  }catch(e){
-    btn.innerText = "Mislukt — probeer opnieuw";
-    btn.disabled = false;
-  }
-};
-</script>
-
-</body>
-</html>
-"""
-
-
-
-LINK_REMOVED_HTML = """
-<!doctype html>
-<html lang="nl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pakket verwijderd</title>
-
-<style>
-body{
-  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
-  background: linear-gradient(135deg,#eef2ff,#e0f2fe);
-  display:flex;align-items:center;justify-content:center;
-  min-height:100vh;margin:0;
-}
-.box{
-  background:#fff;border-radius:18px;padding:26px 28px;
-  max-width:620px;width:92%;
-  box-shadow:0 20px 40px rgba(0,0,0,.12);
-}
-.badge{
-  display:inline-block;padding:6px 10px;border-radius:10px;
-  background:#fee2e2;color:#991b1b;font-weight:600;
-}
-h1{margin:10px 0 6px;color:#0f172a}
-p{margin:4px 0 10px;color:#334155}
-
-.meta{
-  margin:10px 0 14px;padding:10px 12px;border-radius:12px;
-  background:#f1f5f9;border:1px solid #e2e8f0;font-size:.9rem;
-}
-.meta strong{color:#0f172a}
-.meta-list{list-style:none;padding:0;margin:6px 0 0}
-.meta-list li{
-  display:flex;justify-content:space-between;
-  gap:10px;margin:2px 0;
-}
-.meta-list span.label{color:#64748b}
-.meta-list span.value{font-weight:600;color:#0f172a}
-.meta-list code{
-  font-family:ui-monospace,Menlo,Consolas,monospace;
-  background:#e5e7eb;border-radius:6px;padding:2px 6px;
-  font-size:.82rem;
-}
-
-textarea{
-  width:100%;border-radius:10px;border:1px solid #d1d5db;
-  padding:10px;min-height:70px;resize:vertical;
-}
-.note{font-size:.85rem;color:#64748b;margin-top:4px}
-
-.actions{display:flex;gap:.5rem;margin-top:12px;flex-wrap:wrap}
-.btn{
-  border-radius:12px;padding:10px 14px;border:none;
-  font-weight:600;cursor:pointer;
-}
-.btn.primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
-.btn.secondary{background:#e5e7eb}
-.btn.primary[disabled]{opacity:.6;pointer-events:none}
-</style>
-</head>
-
-<body>
-<div class="box">
-
-  <span class="badge">Niet meer beschikbaar</span>
-
-  <h1>{{ title or "Pakket verwijderd" }}</h1>
-
-  <p>
-    Dit downloadpakket of het bijbehorende bestand is niet meer beschikbaar.
-    Het kan zijn dat het pakket door de verzender is verwijderd of automatisch
-    is opgeschoond na verloop van tijd.
-  </p>
-
-  <div class="meta">
-    <strong>Details van deze link</strong>
-    <ul class="meta-list">
-      {% if created_human %}
-        <li><span class="label">Aangemaakt op</span>
-            <span class="value">{{ created_human }}</span></li>
-      {% endif %}
-      {% if expired_human %}
-        <li><span class="label">Oorspronkelijke verloopdatum</span>
-            <span class="value">{{ expired_human }}</span></li>
-      {% endif %}
-      {% if token %}
-        <li><span class="label">Referentie</span>
-            <span class="value"><code>{{ token }}</code></span></li>
-      {% endif %}
-    </ul>
-  </div>
-
-  <p>Wil je een nieuwe link aanvragen? Voeg eventueel een opmerking toe:</p>
-
-  <textarea id="remark"
-    placeholder="Bijvoorbeeld: kunt u het pakket opnieuw delen?"></textarea>
-
-  <p class="note">
-    De verzender ontvangt je verzoek per e-mail
-    ({{ contact_mail or "patrick@oldehanter.nl" }}).
-  </p>
-
-  <div class="actions">
-    <button class="btn secondary" onclick="history.back()">Ga terug</button>
-    <button id="reqBtn" class="btn primary">Vraag nieuwe link aan</button>
-  </div>
-
-</div>
-
-<script>
-const btn = document.getElementById("reqBtn");
-const remark = document.getElementById("remark");
-
-btn.onclick = async () => {
-  btn.innerText = "Verzoek versturen…";
-  btn.disabled = true;
-
-  try{
-    await fetch("/expired/request", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({
-        token: "{{ token }}",
-        remark: remark.value || null
-      })
-    });
-
-    btn.innerText = "Verzoek verzonden ✔";
-  }catch(e){
-    btn.innerText = "Mislukt — probeer opnieuw";
-    btn.disabled = false;
-  }
-};
-</script>
-
-</body>
-</html>
-"""
-
-
-BILLING_HTML = """
-<!doctype html>
-<html lang="nl">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Beheer abonnement • Olde Hanter</title>
-{{ head_icon|safe }}
-
-<style>
-{{ base_css }}
-
-/* ==============================
-   DESIGN TOKENS
-   ============================== */
-:root{
-  --bg:#0b1220;
-  --panel:#0f172a;
-  --card:#111827;
-  --border:#1f2937;
-  --text:#e5e7eb;
-  --muted:#94a3b8;
-  --brand:#3b82f6;
-  --danger:#ef4444;
-}
-
-/* ==============================
-   BASE
-   ============================== */
-html,body{
-  background:radial-gradient(1200px 600px at 10% -10%,#111827,#020617);
-  color:var(--text);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell;
-  font-size:14px;
-}
-
-/* ==============================
-   LAYOUT
-   ============================== */
-.wrap{
-  max-width:1200px;
-  margin:3rem auto;
-  padding:0 1.25rem;
-}
-
-.topbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:1.8rem;
-}
-
-h1{
-  font-size:1.6rem;
-  font-weight:800;
-  margin:0;
-}
-
-.logout{
-  font-size:.9rem;
-  color:var(--muted);
-}
-.logout a{
-  color:var(--brand);
-  text-decoration:none;
-  font-weight:600;
-}
-
-/* ==============================
-   CARDS
-   ============================== */
-.card{
-  background:linear-gradient(180deg,#0f172a,#0b1220);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:1.1rem 1.25rem;
-  margin-bottom:1.2rem;
-}
-
-.card h3{
-  margin:0 0 .7rem;
-  font-size:1.05rem;
-  font-weight:700;
-}
-
-/* ==============================
-   KEY / VALUE
-   ============================== */
-.kv{
-  display:grid;
-  grid-template-columns:1fr auto;
-  gap:.35rem .75rem;
-}
-.kv .k{ color:var(--muted); }
-.kv .v{ font-weight:600; white-space:nowrap; }
-
-/* ==============================
-   PROGRESS BAR
-   ============================== */
-.bar{
-  height:8px;
-  border-radius:999px;
-  background:#020617;
-  border:1px solid var(--border);
-  overflow:hidden;
-  margin-top:.6rem;
-}
-.bar i{
-  display:block;
-  height:100%;
-  background:linear-gradient(90deg,#2563eb,#60a5fa);
-}
-
-/* ==============================
-   TABLE
-   ============================== */
-.table{
-  width:100%;
-  border-collapse:collapse;
-  font-size:13px;
-}
-.table th{
-  text-align:left;
-  color:#c7d2fe;
-  font-weight:700;
-  padding:6px 8px;
-  border-bottom:1px solid var(--border);
-  white-space:nowrap;
-}
-.table td{
-  padding:6px 8px;
-  border-bottom:1px solid rgba(148,163,184,.15);
-  white-space:nowrap;
-  vertical-align:middle;
-}
-.table tr:hover td{
-  background:rgba(255,255,255,.035);
-}
-
-/* ==============================
-   BADGES
-   ============================== */
-.pill{
-  display:inline-flex;
-  align-items:center;
-  padding:3px 8px;
-  border-radius:999px;
-  background:#1e3a8a;
-  color:#e0e7ff;
-  font-size:12px;
-  font-weight:600;
-}
-
-/* ==============================
-   BUTTONS
-   ============================== */
-.btn{
-  border:0;
-  border-radius:9px;
-  padding:4px 9px;
-  font-size:12.5px;
-  font-weight:700;
-  cursor:pointer;
-  color:white;
-}
-.btn.primary{ background:linear-gradient(135deg,#3b82f6,#2563eb); }
-.btn.secondary{ background:#020617; border:1px solid #334155; }
-.btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
-
-.actions{
-  display:flex;
-  gap:6px;
-}
-
-/* ==============================
-   FOOTER
-   ============================== */
-.footer{
-  text-align:center;
-  margin-top:2rem;
-  color:var(--muted);
-  font-size:.8rem;
-}
-
-/* ==============================
-   MODAL
-   ============================== */
-.modal{
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,.55);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  z-index:999;
-}
-.modal.hidden{ display:none; }
-
-.modal-box{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:14px;
-  width:100%;
-  max-width:640px;
-  max-height:80vh;
-  overflow:auto;
-  box-shadow:0 20px 60px rgba(0,0,0,.6);
-}
-
-.modal-header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:.75rem 1rem;
-  border-bottom:1px solid var(--border);
-}
-
-.modal-header button{
-  background:none;
-  border:0;
-  color:var(--muted);
-  font-size:18px;
-  cursor:pointer;
-}
-
-.modal-box table{
-  width:100%;
-  border-collapse:collapse;
-  font-size:13px;
-}
-.modal-box th,
-.modal-box td{
-  padding:6px 8px;
-  border-bottom:1px solid rgba(148,163,184,.15);
-  white-space:nowrap;
-}
-
-</style>
-</head>
-
-<!-- ==============================
-     DETAILS MODAL
-     ============================== -->
-<div id="detailsModal" class="modal hidden">
-  <div class="modal-box">
-    <div class="modal-header">
-      <strong>Pakketdetails</strong>
-      <button id="closeModal">✕</button>
-    </div>
-    <div id="modalContent">
-      Laden…
-    </div>
-  </div>
-</div>
-
-
-<body>
-<div class="wrap">
-
-  <div class="topbar">
-    <h1>Beheer abonnement</h1>
-    <div class="logout">
-      Ingelogd als {{ user }} • <a href="{{ url_for('logout') }}">Uitloggen</a>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>Opslaggebruik</h3>
-    <div class="kv">
-      <div class="k">Tenant</div><div class="v">{{ tenant_label }}</div>
-      <div class="k">Gebruikt</div><div class="v">{{ used_h }}</div>
-      <div class="k">Limiet</div><div class="v">{{ limit_h }}</div>
-    </div>
-    <div class="bar"><i style="width:{{ pct }}%"></i></div>
-  </div>
-
-  <div class="card">
-    <h3>Abonnement</h3>
-    {% if sub %}
-      <p>
-        <strong>{{ sub['login_email'] }}</strong> •
-        {{ sub['plan_value'] }} TB •
-        Status: <strong>{{ sub['status'] }}</strong>
-      </p>
-      <button class="btn danger" id="btnCancel">Abonnement opzeggen</button>
-    {% else %}
-      <p>Geen actief abonnement.</p>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3>Pakketten</h3>
-    {% if packs %}
-    <table class="table" id="packsTable">
-      <thead>
-        <tr>
-          <th>Onderwerp</th>
-          <th>Best.</th>
-          <th>DL</th>
-          <th>Verloopt</th>
-          <th style="text-align:right">Totaal</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in packs %}
-        <tr data-token="{{ p.token }}">
-          <td>{{ p.title }}</td>
-          <td>{{ p.files_count }}</td>
-          <td>{{ p.downloads_count or 0 }}</td>
-          <td><span class="pill">{{ p.expires_h }}</span></td>
-          <td style="text-align:right">{{ p.total_h }}</td>
-          <td class="actions">
-            <button class="btn primary" data-action="details">Details</button>
-            <button class="btn secondary" data-action="extend">+30d</button>
-            <button class="btn danger" data-action="delete">✕</button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p>Nog geen pakketten.</p>
-    {% endif %}
-  </div>
-
-  <div class="footer">
-    Olde Hanter Bouwconstructies • Bestandentransfer
-  </div>
-</div>
-
-<script>
-async function api(url, body){
-  const r = await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body||{})
-  });
-  const j = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(j.error||'Fout');
-  return j;
-}
-
-document.getElementById('packsTable')?.addEventListener('click', async e=>{
-  const btn = e.target.closest('button[data-action]');
-  if(!btn) return;
-  const tr = btn.closest('tr');
-  const token = tr.dataset.token;
-
-  if(btn.dataset.action==='delete' && confirm('Pakket verwijderen?')){
-    await api('{{ url_for("billing_package_delete") }}',{token});
-    tr.remove();
-  }
-
-  if(btn.dataset.action==='extend'){
-    await api('{{ url_for("billing_package_extend") }}',{token});
-    location.reload();
-  }
-
-if(btn.dataset.action === 'details'){
-  const modal = document.getElementById("detailsModal");
-  const content = document.getElementById("modalContent");
-  modal.classList.remove("hidden");
-  content.innerHTML = "Laden…";
-
-  try{
-    const data = await api('{{ url_for("billing_package_files") }}', {token});
-
-    if(!data.files || !data.files.length){
-      content.innerHTML = "<p>Geen bestanden.</p>";
-      return;
-    }
-
-    let html = `
-      <table>
-        <thead>
-          <tr>
-            <th>Bestand</th>
-            <th>Pad</th>
-            <th>Grootte</th>
-            <th>Downloads</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    for(const f of data.files){
-      html += `
-        <tr>
-          <td>${f.name}</td>
-          <td>${f.path || ""}</td>
-          <td>${f.size_h}</td>
-          <td>${f.downloads_count}</td>
-        </tr>
-      `;
-    }
-
-    html += "</tbody></table>";
-    content.innerHTML = html;
-
-  }catch(e){
-    content.innerHTML = "<p>Fout bij laden van details.</p>";
-  }
-}
-
-});
-
-document.getElementById('btnCancel')?.addEventListener('click',async()=>{
-  if(confirm('Abonnement opzeggen?')){
-    await api('{{ url_for("billing_cancel") }}');
-    location.reload();
-  }
-});
-
-document.getElementById("closeModal")?.addEventListener("click",()=>{
-  document.getElementById("detailsModal").classList.add("hidden");
-});
-
-</script>
-</body>
-</html>
-"""
-
-
-
 INDEX_HTML = """
 <!doctype html>
 <html lang="nl">
@@ -1246,98 +526,23 @@ INDEX_HTML = """
     .toggle{display:flex;gap:14px;align-items:center}
     .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
 
-/* filepicker compact */
-.picker{display:flex;flex-direction:column;gap:6px}
+    /* filepicker compact */
+    .picker{display:flex;flex-direction:column;gap:6px}
+    .picker-ctl{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 92%,white 8%);height:42px;padding:0 10px}
+    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .btn{padding:.7rem .95rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
+    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
+    .muted{color:var(--muted)}
+    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* hou het kader rustig en de knop mooi gecentreerd */
-.picker-ctl{
-  position:relative;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:color-mix(in oklab,var(--surface-2) 92%,white 8%);
-  padding:6px 10px;
-  min-height:42px;
-}
-.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-
-/* basisknop overal */
-.btn{
-  padding:.7rem .95rem;
-  border:0;
-  border-radius:11px;
-  background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
-  color:#fff;
-  font-weight:700;
-  cursor:pointer;
-}
-
-/* iets compacter binnen de picker zodat de verticale margins gelijk zijn aan de zijkanten */
-.picker-ctl .btn{
-  padding:.45rem .8rem;
-  font-size:.9rem;
-}
-
-.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
-.btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
-.muted{color:var(--muted)}
-.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-
-.table{width:100%;border-collapse:separate;border-spacing:0 6px}
-
-/* compactere rij: minder padding + kleinere tekst */
-.rowc{
-  display:grid;
-  grid-template-columns:22px 1fr 90px 80px;
-  align-items:center;
-  gap:8px;
-  padding:6px 10px;
-  border:1px solid rgba(0,0,0,.08);
-  border-radius:12px;
-  background:color-mix(in oklab,var(--surface) 90%,white 10%);
-  font-size:.9rem;
-}
-.ico{width:20px;height:20px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
-
-/* bestandsnaam iets kleiner en strak */
-.rowc .ellipsis strong{
-  display:block;
-  font-size:.86rem;
-  font-weight:600;
-  line-height:1.25;
-}
-
-/* voortgangsbalk in de rij smaller */
-.rowc .progress{
-  margin-top:3px;
-  height:8px;
-}
-
-.size,.eta{
-  text-align:right;
-  color:var(--muted);
-  font-variant-numeric:tabular-nums;
-  font-size:.85rem;
-}
-
-/* algemene progress (total) blijft zoals hij was */
-.progress{
-  height:10px;
-  border-radius:999px;
-  overflow:hidden;
-  border:1px solid #dbe5f4;
-  background:#eef2ff;
-}
-.progress>i{
-  display:block;
-  height:100%;
-  width:0%;
-  background:linear-gradient(90deg,#0f4c98,#1e90ff);
-  transition:width .12s;
-}
+    /* queue tabel */
+    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    .rowc{display:grid;grid-template-columns:22px 1fr 100px 90px;align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
+    .ico{width:22px;height:22px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
+    .size,.eta{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
 
     /* telemetry */
     .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -1348,57 +553,15 @@ INDEX_HTML = """
     .log p{margin:4px 0}
 
     /* total bar + badges */
-    .totalline{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-    }
-
-    /* nette, subtiele pill voor 0–100% en “Gereed” */
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      padding:.18rem .7rem;
-      border-radius:999px;
-      font-weight:600;
-      font-size:.78rem;
-      letter-spacing:.04em;
-      text-transform:uppercase;
-      border:1px solid rgba(148,163,184,.55);
-      background:rgba(15,23,42,.9);
-      color:var(--muted);
-    }
-
-    /* groene “Gereed”-badge bij de deelbare link */
-    .badge.ok{
-      border-color:rgba(34,197,94,.65);
-      background:rgba(22,163,74,.18);
-      color:#bbf7d0;
-    }
-
-    /* amber 0–100%-badge, maar minder schreeuwerig */
-    .badge.warn{
-      border-color:rgba(245,158,11,.6);
-      background:rgba(245,158,11,.14);
-      color:#fed7aa;
-    }
+    .totalline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.22rem .6rem;border-radius:999px;font-weight:800;font-size:.78rem}
+    .badge.ok{background:color-mix(in oklab,#16a34a 18%,white 82%);color:#166534}
+    .badge.warn{background:color-mix(in oklab,#f59e0b 22%,white 78%);color:#b45309}
 
     /* share mini */
-    .share{
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
+    .share{display:flex;align-items:center;gap:8px}
     .share .input{padding:.55rem .7rem}
     .share .btn{padding:.55rem .7rem}
-
-#copyBtn.copied{
-  background: linear-gradient(135deg,#22c55e,#16a34a);
-  box-shadow: 0 8px 18px rgba(22,163,74,.35);
-}
-    
   </style>
 </head>
 <body>
@@ -1409,16 +572,10 @@ INDEX_HTML = """
     <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
 
-    <div style="margin-bottom:12px">
-    <a href="{{ url_for('billing_page') }}" style="color:var(--brand);font-weight:600;text-decoration:none">
-      Beheer abonnement
-    </a>
-  </div>
-
   <div class="deck">
     <!-- LEFT: Controls & Queue -->
     <div class="card">
-      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">5</span></div></div>
+      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">3</span></div></div>
       <div class="card-b">
         <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
           <div class="grid cols2">
@@ -1537,7 +694,7 @@ INDEX_HTML = """
 
 <script>
 /* ==== Settings & iOS ==== */
-const FILE_PAR = 5;
+const FILE_PAR = 3;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
 /* Elements */
@@ -1666,48 +823,20 @@ form.addEventListener('submit', async (e)=>{
   setTotal(100,'Klaar');
 
   // Share (compact)
-  const link = "{{ url_for('package_page', token='__T__', _external=True) }}"
-    .replace("__T__", token);
-
-  resBox.innerHTML = `
-  <div class="card" style="margin-top:8px">
-    <div class="card-b">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div class="subtle" style="font-weight:700">Deelbare link</div>
-        <span class="badge ok">Gereed</span>
-      </div>
-
-      <div class="share">
-        <input id="shareLinkInput" class="input" value="${link}" readonly>
-        <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
-      </div>
+  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
     </div>
-  </div>`;
-
-  document.getElementById("copyBtn").onclick = async () => {
-
-    const input = document.getElementById("shareLinkInput");
-    const btn   = document.getElementById("copyBtn");
-
-    // kopieer (met jouw fallback)
-    try{
-      await navigator.clipboard.writeText(input.value);
-    }catch(_){
-      input.select();
-      document.execCommand("copy");
-    }
-
-    // feedback
-    const original = btn.innerText;
-    btn.innerText = "Gekopieerd!";
-    btn.classList.add("copied");
-
-    setTimeout(() => {
-      btn.innerText = original;
-      btn.classList.remove("copied");
-    }, 1400);
+    <div class="share">
+      <input id="shareLinkInput" class="input" value="${link}" readonly>
+      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+    </div>
+  </div></div>`;
+  document.getElementById('copyBtn').onclick=async()=>{
+    const input=document.getElementById('shareLinkInput');
+    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
   };
-
 });
 </script>
 </body>
@@ -1727,265 +856,161 @@ PACKAGE_HTML = """
   <style>
     {{ base_css }}
 
-    /* ========== Layout ========== */
-    .shell{max-width:1000px;margin:5vh auto;padding:0 16px}
-    .hdr{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-    .brand{font-weight:800;color:var(--brand);margin:0}
-    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-    @media(max-width:900px){.deck{grid-template-columns:1fr}}
-
-    .card{
-      background:var(--panel);
-      border:1px solid var(--panel-b);
-      border-radius:18px;
-      box-shadow:0 14px 36px rgba(0,0,0,.14);
-      overflow:hidden
-    }
-    .card-h{
-      padding:14px 16px;
-      border-bottom:1px solid rgba(0,0,0,.06);
-      display:flex;
-      justify-content:space-between;
-      align-items:center
-    }
-    .card-b{padding:16px}
-    .subtle{color:var(--muted);font-size:.92rem}
-
-    /* ========== File list ========== */
+    /* ===== Downloadlijst: nette uitlijning ===== */
     .filecard{
       display:grid;
-      grid-template-columns:1fr auto auto;
-      gap:.5rem .75rem;
+      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
       align-items:center;
-      padding:.55rem .85rem;
+      gap:.6rem .8rem;
+      padding:.70rem 1rem;
       border:1px solid var(--line);
       border-radius:12px;
       background:color-mix(in oklab,var(--surface) 86%,white 14%);
-      font-size:.9rem;
-      margin-top:.45rem
     }
     .filecard .name{
       min-width:0;
-      white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      font-weight:600
+      white-space:nowrap;
+      line-height:1.25;
+      overflow-wrap:anywhere;
     }
-    .filecard .size{
-      font-variant-numeric:tabular-nums;
-      text-align:right;
-      white-space:nowrap
-    }
-    .filecard .action a{
-      font-size:.85rem;
-      color:var(--brand);
-      text-decoration:none
-    }
+    .filecard .size{ width:6.5rem; text-align:right; }
+    .filecard .action{ width:auto; text-align:right; }
+    .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
 
-    @media(max-width:700px){
-      .filecard{grid-template-columns:1fr}
-      .filecard .name{white-space:normal}
-      .filecard .size,.filecard .action{
-        display:flex;
-        justify-content:space-between
-      }
-    }
+    /* Progressbalk ruimte */
+    #bar{ margin-top:.75rem }
 
-    /* ========== Buttons & progress ========== */
-    .btn{
-      padding:.7rem 1.05rem;
-      border-radius:12px;
-      border:0;
-      font-weight:800;
-      cursor:pointer;
-      background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));
-      color:#fff
-    }
-    .btn.secondary{
-      background:var(--surface);
-      color:var(--text);
-      border:1px solid var(--line)
-    }
-
-    .progress{
-      height:10px;
-      border-radius:999px;
-      border:1px solid #dbe5f4;
-      background:#eef2ff;
-      overflow:hidden;
-      margin-top:.75rem
-    }
-    .progress i{
-      display:block;
-      height:100%;
-      width:0%;
-      background:linear-gradient(90deg,#0f4c98,#1e90ff);
-      transition:width .12s
-    }
-    .progress.indet i{
-      width:40%;
-      animation:ind 1.1s linear infinite
-    }
+    /* Kaarten & grid */
+    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
+    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+    .brand{color:var(--brand);margin:0;font-weight:800}
+    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+    @media(max-width:900px){.deck{grid-template-columns:1fr}}
+    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
+    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
+    .card-b{padding:14px 16px}
+    .subtle{color:var(--muted);font-size:.92rem}
+    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
+    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
+    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
+    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
     @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
 
-    .kv{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+
+    .deck > .card { min-width: 0; }
+    .card h1, .card h2, .card h3 { line-height: 1.2; }
+    .card p, .card li, .card div { line-height: 1.25; }
+
+    @media (max-width:700px){
+      .filecard{grid-template-columns:1fr;gap:.35rem;}
+      .filecard .name{white-space:normal;}
+      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
     }
-    .kv .k{font-size:.85rem;color:var(--muted)}
-    .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
-
-/* Fix: CTA knop niet afkappen */
-.card .cta{
-  overflow: visible;
-}
-
-.card .cta .btn{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1.2;
-}
-
   </style>
 </head>
-
 <body>
 {{ bg|safe }}
-
 <div class="shell">
   <div class="hdr">
     <h1 class="brand">Bestanden downloaden</h1>
-    <div class="subtle">
-      Pakket: <strong>{{ title or token }}</strong><br>
-      Verloopt: <strong>{{ expires_human }}</strong>
-    </div>
+    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
   </div>
 
   <div class="deck">
-
-    <!-- ================= DOWNLOAD ================= -->
+    <!-- Linkerkaart -->
     <div class="card">
-      <div class="card-h">
-        <div>Download</div>
-        <div class="subtle">Bestanden: {{ items|length }}</div>
-      </div>
+      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
       <div class="card-b">
-
         {% if items|length == 1 %}
-          <div class="subtle" style="margin-bottom:8px">
-            <strong>Bestand:</strong><br>
-            {{ items[0]["name"] }}
-          </div>
           <button id="btnDownload" class="btn">Download bestand</button>
         {% else %}
           <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
-
-          <h4 style="margin:14px 0 6px 0">Inhoud</h4>
-          {% for it in items %}
-            <div class="filecard">
-              <div class="name">{{ it["path"] }}</div>
-              <div class="size">{{ it["size_h"] }}</div>
-              <div class="action">
-                <a href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a>
-              </div>
-            </div>
-          {% endfor %}
         {% endif %}
-
         <div id="bar" class="progress" style="display:none"><i></i></div>
-        <div id="txt" class="subtle" style="margin-top:6px;display:none">Starten…</div>
+        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
+
+        {% if items|length > 1 %}
+        <h4 style="margin-top:14px;">Inhoud</h4>
+        {% for it in items %}
+          <div class="filecard">
+            <div class="name">{{ it["path"] }}</div>
+            <div class="size">{{ it["size_h"] }}</div>
+            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
+          </div>
+        {% endfor %}
+        {% endif %}
       </div>
     </div>
 
-    <!-- ================= TELEMETRY ================= -->
+    <!-- Rechterkaart -->
     <div class="card">
-      <div class="card-h">
-        <div>Live Telemetry</div>
-        <div class="subtle">Sessie</div>
-      </div>
-      <div class="card-b">
-        <div class="kv">
-          <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-          <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-          <div class="k">Totale grootte</div><div class="v">{{ total_human }}</div>
-          <div class="k">ETA</div><div class="v" id="tEta">—</div>
-        </div>
-
-        <div class="subtle cta" style="border-top:1px solid rgba(0,0,0,.08);margin-top:12px;padding-top:10px">
-          <strong>Aanvraagformulier</strong>
-          <p class="small" style="margin:.4rem 0 .6rem 0">
-            Interesse in een eigen uploadservice, volledig naar wens ingericht?
-          </p>
-  <a href="{{ url_for('contact') }}" class="btn secondary">
-    Offerte aanvragen
-  </a>
-        </div>
+      <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
+      <div class="card-b kv">
+        <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
+        <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
+        <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
+        <div class="k">ETA</div><div class="v" id="tEta">—</div>
       </div>
     </div>
-
   </div>
 
-  <p class="footer" style="text-align:center;margin-top:14px">
-    Olde Hanter Bouwconstructies • Bestandentransfer
-  </p>
+  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
 <script>
-const bar=document.getElementById('bar'),
-      fill=bar?bar.querySelector('i'):null,
-      txt=document.getElementById('txt'),
-      tSpeed=document.getElementById('tSpeed'),
-      tMoved=document.getElementById('tMoved'),
-      tEta=document.getElementById('tEta');
-
-function fmt(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
+const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
+const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
+function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function show(){bar.style.display='block';txt.style.display='block'}
-function pct(p){if(fill)fill.style.width=Math.max(0,Math.min(100,p))+'%'}
+function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
 
-async function download(url,name){
-  show(); pct(0); txt.textContent='Starten…';
-  let moved=0,total=0,last=performance.now(),lastB=0,speed=0;
-  const iv=setInterval(()=>{
-    const now=performance.now(),dt=(now-last)/1000;last=now;
-    const inst=(moved-lastB)/Math.max(dt,.001);lastB=moved;
-    speed=speed?speed*.7+inst*.3:inst;
-    tSpeed.textContent=fmt(speed)+"/s";
-    tEta.textContent=(total&&speed>1)?new Date(((total-moved)/speed)*1000).toISOString().substring(11,19):"—";
-  },700);
+async function downloadWithTelemetry(url, fallbackName){
+  show(); setPct(0); txt.textContent='Starten…';
+  let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
 
-  const r=await fetch(url,{credentials:'same-origin'});
-  total=parseInt(r.headers.get('Content-Length')||'0',10);
-  const reader=r.body.getReader(), chunks=[];
-  if(!total)bar.classList.add('indet');
+  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
+  const iv=setInterval(tick,700);
 
-  while(true){
-    const {done,value}=await reader.read();
-    if(done)break;
-    chunks.push(value); moved+=value.length;
-    tMoved.textContent=fmt(moved);
-    if(total)pct(Math.round(moved/total*100));
-  }
-clearInterval(iv);
-bar.classList.remove('indet');
-fill.style.width = '100%';
-txt.textContent = 'Klaar';
+  try{
+    const res=await fetch(url,{credentials:'same-origin'});
+    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
+    total=parseInt(res.headers.get('Content-Length')||'0',10);
+    const name=res.headers.get('X-Filename')||fallbackName||'download';
 
-  const blob=new Blob(chunks), u=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=u; a.download=name; a.click();
-  URL.revokeObjectURL(u);
+    const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
+    if(rdr){
+      const chunks=[];
+      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
+      while(true){
+        const {done,value}=await rdr.read(); if(done) break;
+        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
+        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
+      }
+      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
+      clearInterval(iv);
+      const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+      return;
+    }
+    bar.classList.add('indet'); txt.textContent='Downloaden…';
+    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
+    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
+  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
 }
 
 const btn=document.getElementById('btnDownload');
 if(btn){
-  btn.onclick=()=>{
+  btn.addEventListener('click',()=>{
     {% if items|length == 1 %}
-      download("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
     {% else %}
-      download("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) ~ '.zip' }}");
+      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
     {% endif %}
-  };
+  });
 }
 </script>
 </body>
@@ -2655,161 +1680,6 @@ def paypal_access_token():
         j = json.loads(resp.read().decode())
         return j["access_token"]
 
-# === Usage helper ===
-def tenant_usage_bytes(tenant_slug: str) -> int:
-    """Som van alle item-groottes voor deze tenant."""
-    c = db()
-    try:
-        if _col_exists(c, "items", "tenant_id"):
-            row = c.execute(
-                "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM items WHERE tenant_id=?",
-                (tenant_slug,),
-            ).fetchone()
-        else:
-            # fallback: oud schema zonder tenant_id
-            row = c.execute(
-                "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM items",
-            ).fetchone()
-        return int(row["total"] or 0)
-    finally:
-        c.close()
-
-
-# === Pakket-helpers ===
-
-def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
-    """Alle pakketten + aantal bestanden + totale grootte per pakket."""
-    c = db()
-    try:
-        has_tenant = (
-            _col_exists(c, "packages", "tenant_id")
-            and _col_exists(c, "items", "tenant_id")
-        )
-
-        if has_tenant:
-            rows = c.execute(
-                """
-                SELECT
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    COUNT(i.id) AS files_count,
-                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                    COALESCE(p.downloads_count, 0) AS downloads_count
-                FROM packages p
-                LEFT JOIN items i
-                    ON i.token = p.token
-                   AND i.tenant_id = p.tenant_id
-                WHERE p.tenant_id = ?
-                GROUP BY
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    p.downloads_count
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (tenant_slug, limit),
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """
-                SELECT
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    COUNT(i.id) AS files_count,
-                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                    COALESCE(p.downloads_count, 0) AS downloads_count
-                FROM packages p
-                LEFT JOIN items i
-                    ON i.token = p.token
-                GROUP BY
-                    p.token,
-                    p.title,
-                    p.expires_at,
-                    p.created_at,
-                    p.downloads_count
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-
-        return [dict(r) for r in rows]
-
-    finally:
-        c.close()
-
-
-def list_files_in_package(token: str, tenant_slug: str) -> list[dict]:
-    """Alle bestanden in één pakket (voor de 'Details'-modal)."""
-    c = db()
-    try:
-        rows = c.execute(
-            """
-            SELECT
-                id AS item_id,
-                name,
-                path,
-                size_bytes,
-                COALESCE(downloads_count, 0) AS downloads_count
-            FROM items
-            WHERE token = ?
-              AND tenant_id = ?
-            ORDER BY path, name
-            """,
-            (token, tenant_slug),
-        ).fetchall()
-
-        return [dict(r) for r in rows]
-
-    finally:
-        c.close()
-
-
-def extend_package_expiry(token: str, tenant_slug: str, days: int = 30) -> str:
-    """Verleng vervaldatum van een pakket met N dagen; return nieuwe ISO datetime."""
-    c = db()
-    try:
-        row = c.execute(
-            """
-            SELECT expires_at
-            FROM packages
-            WHERE token = ?
-              AND tenant_id = ?
-            """,
-            (token, tenant_slug),
-        ).fetchone()
-
-        if not row:
-            raise ValueError("pakket_niet_gevonden")
-
-        current_expiry = datetime.fromisoformat(row["expires_at"])
-        base_time = max(current_expiry, datetime.now(timezone.utc))
-        new_expiry = base_time + timedelta(days=days)
-
-        c.execute(
-            """
-            UPDATE packages
-            SET expires_at = ?
-            WHERE token = ?
-              AND tenant_id = ?
-            """,
-            (new_expiry.isoformat(), token, tenant_slug),
-        )
-        c.commit()
-
-        return new_expiry.isoformat()
-
-    finally:
-        c.close()
-
-
-
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
     # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
@@ -3046,239 +1916,169 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
-
-from flask import Response, stream_with_context, abort, request, session
-from werkzeug.security import check_password_hash
-from zipstream import ZipStream
-from datetime import datetime, timezone
-
-# =============================
-# PAKKET PAGINA
-# =============================
-@app.route("/p/<token>", methods=["GET", "POST"])
+@app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
-    t = current_tenant()["slug"]
     c = db()
-    try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
-
-        if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            expired_h = datetime.fromisoformat(pkg["expires_at"]) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_h,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        # -------- Wachtwoord --------
-        if pkg["password_hash"]:
-            if request.method == "GET" and not session.get(f"allow_{token}", False):
-                return render_template_string(
-                    PASS_PROMPT_HTML,
-                    base_css=BASE_CSS,
-                    bg=BG_DIV,
-                    error=None,
-                    head_icon=HTML_HEAD_ICON,
-                )
-
-            if request.method == "POST":
-                pw = request.form.get("password", "")
-                if not check_password_hash(pkg["password_hash"], pw):
-                    return render_template_string(
-                        PASS_PROMPT_HTML,
-                        base_css=BASE_CSS,
-                        bg=BG_DIV,
-                        error="Onjuist wachtwoord.",
-                        head_icon=HTML_HEAD_ICON,
-                    )
-                session[f"allow_{token}"] = True
-
-        items = c.execute(
-            """
-            SELECT id, name, path, size_bytes
-            FROM items
-            WHERE token=? AND tenant_id=?
-            ORDER BY path, name
-            """,
-            (token, t),
-        ).fetchall()
-
-        total_bytes = sum(int(r["size_bytes"]) for r in items)
-        total_h = human(total_bytes)
-
-        expires_h = datetime.fromisoformat(pkg["expires_at"]) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
-        its = [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "path": r["path"],
-                "size_h": human(int(r["size_bytes"])),
-            }
-            for r in items
-        ]
-
-        return render_template_string(
-            PACKAGE_HTML,
-            token=token,
-            title=pkg["title"],
-            items=its,
-            total_human=total_h,
-            expires_human=expires_h,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-        )
-    finally:
-        c.close()
-
-
-# =============================
-# INDIVIDUEEL BESTAND DOWNLOAD
-# =============================
-@app.route("/file/<token>/<int:item_id>")
-def stream_file(token, item_id):
     t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+    if not pkg: c.close(); abort(404)
 
-    c = db()
-    try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
+        for r in rows:
+            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception: pass
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+        c.commit(); c.close(); abort(410)
 
-        if not pkg:
-            abort(404)
+    if pkg["password_hash"]:
+        if request.method == "GET" and not session.get(f"allow_{token}", False):
+            c.close()
+            return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
+        if request.method == "POST":
+            if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
+                c.close()
+                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
+            session[f"allow_{token}"] = True
 
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            abort(410)
+    items = c.execute("""SELECT id,name,path,size_bytes FROM items
+                         WHERE token=? AND tenant_id=?
+                         ORDER BY path""", (token, t)).fetchall()
+    c.close()
 
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
+    total_bytes = sum(int(r["size_bytes"]) for r in items)
+    total_h = human(total_bytes)
+    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+    expires_h = dt.strftime("%d-%m-%Y %H:%M")
 
-        it = c.execute(
-            "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
-        ).fetchone()
+    its = [{"id":r["id"], "name":r["name"], "path":r["path"], "size_h":human(int(r["size_bytes"]))} for r in items]
 
-        if not it:
-            abort(404)
-    finally:
-        c.close()
-
-    # download teller
-    c2 = db()
-    try:
-        c2.execute(
-            "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
-            (token, t),
-        )
-        c2.execute(
-            "UPDATE items SET downloads_count = downloads_count + 1 WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
-        )
-        c2.commit()
-    finally:
-        c2.close()
-
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-    def gen():
-        for chunk in obj["Body"].iter_chunks(1024 * 512):
-            if chunk:
-                yield chunk
-
-    resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-    resp.headers["X-Filename"] = it["name"]
-    return resp
-
-
-# =============================
-# ZIP DOWNLOAD
-# =============================
-@app.route("/zip/<token>")
-def stream_zip(token):
-    t = current_tenant()["slug"]
-
-    c = db()
-    try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
-
-        if not pkg:
-            abort(404)
-
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
-
-        rows = c.execute(
-            "SELECT name, path, s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchall()
-
-        if not rows:
-            abort(404)
-    finally:
-        c.close()
-
-    z = ZipStream()
-
-    for r in rows:
-        arcname = r["path"] or r["name"]
-
-        def reader(key=r["s3_key"]):
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-            for chunk in obj["Body"].iter_chunks(1024 * 512):
-                if chunk:
-                    yield chunk
-
-        z.add(arcname, reader)
-
-    c2 = db()
-    try:
-        c2.execute(
-            "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
-            (token, t),
-        )
-        c2.commit()
-    finally:
-        c2.close()
-
-    filename = f"pakket-{token}.zip"
-
-    return Response(
-        stream_with_context(z),
-        mimetype="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Content-Type-Options": "nosniff",
-        },
+    return render_template_string(
+        PACKAGE_HTML,
+        token=token, title=pkg["title"],
+        items=its, total_human=total_h,
+        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
 
+@app.route("/file/<token>/<int:item_id>")
+def stream_file(token, item_id):
+    c = db()
+    t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+    if not pkg: c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
+    c.close()
+    if not it: abort(404)
+
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+        length = int(head.get("ContentLength", 0))
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+
+        def gen():
+            for chunk in obj["Body"].iter_chunks(1024*512):
+                if chunk: yield chunk
+
+        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
+        if length: resp.headers["Content-Length"] = str(length)
+        resp.headers["X-Filename"] = it["name"]
+        return resp
+    except Exception:
+        log.exception("stream_file failed")
+        abort(500)
+
+@app.route("/zip/<token>")
+def stream_zip(token):
+    c = db()
+    t = current_tenant()["slug"]
+    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+    if not pkg: c.close(); abort(404)
+    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
+    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
+    rows = c.execute("""SELECT name,path,s3_key FROM items
+                        WHERE token=? AND tenant_id=?
+                        ORDER BY path""", (token, t)).fetchall()
+    c.close()
+    if not rows: abort(404)
+
+    # Precheck ontbrekende objecten
+    missing=[]
+    try:
+        for r in rows:
+            try: s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except ClientError as ce:
+                code=ce.response.get("Error",{}).get("Code","")
+                if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
+                else: raise
+    except Exception:
+        log.exception("zip precheck failed")
+        resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
+        resp.headers["X-Error"]="zip_precheck_failed"; return resp
+    if missing:
+        text="De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
+        resp=Response(text, mimetype="text/plain", status=422)
+        resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
+
+    try:
+        z = ZipStream()
+
+        class _GenReader:
+            def __init__(self, gen): self._it = gen; self._buf=b""; self._done=False
+            def read(self, n=-1):
+                if self._done and not self._buf: return b""
+                if n is None or n<0:
+                    chunks=[self._buf]; self._buf=b""
+                    for ch in self._it: chunks.append(ch)
+                    self._done=True; return b"".join(chunks)
+                while len(self._buf)<n and not self._done:
+                    try: self._buf += next(self._it)
+                    except StopIteration: self._done=True; break
+                out,self._buf=self._buf[:n],self._buf[n:]; return out
+
+        def add_compat(arcname, gen_factory):
+            if hasattr(z,"add_iter"):
+                try: z.add_iter(arcname, gen_factory()); return
+                except Exception: pass
+            try: z.add(arcname=arcname, iterable=gen_factory()); return
+            except Exception: pass
+            try: z.add(arcname=arcname, stream=gen_factory()); return
+            except Exception: pass
+            try: z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
+            except Exception: pass
+            try: z.add(arcname, gen_factory()); return
+            except Exception: pass
+            try: z.add(gen_factory(), arcname); return
+            except Exception: pass
+            raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
+
+        for r in rows:
+            arcname = r["path"] or r["name"]
+            def reader(key=r["s3_key"]):
+                obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+                for chunk in obj["Body"].iter_chunks(1024*512):
+                    if chunk: yield chunk
+            add_compat(arcname, lambda: reader())
+
+        def generate():
+            for chunk in z: yield chunk
+
+        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
+        if not filename.lower().endswith(".zip"): filename += ".zip"
+
+        resp = Response(stream_with_context(generate()), mimetype="application/zip")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp.headers["X-Filename"] = filename
+        return resp
+    except Exception as e:
+        log.exception("stream_zip failed")
+        msg = f"ZIP generatie mislukte. Err: {e}"
+        resp = Response(msg, status=500, mimetype="text/plain")
+        resp.headers["X-Error"] = "zipstream_failed"
+        return resp
         
 @app.route("/terms")
 def terms_page():
@@ -3444,157 +2244,6 @@ def privacy_page():
         mail_to=MAIL_TO
     )    
 
-
-# === API: bestanden in pakket (voor details-modal) ===
-@app.route("/billing/package/files", methods=["POST"])
-def billing_package_files():
-    if not logged_in():
-        abort(401)
-
-    data = request.get_json(force=True, silent=True) or {}
-    token = (data.get("token") or "").strip()
-    if not token:
-        return jsonify(ok=False, error="missing_token"), 400
-
-    t = current_tenant()["slug"]
-    files = list_files_in_package(token, t)
-
-    out = [{
-        "item_id": f["item_id"],
-        "name": f["name"],
-        "path": f.get("path") or f["name"],
-        "size_h": human(int(f["size_bytes"] or 0)),
-        "downloads_count": int(f.get("downloads_count") or 0),
-    } for f in files]
-
-    return jsonify(ok=True, files=out)
-
-
-# === API: compleet pakket verwijderen ===
-@app.route("/billing/package/delete", methods=["POST"])
-def billing_package_delete():
-    if not logged_in():
-        abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    token = (data.get("token") or "").strip()
-    if not token:
-        return jsonify(ok=False, error="missing_token"), 400
-
-    t = current_tenant()["slug"]
-    c = db()
-    try:
-        items = c.execute(
-            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchall()
-
-        # best effort S3 cleanup
-        for r in items:
-            try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception:
-                log.exception("S3 delete_object failed (token=%s)", token)
-
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit()
-        return jsonify(ok=True)
-    finally:
-        c.close()
-
-
-# === API: pakket +30 dagen ===
-@app.route("/billing/package/extend", methods=["POST"])
-def billing_package_extend():
-    if not logged_in():
-        abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    token = (data.get("token") or "").strip()
-    if not token:
-        return jsonify(ok=False, error="missing_token"), 400
-
-    t = current_tenant()["slug"]
-    try:
-        new_iso = extend_package_expiry(token, t, days=30)
-        return jsonify(ok=True, new_expires_at=new_iso)
-    except ValueError as e:
-        return jsonify(ok=False, error=str(e)), 404
-    except Exception:
-        log.exception("extend failed")
-        return jsonify(ok=False, error="server_error"), 500
-
-
-# === Abonnement opzeggen ===
-@app.route("/billing/cancel", methods=["POST"])
-def billing_cancel():
-    if not logged_in():
-        abort(401)
-    sub_id = (request.json or {}).get("subscription_id") or ""
-    if not sub_id:
-        return jsonify(ok=False, error="missing_id"), 400
-    try:
-        token = paypal_access_token()
-        req = urllib.request.Request(
-            f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/cancel",
-            method="POST",
-        )
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        body = json.dumps({"reason": "Cancelled by customer via portal"}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20):
-            pass
-
-        c = db()
-        c.execute(
-            "UPDATE subscriptions SET status='CANCELED' WHERE subscription_id=?",
-            (sub_id,),
-        )
-        c.commit()
-        c.close()
-        return jsonify(ok=True)
-    except Exception:
-        log.exception("PayPal cancel failed")
-        return jsonify(ok=False, error="paypal_cancel_failed"), 502
-
-
-# === Abonnement plan wijzigen ===
-@app.route("/billing/change", methods=["POST"])
-def billing_change():
-    if not logged_in():
-        abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    sub_id = (data.get("subscription_id") or "").strip()
-    new_plan_value = (data.get("new_plan_value") or "").strip()
-    new_plan_id = PLAN_MAP.get(new_plan_value)
-    if not sub_id or not new_plan_id:
-        return jsonify(ok=False, error="invalid_input"), 400
-
-    try:
-        token = paypal_access_token()
-        req = urllib.request.Request(
-            f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{sub_id}/revise",
-            method="POST",
-        )
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Content-Type", "application/json")
-        body = json.dumps({"plan_id": new_plan_id}).encode()
-        with urllib.request.urlopen(req, data=body, timeout=20):
-            pass
-
-        c = db()
-        c.execute(
-            "UPDATE subscriptions SET plan_value=? WHERE subscription_id=?",
-            (new_plan_value, sub_id),
-        )
-        c.commit()
-        c.close()
-        return jsonify(ok=True)
-    except Exception:
-        log.exception("PayPal revise failed")
-        return jsonify(ok=False, error="paypal_revise_failed"), 502
-
-    
-
 # -------------- Abonnementbeheer (server) --------------
 @app.route("/billing/store", methods=["POST"])
 def paypal_store_subscription():
@@ -3658,90 +2307,6 @@ def paypal_verify_webhook_sig(headers, body_text: str) -> bool:
     except Exception:
         log.exception("paypal_verify_webhook_sig failed")
         return False
-
-
-@app.route("/billing")
-def billing_page():
-    if not logged_in():
-        return redirect(url_for("login"))
-
-    t = current_tenant()["slug"]
-    user_email = (session.get("user") or "").lower().strip()
-
-    used = tenant_usage_bytes(t)
-
-    # laatste subscription ophalen (met/zonder tenant_id)
-    c = db()
-    try:
-        if _col_exists(c, "subscriptions", "tenant_id"):
-            sub = c.execute(
-                """
-                SELECT * FROM subscriptions
-                 WHERE login_email=? AND tenant_id=?
-                 ORDER BY id DESC LIMIT 1
-                """,
-                (user_email, t),
-            ).fetchone()
-        else:
-            sub = c.execute(
-                """
-                SELECT * FROM subscriptions
-                 WHERE login_email=?
-                 ORDER BY id DESC LIMIT 1
-                """,
-                (user_email,),
-            ).fetchone()
-    finally:
-        c.close()
-
-    # Limiet op basis van plan (0.5 / 1 / 2 / 5 TB)
-    if sub and sub.get("plan_value"):
-        try:
-            tb = float(sub["plan_value"])
-            limit = int(tb * 1024**4)  # TB → bytes
-        except Exception:
-            limit = 50 * 1024**3
-    else:
-        # fallback: bv. 50 GB als er (nog) geen abo is
-        limit = 50 * 1024**3
-
-    pct = 0 if limit <= 0 else min(999, round(used / max(1, limit) * 100))
-
-    packs_raw = list_packages_with_stats(t)
-    packs = []
-    for r in packs_raw:
-        try:
-            exp_dt = datetime.fromisoformat(r["expires_at"])
-        except Exception:
-            exp_dt = datetime.now(timezone.utc)
-        packs.append(
-            {
-                "token": r["token"],
-                "title": r["title"] or r["token"],
-                "files_count": int(r["files_count"] or 0),
-                "total_h": human(int(r["total_bytes"] or 0)),
-               "expires_h": exp_dt.strftime("%d-%m-%Y • %H:%M"),
-                "expires_iso": r["expires_at"],
-            }
-        )
-
-    return render_template_string(
-        BILLING_HTML,
-        used=used,
-        used_h=human(used),
-        limit=limit,
-        limit_h=human(limit),
-        pct=pct,
-        over=used > limit,
-        tenant_label=t,
-        sub=sub,
-        packs=packs,
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON,
-        user=session.get("user"),
-    )
-
 
 @app.route("/webhook/paypal", methods=["POST"])
 def paypal_webhook():
@@ -3841,51 +2406,9 @@ def health():
 def package_alias(token): return redirect(url_for("package_page", token=token))
 @app.route("/stream/<token>/<int:item_id>")
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
-
-
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-import smtplib
-from email.message import EmailMessage
-
-MAIL_TO = "patrick@oldehanter.nl"
-
-@app.route("/expired/request", methods=["POST"])
-def expired_request():
-    data = request.get_json(silent=True) or {}
-
-    token = (data.get("token") or "").strip()
-    remark = (data.get("remark") or "").strip()
-
-    if not token:
-        return {"ok": False}, 400
-
-    msg = EmailMessage()
-    msg["Subject"] = f"Verzoek nieuwe downloadlink — token {token}"
-    msg["From"] = "no-reply@oldehanter.nl"
-    msg["To"] = MAIL_TO
-
-    body = [
-        "Er is een verzoek ingediend om een nieuwe downloadlink te sturen.",
-        "",
-        f"Token: {token}",
-    ]
-
-    if remark:
-        body += ["", "Opmerking van gebruiker:", remark]
-
-    msg.set_content("\n".join(body))
-
-    try:
-        with smtplib.SMTP("localhost") as s:
-            s.send_message(msg)
-    except Exception:
-        log.exception("expired link email failed")
-        return {"ok": False}, 500
-
-    return {"ok": True}
