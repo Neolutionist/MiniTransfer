@@ -3253,13 +3253,14 @@ finally:
 # -------------- ZIP Download --------------
 
 from zipstream import ZipStream
+from flask import Response, stream_with_context, abort
 
 @app.route("/zip/<token>")
 def stream_zip(token):
     t = current_tenant()["slug"]
 
     # -----------------------------
-    # 1. Pakket + permissie check
+    # 1. Pakket + permissie
     # -----------------------------
     c = db()
     try:
@@ -3286,35 +3287,39 @@ def stream_zip(token):
         c.close()
 
     # -----------------------------
-    # 2. ZIP STREAM (CORRECT)
+    # 2. ZIP stream bouwen
     # -----------------------------
-z = ZipStream()
+    z = ZipStream()
 
-for r in rows:
-    arcname = r["path"] or r["name"]
+    for r in rows:
+        arcname = r["path"] or r["name"]
 
-    def reader(key=r["s3_key"]):
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-        for chunk in obj["Body"].iter_chunks(1024 * 512):
-            if chunk:
-                yield chunk
+        def reader(key=r["s3_key"]):
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+            for chunk in obj["Body"].iter_chunks(1024 * 512):
+                if chunk:
+                    yield chunk
 
-    z.add(arcname, reader())
-
-def generate():
-    for chunk in z:
-        yield chunk
-
-resp = Response(
-    stream_with_context(generate()),
-    mimetype="application/zip"
-)
-resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-resp.headers["X-Filename"] = filename
-return resp
+        # BELANGRIJK: GEEN reader() AANROEPEN
+        z.add(arcname, reader)
 
     # -----------------------------
-    # 3. RESPONSE (ALLEEN ZIP)
+    # 3. Download teller ophogen
+    # -----------------------------
+    c2 = db()
+    try:
+        c2.execute(
+            "UPDATE packages "
+            "SET downloads_count = COALESCE(downloads_count, 0) + 1 "
+            "WHERE token=? AND tenant_id=?",
+            (token, t),
+        )
+        c2.commit()
+    finally:
+        c2.close()
+
+    # -----------------------------
+    # 4. Response (echte ZIP)
     # -----------------------------
     filename = f"pakket-{token}.zip"
 
