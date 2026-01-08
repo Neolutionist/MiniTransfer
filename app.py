@@ -1701,6 +1701,19 @@ PACKAGE_HTML = """
     }
     .kv .k{font-size:.85rem;color:var(--muted)}
     .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
+
+/* Fix: CTA knop niet afkappen */
+.card .cta{
+  overflow: visible;
+}
+
+.card .cta .btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+
   </style>
 </head>
 
@@ -1766,14 +1779,14 @@ PACKAGE_HTML = """
           <div class="k">ETA</div><div class="v" id="tEta">—</div>
         </div>
 
-        <div class="subtle" style="border-top:1px solid rgba(0,0,0,.08);margin-top:12px;padding-top:10px">
+        <div class="subtle cta" style="border-top:1px solid rgba(0,0,0,.08);margin-top:12px;padding-top:10px">
           <strong>Aanvraagformulier</strong>
           <p class="small" style="margin:.4rem 0 .6rem 0">
             Interesse in een eigen uploadservice, volledig naar wens ingericht?
           </p>
-          <a href="{{ url_for('contact') }}" class="btn secondary" style="text-decoration:none;font-size:.85rem">
-            Informatie / offerte aanvragen
-          </a>
+  <a href="{{ url_for('contact') }}" class="btn secondary">
+    Informatie / offerte aanvragen
+  </a>
         </div>
       </div>
     </div>
