@@ -121,10 +121,15 @@ OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
 
 @app.before_request
 def _redirect_old_host():
+    # ZIP / download routes NOOIT redirecten
+    if request.path.startswith(("/download", "/package", "/zip")):
+        return
+
     host = (request.headers.get("Host") or "").lower()
     if host == OLD_HOST:
         new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
         return redirect(new_url, code=308)
+
 # --- Einde redirect config ---
 
 logging.basicConfig(level=logging.INFO)
@@ -380,6 +385,7 @@ input[type=file]::file-selector-button{
   0%{transform:translate3d(0,0,0) scale(1)}
   50%{transform:translate3d(.6%,1.4%,0) scale(1.03)}
   100%{transform:translate3d(0,0,0) scale(1)}
+
 }
 @keyframes driftB{
   0%{transform:rotate(0deg) translateY(0)}
