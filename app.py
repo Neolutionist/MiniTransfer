@@ -2998,6 +2998,8 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
+from botocore.exceptions import ClientError  # heb je al bovenin staan
+
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     c = db()
@@ -3019,29 +3021,9 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
-    # Link verlopen → opruimen + mooie verlopen pagina
+    # Link verlopen → ... (blijft zoals het was)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-
-        rows = c.execute(
-            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t)
-        ).fetchall()
-
-        for r in rows:
-            try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception:
-                pass
-
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit()
-        c.close()
-
-        expired_human = datetime.fromisoformat(pkg["expires_at"]) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
+        ...
         return render_template_string(
             LINK_EXPIRED_HTML,
             title=pkg["title"] or "Downloadpakket",
@@ -3052,12 +3034,9 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Wachtwoordcheck indien actief
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-        c.close()
-        abort(403)
+    # Wachtwoordcheck
+    ...
 
-    # Item ophalen
     it = c.execute(
         "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
         (item_id, token, t)
@@ -3084,6 +3063,28 @@ def stream_file(token, item_id):
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
+
+    except ClientError as ce:
+        # S3 zegt: key bestaat niet meer → toon verlopen pagina i.p.v. 500
+        code = ce.response.get("Error", {}).get("Code", "")
+        if code in {"NoSuchKey", "NotFound", "404"}:
+            expired_human = datetime.now(timezone.utc) \
+                .replace(second=0, microsecond=0) \
+                .strftime("%d-%m-%Y %H:%M")
+
+            return render_template_string(
+                LINK_EXPIRED_HTML,
+                title=pkg["title"] or "Downloadpakket",
+                expired_human=expired_human,
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON
+            ), 410
+
+        # andere S3-fouten blijven 500
+        log.exception("stream_file S3 ClientError")
+        abort(500)
 
     except Exception:
         log.exception("stream_file failed")
@@ -3287,14 +3288,21 @@ def stream_zip(token):
         resp.headers["X-Error"] = "zip_precheck_failed"
         return resp
 
-    if missing:
-        text = (
-            "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- "
-            + "\n- ".join(missing)
-        )
-        resp = Response(text, mimetype="text/plain", status=422)
-        resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
-        return resp
+if missing:
+    expired_human = datetime.now(timezone.utc) \
+        .replace(second=0, microsecond=0) \
+        .strftime("%d-%m-%Y %H:%M")
+
+    return render_template_string(
+        LINK_EXPIRED_HTML,
+        title=pkg["title"] or "Downloadpakket",
+        expired_human=expired_human,
+        token=token,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON
+    ), 410
+
 
     # ZIP stream bouwen
     try:
