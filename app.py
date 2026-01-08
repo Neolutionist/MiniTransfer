@@ -764,17 +764,20 @@ BILLING_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Beheer abonnement – Olde Hanter</title>
 {{ head_icon|safe }}
 
 <style>
 {{ base_css }}
 
-/* ===============================
-   Layout
-   =============================== */
+/* ===========================
+   Algemene layout
+   =========================== */
+
+body{background:#f4f6fb}
+
 .wrap{
   max-width:1200px;
   margin:4vh auto;
@@ -784,7 +787,7 @@ BILLING_HTML = """
 .header{
   display:flex;
   justify-content:space-between;
-  align-items:flex-end;
+  align-items:center;
   margin-bottom:22px;
   gap:12px;
   flex-wrap:wrap;
@@ -793,39 +796,42 @@ BILLING_HTML = """
 .header h1{
   margin:0;
   font-weight:800;
-  color:var(--brand);
+  color:#1e40af;
 }
 
-.header .user{
+.user{
   font-size:.9rem;
-  color:var(--muted);
+  color:#475569;
 }
-.header .user a{
-  color:var(--brand);
+.user a{
+  color:#1e40af;
   font-weight:600;
   text-decoration:none;
 }
 
-/* ===============================
+/* ===========================
    Cards
-   =============================== */
+   =========================== */
+
 .card{
-  background:var(--panel);
-  border:1px solid var(--panel-b);
-  border-radius:14px;
-  padding:16px;
-  margin-bottom:18px;
+  background:#ffffff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:18px;
+  margin-bottom:20px;
 }
 
 .card h2{
-  margin:0 0 10px 0;
+  margin:0 0 12px 0;
   font-size:1.05rem;
   font-weight:700;
+  color:#1e3a8a;
 }
 
-/* ===============================
-   Key/Value blocks
-   =============================== */
+/* ===========================
+   Key-value blokken
+   =========================== */
+
 .kv{
   display:grid;
   grid-template-columns:180px 1fr;
@@ -844,35 +850,36 @@ BILLING_HTML = """
   display:block;
   height:100%;
   width:{{ pct }}%;
-  background:#3b82f6;
+  background:#2563eb;
 }
 
-/* ===============================
+/* ===========================
    Buttons
-   =============================== */
+   =========================== */
+
 .btn{
-  padding:.42rem .75rem;
+  padding:.45rem .8rem;
   font-size:.85rem;
   font-weight:600;
-  border-radius:8px;
+  border-radius:6px;
   border:1px solid transparent;
   cursor:pointer;
   background:#2563eb;
-  color:#fff;
+  color:#ffffff;
 }
 
 .btn.secondary{
-  background:#111827;
+  background:#0f172a;
+}
+
+.btn.outline{
+  background:#ffffff;
+  color:#2563eb;
+  border-color:#2563eb;
 }
 
 .btn.danger{
   background:#dc2626;
-}
-
-.btn.outline{
-  background:#fff;
-  color:#2563eb;
-  border-color:#2563eb;
 }
 
 .btn:disabled{
@@ -880,9 +887,10 @@ BILLING_HTML = """
   cursor:not-allowed;
 }
 
-/* ===============================
+/* ===========================
    Table
-   =============================== */
+   =========================== */
+
 .table{
   width:100%;
   border-collapse:collapse;
@@ -892,56 +900,59 @@ BILLING_HTML = """
 .table th{
   text-align:left;
   padding:10px 8px;
-  border-bottom:2px solid var(--line);
+  border-bottom:2px solid #e5e7eb;
   font-weight:700;
+  color:#0f172a;
 }
 
 .table td{
   padding:10px 8px;
-  border-bottom:1px solid var(--line);
+  border-bottom:1px solid #e5e7eb;
   vertical-align:middle;
 }
 
 .table td.actions{
-  white-space:nowrap;
   display:flex;
   gap:6px;
+  white-space:nowrap;
 }
 
-/* ===============================
-   Badges
-   =============================== */
 .badge{
   display:inline-block;
   padding:4px 10px;
   border-radius:999px;
   font-size:.8rem;
   font-weight:600;
-  background:#eef2ff;
+  background:#e0e7ff;
   color:#1e40af;
 }
 
-/* ===============================
+/* ===========================
    Modal
-   =============================== */
+   =========================== */
+
 dialog{
   border:0;
-  border-radius:14px;
+  border-radius:10px;
   padding:0;
-  max-width:700px;
+  max-width:720px;
   width:100%;
 }
+
 .modal{
-  padding:16px;
+  padding:18px;
 }
-.modal h3{
-  margin:0 0 10px 0;
-}
+
 .modal header{
   display:flex;
   justify-content:space-between;
   align-items:center;
   margin-bottom:10px;
+}
+
+.modal h3{
+  margin:0;
+  font-size:1.05rem;
 }
 </style>
 </head>
@@ -951,6 +962,7 @@ dialog{
 
 <div class="wrap">
 
+  <!-- Header -->
   <div class="header">
     <h1>Beheer abonnement</h1>
     <div class="user">
@@ -969,7 +981,7 @@ dialog{
     </div>
     <div class="bar"><i></i></div>
     {% if over %}
-      <p class="small" style="color:#b91c1c;margin-top:6px">
+      <p style="color:#b91c1c;margin-top:8px">
         Opslaglimiet overschreden.
       </p>
     {% endif %}
@@ -979,7 +991,7 @@ dialog{
   <div class="card">
     <h2>Abonnement</h2>
     {% if sub %}
-      <p class="small">
+      <p>
         Plan: <strong>{{ sub['plan_value'] }} TB</strong><br>
         Status: <strong>{{ sub['status'] }}</strong><br>
         ID: <code id="subid">{{ sub['subscription_id'] }}</code>
@@ -996,7 +1008,7 @@ dialog{
         <button class="btn outline" id="btnCancel">Opzeggen</button>
       </div>
     {% else %}
-      <p class="small">Geen actief abonnement.</p>
+      <p>Geen actief abonnement.</p>
     {% endif %}
   </div>
 
@@ -1034,11 +1046,11 @@ dialog{
       </tbody>
     </table>
     {% else %}
-      <p class="small">Geen pakketten gevonden.</p>
+      <p>Geen pakketten gevonden.</p>
     {% endif %}
   </div>
 
-  <p class="footer small" style="text-align:center">
+  <p style="text-align:center;color:#64748b;font-size:.85rem">
     Olde Hanter Bouwconstructies • Bestandentransfer
   </p>
 </div>
@@ -1050,7 +1062,7 @@ dialog{
       <h3 id="dlgTitle">Pakket</h3>
       <button class="btn outline" id="dlgClose">Sluiten</button>
     </header>
-    <div id="dlgMeta" class="small"></div>
+    <div id="dlgMeta" style="margin-bottom:10px"></div>
     <table class="table">
       <thead>
         <tr><th>Bestand</th><th>Pad</th><th>Grootte</th></tr>
@@ -1061,6 +1073,26 @@ dialog{
 </dialog>
 
 <script>
+/* ===========================
+   Element refs (CRUCIAAL)
+   =========================== */
+
+const btnCancel  = document.getElementById('btnCancel');
+const btnChange  = document.getElementById('btnChange');
+const newPlan    = document.getElementById('newPlan');
+const subid      = document.getElementById('subid');
+const packsTable = document.getElementById('packsTable');
+
+const packDlg  = document.getElementById('packDlg');
+const dlgClose = document.getElementById('dlgClose');
+const dlgTitle = document.getElementById('dlgTitle');
+const dlgMeta  = document.getElementById('dlgMeta');
+const dlgBody  = document.getElementById('dlgBody');
+
+/* ===========================
+   API helper
+   =========================== */
+
 async function api(url, body){
   const r = await fetch(url,{
     method:'POST',
@@ -1072,7 +1104,10 @@ async function api(url, body){
   return j;
 }
 
-/* Subscription */
+/* ===========================
+   Subscription acties
+   =========================== */
+
 btnCancel?.addEventListener('click', async ()=>{
   if(!confirm('Abonnement opzeggen?')) return;
   await api("{{ url_for('billing_cancel') }}",{subscription_id:subid.textContent});
@@ -1087,44 +1122,49 @@ btnChange?.addEventListener('click', async ()=>{
   location.reload();
 });
 
-/* Packages */
-packsTable?.addEventListener('click', async e=>{
-  const btn=e.target.closest('button[data-action]');
-  if(!btn) return;
-  const tr=btn.closest('tr');
-  const token=tr.dataset.token;
+/* ===========================
+   Pakket acties
+   =========================== */
 
-  if(btn.dataset.action==='delete'){
-    if(confirm('Pakket verwijderen?')){
-      await api("{{ url_for('billing_package_delete') }}",{token});
-      tr.remove();
-    }
+packsTable?.addEventListener('click', async e=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+
+  const tr = btn.closest('tr');
+  const token = tr.dataset.token;
+
+  if(btn.dataset.action === 'delete'){
+    if(!confirm('Pakket verwijderen?')) return;
+    await api("{{ url_for('billing_package_delete') }}",{token});
+    tr.remove();
   }
 
-  if(btn.dataset.action==='extend'){
+  if(btn.dataset.action === 'extend'){
     await api("{{ url_for('billing_package_extend') }}",{token});
     location.reload();
   }
 
-  if(btn.dataset.action==='details'){
-    dlgTitle.textContent='Pakket '+token;
-    dlgMeta.textContent='Laden…';
-    dlgBody.innerHTML='';
+  if(btn.dataset.action === 'details'){
+    dlgTitle.textContent = 'Pakket ' + token;
+    dlgMeta.textContent = 'Laden…';
+    dlgBody.innerHTML = '';
     packDlg.showModal();
-    const r=await api("{{ url_for('billing_package_files') }}",{token});
-    dlgMeta.textContent=r.files.length+' bestand(en)';
-    dlgBody.innerHTML=r.files.map(f=>(
+
+    const r = await api("{{ url_for('billing_package_files') }}",{token});
+    dlgMeta.textContent = r.files.length + ' bestand(en)';
+    dlgBody.innerHTML = r.files.map(f =>
       `<tr><td>${f.name}</td><td>${f.path}</td><td>${f.size_h}</td></tr>`
-    )).join('');
+    ).join('');
   }
 });
 
-dlgClose?.addEventListener('click',()=>packDlg.close());
+dlgClose?.addEventListener('click', ()=>packDlg.close());
 </script>
 
 </body>
 </html>
 """
+
 
 
 
