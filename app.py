@@ -3125,8 +3125,23 @@ def stream_file(token, item_id):
         abort(500)
 
     except Exception:
-        log.exception("stream_file failed")
-        abort(500)
+        # Fallback: wat er ook misgaat in deze route,
+        # toon voor de gebruiker gewoon de 'link verlopen' pagina.
+        log.exception("stream_file failed; falling back to LINK_EXPIRED_HTML")
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
+
 
         
 @app.route("/p/<token>", methods=["GET","POST"])
