@@ -2998,8 +2998,6 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
-from botocore.exceptions import ClientError  # heb je al bovenin staan
-
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     c = db()
@@ -3019,15 +3017,31 @@ def stream_file(token, item_id):
             base_css=BASE_CSS,
             bg=BG_DIV,
             head_icon=HTML_HEAD_ICON,
-            token=token,
+            token=token
         ), 410
 
-    # Link verlopen? → LINK_EXPIRED_HTML tonen
+    # Pakket verlopen → zelfde gedrag als bij ZIP (opruimen + mooie pagina)
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+        rows = c.execute(
+            "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
+            (token, t)
+        ).fetchall()
+
+        for r in rows:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            except Exception:
+                pass
+
+        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+        c.commit()
+        c.close()
+
         expired_human = datetime.fromisoformat(pkg["expires_at"]) \
             .replace(second=0, microsecond=0) \
             .strftime("%d-%m-%Y %H:%M")
-        c.close()
+
         return render_template_string(
             LINK_EXPIRED_HTML,
             title=pkg["title"] or "Downloadpakket",
@@ -3035,10 +3049,10 @@ def stream_file(token, item_id):
             token=token,
             base_css=BASE_CSS,
             bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
+            head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Wachtwoordcheck indien actief
+    # Wachtwoordcontrole indien actief
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
         c.close()
         abort(403)
@@ -3053,11 +3067,10 @@ def stream_file(token, item_id):
     if not it:
         abort(404)
 
-    # Bestand uit S3 streamen
+    # Stream bestand uit S3
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
-
         obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
 
         def gen():
@@ -3065,10 +3078,7 @@ def stream_file(token, item_id):
                 if chunk:
                     yield chunk
 
-        resp = Response(
-            stream_with_context(gen()),
-            mimetype="application/octet-stream",
-        )
+        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
@@ -3076,12 +3086,13 @@ def stream_file(token, item_id):
         return resp
 
     except ClientError as ce:
-        # Als het object in S3 ontbreekt → toon verlopen-pagina i.p.v. 500
+        # Hier los je jouw 500-probleem op: ontbrekende key → verlopen pagina
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
             expired_human = datetime.now(timezone.utc) \
                 .replace(second=0, microsecond=0) \
                 .strftime("%d-%m-%Y %H:%M")
+
             return render_template_string(
                 LINK_EXPIRED_HTML,
                 title=pkg["title"] or "Downloadpakket",
@@ -3089,17 +3100,17 @@ def stream_file(token, item_id):
                 token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
+                head_icon=HTML_HEAD_ICON
             ), 410
 
-        # andere S3-fouten → echte 500
+        # andere S3-fouten blijven 500
         log.exception("stream_file S3 ClientError")
         abort(500)
 
     except Exception:
         log.exception("stream_file failed")
         abort(500)
-
+        
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     c = db()
