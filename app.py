@@ -2521,50 +2521,71 @@ def tenant_usage_bytes(tenant_slug: str) -> int:
 
 
 # === Pakket-helpers ===
+
 def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
     """Alle pakketten + aantal bestanden + totale grootte per pakket."""
     c = db()
     try:
-        has_tenant = _col_exists(c, "packages", "tenant_id") and _col_exists(c, "items", "tenant_id")
+        has_tenant = (
+            _col_exists(c, "packages", "tenant_id")
+            and _col_exists(c, "items", "tenant_id")
+        )
 
         if has_tenant:
-                    rows = c.execute(
-                    """
-                    SELECT p.token, p.title, p.expires_at, p.created_at,
-                           COUNT(i.id) AS files_count,
-                           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                           COALESCE(p.downloads_count, 0) AS downloads_count
-                    FROM packages p
-                    LEFT JOIN items i
-                      ON i.token = p.token AND i.tenant_id = p.tenant_id
-                    WHERE p.tenant_id = ?
-                    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
-                    ORDER BY p.created_at DESC
-                    LIMIT ?
-                    """,
-                    (tenant_slug, limit),
-                ).fetchall()
-
+            rows = c.execute(
+                """
+                SELECT
+                    p.token,
+                    p.title,
+                    p.expires_at,
+                    p.created_at,
+                    COUNT(i.id) AS files_count,
+                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+                    COALESCE(p.downloads_count, 0) AS downloads_count
+                FROM packages p
+                LEFT JOIN items i
+                    ON i.token = p.token
+                   AND i.tenant_id = p.tenant_id
+                WHERE p.tenant_id = ?
+                GROUP BY
+                    p.token,
+                    p.title,
+                    p.expires_at,
+                    p.created_at,
+                    p.downloads_count
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (tenant_slug, limit),
+            ).fetchall()
         else:
-        
-                    rows = c.execute(
-                    """
-                    SELECT p.token, p.title, p.expires_at, p.created_at,
-                           COUNT(i.id) AS files_count,
-                           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-                           COALESCE(p.downloads_count, 0) AS downloads_count
-                    FROM packages p
-                    LEFT JOIN items i
-                      ON i.token = p.token
-                    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
-                    ORDER BY p.created_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                    ).fetchall()
-
+            rows = c.execute(
+                """
+                SELECT
+                    p.token,
+                    p.title,
+                    p.expires_at,
+                    p.created_at,
+                    COUNT(i.id) AS files_count,
+                    COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+                    COALESCE(p.downloads_count, 0) AS downloads_count
+                FROM packages p
+                LEFT JOIN items i
+                    ON i.token = p.token
+                GROUP BY
+                    p.token,
+                    p.title,
+                    p.expires_at,
+                    p.created_at,
+                    p.downloads_count
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
 
         return [dict(r) for r in rows]
+
     finally:
         c.close()
 
@@ -2573,18 +2594,24 @@ def list_files_in_package(token: str, tenant_slug: str) -> list[dict]:
     """Alle bestanden in één pakket (voor de 'Details'-modal)."""
     c = db()
     try:
-  rows = c.execute(
-    """
-    SELECT id AS item_id, name, path, size_bytes,
-           COALESCE(downloads_count, 0) AS downloads_count
-    FROM items
-    WHERE token = ? AND tenant_id = ?
-    ORDER BY path, name
-    """,
-    (token, tenant_slug),
-).fetchall()
+        rows = c.execute(
+            """
+            SELECT
+                id AS item_id,
+                name,
+                path,
+                size_bytes,
+                COALESCE(downloads_count, 0) AS downloads_count
+            FROM items
+            WHERE token = ?
+              AND tenant_id = ?
+            ORDER BY path, name
+            """,
+            (token, tenant_slug),
+        ).fetchall()
 
         return [dict(r) for r in rows]
+
     finally:
         c.close()
 
@@ -2594,24 +2621,38 @@ def extend_package_expiry(token: str, tenant_slug: str, days: int = 30) -> str:
     c = db()
     try:
         row = c.execute(
-            "SELECT expires_at FROM packages WHERE token=? AND tenant_id=?",
+            """
+            SELECT expires_at
+            FROM packages
+            WHERE token = ?
+              AND tenant_id = ?
+            """,
             (token, tenant_slug),
         ).fetchone()
+
         if not row:
             raise ValueError("pakket_niet_gevonden")
 
-        cur = datetime.fromisoformat(row["expires_at"])
-        base = max(cur, datetime.now(timezone.utc))
-        new_dt = base + timedelta(days=days)
+        current_expiry = datetime.fromisoformat(row["expires_at"])
+        base_time = max(current_expiry, datetime.now(timezone.utc))
+        new_expiry = base_time + timedelta(days=days)
 
         c.execute(
-            "UPDATE packages SET expires_at=? WHERE token=? AND tenant_id=?",
-            (new_dt.isoformat(), token, tenant_slug),
+            """
+            UPDATE packages
+            SET expires_at = ?
+            WHERE token = ?
+              AND tenant_id = ?
+            """,
+            (new_expiry.isoformat(), token, tenant_slug),
         )
         c.commit()
-        return new_dt.isoformat()
+
+        return new_expiry.isoformat()
+
     finally:
         c.close()
+
 
 
 # --------- Basishost voor subdomein-preview ----------
