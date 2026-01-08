@@ -3255,15 +3255,28 @@ def stream_file(token, item_id):
 
 from zipstream import ZipStream
 
+from zipstream import ZipStream
+
 @app.route("/zip/<token>")
 def stream_zip(token):
     t = current_tenant()["slug"]
 
     # -----------------------------
-    # 1. Items ophalen
+    # 1. Pakket + permissie check
     # -----------------------------
     c = db()
     try:
+        pkg = c.execute(
+            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+            (token, t),
+        ).fetchone()
+
+        if not pkg:
+            abort(404)
+
+        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
+            abort(403)
+
         rows = c.execute(
             "SELECT name, path, s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t),
@@ -3276,7 +3289,7 @@ def stream_zip(token):
         c.close()
 
     # -----------------------------
-    # 2. ZIP STREAM (PUUR)
+    # 2. ZIP STREAM (CORRECT)
     # -----------------------------
     z = ZipStream()
 
@@ -3289,10 +3302,11 @@ def stream_zip(token):
                 if chunk:
                     yield chunk
 
-        z.add(arcname, reader())
+        # ⬇️ BELANGRIJK: GEEN reader()
+        z.add(arcname, reader)
 
     # -----------------------------
-    # 3. RESPONSE (GEEN EXTRA LOGICA)
+    # 3. RESPONSE (ALLEEN ZIP)
     # -----------------------------
     filename = f"pakket-{token}.zip"
 
@@ -3304,7 +3318,6 @@ def stream_zip(token):
             "X-Content-Type-Options": "nosniff",
         },
     )
-
 
         
 @app.route("/terms")
