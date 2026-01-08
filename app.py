@@ -2528,40 +2528,40 @@ def list_packages_with_stats(tenant_slug: str, limit: int = 200) -> list[dict]:
         has_tenant = _col_exists(c, "packages", "tenant_id") and _col_exists(c, "items", "tenant_id")
 
         if has_tenant:
-rows = c.execute(
-    """
-    SELECT p.token, p.title, p.expires_at, p.created_at,
-           COUNT(i.id) AS files_count,
-           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-           COALESCE(p.downloads_count, 0) AS downloads_count
-    FROM packages p
-    LEFT JOIN items i
-      ON i.token = p.token AND i.tenant_id = p.tenant_id
-    WHERE p.tenant_id = ?
-    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
-    ORDER BY p.created_at DESC
-    LIMIT ?
-    """,
-    (tenant_slug, limit),
-).fetchall()
+                    rows = c.execute(
+                    """
+                    SELECT p.token, p.title, p.expires_at, p.created_at,
+                           COUNT(i.id) AS files_count,
+                           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+                           COALESCE(p.downloads_count, 0) AS downloads_count
+                    FROM packages p
+                    LEFT JOIN items i
+                      ON i.token = p.token AND i.tenant_id = p.tenant_id
+                    WHERE p.tenant_id = ?
+                    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
+                    ORDER BY p.created_at DESC
+                    LIMIT ?
+                    """,
+                    (tenant_slug, limit),
+                ).fetchall()
 
         else:
         
-rows = c.execute(
-    """
-    SELECT p.token, p.title, p.expires_at, p.created_at,
-           COUNT(i.id) AS files_count,
-           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
-           COALESCE(p.downloads_count, 0) AS downloads_count
-    FROM packages p
-    LEFT JOIN items i
-      ON i.token = p.token
-    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
-    ORDER BY p.created_at DESC
-    LIMIT ?
-    """,
-    (limit,),
-).fetchall()
+                    rows = c.execute(
+                    """
+                    SELECT p.token, p.title, p.expires_at, p.created_at,
+                           COUNT(i.id) AS files_count,
+                           COALESCE(SUM(i.size_bytes), 0) AS total_bytes,
+                           COALESCE(p.downloads_count, 0) AS downloads_count
+                    FROM packages p
+                    LEFT JOIN items i
+                      ON i.token = p.token
+                    GROUP BY p.token, p.title, p.expires_at, p.created_at, p.downloads_count
+                    ORDER BY p.created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                    ).fetchall()
 
 
         return [dict(r) for r in rows]
