@@ -1284,6 +1284,15 @@ INDEX_HTML = """
   <style>
     {{ base_css }}
 
+    /* === Fix: lange bestandsnamen bij upload === */
+#fileName, #folderName{
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
     /* ===== PRO LAYOUT ===== */
     .shell{max-width:1100px;margin:5vh auto;padding:0 16px}
     .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
@@ -1677,7 +1686,29 @@ setInterval(()=>{
 /* UI bindings */
 btnFiles.onclick=()=>fileInput.click();
 btnFolder && (btnFolder.onclick=()=>folderInput.click());
-fileInput.onchange=()=>{kvFiles.textContent=fileInput.files.length; kvQueue.textContent=fileInput.files.length; fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
+fileInput.onchange = () => {
+  const n = fileInput.files.length;
+
+  kvFiles.textContent = n;
+  kvQueue.textContent = n;
+
+  if (!n){
+    fileName.textContent = 'Nog geen bestanden gekozen';
+    fileName.title = '';
+    return;
+  }
+
+  const names = Array.from(fileInput.files).map(f => f.name);
+
+  // Toon compact
+  fileName.textContent = n === 1
+    ? names[0]
+    : `${names[0]} (+${n-1} andere bestanden)`;
+
+  // Tooltip met volledige lijst
+  fileName.title = names.join('\n');
+};
+
 folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
 document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
   const use = (r.value==='folder' && !isIOS);
