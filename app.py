@@ -2955,10 +2955,12 @@ def package_page(token):
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     t = current_tenant()["slug"]
-    c = db()
 
+    # -----------------------------
+    # 1. Pakket + item ophalen
+    # -----------------------------
+    c = db()
     try:
-        # Pakket ophalen
         pkg = c.execute(
             "SELECT * FROM packages WHERE token=? AND tenant_id=?",
             (token, t),
@@ -2967,10 +2969,10 @@ def stream_file(token, item_id):
         if not pkg:
             return render_template_string(
                 LINK_REMOVED_HTML,
+                token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
                 head_icon=HTML_HEAD_ICON,
-                token=token,
             ), 410
 
         # Verlopen pakket → opruimen
@@ -3008,21 +3010,18 @@ def stream_file(token, item_id):
         if pkg["password_hash"] and not session.get(f"allow_{token}", False):
             abort(403)
 
-        # Item ophalen
         it = c.execute(
             "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
             (item_id, token, t),
         ).fetchone()
 
         if not it:
-            expired_human = datetime.now(timezone.utc) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
             return render_template_string(
                 LINK_EXPIRED_HTML,
                 title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_human,
+                expired_human=datetime.now(timezone.utc)
+                    .replace(second=0, microsecond=0)
+                    .strftime("%d-%m-%Y %H:%M"),
                 token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
@@ -3032,7 +3031,9 @@ def stream_file(token, item_id):
     finally:
         c.close()
 
-    # Bestand streamen + download counters
+    # -----------------------------
+    # 2. Bestand streamen
+    # -----------------------------
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
@@ -3043,7 +3044,9 @@ def stream_file(token, item_id):
                 if chunk:
                     yield chunk
 
-        # download counters
+        # -----------------------------
+        # 3. Download counters
+        # -----------------------------
         c2 = db()
         try:
             c2.execute(
@@ -3060,7 +3063,10 @@ def stream_file(token, item_id):
         finally:
             c2.close()
 
-        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+        resp = Response(
+            stream_with_context(gen()),
+            mimetype="application/octet-stream",
+        )
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
@@ -3070,14 +3076,12 @@ def stream_file(token, item_id):
     except ClientError as ce:
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
-            expired_human = datetime.now(timezone.utc) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
             return render_template_string(
                 LINK_EXPIRED_HTML,
                 title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_human,
+                expired_human=datetime.now(timezone.utc)
+                    .replace(second=0, microsecond=0)
+                    .strftime("%d-%m-%Y %H:%M"),
                 token=token,
                 base_css=BASE_CSS,
                 bg=BG_DIV,
@@ -3090,6 +3094,7 @@ def stream_file(token, item_id):
     except Exception:
         log.exception("stream_file failed")
         abort(500)
+
 
 
 # -------------- ZIP Download --------------
