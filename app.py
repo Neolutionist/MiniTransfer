@@ -175,37 +175,18 @@ def _col_exists(conn, table, col):
     return any(r[1] == col for r in cur.fetchall())
 
 def migrate_add_tenant_columns():
-
-def migrate_add_download_counters():
-    conn = db()
-    try:
-        # packages.downloads_count
-        if not _col_exists(conn, "packages", "downloads_count"):
-            conn.execute("ALTER TABLE packages ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE packages SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        # items.downloads_count
-        if not _col_exists(conn, "items", "downloads_count"):
-            conn.execute("ALTER TABLE items ADD COLUMN downloads_count INTEGER DEFAULT 0")
-            conn.execute("UPDATE items SET downloads_count = 0 WHERE downloads_count IS NULL")
-
-        conn.commit()
-    finally:
-        conn.close()
-
-migrate_add_download_counters()
-
-    
     conn = db()
     try:
         # packages
         if not _col_exists(conn, "packages", "tenant_id"):
             conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+
         # items
         if not _col_exists(conn, "items", "tenant_id"):
             conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
             conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+
         # subscriptions
         if not _col_exists(conn, "subscriptions", "tenant_id"):
             conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
@@ -215,6 +196,24 @@ migrate_add_download_counters()
     finally:
         conn.close()
 
+
+def migrate_add_download_counters():
+    conn = db()
+    try:
+        if not _col_exists(conn, "packages", "downloads_count"):
+            conn.execute("ALTER TABLE packages ADD COLUMN downloads_count INTEGER DEFAULT 0")
+            conn.execute("UPDATE packages SET downloads_count = 0 WHERE downloads_count IS NULL")
+
+        if not _col_exists(conn, "items", "downloads_count"):
+            conn.execute("ALTER TABLE items ADD COLUMN downloads_count INTEGER DEFAULT 0")
+            conn.execute("UPDATE items SET downloads_count = 0 WHERE downloads_count IS NULL")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+migrate_add_download_counters()
 migrate_add_tenant_columns()
 
 # -------------- CSS --------------
