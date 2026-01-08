@@ -3020,9 +3020,8 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
-    # Link verlopen → opruimen + mooie verlopen pagina
+    # Pakket verlopen → bestanden + records verwijderen en nette verlopen pagina tonen
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-
         rows = c.execute(
             "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t)
@@ -3053,7 +3052,7 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Wachtwoordcheck indien actief
+    # Wachtwoordcontrole indien actief
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
         c.close()
         abort(403)
@@ -3066,7 +3065,7 @@ def stream_file(token, item_id):
 
     c.close()
 
-    # Als het item in de database niet meer bestaat → toon het ook als “verlopen”
+    # Item bestaat niet meer (bv. via bestandsbeheer verwijderd) → toon als verlopen link
     if not it:
         expired_human = datetime.now(timezone.utc) \
             .replace(second=0, microsecond=0) \
@@ -3082,7 +3081,7 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Stream bestand uit S3
+    # Bestand uit S3 streamen
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
         length = int(head.get("ContentLength", 0))
@@ -3093,15 +3092,18 @@ def stream_file(token, item_id):
                 if chunk:
                     yield chunk
 
-        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
+        resp = Response(
+            stream_with_context(gen()),
+            mimetype="application/octet-stream"
+        )
         resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
         return resp
 
+    # Ontbrekend object in S3 → behandel als verlopen link i.p.v. 500
     except ClientError as ce:
-        # Ontbrekend object in S3 → behandel als verlopen link, geen 500
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
             expired_human = datetime.now(timezone.utc) \
@@ -3118,7 +3120,7 @@ def stream_file(token, item_id):
                 head_icon=HTML_HEAD_ICON
             ), 410
 
-        # andere S3-fouten → wél echte 500
+        # andere S3-fouten → echte 500
         log.exception("stream_file S3 ClientError")
         abort(500)
 
