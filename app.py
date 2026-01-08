@@ -3020,8 +3020,9 @@ def stream_file(token, item_id):
             token=token
         ), 410
 
-    # Pakket verlopen → zelfde gedrag als bij ZIP (opruimen + mooie pagina)
+    # Link verlopen → opruimen + mooie verlopen pagina
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+
         rows = c.execute(
             "SELECT s3_key FROM items WHERE token=? AND tenant_id=?",
             (token, t)
@@ -3052,7 +3053,7 @@ def stream_file(token, item_id):
             head_icon=HTML_HEAD_ICON
         ), 410
 
-    # Wachtwoordcontrole indien actief
+    # Wachtwoordcheck indien actief
     if pkg["password_hash"] and not session.get(f"allow_{token}", False):
         c.close()
         abort(403)
@@ -3064,8 +3065,22 @@ def stream_file(token, item_id):
     ).fetchone()
 
     c.close()
+
+    # Als het item in de database niet meer bestaat → toon het ook als “verlopen”
     if not it:
-        abort(404)
+        expired_human = datetime.now(timezone.utc) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        return render_template_string(
+            LINK_EXPIRED_HTML,
+            title=pkg["title"] or "Downloadpakket",
+            expired_human=expired_human,
+            token=token,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON
+        ), 410
 
     # Stream bestand uit S3
     try:
@@ -3086,7 +3101,7 @@ def stream_file(token, item_id):
         return resp
 
     except ClientError as ce:
-        # Hier los je jouw 500-probleem op: ontbrekende key → verlopen pagina
+        # Ontbrekend object in S3 → behandel als verlopen link, geen 500
         code = ce.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchKey", "NotFound", "404"}:
             expired_human = datetime.now(timezone.utc) \
@@ -3103,13 +3118,14 @@ def stream_file(token, item_id):
                 head_icon=HTML_HEAD_ICON
             ), 410
 
-        # andere S3-fouten blijven 500
+        # andere S3-fouten → wél echte 500
         log.exception("stream_file S3 ClientError")
         abort(500)
 
     except Exception:
         log.exception("stream_file failed")
         abort(500)
+
         
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
