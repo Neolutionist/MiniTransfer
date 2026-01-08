@@ -3041,64 +3041,117 @@ def internal_cleanup():
 
 # -------------- Download Pages --------------
 
-@app.route("/p/<token>")
+from werkzeug.security import check_password_hash
+
+@app.route("/p/<token>", methods=["GET", "POST"])
 def package_page(token):
     c = db()
     t = current_tenant()["slug"]
 
-    pkg = c.execute(
-        "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-        (token, t)
-    ).fetchone()
+    try:
+        pkg = c.execute(
+            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
+            (token, t),
+        ).fetchone()
 
-    if not pkg:
-        c.close()
-        return render_template_string(
-            LINK_REMOVED_HTML,
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
+        if not pkg:
+            return render_template_string(
+                LINK_REMOVED_HTML,
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+            ), 410
 
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        c.close()
-        return render_template_string(
-            LINK_EXPIRED_HTML,
-            title=pkg["title"] or "Downloadpakket",
-            expired_human=pkg["expires_at"],
-            token=token,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 410
+        # Verlopen?
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+            expired_h = datetime.fromisoformat(pkg["expires_at"]) \
+                .replace(second=0, microsecond=0) \
+                .strftime("%d-%m-%Y %H:%M")
 
-    items = c.execute(
-        """SELECT id,name,path,size_bytes FROM items
-           WHERE token=? AND tenant_id=?
-           ORDER BY path,name""",
-        (token, t)
-    ).fetchall()
+            return render_template_string(
+                LINK_EXPIRED_HTML,
+                title=pkg["title"] or "Downloadpakket",
+                expired_human=expired_h,
+                token=token,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON,
+            ), 410
 
-    c.close()
+        # -----------------------------
+        # WACHTWOORD BEVEILIGING
+        # -----------------------------
+        if pkg["password_hash"]:
+            # Nog niet geautoriseerd → toon prompt
+            if request.method == "GET" and not session.get(f"allow_{token}", False):
+                return render_template_string(
+                    PASS_PROMPT_HTML,
+                    base_css=BASE_CSS,
+                    bg=BG_DIV,
+                    error=None,
+                    head_icon=HTML_HEAD_ICON,
+                )
 
-    return render_template_string(
-        PACKAGE_HTML,
-        token=token,
-        title=pkg["title"],
-        items=[
+            # POST → controleer wachtwoord
+            if request.method == "POST":
+                pw = request.form.get("password", "")
+                if not check_password_hash(pkg["password_hash"], pw):
+                    return render_template_string(
+                        PASS_PROMPT_HTML,
+                        base_css=BASE_CSS,
+                        bg=BG_DIV,
+                        error="Onjuist wachtwoord. Probeer opnieuw.",
+                        head_icon=HTML_HEAD_ICON,
+                    )
+                session[f"allow_{token}"] = True
+
+            # Als GET met allow=True, of POST succesvol, ga door.
+
+        # -----------------------------
+        # ITEMS OPHALEN
+        # -----------------------------
+        items = c.execute(
+            """
+            SELECT id, name, path, size_bytes
+            FROM items
+            WHERE token=? AND tenant_id=?
+            ORDER BY path, name
+            """,
+            (token, t),
+        ).fetchall()
+
+        total_bytes = sum(int(r["size_bytes"]) for r in items)
+        total_h = human(total_bytes)
+
+        expires_h = datetime.fromisoformat(pkg["expires_at"]) \
+            .replace(second=0, microsecond=0) \
+            .strftime("%d-%m-%Y %H:%M")
+
+        its = [
             {
                 "id": r["id"],
                 "name": r["name"],
                 "path": r["path"],
-                "size_h": human(r["size_bytes"])
-            } for r in items
-        ],
-        base_css=BASE_CSS,
-        bg=BG_DIV,
-        head_icon=HTML_HEAD_ICON
-    )
+                "size_h": human(int(r["size_bytes"])),
+            }
+            for r in items
+        ]
 
+        return render_template_string(
+            PACKAGE_HTML,
+            token=token,
+            title=pkg["title"],
+            items=its,
+            total_human=total_h,
+            expires_human=expires_h,
+            base_css=BASE_CSS,
+            bg=BG_DIV,
+            head_icon=HTML_HEAD_ICON,
+        )
+
+    finally:
+        c.close()
 
 
 @app.route("/file/<token>/<int:item_id>")
