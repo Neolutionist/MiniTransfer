@@ -1332,7 +1332,14 @@ INDEX_HTML = """
   padding:6px 10px;
   min-height:42px;
 }
-.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+/* file input niet als overlay; we openen 'm via de knop */
+.picker-ctl input[type=file]{
+  position:absolute;
+  left:-9999px;
+  width:1px;
+  height:1px;
+  opacity:0;
+}
 
 /* basisknop overal */
 .btn{
@@ -1684,7 +1691,13 @@ setInterval(()=>{
 }, 700);
 
 /* UI bindings */
-btnFiles.onclick=()=>fileInput.click();
+btnFiles.addEventListener('click', (e) => {
+  e.preventDefault();
+  // optioneel: reset zodat dezelfde file opnieuw kiezen ook onchange triggert
+  fileInput.value = '';
+  fileInput.click();
+});
+
 btnFolder && (btnFolder.onclick=()=>folderInput.click());
 fileInput.onchange = () => {
   const n = fileInput.files.length;
