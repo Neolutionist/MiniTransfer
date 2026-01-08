@@ -503,46 +503,46 @@ LINK_EXPIRED_HTML = """
 body{
   font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
   background: linear-gradient(135deg,#eef2ff,#e0f2fe);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  min-height:100vh;
-  margin:0;
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh;margin:0;
 }
 .box{
-  background:#fff;
-  border-radius:18px;
-  padding:28px 30px;
-  max-width:520px;
-  width:92%;
+  background:#fff;border-radius:18px;padding:26px 28px;
+  max-width:580px;width:92%;
   box-shadow:0 20px 40px rgba(0,0,0,.12);
 }
 .badge{
-  display:inline-block;
-  padding:6px 10px;
-  border-radius:10px;
-  background:#fee2e2;
-  color:#991b1b;
-  font-weight:600;
+  display:inline-block;padding:6px 10px;border-radius:10px;
+  background:#fee2e2;color:#991b1b;font-weight:600;
 }
-h1{ margin:8px 0; color:#0f172a; }
-p{ margin:4px 0 10px; color:#334155; }
-.meta{ color:#64748b; font-size:.9rem; margin-bottom:12px; }
+h1{margin:10px 0 6px;color:#0f172a}
+p{margin:4px 0 10px;color:#334155}
+.meta{
+  margin:10px 0 14px;padding:10px 12px;border-radius:12px;
+  background:#f1f5f9;border:1px solid #e2e8f0;font-size:.9rem;
+}
+.meta strong{color:#0f172a}
+.meta-list{list-style:none;padding:0;margin:6px 0 0}
+.meta-list li{
+  display:flex;justify-content:space-between;
+  gap:10px;margin:2px 0;
+}
+.meta-list span.label{color:#64748b}
+.meta-list span.value{font-weight:600;color:#0f172a}
+.meta-list code{
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  background:#e5e7eb;border-radius:6px;padding:2px 6px;
+  font-size:.82rem;
+}
+.note{font-size:.85rem;color:#64748b;margin-top:4px}
 
-.actions{
-  display:flex;
-  gap:.5rem;
-  margin-top:12px;
-}
+.actions{display:flex;gap:.5rem;margin-top:12px}
 .btn{
-  border-radius:12px;
-  padding:10px 14px;
-  border:none;
-  font-weight:600;
-  cursor:pointer;
+  border-radius:12px;padding:10px 14px;border:none;
+  font-weight:600;cursor:pointer;
 }
-.btn.primary{ background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:#fff; }
-.btn.secondary{ background:#e5e7eb; }
+.btn.primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+.btn.secondary{background:#e5e7eb}
 .btn.primary[disabled]{opacity:.6;pointer-events:none}
 </style>
 </head>
@@ -552,15 +552,38 @@ p{ margin:4px 0 10px; color:#334155; }
 
   <span class="badge">Link verlopen</span>
 
-  <h1>{{ title }}</h1>
+  <h1>{{ title or "Downloadpakket" }}</h1>
 
   <p>Deze downloadlink is niet meer actief.</p>
 
   <div class="meta">
-    Verlopen op <strong>{{ expired_human }}</strong>
+    {% if expired_human %}
+      Deze link is verlopen op <strong>{{ expired_human }}</strong>.
+    {% else %}
+      Deze link is verlopen en niet langer beschikbaar.
+    {% endif %}
+
+    <ul class="meta-list">
+      {% if created_human %}
+        <li><span class="label">Aangemaakt op</span>
+            <span class="value">{{ created_human }}</span></li>
+      {% endif %}
+      {% if expired_human %}
+        <li><span class="label">Verlopen op</span>
+            <span class="value">{{ expired_human }}</span></li>
+      {% endif %}
+      {% if token %}
+        <li><span class="label">Referentie</span>
+            <span class="value"><code>{{ token }}</code></span></li>
+      {% endif %}
+    </ul>
   </div>
 
   <p>Je kunt de verzender vragen om een nieuwe link.</p>
+
+  <p class="note">
+    Contactpersoon: <strong>{{ contact_mail or "patrick@oldehanter.nl" }}</strong>
+  </p>
 
   <div class="actions">
     <button class="btn secondary" onclick="history.back()">Ga terug</button>
@@ -573,17 +596,16 @@ p{ margin:4px 0 10px; color:#334155; }
 const btn = document.getElementById("reqBtn");
 
 btn.onclick = async () => {
-  btn.innerText = "Verzoek verstuurd…";
+  btn.innerText = "Verzoek versturen…";
   btn.disabled = true;
 
   try{
     await fetch("/expired/request", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ token: "{{ token }}" })
+      body: JSON.stringify({ token: "{{ token }}", remark: null })
     });
-
-    btn.innerText = "Aangevraagd ✔";
+    btn.innerText = "Verzoek verzonden ✔";
   }catch(e){
     btn.innerText = "Mislukt — probeer opnieuw";
     btn.disabled = false;
@@ -594,6 +616,7 @@ btn.onclick = async () => {
 </body>
 </html>
 """
+
 
 
 LINK_REMOVED_HTML = """
@@ -612,21 +635,42 @@ body{
   min-height:100vh;margin:0;
 }
 .box{
-  background:#fff;border-radius:18px;
-  padding:26px 28px;max-width:540px;width:92%;
+  background:#fff;border-radius:18px;padding:26px 28px;
+  max-width:620px;width:92%;
   box-shadow:0 20px 40px rgba(0,0,0,.12);
 }
 .badge{
   display:inline-block;padding:6px 10px;border-radius:10px;
   background:#fee2e2;color:#991b1b;font-weight:600;
 }
-h1{margin:8px 0;color:#0f172a}
-p{margin:6px 0 10px;color:#334155}
+h1{margin:10px 0 6px;color:#0f172a}
+p{margin:4px 0 10px;color:#334155}
+
+.meta{
+  margin:10px 0 14px;padding:10px 12px;border-radius:12px;
+  background:#f1f5f9;border:1px solid #e2e8f0;font-size:.9rem;
+}
+.meta strong{color:#0f172a}
+.meta-list{list-style:none;padding:0;margin:6px 0 0}
+.meta-list li{
+  display:flex;justify-content:space-between;
+  gap:10px;margin:2px 0;
+}
+.meta-list span.label{color:#64748b}
+.meta-list span.value{font-weight:600;color:#0f172a}
+.meta-list code{
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  background:#e5e7eb;border-radius:6px;padding:2px 6px;
+  font-size:.82rem;
+}
+
 textarea{
   width:100%;border-radius:10px;border:1px solid #d1d5db;
   padding:10px;min-height:70px;resize:vertical;
 }
-.actions{display:flex;gap:.5rem;margin-top:10px}
+.note{font-size:.85rem;color:#64748b;margin-top:4px}
+
+.actions{display:flex;gap:.5rem;margin-top:12px;flex-wrap:wrap}
 .btn{
   border-radius:12px;padding:10px 14px;border:none;
   font-weight:600;cursor:pointer;
@@ -634,7 +678,6 @@ textarea{
 .btn.primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
 .btn.secondary{background:#e5e7eb}
 .btn.primary[disabled]{opacity:.6;pointer-events:none}
-.note{font-size:.85rem;color:#64748b;margin-top:4px}
 </style>
 </head>
 
@@ -643,18 +686,41 @@ textarea{
 
   <span class="badge">Niet meer beschikbaar</span>
 
-  <h1>Pakket verwijderd</h1>
+  <h1>{{ title or "Pakket verwijderd" }}</h1>
 
   <p>
-    Dit downloadpakket is verwijderd door de verzender<br>
-    of automatisch opgeschoond na verloop van tijd.
+    Dit downloadpakket of het bijbehorende bestand is niet meer beschikbaar.
+    Het kan zijn dat het pakket door de verzender is verwijderd of automatisch
+    is opgeschoond na verloop van tijd.
   </p>
+
+  <div class="meta">
+    <strong>Details van deze link</strong>
+    <ul class="meta-list">
+      {% if created_human %}
+        <li><span class="label">Aangemaakt op</span>
+            <span class="value">{{ created_human }}</span></li>
+      {% endif %}
+      {% if expired_human %}
+        <li><span class="label">Oorspronkelijke verloopdatum</span>
+            <span class="value">{{ expired_human }}</span></li>
+      {% endif %}
+      {% if token %}
+        <li><span class="label">Referentie</span>
+            <span class="value"><code>{{ token }}</code></span></li>
+      {% endif %}
+    </ul>
+  </div>
 
   <p>Wil je een nieuwe link aanvragen? Voeg eventueel een opmerking toe:</p>
 
-  <textarea id="remark" placeholder="Bijvoorbeeld: kunt u het pakket opnieuw delen?"></textarea>
+  <textarea id="remark"
+    placeholder="Bijvoorbeeld: kunt u het pakket opnieuw delen?"></textarea>
 
-  <div class="note">De verzender ontvangt je verzoek per e-mail.</div>
+  <p class="note">
+    De verzender ontvangt je verzoek per e-mail
+    ({{ contact_mail or "patrick@oldehanter.nl" }}).
+  </p>
 
   <div class="actions">
     <button class="btn secondary" onclick="history.back()">Ga terug</button>
@@ -671,10 +737,10 @@ btn.onclick = async () => {
   btn.innerText = "Verzoek versturen…";
   btn.disabled = true;
 
-  try {
+  try{
     await fetch("/expired/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({
         token: "{{ token }}",
         remark: remark.value || null
@@ -682,7 +748,7 @@ btn.onclick = async () => {
     });
 
     btn.innerText = "Verzoek verzonden ✔";
-  } catch(e){
+  }catch(e){
     btn.innerText = "Mislukt — probeer opnieuw";
     btn.disabled = false;
   }
@@ -3020,7 +3086,11 @@ def stream_file(token, item_id):
                     yield chunk
 
         resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-        resp.headers["Content-Disposition"] = f'attachment; filename=\"{it['name']}\""
+filename = it["name"].replace('"', '')
+filename = it["name"].replace('"', '')
+resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+
         if length:
             resp.headers["Content-Length"] = str(length)
         resp.headers["X-Filename"] = it["name"]
@@ -3342,7 +3412,8 @@ def stream_zip(token):
             stream_with_context(generate()),
             mimetype="application/zip"
         )
-        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+filename = it["name"].replace('"', '')
+resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         resp.headers["X-Filename"] = filename
         return resp
     except Exception as e:
