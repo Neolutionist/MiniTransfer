@@ -3062,27 +3062,31 @@ def upload_backend():
         abort(401)
 
     token = request.form.get("token")
-    key   = request.form.get("key")   # 👈 key komt nu van put_init
+    key   = request.form.get("key")
     f     = request.files.get("file")
 
     if not token or not key or not f:
         abort(400)
 
     try:
+        f.stream.seek(0, 2)
+        size = f.stream.tell()
+        f.stream.seek(0)
+
         s3.upload_fileobj(
             f,
             S3_BUCKET,
             key,
             ExtraArgs={
-                "ContentType": f.mimetype or "application/octet-stream"
-            }
+                "ContentType": f.mimetype or "application/octet-stream",
+                "ContentLength": size,
+            },
         )
     except Exception:
         log.exception("backend upload failed")
         abort(500)
 
     return jsonify(ok=True)
-
 
 @app.post("/put-complete")
 def put_complete():
