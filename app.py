@@ -1716,6 +1716,7 @@ form.addEventListener('submit', async (e)=>{
             const left=total-loaded; const etaS= sp>1 ? left/sp : 0; it.ui.eta.textContent = etaS? new Date(etaS*1000).toISOString().substring(11,19) : '—';
             setTotal(moved/totBytes*100,'Uploaden…');
           });
+          console.log("CALLING putComplete", token, init.key);
           await putComplete(token,init.key,it.f.name,it.rel);
           it.ui.fill.style.width='100%'; it.ui.eta.textContent='Klaar'; done++; log("Klaar: "+it.rel);
         }catch(err){ it.ui.eta.textContent='Fout'; log("Fout: "+it.rel); }
