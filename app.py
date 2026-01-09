@@ -3087,15 +3087,17 @@ def upload_backend():
 
 @app.post("/put-complete")
 def put_complete():
-    print("PUT_COMPLETE HIT", data)
     if not logged_in():
         abort(401)
 
     data = request.get_json(force=True, silent=True) or {}
+    print("PUT_COMPLETE HIT", data)
+
     token = data.get("token")
-    key = data.get("key")
-    name = data.get("name")
-    path = data.get("path") or name
+    key   = data.get("key")
+    name  = data.get("name")
+    path  = data.get("path") or name
+
 
     if not (token and key and name):
         return jsonify(ok=False, error="missing_fields"), 400
@@ -3820,14 +3822,23 @@ def health():
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
 
-@app.route("/package/<token>")
-def package_alias(token): return redirect(url_for("package_page", token=token))
-@app.route("/stream/<token>/<int:item_id>")
-def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
+# Publieke pakketlink → download (zip)
+@app.get("/package/<token>")
+def package_alias(token):
+    return redirect(url_for("stream_zip", token=token))
 
 
-@app.route("/streamzip/<token>")
-def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
+# Individueel bestand downloaden
+@app.get("/stream/<token>/<int:item_id>")
+def stream_file_alias(token, item_id):
+    return redirect(url_for("stream_file", token=token, item_id=item_id))
+
+
+# ZIP-download expliciet
+@app.get("/streamzip/<token>")
+def stream_zip_alias(token):
+    return redirect(url_for("stream_zip", token=token))
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
