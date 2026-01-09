@@ -2875,297 +2875,146 @@ def login():
 def logout():
     session.clear(); return redirect(url_for("login"))
 
-# -------------- Upload API --------------
-@app.route("/package-init", methods=["POST"])
+# =========================================================
+# UPLOAD API
+# =========================================================
+
+@app.post("/package-init")
 def package_init():
-    if not logged_in(): abort(401)
+    if not logged_in():
+        abort(401)
+
     data = request.get_json(force=True, silent=True) or {}
+
     days = float(data.get("expiry_days") or 24)
-    pw   = data.get("password") or ""
+    password = (data.get("password") or "").strip()
     title_raw = (data.get("title") or "").strip()
     title = title_raw[:120] if title_raw else None
+
     token = uuid.uuid4().hex[:10]
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
-    pw_hash = generate_password_hash(pw) if pw else None
-    t = current_tenant()["slug"]
+    pw_hash = generate_password_hash(password) if password else None
+    tenant = current_tenant()["slug"]
+
     c = db()
-    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id)
-                 VALUES(?,?,?,?,?,?)""",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t))
-    c.commit(); c.close()
+    try:
+        c.execute(
+            """INSERT INTO packages
+               (token, expires_at, password_hash, created_at, title, tenant_id)
+               VALUES (?,?,?,?,?,?)""",
+            (
+                token,
+                expires_at,
+                pw_hash,
+                datetime.now(timezone.utc).isoformat(),
+                title,
+                tenant,
+            ),
+        )
+        c.commit()
+    finally:
+        c.close()
+
     return jsonify(ok=True, token=token)
-    
-@app.route("/put-init", methods=["POST"])
+
+
+# ---------------------------------------------------------
+# DIRECT PUT UPLOAD (kleine bestanden)
+# ---------------------------------------------------------
+
+@app.post("/put-init")
 def put_init():
-    if not logged_in(): abort(401)
-    d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token"); filename = secure_filename(d.get("filename") or "")
-    content_type = d.get("contentType") or "application/octet-stream"
+    if not logged_in():
+        abort(401)
+
+    data = request.get_json(force=True, silent=True) or {}
+    token = data.get("token")
+    filename = secure_filename(data.get("filename") or "")
+    content_type = data.get("contentType") or "application/octet-stream"
+
     if not token or not filename:
-        return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
-    t = current_tenant()["slug"]
-    key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+        return jsonify(ok=False, error="missing_fields"), 400
+
+    tenant = current_tenant()["slug"]
+    key = f"uploads/{tenant}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+
     try:
         url = s3.generate_presigned_url(
             "put_object",
-            Params={"Bucket": S3_BUCKET, "Key": key, "ContentType": content_type},
-            ExpiresIn=3600, HttpMethod="PUT"
+            Params={
+                "Bucket": S3_BUCKET,
+                "Key": key,
+                "ContentType": content_type,
+                "ContentDisposition": f'attachment; filename="{filename}"',
+            },
+            ExpiresIn=3600,
+            HttpMethod="PUT",
         )
         return jsonify(ok=True, key=key, url=url)
     except Exception:
         log.exception("put_init failed")
         return jsonify(ok=False, error="server_error"), 500
 
-@app.route("/put-complete", methods=["POST"])
+
+@app.post("/put-complete")
 def put_complete():
-    if not logged_in(): abort(401)
-    d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token"); key = d.get("key"); name = d.get("name")
-    path  = d.get("path") or name
+    if not logged_in():
+        abort(401)
+
+    data = request.get_json(force=True, silent=True) or {}
+    token = data.get("token")
+    key = data.get("key")
+    name = data.get("name")
+    path = data.get("path") or name
+
     if not (token and key and name):
-        return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
+        return jsonify(ok=False, error="missing_fields"), 400
+
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-        size = int(head.get("ContentLength", 0))
-        t = current_tenant()["slug"]
+        size = int(head["ContentLength"])
+        tenant = current_tenant()["slug"]
+
         c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
-                     VALUES(?,?,?,?,?,?)""",
-                  (token, key, name, path, size, t))
-        c.commit(); c.close()
+        try:
+            c.execute(
+                """INSERT INTO items
+                   (token, s3_key, name, path, size_bytes, tenant_id)
+                   VALUES (?,?,?,?,?,?)""",
+                (token, key, name, path, size, tenant),
+            )
+            c.commit()
+        finally:
+            c.close()
+
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
+    except Exception:
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
-@app.route("/mpu-init", methods=["POST"])
-def mpu_init():
-    if not logged_in(): abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    token = data.get("token")
-    filename = secure_filename(data.get("filename") or "")
-    content_type = data.get("contentType") or "application/octet-stream"
-    if not token or not filename:
-        return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
-    t = current_tenant()["slug"]
-    key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
-    try:
-        init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
-        return jsonify(ok=True, key=key, uploadId=init["UploadId"])
-    except Exception:
-        log.exception("mpu_init failed")
-        return jsonify(ok=False, error="server_error"), 500
 
-@app.route("/mpu-sign", methods=["POST"])
-def mpu_sign():
-    if not logged_in(): abort(401)
-    data = request.get_json(force=True, silent=True) or {}
-    key = data.get("key"); upload_id = data.get("uploadId")
-    part_no = int(data.get("partNumber") or 0)
-    if not key or not upload_id or part_no<=0:
-        return jsonify(ok=False, error="Onvolledig sign"), 400
-    try:
-        url = s3.generate_presigned_url(
-            "upload_part",
-            Params={"Bucket": S3_BUCKET, "Key": key, "UploadId": upload_id, "PartNumber": part_no},
-            ExpiresIn=3600, HttpMethod="PUT"
-        )
-        return jsonify(ok=True, url=url)
-    except Exception:
-        log.exception("mpu_sign failed")
-        return jsonify(ok=False, error="server_error"), 500
+# =========================================================
+# DOWNLOADS VIA PRESIGNED URL (WINDOWS-ZIP-PROOF)
+# =========================================================
 
-@app.route("/mpu-complete", methods=["POST"])
-def mpu_complete():
-    if not logged_in(): abort(401)
-    data      = request.get_json(force=True, silent=True) or {}
-    token     = data.get("token"); key = data.get("key")
-    name      = data.get("name");  path = data.get("path") or name
-    parts_in  = data.get("parts") or []; upload_id = data.get("uploadId")
-    client_size = int(data.get("clientSize") or 0)
-    if not (token and key and name and parts_in and upload_id):
-        return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
-    try:
-        s3.complete_multipart_upload(
-            Bucket=S3_BUCKET, Key=key,
-            MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
-            UploadId=upload_id
-        )
-        size = 0
-        try:
-            head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-            size = int(head.get("ContentLength", 0))
-        except Exception:
-            if client_size>0: size = client_size
-            else: raise
-        t = current_tenant()["slug"]
-        c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
-                     VALUES(?,?,?,?,?,?)""",
-                  (token, key, name, path, size, t))
-        c.commit(); c.close()
-        return jsonify(ok=True)
-    except (ClientError, BotoCoreError) as e:
-        log.exception("mpu_complete failed")
-        return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
-    except Exception:
-        log.exception("mpu_complete failed (generic)")
-        return jsonify(ok=False, error="server_error"), 500
-        
-@app.post("/internal/cleanup")
-def internal_cleanup():
-    """
-    Interne route voor cron. Verwijdert verlopen pakketten + S3-objecten.
-    Auth via header: X-Task-Token  (zet TASK_TOKEN als secret in Render).
-    Opties:
-      - ?dry=1  -> dry-run (niets echt verwijderen)
-      - ?tenant=slug  -> alleen die tenant (bijv. 'oldehanter')
-      - ?verbose=1 -> extra logging in response
-    """
-    task_token = os.environ.get("TASK_TOKEN")
-    if not task_token or request.headers.get("X-Task-Token") != task_token:
-        return ("Forbidden", 403)
+import zipfile
+import tempfile
+from flask import redirect
+from botocore.exceptions import ClientError
 
-    dry = request.args.get("dry") in {"1", "true", "yes"}
-    only_tenant = request.args.get("tenant") or None
-    verbose = request.args.get("verbose") in {"1", "true", "yes"}
+ZIP_CACHE_PREFIX = os.environ.get("ZIP_CACHE_PREFIX", "zips")
 
-    # Prefer de DB die de app zelf gebruikt; fallback naar resolver
-    db_path = DB_PATH if DB_PATH.exists() else (resolve_data_dir(verbose=verbose) / "files_multi.db")
 
-    try:
-        deleted = cleanup_expired(
-            db_path=db_path,
-            dry_run=dry,
-            only_tenant=only_tenant,
-            verbose=verbose,
-        )
-        return jsonify(ok=True, deleted=deleted, db=str(db_path), dry=dry, tenant=only_tenant)
-    except Exception as e:
-        logging.exception("internal_cleanup failed")
-        return jsonify(ok=False, error=str(e), db=str(db_path)), 500
+def _normalize_arcname(p: str) -> str:
+    return (p or "").replace("\\", "/").lstrip("/") or "bestand"
 
-# -------------- Download Pages --------------
 
-from flask import Response, stream_with_context, abort, request, session
-from werkzeug.security import check_password_hash
-from zipstream import ZipStream
-from datetime import datetime, timezone
-
-# =============================
-# PAKKET PAGINA
-# =============================
-@app.route("/p/<token>", methods=["GET", "POST"])
-def package_page(token):
-    t = current_tenant()["slug"]
+def _validate_package_access(token: str, tenant: str):
     c = db()
     try:
         pkg = c.execute(
             "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
-
-        if not pkg:
-            return render_template_string(
-                LINK_REMOVED_HTML,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            expired_h = datetime.fromisoformat(pkg["expires_at"]) \
-                .replace(second=0, microsecond=0) \
-                .strftime("%d-%m-%Y %H:%M")
-
-            return render_template_string(
-                LINK_EXPIRED_HTML,
-                title=pkg["title"] or "Downloadpakket",
-                expired_human=expired_h,
-                token=token,
-                base_css=BASE_CSS,
-                bg=BG_DIV,
-                head_icon=HTML_HEAD_ICON,
-            ), 410
-
-        # -------- Wachtwoord --------
-        if pkg["password_hash"]:
-            if request.method == "GET" and not session.get(f"allow_{token}", False):
-                return render_template_string(
-                    PASS_PROMPT_HTML,
-                    base_css=BASE_CSS,
-                    bg=BG_DIV,
-                    error=None,
-                    head_icon=HTML_HEAD_ICON,
-                )
-
-            if request.method == "POST":
-                pw = request.form.get("password", "")
-                if not check_password_hash(pkg["password_hash"], pw):
-                    return render_template_string(
-                        PASS_PROMPT_HTML,
-                        base_css=BASE_CSS,
-                        bg=BG_DIV,
-                        error="Onjuist wachtwoord.",
-                        head_icon=HTML_HEAD_ICON,
-                    )
-                session[f"allow_{token}"] = True
-
-        items = c.execute(
-            """
-            SELECT id, name, path, size_bytes
-            FROM items
-            WHERE token=? AND tenant_id=?
-            ORDER BY path, name
-            """,
-            (token, t),
-        ).fetchall()
-
-        total_bytes = sum(int(r["size_bytes"]) for r in items)
-        total_h = human(total_bytes)
-
-        expires_h = datetime.fromisoformat(pkg["expires_at"]) \
-            .replace(second=0, microsecond=0) \
-            .strftime("%d-%m-%Y %H:%M")
-
-        its = [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "path": r["path"],
-                "size_h": human(int(r["size_bytes"])),
-            }
-            for r in items
-        ]
-
-        return render_template_string(
-            PACKAGE_HTML,
-            token=token,
-            title=pkg["title"],
-            items=its,
-            total_human=total_h,
-            expires_human=expires_h,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON,
-        )
-    finally:
-        c.close()
-
-
-# =============================
-# INDIVIDUEEL BESTAND DOWNLOAD
-# =============================
-@app.route("/file/<token>/<int:item_id>")
-def stream_file(token, item_id):
-    t = current_tenant()["slug"]
-
-    c = db()
-    try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
+            (token, tenant),
         ).fetchone()
 
         if not pkg:
@@ -3177,120 +3026,112 @@ def stream_file(token, item_id):
         if pkg["password_hash"] and not session.get(f"allow_{token}", False):
             abort(403)
 
+        return pkg
+    finally:
+        c.close()
+
+
+def _s3_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+
+
+def _presigned_get(key: str, filename: str, content_type: str):
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": key,
+            "ResponseContentType": content_type,
+            "ResponseContentDisposition": f'attachment; filename="{filename}"',
+        },
+        ExpiresIn=3600,
+    )
+
+
+@app.get("/file/<token>/<int:item_id>")
+def stream_file(token, item_id):
+    tenant = current_tenant()["slug"]
+    _validate_package_access(token, tenant)
+
+    c = db()
+    try:
         it = c.execute(
             "SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
+            (item_id, token, tenant),
         ).fetchone()
-
         if not it:
             abort(404)
     finally:
         c.close()
 
-    # download teller
-    c2 = db()
-    try:
-        c2.execute(
-            "UPDATE packages SET downloads_count = downloads_count + 1 WHERE token=? AND tenant_id=?",
-            (token, t),
-        )
-        c2.execute(
-            "UPDATE items SET downloads_count = downloads_count + 1 WHERE id=? AND token=? AND tenant_id=?",
-            (item_id, token, t),
-        )
-        c2.commit()
-    finally:
-        c2.close()
-
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-    def gen():
-        for chunk in obj["Body"].iter_chunks(1024 * 512):
-            if chunk:
-                yield chunk
-
-    resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-    resp.headers["X-Filename"] = it["name"]
-    return resp
+    return redirect(
+        _presigned_get(
+            it["s3_key"],
+            it["name"],
+            "application/octet-stream",
+        ),
+        code=302,
+    )
 
 
-# =============================
-# ZIP DOWNLOAD (STABIEL)
-# =============================
-@app.route("/zip/<token>")
+@app.get("/zip/<token>")
 def stream_zip(token):
-    t = current_tenant()["slug"]
+    tenant = current_tenant()["slug"]
+    _validate_package_access(token, tenant)
 
-    # --- pakket + rechten check ---
     c = db()
     try:
-        pkg = c.execute(
-            "SELECT * FROM packages WHERE token=? AND tenant_id=?",
-            (token, t),
-        ).fetchone()
-
-        if not pkg:
-            abort(404)
-
-        if pkg["password_hash"] and not session.get(f"allow_{token}", False):
-            abort(403)
-
-        items = c.execute(
-            "SELECT name, path, s3_key FROM items WHERE token=? AND tenant_id=?",
-            (token, t),
+        rows = c.execute(
+            "SELECT name, path, s3_key FROM items WHERE token=? AND tenant_id=? ORDER BY path, name",
+            (token, tenant),
         ).fetchall()
-
-        if not items:
+        if not rows:
             abort(404)
     finally:
         c.close()
 
-    # --- zip stream ---
-    z = ZipStream(compress_type=ZipStream.ZIP_DEFLATED)
+    zip_name = f"pakket-{token}.zip"
+    zip_key = f"{ZIP_CACHE_PREFIX}/{tenant}/{token}/{zip_name}"
 
-    for it in items:
-        arcname = it["path"] or it["name"]
-        s3_key = it["s3_key"]
+    if not _s3_exists(zip_key):
+        with tempfile.TemporaryDirectory() as td:
+            local_zip = os.path.join(td, zip_name)
+            with zipfile.ZipFile(local_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                for r in rows:
+                    arc = _normalize_arcname(r["path"] or r["name"])
+                    obj = s3.get_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+                    body = obj["Body"]
+                    try:
+                        with zf.open(arc, "w") as w:
+                            while True:
+                                chunk = body.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                w.write(chunk)
+                    finally:
+                        body.close()
 
-        def file_reader(key=s3_key):
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
-            for chunk in obj["Body"].iter_chunks(1024 * 1024):
-                if chunk:
-                    yield chunk
+            s3.upload_file(
+                local_zip,
+                S3_BUCKET,
+                zip_key,
+                ExtraArgs={"ContentType": "application/zip"},
+            )
 
-        z.add(arcname, file_reader)
-
-    # --- download teller ---
-    c2 = db()
-    try:
-        c2.execute(
-            "UPDATE packages SET downloads_count = downloads_count + 1 "
-            "WHERE token=? AND tenant_id=?",
-            (token, t),
-        )
-        c2.commit()
-    finally:
-        c2.close()
-
-    filename = f"pakket-{token}.zip"
-
-    # --- expliciete generator (CRUCIAAL) ---
-    def generate():
-        yield from z
-
-    resp = Response(
-        stream_with_context(generate()),
-        mimetype="application/zip",
-        direct_passthrough=True,
+    return redirect(
+        _presigned_get(zip_key, zip_name, "application/zip"),
+        code=302,
     )
 
-    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store"
-    resp.headers["X-Accel-Buffering"] = "no"  # voorkomt buffering (nginx / render)
 
-    return resp
-        
+# =========================================================
+# TERMS PAGE
+# =========================================================
+
 @app.route("/terms")
 def terms_page():
     return render_template_string(
@@ -3298,8 +3139,9 @@ def terms_page():
         base_css=BASE_CSS,
         bg=BG_DIV,
         head_icon=HTML_HEAD_ICON,
-        mail_to=MAIL_TO
+        mail_to=MAIL_TO,
     )
+
 # -------------- Contact / Mail --------------
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
