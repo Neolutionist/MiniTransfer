@@ -1666,7 +1666,7 @@ form.addEventListener('submit', async (e)=>{
   setTotal(100,'Klaar');
 
   // Share (compact)
-  const link = "{{ url_for('package_page', token='__T__', _external=True) }}"
+  const link = "{{ url_for('package_alias', token='__T__', _external=True) }}"
     .replace("__T__", token);
 
   resBox.innerHTML = `
