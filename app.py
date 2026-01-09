@@ -1559,29 +1559,89 @@ function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<
 function log(msg){const p=document.createElement('p');const t=new Date().toLocaleTimeString();p.textContent=`[${t}] ${msg}`;logEl.prepend(p)}
 function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
 
-/* API */
-async function packageInit(expiry,password,title){
-  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
-  const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
+/* =======================
+   API
+   ======================= */
+
+async function packageInit(expiry, password, title) {
+  const r = await fetch("{{ url_for('package_init') }}", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      expiry_days: expiry,
+      password,
+      title
+    })
+  });
+
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "package_init failed");
+  return j.token;
 }
-async function putInit(token,filename,type){
-  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
-  const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_init'); return j;
+
+async function putInit(token, filename, type) {
+  const r = await fetch("{{ url_for('put_init') }}", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token,
+      filename,
+      contentType: type || "application/octet-stream"
+    })
+  });
+
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "put_init failed");
+  return j;
 }
-async function putComplete(token,key,name,path){
-  const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
-  const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
+
+async function putComplete(token, key, name, path) {
+  const r = await fetch("{{ url_for('put_complete') }}", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token,
+      key,
+      name,
+      path
+    })
+  });
+
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "put_complete failed");
+  return j;
 }
-function putWithProgress(url,blob,onProgress){
-  return new Promise((resolve,reject)=>{
-    const x=new XMLHttpRequest();
-    x.open("PUT",url,true);
-    x.setRequestHeader("Content-Type",blob.type||"application/octet-stream");
-    x.upload.onprogress=(e)=>{const loaded=e.loaded||0,total=e.total||blob.size||1;onProgress(loaded,total);};
-    x.onload=()=> (x.status>=200&&x.status<300)?resolve():reject(new Error('HTTP '+x.status));
-    x.onerror=()=>reject(new Error('Netwerkfout')); x.send(blob);
+
+function putWithProgress(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+
+    x.open("PUT", url, true);
+    x.setRequestHeader(
+      "Content-Type",
+      blob.type || "application/octet-stream"
+    );
+
+    x.upload.onprogress = (e) => {
+      const loaded = e.loaded || 0;
+      const total  = e.total || blob.size || 1;
+      onProgress(loaded, total);
+    };
+
+    x.onload = () => {
+      // S3 presigned uploads return often 204 or status 0 (CORS)
+      if (x.status === 0 || (x.status >= 200 && x.status < 400)) {
+        resolve();
+      } else {
+        reject(new Error("HTTP " + x.status));
+      }
+    };
+
+    x.onerror = () => reject(new Error("Network error"));
+    x.send(blob);
   });
 }
+
 
 /* Queue rows */
 function addRow(rel,size){
