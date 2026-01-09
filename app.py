@@ -1685,80 +1685,130 @@ document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('c
 }));
 
 /* Main submit */
-form.addEventListener('submit', async (e)=>{
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  queue.innerHTML=''; moved=0; done=0; speedAvg=0; setTotal(0,'Voorbereiden…');
-  const mode=document.querySelector('input[name=upmode]:checked').value;
-  const useFolder = mode==='folder' && !isIOS;
+
+  queue.innerHTML = "";
+  moved = 0;
+  done = 0;
+  speedAvg = 0;
+  setTotal(0, "Voorbereiden…");
+
+  const mode = document.querySelector('input[name=upmode]:checked').value;
+  const useFolder = mode === "folder" && !isIOS;
   const files = Array.from(useFolder ? folderInput.files : fileInput.files);
-  if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
-  const expiry=document.getElementById('expDays').value, pw=document.getElementById('pw').value||'', title=document.getElementById('title').value||'';
-  const token = await packageInit(expiry,pw,title);
 
-  totBytes = files.reduce((s,f)=>s+f.size,0)||1;
-  kvQueue.textContent = files.length; kvFiles.textContent = files.length;
-  const list = files.map(f=>({f,rel:useFolder?(f.webkitRelativePath||f.name):f.name,ui:addRow(useFolder?(f.webkitRelativePath||f.name):f.name,f.size),start:0,uploaded:0}));
-  const q=[...list];
-
-  async function worker(){
-    workers++; kvWorkers.textContent=FILE_PAR; try{
-      while(q.length){
-        const it=q.shift();
-        it.start=performance.now(); log("Start: "+it.rel);
-        try{
-          const init=await putInit(token,it.f.name,it.f.type);
-          let last=0;
-          await putWithProgress(init.url,it.f,(loaded,total)=>{
-            const pct=Math.round(loaded/total*100);
-            it.ui.fill.style.width=pct+'%';
-            const d=loaded-last; last=loaded; moved+=d; it.uploaded=loaded;
-            const spent=(performance.now()-it.start)/1000; const sp = loaded/Math.max(spent,0.001);
-            const left=total-loaded; const etaS= sp>1 ? left/sp : 0; it.ui.eta.textContent = etaS? new Date(etaS*1000).toISOString().substring(11,19) : '—';
-            setTotal(moved/totBytes*100,'Uploaden…');
-          });
-          console.log("CALLING putComplete", token, init.key);
-          await putComplete(token,init.key,it.f.name,it.rel);
-          it.ui.fill.style.width='100%'; it.ui.eta.textContent='Klaar'; done++; log("Klaar: "+it.rel);
-        }catch(err){ it.ui.eta.textContent='Fout'; log("Fout: "+it.rel); }
-      }
-    } finally { workers--; }
+  if (!files.length) {
+    alert("Kies eerst " + (useFolder ? "een map" : "bestanden") + ".");
+    return;
   }
-  await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
-  setTotal(100,'Klaar');
 
-  // Share (compact)
+  const expiry = document.getElementById("expDays").value;
+  const pw     = document.getElementById("pw").value || "";
+  const title  = document.getElementById("title").value || "";
+
+  const token = await packageInit(expiry, pw, title);
+
+  totBytes = files.reduce((s, f) => s + f.size, 0) || 1;
+  kvQueue.textContent = files.length;
+  kvFiles.textContent = files.length;
+
+  const list = files.map(f => ({
+    f,
+    rel: useFolder ? (f.webkitRelativePath || f.name) : f.name,
+    ui: addRow(
+      useFolder ? (f.webkitRelativePath || f.name) : f.name,
+      f.size
+    ),
+    start: 0
+  }));
+
+  const q = [...list];
+
+  async function worker() {
+    workers++;
+    kvWorkers.textContent = FILE_PAR;
+
+    try {
+      while (q.length) {
+        const it = q.shift();
+        it.start = performance.now();
+        log("Start: " + it.rel);
+
+        try {
+          // 1️⃣ init (alleen key ophalen)
+          const init = await putInit(token, it.f.name, it.f.type);
+
+          // 2️⃣ upload via backend
+          const fd = new FormData();
+          fd.append("file", it.f);
+          fd.append("token", token);
+          fd.append("path", it.rel);
+
+          const r = await fetch("/upload-backend", {
+            method: "POST",
+            body: fd
+          });
+
+          if (!r.ok) throw new Error("backend upload failed");
+
+          // progress visueel afronden
+          it.ui.fill.style.width = "100%";
+          setTotal((++done / list.length) * 100, "Uploaden…");
+
+          // 3️⃣ registreren
+          await putComplete(token, init.key, it.f.name, it.rel);
+
+          it.ui.eta.textContent = "Klaar";
+          log("Klaar: " + it.rel);
+
+        } catch (err) {
+          it.ui.eta.textContent = "Fout";
+          log("Fout: " + it.rel + " → " + err.message);
+        }
+      }
+    } finally {
+      workers--;
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(FILE_PAR, list.length) }, worker)
+  );
+
+  setTotal(100, "Klaar");
+
+  /* Share */
   const link = "{{ url_for('package_alias', token='__T__', _external=True) }}"
     .replace("__T__", token);
 
   resBox.innerHTML = `
-  <div class="card" style="margin-top:8px">
-    <div class="card-b">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div class="subtle" style="font-weight:700">Deelbare link</div>
-        <span class="badge ok">Gereed</span>
-      </div>
+    <div class="card" style="margin-top:8px">
+      <div class="card-b">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div class="subtle" style="font-weight:700">Deelbare link</div>
+          <span class="badge ok">Gereed</span>
+        </div>
 
-      <div class="share">
-        <input id="shareLinkInput" class="input" value="${link}" readonly>
-        <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+        <div class="share">
+          <input id="shareLinkInput" class="input" value="${link}" readonly>
+          <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+        </div>
       </div>
     </div>
-  </div>`;
+  `;
 
   document.getElementById("copyBtn").onclick = async () => {
-
     const input = document.getElementById("shareLinkInput");
-    const btn   = document.getElementById("copyBtn");
+    const btn = document.getElementById("copyBtn");
 
-    // kopieer (met jouw fallback)
-    try{
+    try {
       await navigator.clipboard.writeText(input.value);
-    }catch(_){
+    } catch {
       input.select();
       document.execCommand("copy");
     }
 
-    // feedback
     const original = btn.innerText;
     btn.innerText = "Gekopieerd!";
     btn.classList.add("copied");
@@ -1768,8 +1818,8 @@ form.addEventListener('submit', async (e)=>{
       btn.classList.remove("copied");
     }, 1400);
   };
-
 });
+
 </script>
 </body>
 </html>
@@ -2988,34 +3038,50 @@ def put_init():
     if not logged_in():
         abort(401)
 
-    data = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(force=True) or {}
     token = data.get("token")
-    filename = secure_filename(data.get("filename") or "")
-    content_type = data.get("contentType") or "application/octet-stream"
+    filename = data.get("filename")
 
     if not token or not filename:
-        return jsonify(ok=False, error="missing_fields"), 400
+        abort(400)
 
-    tenant = current_tenant()["slug"]
-    key = f"uploads/{tenant}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
+    key = f"{token}/{secure_filename(filename)}"
+
+    return jsonify(
+        ok=True,
+        key=key
+    )
+
+@app.post("/upload-backend")
+def upload_backend():
+    if not logged_in():
+        abort(401)
+
+    token = request.form.get("token")
+    path  = request.form.get("path")
+    f     = request.files.get("file")
+
+    if not token or not f:
+        abort(400)
+
+    name = secure_filename(f.filename)
+    path = path or name
+    key  = f"{token}/{path}"
 
     try:
-        url = s3.generate_presigned_url(
-            "put_object",
-            Params={
-                "Bucket": S3_BUCKET,
-                "Key": key,
-                "ContentType": content_type,
-                "ContentDisposition": f'attachment; filename="{filename}"',
-            },
-            ExpiresIn=3600,
-            HttpMethod="PUT",
+        s3.upload_fileobj(
+            f,
+            S3_BUCKET,
+            key,
+            ExtraArgs={
+                "ContentType": f.mimetype or "application/octet-stream"
+            }
         )
-        return jsonify(ok=True, key=key, url=url)
     except Exception:
-        log.exception("put_init failed")
-        return jsonify(ok=False, error="server_error"), 500
+        log.exception("backend upload failed")
+        abort(500)
 
+    return jsonify(ok=True, key=key)
 
 @app.post("/put-complete")
 def put_complete():
