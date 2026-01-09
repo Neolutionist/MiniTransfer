@@ -1744,7 +1744,7 @@ form.addEventListener("submit", async (e) => {
           const fd = new FormData();
           fd.append("file", it.f);
           fd.append("token", token);
-          fd.append("path", it.rel);
+          fd.append("path", it.key);
 
           const r = await fetch("/upload-backend", {
             method: "POST",
@@ -3060,15 +3060,11 @@ def upload_backend():
         abort(401)
 
     token = request.form.get("token")
-    path  = request.form.get("path")
+    key   = request.form.get("key")   # 👈 key komt nu van put_init
     f     = request.files.get("file")
 
-    if not token or not f:
+    if not token or not key or not f:
         abort(400)
-
-    name = secure_filename(f.filename)
-    path = path or name
-    key  = f"{token}/{path}"
 
     try:
         s3.upload_fileobj(
@@ -3083,7 +3079,8 @@ def upload_backend():
         log.exception("backend upload failed")
         abort(500)
 
-    return jsonify(ok=True, key=key)
+    return jsonify(ok=True)
+
 
 @app.post("/put-complete")
 def put_complete():
@@ -3091,38 +3088,39 @@ def put_complete():
         abort(401)
 
     data = request.get_json(force=True, silent=True) or {}
-    print("PUT_COMPLETE HIT", data)
-
-    token = data.get("token")
-    key   = data.get("key")
-    name  = data.get("name")
-    path  = data.get("path") or name
-
-
-    if not (token and key and name):
-        return jsonify(ok=False, error="missing_fields"), 400
+    print("PUT_COMPLETE DATA:", data)
 
     try:
+        token = data["token"]
+        key   = data["key"]
+        name  = data["name"]
+        path  = data.get("path") or name
+
+        print("KEY:", key)
+
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
-        size = int(head["ContentLength"])
-        tenant = current_tenant()["slug"]
+        print("HEAD OK", head["ContentLength"])
+
+        tenant_obj = current_tenant()
+        print("TENANT:", tenant_obj)
+
+        tenant = tenant_obj["slug"]
 
         c = db()
-        try:
-            c.execute(
-                """INSERT INTO items
-                   (token, s3_key, name, path, size_bytes, tenant_id)
-                   VALUES (?,?,?,?,?,?)""",
-                (token, key, name, path, size, tenant),
-            )
-            c.commit()
-        finally:
-            c.close()
+        c.execute(
+            """INSERT INTO items
+               (token, s3_key, name, path, size_bytes, tenant_id)
+               VALUES (?,?,?,?,?,?)""",
+            (token, key, name, path, int(head["ContentLength"]), tenant),
+        )
+        c.commit()
+        c.close()
 
         return jsonify(ok=True)
-    except Exception:
+
+    except Exception as e:
         log.exception("put_complete failed")
-        return jsonify(ok=False, error="server_error"), 500
+        return jsonify(ok=False, error=str(e)), 500
 
 
 # =========================================================
