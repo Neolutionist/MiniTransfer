@@ -1738,7 +1738,7 @@ form.addEventListener("submit", async (e) => {
 
         try {
           // 1️⃣ init (alleen key ophalen)
-          const init = await putInit(token, it.f.name, it.f.type);
+          const init = await putInit(token, it.rel, it.f.type);
 
           // 2️⃣ upload via backend
           const fd = new FormData();
@@ -3042,17 +3042,19 @@ def put_init():
 
     data = request.get_json(force=True) or {}
     token = data.get("token")
-    filename = data.get("filename")
+    rel   = data.get("filename")   # bevat nu pad/relpath
 
-    if not token or not filename:
+    if not token or not rel:
         abort(400)
 
-    key = f"{token}/{secure_filename(filename)}"
-
-    return jsonify(
-        ok=True,
-        key=key
+    # behoud mapstructuur, maar maak elke component veilig
+    safe_path = "/".join(
+        secure_filename(p) for p in rel.split("/") if p
     )
+
+    key = f"{token}/{safe_path}"
+
+    return jsonify(ok=True, key=key)
 
 @app.post("/upload-backend")
 def upload_backend():
