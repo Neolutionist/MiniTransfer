@@ -3069,24 +3069,21 @@ def upload_backend():
         abort(400)
 
     try:
-        f.stream.seek(0, 2)
-        size = f.stream.tell()
-        f.stream.seek(0)
+        data = f.read()  # 🔴 lees volledig bestand in geheugen
 
-        s3.upload_fileobj(
-            f,
-            S3_BUCKET,
-            key,
-            ExtraArgs={
-                "ContentType": f.mimetype or "application/octet-stream",
-                "ContentLength": size,
-            },
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=data,
+            ContentType=f.mimetype or "application/octet-stream",
         )
+
     except Exception:
         log.exception("backend upload failed")
         abort(500)
 
     return jsonify(ok=True)
+
 
 @app.post("/put-complete")
 def put_complete():
