@@ -1119,11 +1119,12 @@ h1{
 
 <script>
 async function api(url, body){
-  const r = await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body||{})
-  });
+  const r = await fetch("{{ url_for('put_complete') }}", {
+  method: "POST",
+  credentials: "same-origin",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ token, key, name, path })
+});
   const j = await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j.error||'Fout');
   return j;
@@ -1747,6 +1748,7 @@ form.addEventListener("submit", async (e) => {
 
           const r = await fetch("/upload-backend", {
             method: "POST",
+            credentials: "same-origin",
             body: fd
           });
 
