@@ -562,58 +562,6 @@ INDEX_HTML = """
     .share{display:flex;align-items:center;gap:8px}
     .share .input{padding:.55rem .7rem}
     .share .btn{padding:.55rem .7rem}
-
-/* ===== Toast / Snackbar ===== */
-.toast{
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%) translateY(12px);
-  display: flex;
-  align-items: center;
-  gap: .55rem;
-  padding: .72rem .9rem;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--surface) 78%, black 22%);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.14);
-  box-shadow: 0 18px 45px rgba(0,0,0,.28);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 9999;
-  transition: opacity .18s ease, transform .18s ease;
-  backdrop-filter: blur(10px) saturate(1.15);
-}
-@media (prefers-color-scheme: dark){
-  .toast{
-    background: rgba(15,23,42,.82);
-    border: 1px solid rgba(255,255,255,.12);
-  }
-}
-.toast.show{
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-.toast .dot{
-  width: 28px; height: 28px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: rgba(34,197,94,.18); /* groen-ish */
-  border: 1px solid rgba(34,197,94,.28);
-  font-weight: 900;
-}
-.toast.err .dot{
-  background: rgba(239,68,68,.18);
-  border-color: rgba(239,68,68,.28);
-}
-.toast .msg{
-  font-weight: 750;
-  letter-spacing: .1px;
-  font-size: .92rem;
-}
-
-    
   </style>
 </head>
 <body>
@@ -833,32 +781,6 @@ document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('c
   setTimeout(()=> (use?folderInput:fileInput).click(), 0);
 }));
 
-/* ===== Toast helper ===== */
-let toastEl=null, toastTimer=null;
-
-function showToast(message, type="ok"){
-  if(!toastEl){
-    toastEl=document.createElement('div');
-    toastEl.className='toast';
-    toastEl.setAttribute('role','status');
-    toastEl.setAttribute('aria-live','polite');
-    toastEl.innerHTML = `<div class="dot">✓</div><div class="msg"></div>`;
-    document.body.appendChild(toastEl);
-  }
-
-  toastEl.classList.remove('err','show');
-  toastEl.classList.toggle('err', type==="err");
-  toastEl.querySelector('.dot').textContent = (type==="err") ? "!" : "✓";
-  toastEl.querySelector('.msg').textContent = message;
-
-  // restart animatie
-  requestAnimationFrame(()=> toastEl.classList.add('show'));
-
-  clearTimeout(toastTimer);
-  toastTimer=setTimeout(()=> toastEl.classList.remove('show'), 1900);
-}
-
-
 /* Main submit */
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -911,37 +833,9 @@ form.addEventListener('submit', async (e)=>{
       <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
     </div>
   </div></div>`;
-document.getElementById('copyBtn').onclick = async () => {
-  const input = document.getElementById('shareLinkInput');
-  const btn = document.getElementById('copyBtn');
-
-  // kleine UX touch: knop tijdelijk “Gekopieerd”
-  const old = btn.textContent;
-  const setBtn = (t)=>{ btn.textContent=t; };
-
-  try{
-    await navigator.clipboard.writeText(input.value);
-    showToast("Link gekopieerd naar je klembord");
-    setBtn("Gekopieerd");
-  }catch(_){
-    // fallback voor oudere browsers / niet-https
-    input.focus();
-    input.select();
-    const ok = document.execCommand('copy');
-    if(ok){
-      showToast("Link gekopieerd naar je klembord");
-      setBtn("Gekopieerd");
-    }else{
-      showToast("Kopiëren lukt niet — selecteer en kopieer handmatig", "err");
-    }
-  }finally{
-    setTimeout(()=> setBtn(old), 1100);
-    // selectie netjes opruimen
-    try{ window.getSelection()?.removeAllRanges?.(); }catch(e){}
-    input.blur();
-  }
-};
-
+  document.getElementById('copyBtn').onclick=async()=>{
+    const input=document.getElementById('shareLinkInput');
+    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
   };
 });
 </script>
