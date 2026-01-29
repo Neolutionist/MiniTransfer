@@ -526,15 +526,48 @@ INDEX_HTML = """
     .toggle{display:flex;gap:14px;align-items:center}
     .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
 
-    /* filepicker compact */
-    .picker{display:flex;flex-direction:column;gap:6px}
-    .picker-ctl{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 92%,white 8%);height:42px;padding:0 10px}
-    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .btn{padding:.7rem .95rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
-    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
-    .muted{color:var(--muted)}
-    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* filepicker compact */
+.picker{display:flex;flex-direction:column;gap:6px}
+
+/* FIX: geen vaste hoogte meer die de knop “uit de kader” duwt */
+.picker-ctl{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:color-mix(in oklab,var(--surface-2) 92%,white 8%);
+  padding:6px 10px;          /* was: 0 10px */
+  min-height:44px;           /* i.p.v. height:42px */
+  height:auto;
+  overflow:hidden;
+}
+
+/* zorg dat bestandsnaam netjes ruimte pakt */
+.picker-ctl .ellipsis{flex:1;min-width:0}
+
+/* knop iets compacter zodat hij altijd past */
+.picker-ctl .btn{
+  padding:.45rem .7rem;
+  line-height:1;
+  border-radius:10px;
+  flex:0 0 auto;
+}
+
+/* onzichtbare file input blijft klikbaar over de hele rij */
+.picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+
+/* Copy feedback (toast) */
+.copytoast{
+  margin-top:6px;
+  font-size:.9rem;
+  color:var(--muted);
+  min-height:1.2em;
+}
+.copytoast.ok{color:#166534;font-weight:700}
+.copytoast.err{color:#991b1b;font-weight:700}
+
 
     /* queue tabel */
     .table{width:100%;border-collapse:separate;border-spacing:0 8px}
@@ -822,22 +855,66 @@ form.addEventListener('submit', async (e)=>{
   await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
   setTotal(100,'Klaar');
 
-  // Share (compact)
-  const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
-    </div>
-    <div class="share">
-      <input id="shareLinkInput" class="input" value="${link}" readonly>
-      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
-    </div>
-  </div></div>`;
-  document.getElementById('copyBtn').onclick=async()=>{
-    const input=document.getElementById('shareLinkInput');
-    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
-  };
-});
+// Share (compact)
+const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
+resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
+  </div>
+  <div class="share">
+    <input id="shareLinkInput" class="input" value="${link}" readonly>
+    <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+  </div>
+  <div id="copyToast" class="copytoast" aria-live="polite"></div>
+</div></div>`;
+
+const copyBtn = document.getElementById('copyBtn');
+const toast   = document.getElementById('copyToast');
+
+function showCopyToast(msg, ok=true){
+  toast.textContent = msg;
+  toast.classList.remove('ok','err');
+  toast.classList.add(ok ? 'ok' : 'err');
+
+  // reset na 1.8s
+  window.clearTimeout(showCopyToast._t);
+  showCopyToast._t = window.setTimeout(()=>{
+    toast.textContent = '';
+    toast.classList.remove('ok','err');
+  }, 1800);
+}
+
+copyBtn.onclick = async () => {
+  const input = document.getElementById('shareLinkInput');
+  const oldText = copyBtn.textContent;
+
+  try{
+    // moderne clipboard API
+    await navigator.clipboard.writeText(input.value);
+
+    copyBtn.textContent = "Gekopieerd!";
+    showCopyToast("Link gekopieerd naar klembord.", true);
+  }catch(e){
+    // fallback
+    try{
+      input.focus();
+      input.select();
+      const ok = document.execCommand('copy');
+
+      if(ok){
+        copyBtn.textContent = "Gekopieerd!";
+        showCopyToast("Link gekopieerd naar klembord.", true);
+      }else{
+        showCopyToast("Kopiëren mislukt. Selecteer en kopieer handmatig.", false);
+      }
+    }catch(_){
+      showCopyToast("Kopiëren mislukt. Selecteer en kopieer handmatig.", false);
+    }
+  }finally{
+    window.setTimeout(()=>{ copyBtn.textContent = oldText; }, 1400);
+  }
+};
+
 </script>
 </body>
 </html>
