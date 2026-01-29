@@ -972,6 +972,51 @@ PACKAGE_HTML = """
     .filecard .action{ width:auto; text-align:right; }
     .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
 
+
+/* Header actions netjes uitlijnen */
+.hdr .actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* Kleine zwarte knop */
+.btn-dark{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  padding:.55rem .75rem;      /* kleiner */
+  border-radius:11px;
+  background:#0b0b0b;         /* zwart */
+  color:#fff;
+  text-decoration:none;
+  font-weight:800;
+  line-height:1;
+  border:1px solid rgba(255,255,255,.12);
+}
+.btn-dark:hover{ filter:brightness(1.08); }
+.btn-dark:active{ transform:translateY(1px); }
+
+.btn-dark .ic{ font-size:1.05em; opacity:.9; }
+
+/* Optioneel: “Nieuwe aanvraag” als rustige link-knop */
+.btn-link{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  padding:.55rem .7rem;
+  border-radius:11px;
+  border:1px solid var(--line);
+  background:var(--surface);
+  color:var(--text);
+  text-decoration:none;
+  font-weight:800;
+  line-height:1;
+}
+
+
     /* Progressbalk ruimte */
     #bar{ margin-top:.75rem }
 
@@ -1009,12 +1054,8 @@ PACKAGE_HTML = """
 {{ bg|safe }}
 <div class="shell">
 <div class="actions">
-  <a class="btn ghost sm" href="{{ url_for('contact') }}">
+  <a class="btn-dark" href="{{ url_for('contact') }}">
     <span class="ic">★</span> Abonnement aanvragen
-  </a>
-
-  <a class="btn-lite" href="/">
-    <span class="ic">←</span> Nieuwe aanvraag
   </a>
 </div>
 
