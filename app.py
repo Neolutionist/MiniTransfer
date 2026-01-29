@@ -833,10 +833,31 @@ form.addEventListener('submit', async (e)=>{
       <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
     </div>
   </div></div>`;
-  document.getElementById('copyBtn').onclick=async()=>{
-    const input=document.getElementById('shareLinkInput');
-    try{ await navigator.clipboard.writeText(input.value); }catch(_){ input.select(); document.execCommand('copy'); }
-  };
+document.getElementById('copyBtn').onclick = async () => {
+  const input = document.getElementById('shareLinkInput');
+  const btn = document.getElementById('copyBtn');
+
+  const oldText = btn.textContent;
+  btn.textContent = "Kopiëren…";
+  btn.disabled = true;
+
+  try {
+    await navigator.clipboard.writeText(input.value);
+    btn.textContent = "Gekopieerd ✓";
+  } catch (_) {
+    // fallback (werkt ook als clipboard API niet mag)
+    input.focus();
+    input.select();
+    const ok = document.execCommand('copy');
+    btn.textContent = ok ? "Gekopieerd ✓" : "Kopieer handmatig";
+  } finally {
+    setTimeout(() => {
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }, 1200);
+  }
+};
+
 });
 </script>
 </body>
