@@ -1022,7 +1022,15 @@ PACKAGE_HTML = """
 
     /* Kaarten & grid */
     .shell{max-width:980px;margin:5vh auto;padding:0 16px}
-    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
+.hdr{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:32px;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
     .brand{color:var(--brand);margin:0;font-weight:800}
     .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
     @media(max-width:900px){.deck{grid-template-columns:1fr}}
