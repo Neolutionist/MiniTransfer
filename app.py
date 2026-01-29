@@ -990,16 +990,46 @@ PACKAGE_HTML = """
       .filecard{grid-template-columns:1fr;gap:.35rem;}
       .filecard .name{white-space:normal;}
       .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+
+/* ===== Header actieknop (terug naar aanvraag) ===== */
+.hdr .meta{display:flex;flex-direction:column;gap:6px;min-width:0}
+.hdr .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+
+.btn-lite{
+  display:inline-flex;align-items:center;gap:.55rem;
+  padding:.62rem .95rem;
+  border-radius:11px;
+  border:1px solid var(--line);
+  background:color-mix(in oklab,var(--surface) 90%,white 10%);
+  color:var(--text);
+  text-decoration:none;
+  font-weight:800;
+  transition:transform .08s ease, background .12s ease, border-color .12s ease;
+}
+.btn-lite:hover{
+  background:color-mix(in oklab,var(--surface) 80%,white 20%);
+  border-color:color-mix(in oklab,var(--line) 70%, black 30%);
+}
+.btn-lite:active{ transform:translateY(1px); }
+.btn-lite .ic{font-size:1.05em;opacity:.9}
+      
     }
   </style>
 </head>
 <body>
 {{ bg|safe }}
 <div class="shell">
-  <div class="hdr">
+<div class="hdr">
+  <div class="meta">
     <h1 class="brand">Bestanden downloaden</h1>
     <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
   </div>
+
+  <div class="actions">
+    <a class="btn-lite" href="/"><span class="ic">←</span> Nieuwe aanvraag</a>
+  </div>
+</div>
+
 
   <div class="deck">
     <!-- Linkerkaart -->
