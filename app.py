@@ -1011,10 +1011,17 @@ PACKAGE_HTML = """
 <body>
 {{ bg|safe }}
 <div class="shell">
-  <div class="hdr">
+<div class="hdr">
+  <div class="meta">
     <h1 class="brand">Bestanden downloaden</h1>
     <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
   </div>
+
+  <div class="actions">
+    <a class="btn-lite" href="/"><span class="ic">←</span> Nieuwe aanvraag</a>
+  </div>
+</div>
+
 
   <div class="deck">
     <!-- Linkerkaart -->
