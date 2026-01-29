@@ -562,15 +562,30 @@ INDEX_HTML = """
     .share{display:flex;align-items:center;gap:8px}
     .share .input{padding:.55rem .7rem}
     .share .btn{padding:.55rem .7rem}
+
+/* ===== Header actions (link buttons) ===== */
+.hdr .right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+a.btn{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;text-decoration:none}
+a.btn .ic{font-size:1.05em;opacity:.9}
+
+    
   </style>
 </head>
 <body>
 {{ bg|safe }}
 <div class="shell">
-  <div class="hdr">
-    <h1 class="brand">Bestanden uploaden</h1>
+<div class="hdr">
+  <h1 class="brand">Bestanden uploaden</h1>
+
+  <div class="right">
+    <a class="btn ghost sm" href="{{ url_for('contact') }}">
+      <span class="ic">★</span> Abonnement aanvragen
+    </a>
+
     <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
+</div>
+
 
   <div class="deck">
     <!-- LEFT: Controls & Queue -->
@@ -990,68 +1005,16 @@ PACKAGE_HTML = """
       .filecard{grid-template-columns:1fr;gap:.35rem;}
       .filecard .name{white-space:normal;}
       .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
-
-/* ===== Header actieknop (terug naar aanvraag) ===== */
-.hdr .meta{display:flex;flex-direction:column;gap:6px;min-width:0}
-.hdr .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-
-.btn-lite{
-  display:inline-flex;align-items:center;gap:.55rem;
-  padding:.62rem .95rem;
-  border-radius:11px;
-  border:1px solid var(--line);
-  background:color-mix(in oklab,var(--surface) 90%,white 10%);
-  color:var(--text);
-  text-decoration:none;
-  font-weight:800;
-  transition:transform .08s ease, background .12s ease, border-color .12s ease;
-}
-.btn-lite:hover{
-  background:color-mix(in oklab,var(--surface) 80%,white 20%);
-  border-color:color-mix(in oklab,var(--line) 70%, black 30%);
-}
-.btn-lite:active{ transform:translateY(1px); }
-.btn-lite .ic{font-size:1.05em;opacity:.9}
-
-
-
-/* ===== Download button loading state ===== */
-.btn.loading{
-  position:relative;
-  pointer-events:none;
-  opacity:.92;
-}
-.btn.loading::after{
-  content:"";
-  width:16px;height:16px;
-  border-radius:999px;
-  border:2px solid rgba(255,255,255,.55);
-  border-top-color: rgba(255,255,255,1);
-  display:inline-block;
-  margin-left:.55rem;
-  vertical-align:-3px;
-  animation:spin .75s linear infinite;
-}
-@keyframes spin{ to{ transform:rotate(360deg);} }
-
-      
     }
   </style>
 </head>
 <body>
 {{ bg|safe }}
 <div class="shell">
-<div class="hdr">
-  <div class="meta">
+  <div class="hdr">
     <h1 class="brand">Bestanden downloaden</h1>
     <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
   </div>
-
-  <div class="actions">
-    <a class="btn-lite" href="/"><span class="ic">←</span> Nieuwe aanvraag</a>
-  </div>
-</div>
-
 
   <div class="deck">
     <!-- Linkerkaart -->
@@ -1137,54 +1100,14 @@ async function downloadWithTelemetry(url, fallbackName){
 
 const btn=document.getElementById('btnDownload');
 if(btn){
-const btn = document.getElementById('btnDownload');
-
-function setBtnLoading(on, label){
-  if(!btn) return;
-  if(on){
-    btn.dataset.oldText = btn.textContent;
-    btn.textContent = label || "Voorbereiden…";
-    btn.classList.add("loading");
-    btn.disabled = true;
-  }else{
-    btn.textContent = btn.dataset.oldText || btn.textContent;
-    btn.classList.remove("loading");
-    btn.disabled = false;
-  }
-}
-
-if(btn){
-  btn.addEventListener('click', async () => {
-    // Direct feedback (dit voorkomt “er gebeurt niks”)
-    setBtnLoading(true, "Voorbereiden…");
-
-    // Toon ook meteen je bestaande bar + statusregel
-    if (bar && txt){
-      bar.style.display = 'block';
-      txt.style.display = 'block';
-      txt.textContent = 'Voorbereiden… (dit kan even duren bij grote bestanden)';
-      bar.classList.add('indet');
-    }
-
-    try{
-      {% if items|length == 1 %}
-        await downloadWithTelemetry(
-          "{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
-          "{{ items[0]['name'] }}"
-        );
-      {% else %}
-        await downloadWithTelemetry(
-          "{{ url_for('stream_zip', token=token) }}",
-          "{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}"
-        );
-      {% endif %}
-    } finally {
-      // Als de download klaar is of fout gaat: knop terug
-      setBtnLoading(false);
-    }
+  btn.addEventListener('click',()=>{
+    {% if items|length == 1 %}
+      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
+    {% else %}
+      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
+    {% endif %}
   });
 }
-
 </script>
 </body>
 </html>
