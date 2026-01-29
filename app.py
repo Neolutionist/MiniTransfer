@@ -1012,6 +1012,28 @@ PACKAGE_HTML = """
 }
 .btn-lite:active{ transform:translateY(1px); }
 .btn-lite .ic{font-size:1.05em;opacity:.9}
+
+
+
+/* ===== Download button loading state ===== */
+.btn.loading{
+  position:relative;
+  pointer-events:none;
+  opacity:.92;
+}
+.btn.loading::after{
+  content:"";
+  width:16px;height:16px;
+  border-radius:999px;
+  border:2px solid rgba(255,255,255,.55);
+  border-top-color: rgba(255,255,255,1);
+  display:inline-block;
+  margin-left:.55rem;
+  vertical-align:-3px;
+  animation:spin .75s linear infinite;
+}
+@keyframes spin{ to{ transform:rotate(360deg);} }
+
       
     }
   </style>
@@ -1115,14 +1137,54 @@ async function downloadWithTelemetry(url, fallbackName){
 
 const btn=document.getElementById('btnDownload');
 if(btn){
-  btn.addEventListener('click',()=>{
-    {% if items|length == 1 %}
-      downloadWithTelemetry("{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}","{{ items[0]['name'] }}");
-    {% else %}
-      downloadWithTelemetry("{{ url_for('stream_zip', token=token) }}","{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}");
-    {% endif %}
+const btn = document.getElementById('btnDownload');
+
+function setBtnLoading(on, label){
+  if(!btn) return;
+  if(on){
+    btn.dataset.oldText = btn.textContent;
+    btn.textContent = label || "Voorbereiden…";
+    btn.classList.add("loading");
+    btn.disabled = true;
+  }else{
+    btn.textContent = btn.dataset.oldText || btn.textContent;
+    btn.classList.remove("loading");
+    btn.disabled = false;
+  }
+}
+
+if(btn){
+  btn.addEventListener('click', async () => {
+    // Direct feedback (dit voorkomt “er gebeurt niks”)
+    setBtnLoading(true, "Voorbereiden…");
+
+    // Toon ook meteen je bestaande bar + statusregel
+    if (bar && txt){
+      bar.style.display = 'block';
+      txt.style.display = 'block';
+      txt.textContent = 'Voorbereiden… (dit kan even duren bij grote bestanden)';
+      bar.classList.add('indet');
+    }
+
+    try{
+      {% if items|length == 1 %}
+        await downloadWithTelemetry(
+          "{{ url_for('stream_file', token=token, item_id=items[0]['id']) }}",
+          "{{ items[0]['name'] }}"
+        );
+      {% else %}
+        await downloadWithTelemetry(
+          "{{ url_for('stream_zip', token=token) }}",
+          "{{ (title or ('pakket-'+token)) + ('.zip' if not title or not title.endswith('.zip') else '') }}"
+        );
+      {% endif %}
+    } finally {
+      // Als de download klaar is of fout gaat: knop terug
+      setBtnLoading(false);
+    }
   });
 }
+
 </script>
 </body>
 </html>
