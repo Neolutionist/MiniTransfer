@@ -578,9 +578,6 @@ a.btn .ic{font-size:1.05em;opacity:.9}
   <h1 class="brand">Bestanden uploaden</h1>
 
   <div class="right">
-    <a class="btn ghost sm" href="{{ url_for('contact') }}">
-      <span class="ic">★</span> Abonnement aanvragen
-    </a>
 
     <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
   </div>
@@ -1011,15 +1008,14 @@ PACKAGE_HTML = """
 <body>
 {{ bg|safe }}
 <div class="shell">
-<div class="hdr">
-  <div class="meta">
-    <h1 class="brand">Bestanden downloaden</h1>
-    <div class="subtle">Pakket: <strong>{{ title or token }}</strong> • Verloopt: <strong>{{ expires_human }}</strong></div>
-  </div>
+<div class="actions">
+  <a class="btn ghost sm" href="{{ url_for('contact') }}">
+    <span class="ic">★</span> Abonnement aanvragen
+  </a>
 
-  <div class="actions">
-    <a class="btn-lite" href="/"><span class="ic">←</span> Nieuwe aanvraag</a>
-  </div>
+  <a class="btn-lite" href="/">
+    <span class="ic">←</span> Nieuwe aanvraag
+  </a>
 </div>
 
 
