@@ -769,17 +769,77 @@ setInterval(()=>{
   tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
 }, 700);
 
-/* UI bindings */
-btnFiles.onclick=()=>fileInput.click();
-btnFolder && (btnFolder.onclick=()=>folderInput.click());
-fileInput.onchange=()=>{kvFiles.textContent=fileInput.files.length; kvQueue.textContent=fileInput.files.length; fileName.textContent=fileInput.files.length?Array.from(fileInput.files).slice(0,2).map(f=>f.name).join(', ')+(fileInput.files.length>2?` … (+${fileInput.files.length-2})`:``):'Nog geen bestanden gekozen'};
-folderInput.onchange=()=>{const n=folderInput.files.length; kvFiles.textContent=n; kvQueue.textContent=n; if(!n){folderName.textContent='Nog geen map gekozen';return;}const root=(folderInput.files[0].webkitRelativePath||'').split('/')[0]||'Gekozen map';folderName.textContent=`${root} (${n} bestanden)`};
-document.querySelectorAll('input[name=upmode]').forEach(r=>r.addEventListener('change',()=>{
-  const use = (r.value==='folder' && !isIOS);
-  fileRow.style.display = use ? 'none' : '';
-  folderRow.style.display = use ? '' : 'none';
-  setTimeout(()=> (use?folderInput:fileInput).click(), 0);
-}));
+/* UI bindings (clean + robust) */
+(function initPickers(){
+  const fileCounterEls = [kvFiles, kvQueue].filter(Boolean);
+
+  const setCounters = (n) => fileCounterEls.forEach(el => el.textContent = String(n));
+
+  const fileSummary = (files, emptyText) => {
+    const n = files?.length || 0;
+    if (!n) return emptyText;
+
+    const names = Array.from(files).slice(0, 2).map(f => f.name);
+    const more = n > 2 ? ` … (+${n - 2})` : "";
+    return names.join(", ") + more;
+  };
+
+  const folderSummary = (files) => {
+    const n = files?.length || 0;
+    if (!n) return "Nog geen map gekozen";
+
+    const first = files[0];
+    const rel = first?.webkitRelativePath || "";
+    const root = rel.split("/")[0] || "Gekozen map";
+    return `${root} (${n} bestanden)`;
+  };
+
+  const openPicker = (inputEl) => {
+    if (!inputEl) return;
+    // iOS/Safari kan moeilijk doen met programmatic clicks; try/catch helpt crashes voorkomen
+    try { inputEl.click(); } catch(_) {}
+  };
+
+  const setMode = (mode) => {
+    const useFolder = (mode === "folder" && !isIOS);
+
+    if (fileRow) fileRow.style.display = useFolder ? "none" : "";
+    if (folderRow) folderRow.style.display = useFolder ? "" : "none";
+
+    // Auto-open picker (zelfde gedrag als je had, maar netter)
+    setTimeout(() => openPicker(useFolder ? folderInput : fileInput), 0);
+  };
+
+  // Buttons -> open hidden input
+  if (btnFiles && fileInput) btnFiles.addEventListener("click", () => openPicker(fileInput));
+  if (btnFolder && folderInput) btnFolder.addEventListener("click", () => openPicker(folderInput));
+
+  // Input change -> UI update
+  if (fileInput){
+    fileInput.addEventListener("change", () => {
+      const n = fileInput.files?.length || 0;
+      setCounters(n);
+      if (fileName) fileName.textContent = fileSummary(fileInput.files, "Nog geen bestanden gekozen");
+    });
+  }
+
+  if (folderInput){
+    folderInput.addEventListener("change", () => {
+      const n = folderInput.files?.length || 0;
+      setCounters(n);
+      if (folderName) folderName.textContent = folderSummary(folderInput.files);
+    });
+  }
+
+  // Radio toggle (upmode)
+  document.querySelectorAll('input[name=upmode]').forEach(radio => {
+    radio.addEventListener("change", (e) => setMode(e.target.value));
+  });
+
+  // Init: respect current selection
+  const current = document.querySelector('input[name=upmode]:checked')?.value || "files";
+  setMode(current);
+})();
 
 /* Main submit */
 form.addEventListener('submit', async (e)=>{
