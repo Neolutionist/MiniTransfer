@@ -407,119 +407,68 @@ HTML_HEAD_ICON = f"""
 """
 
 LOGIN_HTML = """
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-<meta charset="UTF-8">
-<title>Inloggen</title>
-
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap"><div class="card" style="max-width:460px;margin:auto">
+  <h1 style="color:var(--brand)">Inloggen</h1>
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
 <style>
-body{
-    font-family: Arial, sans-serif;
-    background: linear-gradient(135deg,#e8d7cf,#d9e2ef);
-    height:100vh;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-}
-
-.login-box{
-    background:#50535f;
-    padding:40px;
-    border-radius:18px;
-    width:420px;
-    box-shadow:0 10px 25px rgba(0,0,0,0.2);
-}
-
-h1{
-    color:#7fb2ff;
-    margin-bottom:20px;
-}
-
-label{
-    color:#cfd3dc;
-    font-size:14px;
-}
-
-input{
-    width:100%;
-    padding:12px;
-    margin-top:6px;
-    margin-bottom:16px;
-    border-radius:10px;
-    border:none;
-    background:#243047;
-    color:white;
-}
-
-button{
-    width:100%;
-    padding:12px;
-    border:none;
-    border-radius:12px;
-    font-size:16px;
-    cursor:pointer;
-}
-
-.login-btn{
-    background:linear-gradient(#87b2ff,#5a86c9);
-    color:white;
-}
-
-.request-btn{
-    background:#6b7280;
-    color:white;
-    margin-top:10px;
-}
-
-.small-text{
-    text-align:center;
-    color:#aab0bb;
-    margin-top:15px;
-    font-size:14px;
-}
-
-.footer{
-    text-align:center;
-    color:#9aa1ac;
-    font-size:13px;
-    margin-top:20px;
+/* Masker een tekstveld als een wachtwoordveld */
+.input.pw-mask {
+  -webkit-text-security: disc;    /* Chrome/Safari */
+  text-security: disc;            /* sommige browsers */
 }
 </style>
-</head>
 
-<body>
+<form method="post" autocomplete="off">
+  <!-- honeypots tegen autofill -->
+  <input type="text" name="x" style="display:none">
+  <input type="password" name="y" style="display:none" autocomplete="new-password">
 
-<div class="login-box">
+  <label for="email">E-mail</label>
+  <input id="email" class="input" name="email" type="email"
+         value="{{ auth_email }}" autocomplete="username" required>
 
-<h1>Inloggen</h1>
+  <label for="pw_ui">Wachtwoord</label>
+  <!-- Zichtbaar veld is GEEN password-type -> geen generator/autofill -->
+  <input id="pw_ui"
+         class="input pw-mask"
+         type="text"
+         name="pw_ui"
+         placeholder="Wachtwoord"
+         autocomplete="off"
+         autocapitalize="off"
+         autocorrect="off"
+         spellcheck="false"
+         inputmode="text"
+         data-lpignore="true"
+         data-1p-ignore="true">
 
-<form method="POST">
+  <!-- Echt verborgen password-veld voor submit naar server -->
+  <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
 
-<label>E-mail</label>
-<input type="email" name="email" required>
-
-<label>Wachtwoord</label>
-<input type="password" name="password" required>
-
-<button class="login-btn" type="submit">Inloggen</button>
-
-<div class="small-text">Nog geen account?</div>
-
-<a href="/aanvraag">
-<button type="button" class="request-btn">Account aanvragen</button>
-</a>
-
+  <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
 </form>
 
-<div class="footer">
-Olde Hanter Bouwconstructies • Bestanden­transfer
-</div>
+<script>
+(function(){
+  const form   = document.currentScript.previousElementSibling;
+  const pwUI   = document.getElementById('pw_ui');
+  const pwReal = document.getElementById('pw_real');
 
-</div>
+  // extra defensie
+  setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
 
-</body>
-</html>
+  form.addEventListener('submit', function(){
+    pwReal.value = pwUI.value || '';
+  }, {passive:true});
+})();
+</script>
+
+  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+</div></div>
+</body></html>
 """
 
 PASS_PROMPT_HTML = """
