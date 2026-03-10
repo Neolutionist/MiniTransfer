@@ -1694,47 +1694,174 @@ EXPIRED_HTML = """
 <!doctype html>
 <html lang="nl">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Downloadlink verlopen</title>
-{{ head_icon|safe }}
-<style>{{ base_css }}</style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Downloadlink verlopen</title>
+  {{ head_icon|safe }}
+  <style>
+    {{ base_css }}
+
+    .expired-wrap{
+      max-width: 760px;
+      margin: 8vh auto;
+      padding: 0 1rem;
+    }
+
+    .expired-card{
+      padding: 2.5rem 2rem;
+      border-radius: 24px;
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 24px 60px rgba(0,0,0,.28);
+      backdrop-filter: blur(14px) saturate(1.05);
+      text-align: center;
+      color: #e5e7eb;
+    }
+
+    .expired-icon{
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 1.25rem;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(180deg, #ef4444, #dc2626);
+      box-shadow: 0 10px 30px rgba(220,38,38,.35);
+    }
+
+    .expired-title{
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 2.6rem);
+      line-height: 1.1;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -.02em;
+    }
+
+    .expired-text{
+      margin: 1rem auto 0;
+      max-width: 540px;
+      font-size: 1.1rem;
+      line-height: 1.7;
+      color: #d1d5db;
+    }
+
+    .expired-contact{
+      margin-top: 1.75rem;
+      padding: 1rem 1.1rem;
+      border-radius: 16px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .expired-label{
+      margin: 0 0 .45rem;
+      font-size: .95rem;
+      color: #9ca3af;
+    }
+
+    .expired-name{
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .expired-mail{
+      display: inline-block;
+      margin-top: .55rem;
+      color: #93c5fd;
+      font-size: 1.05rem;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .expired-mail:hover{
+      color: #bfdbfe;
+      text-decoration: underline;
+    }
+
+    .expired-actions{
+      margin-top: 1.75rem;
+    }
+
+    .expired-btn{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      min-width: 220px;
+      padding: .95rem 1.2rem;
+      border-radius: 14px;
+      text-decoration: none;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(180deg, #60a5fa, #2563eb);
+      box-shadow: 0 10px 28px rgba(37,99,235,.28);
+      transition: transform .15s ease, filter .15s ease;
+    }
+
+    .expired-btn:hover{
+      filter: brightness(1.06);
+      transform: translateY(-1px);
+    }
+
+    .expired-footer{
+      margin-top: 1.75rem;
+      font-size: .95rem;
+      color: #94a3b8;
+    }
+
+    @media (max-width: 640px){
+      .expired-card{
+        padding: 2rem 1.25rem;
+        border-radius: 20px;
+      }
+
+      .expired-contact{
+        padding: .95rem;
+      }
+
+      .expired-btn{
+        width: 100%;
+      }
+    }
+  </style>
 </head>
 <body>
-{{ bg|safe }}
+  {{ bg|safe }}
 
-<div class="wrap">
-  <div class="card" style="max-width:640px;margin:10vh auto;text-align:center">
-    
-    <h1 style="color:#dc2626">Downloadlink verlopen</h1>
+  <div class="expired-wrap">
+    <div class="expired-card">
+      <div class="expired-icon">!</div>
 
-    <p style="font-size:1.1rem;margin-top:.6rem">
-      Deze downloadlink is helaas verlopen of bestaat niet meer.
-    </p>
+      <h1 class="expired-title">Downloadlink verlopen</h1>
 
-    <p class="small" style="margin-top:1rem">
-      Neem contact op met:
-    </p>
+      <p class="expired-text">
+        Deze downloadlink is helaas verlopen of niet meer beschikbaar.
+        Neem contact op voor een nieuwe link of verdere hulp.
+      </p>
 
-    <p style="font-weight:700;font-size:1.1rem">
-      Patrick Lankhorst
-    </p>
+      <div class="expired-contact">
+        <p class="expired-label">Contactpersoon</p>
+        <p class="expired-name">Patrick Lankhorst</p>
+        <a class="expired-mail" href="mailto:Patrick@oldehanter.nl">
+          Patrick@oldehanter.nl
+        </a>
+      </div>
 
-    <p>
-      <a href="mailto:Patrick@oldehanter.nl" style="color:#2563eb;font-weight:600">
-        Patrick@oldehanter.nl
-      </a>
-    </p>
+      <div class="expired-actions">
+        <a class="expired-btn" href="/">Terug naar de website</a>
+      </div>
 
-    <div style="margin-top:1.5rem">
-      <a class="btn" href="/">Terug naar de website</a>
+      <div class="expired-footer">
+        Olde Hanter Bouwconstructies • Bestandentransfer
+      </div>
     </div>
-
-    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-
   </div>
-</div>
-
 </body>
 </html>
 """
