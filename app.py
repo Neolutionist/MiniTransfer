@@ -1701,13 +1701,10 @@ EXPIRED_HTML = """
   <style>
     {{ base_css }}
 
-    html, body {
-      min-height: 100%;
-    }
+    html, body { min-height: 100%; }
 
     body {
       margin: 0;
-      overflow: hidden;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       color: white;
       background:
@@ -1715,13 +1712,11 @@ EXPIRED_HTML = """
         radial-gradient(circle at 80% 30%, rgba(0,255,255,.30), transparent 30%),
         radial-gradient(circle at 50% 80%, rgba(255,255,0,.25), transparent 28%),
         linear-gradient(135deg, #12001f 0%, #22003a 20%, #001d3d 40%, #1a0033 60%, #22001a 80%, #0b0015 100%);
-      background-size: cover;
+      overflow-x: hidden;
       position: relative;
     }
 
-    .psy-bg,
-    .psy-bg::before,
-    .psy-bg::after {
+    .psy-bg, .psy-bg::before, .psy-bg::after {
       position: fixed;
       inset: -20%;
       content: "";
@@ -1745,14 +1740,11 @@ EXPIRED_HTML = """
 
     .psy-bg::before {
       background:
-        repeating-radial-gradient(
-          circle at center,
+        repeating-radial-gradient(circle at center,
           rgba(255,255,255,.06) 0 12px,
-          rgba(0,0,0,0) 12px 28px
-        );
+          rgba(0,0,0,0) 12px 28px);
       opacity: .45;
       animation: pulseRings 8s ease-in-out infinite;
-      filter: blur(1px);
     }
 
     .psy-bg::after {
@@ -1772,13 +1764,18 @@ EXPIRED_HTML = """
       position: relative;
       z-index: 2;
       min-height: 100vh;
+      padding: 2rem 1rem 4rem;
+    }
+
+    .stack {
+      max-width: 980px;
+      margin: 0 auto;
       display: grid;
-      place-items: center;
-      padding: 2rem;
+      gap: 1.2rem;
     }
 
     .card-psy {
-      width: min(820px, 100%);
+      width: 100%;
       padding: 2.5rem 2rem;
       border-radius: 30px;
       text-align: center;
@@ -1798,6 +1795,7 @@ EXPIRED_HTML = """
         inset 0 0 40px rgba(255,255,255,.05);
       backdrop-filter: blur(18px) saturate(1.8);
       animation: floatCard 5s ease-in-out infinite;
+      box-sizing: border-box;
     }
 
     .card-psy::before {
@@ -1806,20 +1804,10 @@ EXPIRED_HTML = """
       inset: -2px;
       border-radius: inherit;
       padding: 2px;
-      background: linear-gradient(
-        120deg,
-        #ff00a8,
-        #00f7ff,
-        #ffe600,
-        #8a2eff,
-        #ff5e00,
-        #ff00a8
-      );
+      background: linear-gradient(120deg, #ff00a8, #00f7ff, #ffe600, #8a2eff, #ff5e00, #ff00a8);
       background-size: 300% 300%;
       animation: borderFlow 5s linear infinite;
-      -webkit-mask:
-        linear-gradient(#000 0 0) content-box,
-        linear-gradient(#000 0 0);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
       -webkit-mask-composite: xor;
               mask-composite: exclude;
       pointer-events: none;
@@ -1835,16 +1823,10 @@ EXPIRED_HTML = """
       font-size: 3rem;
       font-weight: 900;
       color: #fff;
-      background:
-        radial-gradient(circle at 30% 30%, #fff176 0%, #ff00a8 30%, #6a00ff 60%, #00f7ff 100%);
-      box-shadow:
-        0 0 20px rgba(255,255,255,.5),
-        0 0 40px rgba(255,0,153,.6),
-        0 0 70px rgba(0,255,255,.45);
+      background: radial-gradient(circle at 30% 30%, #fff176 0%, #ff00a8 30%, #6a00ff 60%, #00f7ff 100%);
+      box-shadow: 0 0 20px rgba(255,255,255,.5), 0 0 40px rgba(255,0,153,.6), 0 0 70px rgba(0,255,255,.45);
       animation: wobble 3s ease-in-out infinite;
-      text-shadow:
-        0 0 10px rgba(255,255,255,.85),
-        0 0 20px rgba(255,255,0,.7);
+      text-shadow: 0 0 10px rgba(255,255,255,.85), 0 0 20px rgba(255,255,0,.7);
     }
 
     .title-psy {
@@ -1870,9 +1852,7 @@ EXPIRED_HTML = """
       font-size: 1.18rem;
       line-height: 1.75;
       color: rgba(255,255,255,.96);
-      text-shadow:
-        0 0 8px rgba(0,0,0,.35),
-        0 0 14px rgba(255,255,255,.16);
+      text-shadow: 0 0 8px rgba(0,0,0,.35), 0 0 14px rgba(255,255,255,.16);
     }
 
     .contact-psy {
@@ -1880,14 +1860,9 @@ EXPIRED_HTML = """
       max-width: 520px;
       padding: 1.25rem 1rem;
       border-radius: 22px;
-      background:
-        linear-gradient(135deg,
-          rgba(255,255,255,.10),
-          rgba(255,255,255,.05));
+      background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
       border: 1px solid rgba(255,255,255,.18);
-      box-shadow:
-        inset 0 0 20px rgba(255,255,255,.04),
-        0 0 30px rgba(255,255,255,.06);
+      box-shadow: inset 0 0 20px rgba(255,255,255,.04), 0 0 30px rgba(255,255,255,.06);
     }
 
     .label-psy {
@@ -1904,9 +1879,7 @@ EXPIRED_HTML = """
       font-size: 1.7rem;
       font-weight: 800;
       color: #ffffff;
-      text-shadow:
-        0 0 10px rgba(255,255,255,.45),
-        0 0 22px rgba(0,255,255,.25);
+      text-shadow: 0 0 10px rgba(255,255,255,.45), 0 0 22px rgba(0,255,255,.25);
     }
 
     .mail-psy {
@@ -1919,44 +1892,40 @@ EXPIRED_HTML = """
       background-size: 200% 200%;
       font-weight: 900;
       text-decoration: none;
-      box-shadow:
-        0 0 18px rgba(0,255,255,.35),
-        0 0 28px rgba(255,230,0,.25);
+      box-shadow: 0 0 18px rgba(0,255,255,.35), 0 0 28px rgba(255,230,0,.25);
       animation: rainbowMove 4s linear infinite;
-    }
-
-    .mail-psy:hover {
-      transform: scale(1.03);
-      filter: brightness(1.06);
     }
 
     .actions-psy {
       margin-top: 1.8rem;
+      display: flex;
+      gap: .8rem;
+      justify-content: center;
+      flex-wrap: wrap;
     }
 
-    .btn-psy {
+    .btn-psy, .game-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       padding: 1rem 1.5rem;
-      min-width: 260px;
+      min-width: 220px;
       border-radius: 999px;
       text-decoration: none;
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: .06em;
       color: #fff;
-      background:
-        linear-gradient(90deg, #ff00a8, #8a2eff, #00f7ff, #ffe600, #ff00a8);
+      border: 0;
+      cursor: pointer;
+      background: linear-gradient(90deg, #ff00a8, #8a2eff, #00f7ff, #ffe600, #ff00a8);
       background-size: 300% 300%;
-      box-shadow:
-        0 0 25px rgba(255,0,168,.35),
-        0 0 45px rgba(0,247,255,.25);
+      box-shadow: 0 0 25px rgba(255,0,168,.35), 0 0 45px rgba(0,247,255,.25);
       animation: rainbowMove 5s linear infinite;
       transition: transform .18s ease, filter .18s ease;
     }
 
-    .btn-psy:hover {
+    .btn-psy:hover, .game-btn:hover {
       transform: translateY(-2px) scale(1.02);
       filter: brightness(1.08);
     }
@@ -1968,136 +1937,197 @@ EXPIRED_HTML = """
       text-shadow: 0 0 10px rgba(255,255,255,.15);
     }
 
+    .game-panel {
+      position: relative;
+      overflow: hidden;
+      min-height: 520px;
+      padding: 1.2rem;
+      border-radius: 30px;
+      background:
+        linear-gradient(135deg,
+          rgba(0,255,255,.08),
+          rgba(255,0,153,.10),
+          rgba(255,255,0,.08),
+          rgba(128,0,255,.10));
+      border: 2px solid rgba(255,255,255,.18);
+      box-shadow:
+        0 0 28px rgba(0,255,255,.12),
+        0 0 58px rgba(255,0,153,.10),
+        inset 0 0 24px rgba(255,255,255,.04);
+      backdrop-filter: blur(14px) saturate(1.6);
+    }
+
+    .game-head {
+      display: flex;
+      gap: .75rem;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .game-title {
+      font-size: 1.2rem;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #fff;
+      text-shadow: 0 0 10px rgba(255,0,168,.5), 0 0 20px rgba(0,247,255,.3);
+    }
+
+    .game-controls {
+      display: flex;
+      gap: .6rem;
+      flex-wrap: wrap;
+    }
+
+    .scorebox {
+      display: flex;
+      gap: .6rem;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      padding: .7rem 1rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.18);
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 0 8px rgba(255,255,255,.18);
+    }
+
+    .arena {
+      position: relative;
+      height: 380px;
+      border-radius: 24px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,.06), rgba(255,255,255,.01)),
+        linear-gradient(135deg, rgba(15,0,35,.7), rgba(0,20,45,.7));
+      border: 1px solid rgba(255,255,255,.14);
+      box-shadow: inset 0 0 40px rgba(255,255,255,.04);
+    }
+
+    .game-msg {
+      margin-top: .9rem;
+      font-size: 1rem;
+      color: rgba(255,255,255,.92);
+      min-height: 1.4rem;
+      text-shadow: 0 0 10px rgba(0,0,0,.35);
+    }
+
     .blob {
       position: absolute;
       border-radius: 50%;
-      filter: blur(20px);
-      opacity: .38;
-      mix-blend-mode: screen;
-      animation: blobMove 12s ease-in-out infinite;
-      pointer-events: none;
+      filter: blur(6px);
+      opacity: .95;
+      cursor: pointer;
+      box-shadow: 0 0 16px currentColor, 0 0 26px currentColor;
+      animation: blobPulse 1.2s ease-in-out infinite;
     }
 
-    .blob.b1 {
-      width: 220px;
-      height: 220px;
-      background: #ff00a8;
-      top: -60px;
-      left: -40px;
+    .dodger {
+      position: absolute;
+      width: 54px;
+      height: 54px;
+      border-radius: 16px;
+      left: calc(50% - 27px);
+      bottom: 16px;
+      background: linear-gradient(135deg, #ffe600, #ff00a8, #00f7ff);
+      box-shadow: 0 0 20px rgba(255,255,255,.25), 0 0 40px rgba(255,0,168,.35);
     }
 
-    .blob.b2 {
-      width: 180px;
-      height: 180px;
-      background: #00f7ff;
-      right: -40px;
-      top: 40px;
-      animation-delay: -4s;
+    .faller {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #ff00a8, #8a2eff, #00f7ff);
+      box-shadow: 0 0 12px rgba(255,255,255,.2), 0 0 24px rgba(0,247,255,.25);
     }
 
-    .blob.b3 {
-      width: 240px;
-      height: 240px;
-      background: #ffe600;
-      bottom: -90px;
-      left: 50%;
-      transform: translateX(-50%);
-      animation-delay: -7s;
+    .memory-grid {
+      position: absolute;
+      inset: 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
     }
+
+    .memory-pad {
+      border: 0;
+      border-radius: 22px;
+      opacity: .75;
+      cursor: pointer;
+      transition: transform .12s ease, opacity .12s ease, box-shadow .12s ease;
+      box-shadow: inset 0 0 24px rgba(255,255,255,.06), 0 0 14px rgba(255,255,255,.08);
+    }
+
+    .memory-pad.active {
+      opacity: 1;
+      transform: scale(1.03);
+      box-shadow: 0 0 24px rgba(255,255,255,.28), 0 0 45px currentColor;
+    }
+
+    .pad-0 { background: linear-gradient(135deg, #ff008c, #ff5e00); color: #ff008c; }
+    .pad-1 { background: linear-gradient(135deg, #00f7ff, #0077ff); color: #00f7ff; }
+    .pad-2 { background: linear-gradient(135deg, #ffe600, #7dff00); color: #ffe600; }
+    .pad-3 { background: linear-gradient(135deg, #8a2eff, #ff4dd2); color: #8a2eff; }
+
+    .hidden { display: none !important; }
 
     @keyframes spinA {
       from { transform: rotate(0deg) scale(1); }
-      to   { transform: rotate(360deg) scale(1.08); }
+      to { transform: rotate(360deg) scale(1.08); }
     }
-
     @keyframes pulseRings {
       0%,100% { transform: scale(1); opacity: .35; }
-      50%     { transform: scale(1.08); opacity: .55; }
+      50% { transform: scale(1.08); opacity: .55; }
     }
-
     @keyframes driftColors {
       0%,100% { background-position: 0% 50%; }
-      50%     { background-position: 100% 50%; }
+      50% { background-position: 100% 50%; }
     }
-
     @keyframes borderFlow {
       0% { background-position: 0% 50%; }
       100% { background-position: 200% 50%; }
     }
-
     @keyframes rainbowMove {
       0% { background-position: 0% 50%; }
       100% { background-position: 200% 50%; }
     }
-
     @keyframes floatCard {
       0%,100% { transform: translateY(0px) rotate(0deg); }
-      50%     { transform: translateY(-8px) rotate(.35deg); }
+      50% { transform: translateY(-8px) rotate(.35deg); }
     }
-
     @keyframes wobble {
       0%,100% { transform: rotate(0deg) scale(1); }
-      25%     { transform: rotate(-6deg) scale(1.04); }
-      50%     { transform: rotate(4deg) scale(1.08); }
-      75%     { transform: rotate(-3deg) scale(1.03); }
+      25% { transform: rotate(-6deg) scale(1.04); }
+      50% { transform: rotate(4deg) scale(1.08); }
+      75% { transform: rotate(-3deg) scale(1.03); }
     }
-
     @keyframes titleFlicker {
-      0%,100% {
-        transform: translateY(0);
-        filter: hue-rotate(0deg);
-      }
-      50% {
-        transform: translateY(-1px);
-        filter: hue-rotate(25deg);
-      }
+      0%,100% { transform: translateY(0); filter: hue-rotate(0deg); }
+      50% { transform: translateY(-1px); filter: hue-rotate(25deg); }
+    }
+    @keyframes blobPulse {
+      0%,100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
     }
 
-    @keyframes blobMove {
-      0%,100% { transform: translate(0,0) scale(1); }
-      33%     { transform: translate(20px,-16px) scale(1.12); }
-      66%     { transform: translate(-18px,18px) scale(.92); }
-    }
-
-    @media (max-width: 640px) {
-      body {
-        overflow: auto;
-      }
-
-      .wrap-psy {
-        padding: 1rem;
-      }
-
-      .card-psy {
-        padding: 2rem 1.15rem;
-        border-radius: 24px;
-      }
-
-      .text-psy {
-        font-size: 1.02rem;
-        line-height: 1.65;
-      }
-
-      .btn-psy {
-        min-width: 100%;
-      }
-
-      .name-psy {
-        font-size: 1.35rem;
-      }
+    @media (max-width: 760px) {
+      .card-psy { padding: 2rem 1.15rem; border-radius: 24px; }
+      .text-psy { font-size: 1.02rem; line-height: 1.65; }
+      .btn-psy, .game-btn { min-width: 100%; }
+      .name-psy { font-size: 1.35rem; }
+      .arena { height: 340px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .psy-bg,
-      .psy-bg::before,
-      .psy-bg::after,
-      .card-psy,
-      .card-psy::before,
-      .icon-psy,
-      .title-psy,
-      .mail-psy,
-      .btn-psy,
-      .blob {
+      .psy-bg, .psy-bg::before, .psy-bg::after,
+      .card-psy, .card-psy::before, .icon-psy, .title-psy,
+      .mail-psy, .btn-psy, .game-btn, .blob {
         animation: none !important;
       }
     }
@@ -2107,41 +2137,316 @@ EXPIRED_HTML = """
   <div class="psy-bg"></div>
 
   <div class="wrap-psy">
-    <div class="card-psy">
-      <div class="blob b1"></div>
-      <div class="blob b2"></div>
-      <div class="blob b3"></div>
+    <div class="stack">
+      <div class="card-psy">
+        <div class="icon-psy">☄</div>
+        <h1 class="title-psy">Downloadlink<br>verlopen</h1>
 
-      <div class="icon-psy">☄</div>
+        <p class="text-psy">
+          Deze downloadlink is verdwenen in een andere dimensie,
+          verlopen in de tijd of simpelweg niet meer beschikbaar.
+          Neem contact op voor een nieuwe link.
+        </p>
 
-      <h1 class="title-psy">Downloadlink<br>verlopen</h1>
+        <div class="contact-psy">
+          <p class="label-psy">Contact</p>
+          <p class="name-psy">Patrick Lankhorst</p>
+          <a class="mail-psy" href="mailto:Patrick@oldehanter.nl">Patrick@oldehanter.nl</a>
+        </div>
 
-      <p class="text-psy">
-        Deze downloadlink is verdwenen in een andere dimensie,
-        verlopen in de tijd of simpelweg niet meer beschikbaar.
-        Neem contact op voor een nieuwe link.
-      </p>
+        <div class="actions-psy">
+          <a class="btn-psy" href="/">Terug naar de website</a>
+        </div>
 
-      <div class="contact-psy">
-        <p class="label-psy">Contact</p>
-        <p class="name-psy">Patrick Lankhorst</p>
-        <a class="mail-psy" href="mailto:Patrick@oldehanter.nl">
-          Patrick@oldehanter.nl
-        </a>
+        <div class="footer-psy">
+          Olde Hanter Bouwconstructies • Bestandentransfer
+        </div>
       </div>
 
-      <div class="actions-psy">
-        <a class="btn-psy" href="/">Terug naar de website</a>
-      </div>
+      <div class="game-panel">
+        <div class="game-head">
+          <div class="game-title">Psychedelic Arcade</div>
 
-      <div class="footer-psy">
-        Olde Hanter Bouwconstructies • Bestandentransfer
+          <div class="game-controls">
+            <button class="game-btn" id="btnBlob">Catch the Blob</button>
+            <button class="game-btn" id="btnDodge">Rainbow Dodge</button>
+            <button class="game-btn" id="btnMemory">Memory Lights</button>
+          </div>
+
+          <div class="scorebox">
+            <div class="pill">Score: <span id="score">0</span></div>
+            <div class="pill">Highscore: <span id="highscore">0</span></div>
+          </div>
+        </div>
+
+        <div class="arena" id="arena"></div>
+        <div class="game-msg" id="gameMsg">Kies een spel om te starten.</div>
       </div>
     </div>
   </div>
+
+  <script>
+    const arena = document.getElementById('arena');
+    const scoreEl = document.getElementById('score');
+    const highscoreEl = document.getElementById('highscore');
+    const gameMsg = document.getElementById('gameMsg');
+    const btnBlob = document.getElementById('btnBlob');
+    const btnDodge = document.getElementById('btnDodge');
+    const btnMemory = document.getElementById('btnMemory');
+
+    let score = 0;
+    let highscore = Number(localStorage.getItem('psy_highscore') || 0);
+    let cleanupFns = [];
+    let currentGame = null;
+
+    highscoreEl.textContent = highscore;
+
+    function setScore(v){
+      score = v;
+      scoreEl.textContent = score;
+      if(score > highscore){
+        highscore = score;
+        highscoreEl.textContent = highscore;
+        localStorage.setItem('psy_highscore', String(highscore));
+      }
+    }
+
+    function addScore(v=1){ setScore(score + v); }
+
+    function clearGame(){
+      cleanupFns.forEach(fn => { try{ fn(); }catch(e){} });
+      cleanupFns = [];
+      currentGame = null;
+      arena.innerHTML = '';
+      setScore(0);
+    }
+
+    function rand(min, max){ return Math.random() * (max - min) + min; }
+
+    function startBlobGame(){
+      clearGame();
+      currentGame = 'blob';
+      gameMsg.textContent = 'Klik zoveel mogelijk blobs in 20 seconden.';
+      let running = true;
+      let timeLeft = 20;
+
+      const timer = document.createElement('div');
+      timer.className = 'pill';
+      timer.style.position = 'absolute';
+      timer.style.top = '12px';
+      timer.style.right = '12px';
+      timer.textContent = 'Tijd: 20';
+      arena.appendChild(timer);
+
+      function spawnBlob(){
+        if(!running) return;
+        const b = document.createElement('div');
+        b.className = 'blob';
+        const size = rand(34, 88);
+        b.style.width = size + 'px';
+        b.style.height = size + 'px';
+        b.style.left = rand(0, arena.clientWidth - size) + 'px';
+        b.style.top = rand(0, arena.clientHeight - size) + 'px';
+        b.style.background = 'radial-gradient(circle at 30% 30%, #fff176 0%, #ff00a8 35%, #8a2eff 65%, #00f7ff 100%)';
+        b.style.color = ['#ff00a8','#00f7ff','#ffe600','#8a2eff'][Math.floor(rand(0,4))];
+        b.onclick = () => {
+          addScore(1);
+          b.remove();
+          spawnBlob();
+        };
+        arena.appendChild(b);
+
+        setTimeout(() => {
+          if(b.isConnected) b.remove();
+          if(running) spawnBlob();
+        }, rand(900, 1800));
+      }
+
+      for(let i=0;i<5;i++) spawnBlob();
+
+      const iv = setInterval(() => {
+        timeLeft--;
+        timer.textContent = 'Tijd: ' + timeLeft;
+        if(timeLeft <= 0){
+          running = false;
+          clearInterval(iv);
+          gameMsg.textContent = 'Einde spel. Score: ' + score + '.';
+        }
+      }, 1000);
+
+      cleanupFns.push(() => { running = false; clearInterval(iv); });
+    }
+
+    function startDodgeGame(){
+      clearGame();
+      currentGame = 'dodge';
+      gameMsg.textContent = 'Beweeg met ← → of A D en ontwijk de vallende blokjes.';
+      const player = document.createElement('div');
+      player.className = 'dodger';
+      arena.appendChild(player);
+
+      let px = arena.clientWidth / 2 - 27;
+      let running = true;
+      let speed = 3.5;
+      let keys = {};
+      let spawnRate = 800;
+
+      function updatePlayer(){
+        if(keys['ArrowLeft'] || keys['a']) px -= 7;
+        if(keys['ArrowRight'] || keys['d']) px += 7;
+        px = Math.max(0, Math.min(arena.clientWidth - 54, px));
+        player.style.left = px + 'px';
+      }
+
+      function hit(a, b){
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return !(ar.right < br.left || ar.left > br.right || ar.bottom < br.top || ar.top > br.bottom);
+      }
+
+      function spawnFaller(){
+        if(!running) return;
+        const f = document.createElement('div');
+        f.className = 'faller';
+        let x = rand(0, arena.clientWidth - 30);
+        let y = -40;
+        f.style.left = x + 'px';
+        f.style.top = y + 'px';
+        arena.appendChild(f);
+
+        let vy = speed + rand(0.6, 2.2);
+
+        function loop(){
+          if(!running || !f.isConnected) return;
+          y += vy;
+          f.style.top = y + 'px';
+
+          if(hit(f, player)){
+            running = false;
+            gameMsg.textContent = 'Botsing. Score: ' + score + '.';
+            return;
+          }
+
+          if(y > arena.clientHeight){
+            addScore(1);
+            f.remove();
+            return;
+          }
+          requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+      }
+
+      const keyDown = e => { keys[e.key] = true; };
+      const keyUp = e => { keys[e.key] = false; };
+      window.addEventListener('keydown', keyDown);
+      window.addEventListener('keyup', keyUp);
+
+      const moveIv = setInterval(() => {
+        if(!running){
+          clearInterval(moveIv);
+          clearInterval(spawnIv);
+          return;
+        }
+        updatePlayer();
+      }, 16);
+
+      const spawnIv = setInterval(() => {
+        spawnFaller();
+        speed += 0.08;
+        if(spawnRate > 280) spawnRate -= 8;
+      }, 500);
+
+      cleanupFns.push(() => {
+        running = false;
+        clearInterval(moveIv);
+        clearInterval(spawnIv);
+        window.removeEventListener('keydown', keyDown);
+        window.removeEventListener('keyup', keyUp);
+      });
+    }
+
+    function startMemoryGame(){
+      clearGame();
+      currentGame = 'memory';
+      gameMsg.textContent = 'Kijk naar de reeks en klik hem na.';
+      const grid = document.createElement('div');
+      grid.className = 'memory-grid';
+      arena.appendChild(grid);
+
+      const pads = [];
+      for(let i=0;i<4;i++){
+        const btn = document.createElement('button');
+        btn.className = 'memory-pad pad-' + i;
+        btn.type = 'button';
+        grid.appendChild(btn);
+        pads.push(btn);
+      }
+
+      let seq = [];
+      let playerIndex = 0;
+      let accepting = false;
+
+      function flash(idx){
+        return new Promise(resolve => {
+          pads[idx].classList.add('active');
+          setTimeout(() => {
+            pads[idx].classList.remove('active');
+            setTimeout(resolve, 160);
+          }, 420);
+        });
+      }
+
+      async function playSeq(){
+        accepting = false;
+        for(const idx of seq){
+          await flash(idx);
+        }
+        accepting = true;
+        playerIndex = 0;
+      }
+
+      async function nextRound(){
+        seq.push(Math.floor(Math.random() * 4));
+        gameMsg.textContent = 'Level ' + seq.length;
+        await playSeq();
+      }
+
+      pads.forEach((pad, idx) => {
+        pad.addEventListener('click', async () => {
+          if(!accepting) return;
+          pad.classList.add('active');
+          setTimeout(() => pad.classList.remove('active'), 180);
+
+          if(idx !== seq[playerIndex]){
+            gameMsg.textContent = 'Fout. Score: ' + score + '.';
+            accepting = false;
+            return;
+          }
+
+          playerIndex++;
+          if(playerIndex >= seq.length){
+            addScore(1);
+            accepting = false;
+            setTimeout(nextRound, 500);
+          }
+        });
+      });
+
+      nextRound();
+      cleanupFns.push(() => {});
+    }
+
+    btnBlob.addEventListener('click', startBlobGame);
+    btnDodge.addEventListener('click', startDodgeGame);
+    btnMemory.addEventListener('click', startMemoryGame);
+  </script>
 </body>
 </html>
 """
+
+
+
 PRIVACY_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
