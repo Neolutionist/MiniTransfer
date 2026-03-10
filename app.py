@@ -502,92 +502,573 @@ INDEX_HTML = """
   <style>
     {{ base_css }}
 
-    /* ===== PRO LAYOUT ===== */
-    .shell{max-width:1100px;margin:5vh auto;padding:0 16px}
-    .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap}
-    .brand{color:var(--brand);margin:0;font-weight:800;letter-spacing:.2px}
-    .who{color:var(--muted);font-size:.9rem}.who a{color:var(--brand)}
+    html, body { min-height:100%; }
 
-    .deck{display:grid;grid-template-columns:1.4fr .9fr;gap:14px}
-    @media (max-width:920px){.deck{grid-template-columns:1fr}}
+    body{
+      margin:0;
+      overflow-x:hidden;
+      position:relative;
+      color:#fff;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(255,0,153,.30), transparent 24%),
+        radial-gradient(circle at 83% 24%, rgba(0,255,255,.24), transparent 28%),
+        radial-gradient(circle at 50% 82%, rgba(255,255,0,.18), transparent 24%),
+        linear-gradient(135deg, #0d0018 0%, #1c0033 18%, #001a3b 38%, #24002e 58%, #220014 76%, #090010 100%);
+    }
 
-    .card{border-radius:16px;background:var(--panel);backdrop-filter:blur(10px) saturate(1.05);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14)}
-    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
-    .card-h h2{margin:0;font-size:1.02rem}
-    .card-b{padding:14px 16px}
-    .subtle{color:var(--muted);font-size:.92rem}
+    .psy-overlay,
+    .psy-overlay::before,
+    .psy-overlay::after{
+      content:"";
+      position:fixed;
+      inset:-18%;
+      pointer-events:none;
+      z-index:0;
+    }
 
-    .grid{display:grid;gap:12px}
-    .cols2{grid-template-columns:1fr 1fr}
-    @media (max-width:720px){.cols2{grid-template-columns:1fr}}
+    .psy-overlay{
+      background:
+        conic-gradient(from 0deg,
+          rgba(255,0,153,.18),
+          rgba(255,255,0,.14),
+          rgba(0,255,255,.16),
+          rgba(138,46,255,.18),
+          rgba(255,94,0,.16),
+          rgba(255,0,153,.18));
+      filter: blur(56px) saturate(1.6);
+      mix-blend-mode: screen;
+      animation: spinGlow 22s linear infinite;
+    }
 
-    label{display:block;margin:0 0 6px;font-weight:650}
-    .input, select{width:100%;padding:.7rem .9rem;border-radius:12px;border:1px solid var(--line);background:color-mix(in oklab,var(--surface-2) 92%,white 8%);box-sizing:border-box}
-    .toggle{display:flex;gap:14px;align-items:center}
-    .toggle label{display:flex;gap:8px;align-items:center;cursor:pointer}
+    .psy-overlay::before{
+      background:
+        repeating-radial-gradient(
+          circle at center,
+          rgba(255,255,255,.05) 0 12px,
+          rgba(255,255,255,0) 12px 28px
+        );
+      opacity:.30;
+      animation: pulseRings 9s ease-in-out infinite;
+    }
 
-    /* filepicker compact */
-    .picker{display:flex;flex-direction:column;gap:6px}
-    .picker-ctl{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in oklab,var(--surface-2) 92%,white 8%);height:42px;padding:0 10px}
-    .picker-ctl input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
-    .btn{padding:.7rem .95rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:700;cursor:pointer}
-    .btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
-    .btn.sm{padding:.5rem .7rem;font-size:.88rem;border-radius:10px}
-    .muted{color:var(--muted)}
-    .ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .psy-overlay::after{
+      background:
+        linear-gradient(90deg,
+          rgba(255,0,153,.10),
+          rgba(0,255,255,.10),
+          rgba(255,255,0,.10),
+          rgba(138,46,255,.10),
+          rgba(255,0,153,.10));
+      background-size:300% 300%;
+      mix-blend-mode:overlay;
+      animation: driftColors 12s ease-in-out infinite;
+    }
 
-    /* queue tabel */
-    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
-    .rowc{display:grid;grid-template-columns:22px 1fr 100px 90px;align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:color-mix(in oklab,var(--surface) 90%,white 10%)}
-    .ico{width:22px;height:22px;border-radius:6px;background:linear-gradient(180deg,#94a3b8,#64748b)}
-    .size,.eta{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
-    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
+    .shell{
+      position:relative;
+      z-index:2;
+      max-width:1180px;
+      margin:4vh auto;
+      padding:0 16px 28px;
+    }
 
-    /* telemetry */
-    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .kv .k{font-size:.85rem;color:var(--muted)}
-    .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
-    @media(max-width:420px){.kv{grid-template-columns:1fr}}
-    .log{max-height:200px;overflow:auto;border:1px solid rgba(0,0,0,.08);border-radius:10px;background:color-mix(in oklab,var(--surface)92%,white 8%);padding:8px 10px;font-size:.9rem}
-    .log p{margin:4px 0}
+    .hdr{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:16px;
+      gap:14px;
+      flex-wrap:wrap;
+    }
 
-    /* total bar + badges */
-    .totalline{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .badge{display:inline-flex;align-items:center;justify-content:center;padding:.22rem .6rem;border-radius:999px;font-weight:800;font-size:.78rem}
-    .badge.ok{background:color-mix(in oklab,#16a34a 18%,white 82%);color:#166534}
-    .badge.warn{background:color-mix(in oklab,#f59e0b 22%,white 78%);color:#b45309}
+    .brand{
+      margin:0;
+      font-weight:900;
+      font-size:clamp(2rem,4vw,3rem);
+      line-height:1.02;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+      color:#fff;
+      text-shadow:
+        0 0 10px #ff00a8,
+        0 0 22px #ff00a8,
+        0 0 34px #00f7ff,
+        0 0 54px #8a2eff;
+    }
 
-    /* share mini */
-    .share{display:flex;align-items:center;gap:8px}
-    .share .input{padding:.55rem .7rem}
-    .share .btn{padding:.55rem .7rem}
+    .hdr .right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
 
-/* ===== Header actions (link buttons) ===== */
-.hdr .right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-a.btn{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;text-decoration:none}
-a.btn .ic{font-size:1.05em;opacity:.9}
+    .who{
+      color:rgba(255,255,255,.88);
+      font-size:.95rem;
+      padding:.7rem 1rem;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow:0 0 16px rgba(255,255,255,.05);
+      backdrop-filter: blur(10px);
+    }
+    .who a{ color:#ffe600; text-decoration:none; font-weight:700; }
+    .who a:hover{ text-decoration:underline; }
 
-    
+    .deck{
+      display:grid;
+      grid-template-columns:1.4fr .9fr;
+      gap:16px;
+    }
+    @media (max-width:920px){ .deck{ grid-template-columns:1fr; } }
+
+    .card{
+      position:relative;
+      overflow:hidden;
+      border-radius:30px;
+      background:
+        linear-gradient(135deg,
+          rgba(255,0,153,.12),
+          rgba(0,255,255,.08),
+          rgba(255,255,0,.07),
+          rgba(138,46,255,.12));
+      border:2px solid rgba(255,255,255,.16);
+      box-shadow:
+        0 0 24px rgba(255,0,153,.18),
+        0 0 46px rgba(0,255,255,.14),
+        0 0 82px rgba(138,46,255,.12),
+        inset 0 0 30px rgba(255,255,255,.04);
+      backdrop-filter: blur(16px) saturate(1.5);
+    }
+
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:-2px;
+      border-radius:inherit;
+      padding:2px;
+      background:linear-gradient(120deg,#ff00a8,#00f7ff,#ffe600,#8a2eff,#ff5e00,#ff00a8);
+      background-size:280% 280%;
+      animation:borderFlow 5.2s linear infinite;
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+              mask-composite: exclude;
+      pointer-events:none;
+    }
+
+    .card-h{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:16px 18px;
+      border-bottom:1px solid rgba(255,255,255,.10);
+      position:relative;
+      z-index:1;
+    }
+
+    .card-h h2{
+      margin:0;
+      font-size:1.06rem;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#fff;
+      text-shadow:0 0 12px rgba(255,0,168,.4), 0 0 22px rgba(0,247,255,.2);
+    }
+
+    .card-b{
+      padding:16px 18px 18px;
+      position:relative;
+      z-index:1;
+    }
+
+    .subtle, .muted, .k{
+      color:rgba(255,255,255,.78) !important;
+    }
+
+    .grid{ display:grid; gap:12px; }
+    .cols2{ grid-template-columns:1fr 1fr; }
+    @media (max-width:720px){ .cols2{ grid-template-columns:1fr; } }
+
+    label{
+      display:block;
+      margin:0 0 6px;
+      font-weight:800;
+      color:#fff;
+      letter-spacing:.02em;
+      text-shadow:0 0 10px rgba(255,255,255,.08);
+    }
+
+    .input, select{
+      width:100%;
+      padding:.82rem 1rem;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(12,10,30,.62);
+      color:#fff;
+      box-sizing:border-box;
+      outline:none;
+      box-shadow:
+        inset 0 0 18px rgba(255,255,255,.03),
+        0 0 16px rgba(0,0,0,.08);
+      backdrop-filter: blur(8px);
+    }
+
+    .input::placeholder{ color:rgba(255,255,255,.52); }
+
+    .input:focus, select:focus{
+      border-color:#00f7ff;
+      box-shadow:
+        0 0 0 4px rgba(0,247,255,.16),
+        0 0 18px rgba(255,0,168,.16),
+        inset 0 0 18px rgba(255,255,255,.04);
+    }
+
+    select option{
+      color:#fff;
+      background:#180325;
+    }
+
+    .toggle{
+      display:flex;
+      gap:16px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .toggle label{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      cursor:pointer;
+      padding:.75rem 1rem;
+      border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.14);
+      font-weight:800;
+    }
+
+    .toggle input[type="radio"]{
+      accent-color:#ff00a8;
+      transform:scale(1.1);
+    }
+
+    .picker{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .picker-ctl{
+      position:relative;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:18px;
+      background:rgba(12,10,30,.56);
+      min-height:50px;
+      padding:0 10px;
+      box-shadow: inset 0 0 18px rgba(255,255,255,.03);
+      backdrop-filter: blur(10px);
+    }
+
+    .picker-ctl input[type=file]{
+      position:absolute;
+      inset:0;
+      opacity:0;
+      cursor:pointer;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:.45rem;
+      padding:.85rem 1.15rem;
+      border:0;
+      border-radius:999px;
+      background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
+      background-size:280% 280%;
+      color:#fff;
+      font-weight:900;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      cursor:pointer;
+      box-shadow:
+        0 0 18px rgba(255,0,168,.24),
+        0 0 32px rgba(0,247,255,.18);
+      animation:rainbowMove 5s linear infinite;
+      transition:transform .16s ease, filter .16s ease;
+    }
+
+    .btn:hover{
+      transform:translateY(-2px) scale(1.02);
+      filter:brightness(1.08);
+    }
+
+    .btn.ghost{
+      background:rgba(255,255,255,.08);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow:none;
+      text-transform:none;
+      letter-spacing:0;
+      animation:none;
+    }
+
+    .btn.sm{
+      padding:.65rem .95rem;
+      font-size:.86rem;
+      border-radius:999px;
+    }
+
+    .ellipsis{
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      color:rgba(255,255,255,.72);
+    }
+
+    .rowc{
+      display:grid;
+      grid-template-columns:24px 1fr 110px 96px;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      background:
+        linear-gradient(135deg,
+          rgba(255,255,255,.07),
+          rgba(255,255,255,.03));
+      box-shadow:
+        0 0 18px rgba(255,255,255,.03),
+        inset 0 0 20px rgba(255,255,255,.03);
+    }
+
+    .ico{
+      width:24px;
+      height:24px;
+      border-radius:8px;
+      background:linear-gradient(135deg,#ffe600,#ff00a8,#00f7ff);
+      box-shadow:0 0 12px rgba(255,255,255,.14), 0 0 22px rgba(255,0,168,.16);
+    }
+
+    .size,.eta{
+      text-align:right;
+      color:rgba(255,255,255,.76);
+      font-variant-numeric:tabular-nums;
+    }
+
+    .progress{
+      height:12px;
+      border-radius:999px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.08);
+      margin-top:.45rem;
+      box-shadow: inset 0 0 10px rgba(255,255,255,.03);
+    }
+
+    .progress > i{
+      display:block;
+      height:100%;
+      width:0%;
+      background:
+        linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
+      background-size:220% 220%;
+      animation:rainbowMove 3s linear infinite;
+      position:relative;
+    }
+
+    .progress > i::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background-image:
+        linear-gradient(135deg,
+          rgba(255,255,255,.30) 25%,
+          transparent 25%,
+          transparent 50%,
+          rgba(255,255,255,.30) 50%,
+          rgba(255,255,255,.30) 75%,
+          transparent 75%,
+          transparent);
+      background-size:24px 24px;
+      animation:stripes 1s linear infinite;
+      mix-blend-mode:screen;
+    }
+
+    .kv{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+    .kv .v{
+      font-weight:900;
+      color:#fff;
+      font-variant-numeric:tabular-nums;
+      text-shadow:0 0 12px rgba(255,0,168,.24), 0 0 20px rgba(0,247,255,.16);
+    }
+
+    @media(max-width:420px){ .kv{ grid-template-columns:1fr; } }
+
+    .log{
+      max-height:220px;
+      overflow:auto;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      background:rgba(12,10,30,.48);
+      padding:10px 12px;
+      font-size:.92rem;
+      color:rgba(255,255,255,.86);
+      box-shadow: inset 0 0 18px rgba(255,255,255,.03);
+    }
+    .log p{ margin:4px 0; }
+
+    .totalline{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:.32rem .75rem;
+      border-radius:999px;
+      font-weight:900;
+      font-size:.8rem;
+      letter-spacing:.03em;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(255,255,255,.08);
+      color:#fff;
+      text-shadow:0 0 10px rgba(255,255,255,.1);
+    }
+
+    .badge.ok{
+      background:linear-gradient(90deg, rgba(0,255,170,.20), rgba(0,247,255,.20));
+      color:#dff;
+    }
+
+    .badge.warn{
+      background:linear-gradient(90deg, rgba(255,0,168,.18), rgba(255,230,0,.16));
+      color:#fff7b3;
+    }
+
+    .share{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .share .input{ padding:.72rem .85rem; }
+    .share .btn{ padding:.72rem .95rem; }
+
+    .footer{
+      color:rgba(255,255,255,.72);
+      margin-top:16px;
+      text-align:center;
+      font-size:.98rem;
+      text-shadow:0 0 10px rgba(255,255,255,.06);
+    }
+
+    .blob{
+      position:absolute;
+      border-radius:50%;
+      filter:blur(22px);
+      opacity:.22;
+      mix-blend-mode:screen;
+      pointer-events:none;
+      animation:blobMove 12s ease-in-out infinite;
+    }
+    .blob.b1{
+      width:220px;height:220px;background:#ff00a8;top:-70px;left:-50px;
+    }
+    .blob.b2{
+      width:180px;height:180px;background:#00f7ff;right:-50px;top:36px;animation-delay:-4s;
+    }
+    .blob.b3{
+      width:240px;height:240px;background:#ffe600;bottom:-110px;left:42%;animation-delay:-7s;
+    }
+
+    @keyframes spinGlow{
+      from{ transform:rotate(0deg) scale(1); }
+      to{ transform:rotate(360deg) scale(1.06); }
+    }
+    @keyframes pulseRings{
+      0%,100%{ transform:scale(1); opacity:.28; }
+      50%{ transform:scale(1.08); opacity:.42; }
+    }
+    @keyframes driftColors{
+      0%,100%{ background-position:0% 50%; }
+      50%{ background-position:100% 50%; }
+    }
+    @keyframes borderFlow{
+      0%{ background-position:0% 50%; }
+      100%{ background-position:200% 50%; }
+    }
+    @keyframes rainbowMove{
+      0%{ background-position:0% 50%; }
+      100%{ background-position:200% 50%; }
+    }
+    @keyframes stripes{
+      0%{ transform:translateX(0); }
+      100%{ transform:translateX(24px); }
+    }
+    @keyframes blobMove{
+      0%,100%{ transform:translate(0,0) scale(1); }
+      33%{ transform:translate(20px,-16px) scale(1.12); }
+      66%{ transform:translate(-16px,18px) scale(.92); }
+    }
+
+    @media (max-width:700px){
+      .rowc{ grid-template-columns:1fr; }
+      .size,.eta{ text-align:left; }
+      .share{ flex-direction:column; align-items:stretch; }
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .psy-overlay,
+      .psy-overlay::before,
+      .psy-overlay::after,
+      .card::before,
+      .btn,
+      .progress > i,
+      .blob{
+        animation:none !important;
+      }
+    }
   </style>
 </head>
 <body>
-{{ bg|safe }}
+<div class="psy-overlay"></div>
+
 <div class="shell">
-<div class="hdr">
-  <h1 class="brand">Bestanden uploaden</h1>
+  <div class="hdr">
+    <h1 class="brand">Psychedelische Upload</h1>
 
-  <div class="right">
-
-    <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    <div class="right">
+      <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+    </div>
   </div>
-</div>
-
 
   <div class="deck">
-    <!-- LEFT: Controls & Queue -->
     <div class="card">
-      <div class="card-h"><h2>Upload</h2><div class="subtle">Parallel: <span id="kvWorkers">3</span></div></div>
+      <div class="blob b1"></div>
+      <div class="blob b2"></div>
+      <div class="blob b3"></div>
+
+      <div class="card-h">
+        <h2>Upload Portaal</h2>
+        <div class="subtle">Parallel: <span id="kvWorkers">3</span></div>
+      </div>
+
       <div class="card-b">
         <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
           <div class="grid cols2">
@@ -608,9 +1089,12 @@ a.btn .ic{font-size:1.05em;opacity:.9}
             <div>
               <label for="expDays">Verloopt na</label>
               <select id="expDays" class="input">
-                <option value="1">1 dag</option><option value="3">3 dagen</option>
-                <option value="7">7 dagen</option><option value="30" selected>30 dagen</option>
-                <option value="60">60 dagen</option><option value="365">1 jaar</option>
+                <option value="1">1 dag</option>
+                <option value="3">3 dagen</option>
+                <option value="7">7 dagen</option>
+                <option value="30" selected>30 dagen</option>
+                <option value="60">60 dagen</option>
+                <option value="365">1 jaar</option>
               </select>
             </div>
             <div>
@@ -623,7 +1107,7 @@ a.btn .ic{font-size:1.05em;opacity:.9}
             <label for="fileInput">Kies bestand(en)</label>
             <div class="picker-ctl">
               <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
-              <div id="fileName" class="ellipsis muted">Nog geen bestanden gekozen</div>
+              <div id="fileName" class="ellipsis">Nog geen bestanden gekozen</div>
               <input id="fileInput" type="file" multiple>
             </div>
           </div>
@@ -632,22 +1116,20 @@ a.btn .ic{font-size:1.05em;opacity:.9}
             <label for="folderInput">Kies een map</label>
             <div class="picker-ctl">
               <button type="button" id="btnFolder" class="btn ghost">Kies map</button>
-              <div id="folderName" class="ellipsis muted">Nog geen map gekozen</div>
+              <div id="folderName" class="ellipsis">Nog geen map gekozen</div>
               <input id="folderInput" type="file" multiple webkitdirectory directory>
             </div>
             <div class="muted" style="margin-top:2px">Tip: mapselectie werkt niet op iOS.</div>
           </div>
 
-          <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">
             <button id="btnStart" class="btn" type="submit">Uploaden</button>
             <span class="muted">Queue: <span id="kvQueue">0</span> • Bestanden: <span id="kvFiles">0</span></span>
           </div>
         </form>
 
-        <!-- Queue -->
         <div id="queue" class="grid" style="margin-top:14px"></div>
 
-        <!-- Total -->
         <div style="margin-top:14px">
           <div class="totalline">
             <div class="subtle">Totaalvoortgang</div>
@@ -657,14 +1139,16 @@ a.btn .ic{font-size:1.05em;opacity:.9}
           <div class="subtle" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
         </div>
 
-        <!-- Share -->
         <div id="result" style="margin-top:12px"></div>
       </div>
     </div>
 
-    <!-- RIGHT: Telemetry -->
     <div class="card">
-      <div class="card-h"><h2>Live Telemetry</h2><div class="subtle">Sessie</div></div>
+      <div class="card-h">
+        <h2>Live Telemetry</h2>
+        <div class="subtle">Sessie</div>
+      </div>
+
       <div class="card-b grid">
         <div class="kv">
           <div>
@@ -701,7 +1185,7 @@ a.btn .ic{font-size:1.05em;opacity:.9}
     </div>
   </div>
 
-  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div>
 
 <script>
@@ -770,7 +1254,6 @@ setInterval(()=>{
   const now=performance.now(); const dt=(now-lastTick)/1000; lastTick=now;
   const delta = moved - lastMoved; lastMoved = moved;
   const inst = delta / Math.max(dt,0.001);
-  // EMA
   speedAvg = speedAvg ? speedAvg*0.7 + inst*0.3 : inst;
   tSpeed.textContent = fmtBytes(speedAvg)+"/s";
   tMoved.textContent = fmtBytes(moved);
@@ -781,16 +1264,14 @@ setInterval(()=>{
   tEta.textContent = (totBytes && speedAvg>1) ? new Date(etaSec*1000).toISOString().substring(11,19) : "—";
 }, 700);
 
-/* UI bindings (clean + robust) */
+/* UI bindings */
 (function initPickers(){
   const fileCounterEls = [kvFiles, kvQueue].filter(Boolean);
-
   const setCounters = (n) => fileCounterEls.forEach(el => el.textContent = String(n));
 
   const fileSummary = (files, emptyText) => {
     const n = files?.length || 0;
     if (!n) return emptyText;
-
     const names = Array.from(files).slice(0, 2).map(f => f.name);
     const more = n > 2 ? ` … (+${n - 2})` : "";
     return names.join(", ") + more;
@@ -799,7 +1280,6 @@ setInterval(()=>{
   const folderSummary = (files) => {
     const n = files?.length || 0;
     if (!n) return "Nog geen map gekozen";
-
     const first = files[0];
     const rel = first?.webkitRelativePath || "";
     const root = rel.split("/")[0] || "Gekozen map";
@@ -808,25 +1288,19 @@ setInterval(()=>{
 
   const openPicker = (inputEl) => {
     if (!inputEl) return;
-    // iOS/Safari kan moeilijk doen met programmatic clicks; try/catch helpt crashes voorkomen
     try { inputEl.click(); } catch(_) {}
   };
 
   const setMode = (mode) => {
     const useFolder = (mode === "folder" && !isIOS);
-
     if (fileRow) fileRow.style.display = useFolder ? "none" : "";
     if (folderRow) folderRow.style.display = useFolder ? "" : "none";
-
-    // Auto-open picker (zelfde gedrag als je had, maar netter)
     setTimeout(() => openPicker(useFolder ? folderInput : fileInput), 0);
   };
 
-  // Buttons -> open hidden input
   if (btnFiles && fileInput) btnFiles.addEventListener("click", () => openPicker(fileInput));
   if (btnFolder && folderInput) btnFolder.addEventListener("click", () => openPicker(folderInput));
 
-  // Input change -> UI update
   if (fileInput){
     fileInput.addEventListener("change", () => {
       const n = fileInput.files?.length || 0;
@@ -843,12 +1317,10 @@ setInterval(()=>{
     });
   }
 
-  // Radio toggle (upmode)
   document.querySelectorAll('input[name=upmode]').forEach(radio => {
     radio.addEventListener("change", (e) => setMode(e.target.value));
   });
 
-  // Init: respect current selection
   const current = document.querySelector('input[name=upmode]:checked')?.value || "files";
   setMode(current);
 })();
@@ -894,48 +1366,44 @@ form.addEventListener('submit', async (e)=>{
   await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
   setTotal(100,'Klaar');
 
-  // Share (compact)
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
   resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div class="subtle" style="font-weight:700">Deelbare link</div><span class="badge ok">Gereed</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+      <div class="subtle" style="font-weight:900">Deelbare link</div><span class="badge ok">Gereed</span>
     </div>
     <div class="share">
       <input id="shareLinkInput" class="input" value="${link}" readonly>
       <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
     </div>
   </div></div>`;
-document.getElementById('copyBtn').onclick = async () => {
-  const input = document.getElementById('shareLinkInput');
-  const btn = document.getElementById('copyBtn');
 
-  const oldText = btn.textContent;
-  btn.textContent = "Kopiëren…";
-  btn.disabled = true;
+  document.getElementById('copyBtn').onclick = async () => {
+    const input = document.getElementById('shareLinkInput');
+    const btn = document.getElementById('copyBtn');
+    const oldText = btn.textContent;
+    btn.textContent = "Kopiëren…";
+    btn.disabled = true;
 
-  try {
-    await navigator.clipboard.writeText(input.value);
-    btn.textContent = "Gekopieerd ✓";
-  } catch (_) {
-    // fallback (werkt ook als clipboard API niet mag)
-    input.focus();
-    input.select();
-    const ok = document.execCommand('copy');
-    btn.textContent = ok ? "Gekopieerd ✓" : "Kopieer handmatig";
-  } finally {
-    setTimeout(() => {
-      btn.textContent = oldText;
-      btn.disabled = false;
-    }, 1200);
-  }
-};
-
+    try {
+      await navigator.clipboard.writeText(input.value);
+      btn.textContent = "Gekopieerd ✓";
+    } catch (_) {
+      input.focus();
+      input.select();
+      const ok = document.execCommand('copy');
+      btn.textContent = ok ? "Gekopieerd ✓" : "Kopieer handmatig";
+    } finally {
+      setTimeout(() => {
+        btn.textContent = oldText;
+        btn.disabled = false;
+      }, 1200);
+    }
+  };
 });
 </script>
 </body>
 </html>
 """
-
 
 
 PACKAGE_HTML = """
