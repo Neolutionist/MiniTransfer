@@ -1690,6 +1690,55 @@ code{background:#eef2ff;padding:.05rem .35rem;border-radius:.3rem}
 </body></html>
 """
 
+EXPIRED_HTML = """
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Downloadlink verlopen</title>
+{{ head_icon|safe }}
+<style>{{ base_css }}</style>
+</head>
+<body>
+{{ bg|safe }}
+
+<div class="wrap">
+  <div class="card" style="max-width:640px;margin:10vh auto;text-align:center">
+    
+    <h1 style="color:#dc2626">Downloadlink verlopen</h1>
+
+    <p style="font-size:1.1rem;margin-top:.6rem">
+      Deze downloadlink is helaas verlopen of bestaat niet meer.
+    </p>
+
+    <p class="small" style="margin-top:1rem">
+      Neem contact op met:
+    </p>
+
+    <p style="font-weight:700;font-size:1.1rem">
+      Patrick Lankhorst
+    </p>
+
+    <p>
+      <a href="mailto:Patrick@oldehanter.nl" style="color:#2563eb;font-weight:600">
+        Patrick@oldehanter.nl
+      </a>
+    </p>
+
+    <div style="margin-top:1.5rem">
+      <a class="btn" href="/">Terug naar de website</a>
+    </div>
+
+    <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+
+  </div>
+</div>
+
+</body>
+</html>
+"""
+
 PRIVACY_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -2069,7 +2118,13 @@ def package_page(token):
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
+if not pkg:
+    return render_template_string(
+        EXPIRED_HTML,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON
+    ), 404
 
     if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
         rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
