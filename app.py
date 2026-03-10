@@ -1701,163 +1701,440 @@ EXPIRED_HTML = """
   <style>
     {{ base_css }}
 
-    .expired-wrap{
-      max-width: 760px;
-      margin: 8vh auto;
-      padding: 0 1rem;
+    html, body {
+      min-height: 100%;
     }
 
-    .expired-card{
-      padding: 2.5rem 2rem;
-      border-radius: 24px;
-      background: rgba(15, 23, 42, 0.82);
-      border: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 24px 60px rgba(0,0,0,.28);
-      backdrop-filter: blur(14px) saturate(1.05);
-      text-align: center;
-      color: #e5e7eb;
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: white;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,0,153,.35), transparent 25%),
+        radial-gradient(circle at 80% 30%, rgba(0,255,255,.30), transparent 30%),
+        radial-gradient(circle at 50% 80%, rgba(255,255,0,.25), transparent 28%),
+        linear-gradient(135deg, #12001f 0%, #22003a 20%, #001d3d 40%, #1a0033 60%, #22001a 80%, #0b0015 100%);
+      background-size: cover;
+      position: relative;
     }
 
-    .expired-icon{
-      width: 72px;
-      height: 72px;
-      margin: 0 auto 1.25rem;
-      border-radius: 999px;
+    .psy-bg,
+    .psy-bg::before,
+    .psy-bg::after {
+      position: fixed;
+      inset: -20%;
+      content: "";
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .psy-bg {
+      background:
+        conic-gradient(from 0deg,
+          rgba(255,0,128,.22),
+          rgba(255,255,0,.16),
+          rgba(0,255,255,.18),
+          rgba(128,0,255,.22),
+          rgba(255,128,0,.20),
+          rgba(255,0,128,.22));
+      filter: blur(60px) saturate(1.8);
+      animation: spinA 18s linear infinite;
+      mix-blend-mode: screen;
+    }
+
+    .psy-bg::before {
+      background:
+        repeating-radial-gradient(
+          circle at center,
+          rgba(255,255,255,.06) 0 12px,
+          rgba(0,0,0,0) 12px 28px
+        );
+      opacity: .45;
+      animation: pulseRings 8s ease-in-out infinite;
+      filter: blur(1px);
+    }
+
+    .psy-bg::after {
+      background:
+        linear-gradient(90deg,
+          rgba(255,0,102,.12),
+          rgba(0,255,255,.12),
+          rgba(255,255,0,.12),
+          rgba(128,0,255,.12),
+          rgba(255,0,102,.12));
+      background-size: 300% 300%;
+      mix-blend-mode: overlay;
+      animation: driftColors 10s ease-in-out infinite;
+    }
+
+    .wrap-psy {
+      position: relative;
+      z-index: 2;
+      min-height: 100vh;
       display: grid;
       place-items: center;
-      font-size: 2rem;
-      font-weight: 800;
+      padding: 2rem;
+    }
+
+    .card-psy {
+      width: min(820px, 100%);
+      padding: 2.5rem 2rem;
+      border-radius: 30px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg,
+          rgba(255,0,153,.16),
+          rgba(0,255,255,.10),
+          rgba(255,255,0,.10),
+          rgba(128,0,255,.14));
+      border: 2px solid rgba(255,255,255,.22);
+      box-shadow:
+        0 0 30px rgba(255,0,153,.35),
+        0 0 60px rgba(0,255,255,.20),
+        0 0 100px rgba(128,0,255,.25),
+        inset 0 0 40px rgba(255,255,255,.05);
+      backdrop-filter: blur(18px) saturate(1.8);
+      animation: floatCard 5s ease-in-out infinite;
+    }
+
+    .card-psy::before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      border-radius: inherit;
+      padding: 2px;
+      background: linear-gradient(
+        120deg,
+        #ff00a8,
+        #00f7ff,
+        #ffe600,
+        #8a2eff,
+        #ff5e00,
+        #ff00a8
+      );
+      background-size: 300% 300%;
+      animation: borderFlow 5s linear infinite;
+      -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+              mask-composite: exclude;
+      pointer-events: none;
+    }
+
+    .icon-psy {
+      width: 110px;
+      height: 110px;
+      margin: 0 auto 1.25rem;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 3rem;
+      font-weight: 900;
       color: #fff;
-      background: linear-gradient(180deg, #ef4444, #dc2626);
-      box-shadow: 0 10px 30px rgba(220,38,38,.35);
+      background:
+        radial-gradient(circle at 30% 30%, #fff176 0%, #ff00a8 30%, #6a00ff 60%, #00f7ff 100%);
+      box-shadow:
+        0 0 20px rgba(255,255,255,.5),
+        0 0 40px rgba(255,0,153,.6),
+        0 0 70px rgba(0,255,255,.45);
+      animation: wobble 3s ease-in-out infinite;
+      text-shadow:
+        0 0 10px rgba(255,255,255,.85),
+        0 0 20px rgba(255,255,0,.7);
     }
 
-    .expired-title{
+    .title-psy {
       margin: 0;
-      font-size: clamp(2rem, 4vw, 2.6rem);
-      line-height: 1.1;
+      font-size: clamp(2.3rem, 6vw, 4.2rem);
+      line-height: 1.02;
+      font-weight: 900;
+      letter-spacing: -.03em;
+      text-transform: uppercase;
+      color: #fff;
+      text-shadow:
+        0 0 8px #ff00a8,
+        0 0 18px #ff00a8,
+        0 0 30px #00f7ff,
+        0 0 50px #8a2eff,
+        2px 2px 0 rgba(0,0,0,.25);
+      animation: titleFlicker 2.8s ease-in-out infinite;
+    }
+
+    .text-psy {
+      max-width: 620px;
+      margin: 1.2rem auto 0;
+      font-size: 1.18rem;
+      line-height: 1.75;
+      color: rgba(255,255,255,.96);
+      text-shadow:
+        0 0 8px rgba(0,0,0,.35),
+        0 0 14px rgba(255,255,255,.16);
+    }
+
+    .contact-psy {
+      margin: 1.8rem auto 0;
+      max-width: 520px;
+      padding: 1.25rem 1rem;
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg,
+          rgba(255,255,255,.10),
+          rgba(255,255,255,.05));
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow:
+        inset 0 0 20px rgba(255,255,255,.04),
+        0 0 30px rgba(255,255,255,.06);
+    }
+
+    .label-psy {
+      margin: 0 0 .35rem;
+      font-size: .95rem;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: #ffe600;
+      text-shadow: 0 0 10px rgba(255,230,0,.6);
+    }
+
+    .name-psy {
+      margin: 0;
+      font-size: 1.7rem;
       font-weight: 800;
       color: #ffffff;
-      letter-spacing: -.02em;
+      text-shadow:
+        0 0 10px rgba(255,255,255,.45),
+        0 0 22px rgba(0,255,255,.25);
     }
 
-    .expired-text{
-      margin: 1rem auto 0;
-      max-width: 540px;
-      font-size: 1.1rem;
-      line-height: 1.7;
-      color: #d1d5db;
-    }
-
-    .expired-contact{
-      margin-top: 1.75rem;
-      padding: 1rem 1.1rem;
-      border-radius: 16px;
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.08);
-    }
-
-    .expired-label{
-      margin: 0 0 .45rem;
-      font-size: .95rem;
-      color: #9ca3af;
-    }
-
-    .expired-name{
-      margin: 0;
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #ffffff;
-    }
-
-    .expired-mail{
+    .mail-psy {
       display: inline-block;
-      margin-top: .55rem;
-      color: #93c5fd;
-      font-size: 1.05rem;
-      font-weight: 600;
+      margin-top: .7rem;
+      padding: .7rem 1rem;
+      border-radius: 999px;
+      color: #0a0014;
+      background: linear-gradient(90deg, #00f7ff, #ffe600, #ff4dd2);
+      background-size: 200% 200%;
+      font-weight: 900;
       text-decoration: none;
+      box-shadow:
+        0 0 18px rgba(0,255,255,.35),
+        0 0 28px rgba(255,230,0,.25);
+      animation: rainbowMove 4s linear infinite;
     }
 
-    .expired-mail:hover{
-      color: #bfdbfe;
-      text-decoration: underline;
+    .mail-psy:hover {
+      transform: scale(1.03);
+      filter: brightness(1.06);
     }
 
-    .expired-actions{
-      margin-top: 1.75rem;
+    .actions-psy {
+      margin-top: 1.8rem;
     }
 
-    .expired-btn{
+    .btn-psy {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: .5rem;
-      min-width: 220px;
-      padding: .95rem 1.2rem;
-      border-radius: 14px;
+      padding: 1rem 1.5rem;
+      min-width: 260px;
+      border-radius: 999px;
       text-decoration: none;
-      font-weight: 700;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .06em;
       color: #fff;
-      background: linear-gradient(180deg, #60a5fa, #2563eb);
-      box-shadow: 0 10px 28px rgba(37,99,235,.28);
-      transition: transform .15s ease, filter .15s ease;
+      background:
+        linear-gradient(90deg, #ff00a8, #8a2eff, #00f7ff, #ffe600, #ff00a8);
+      background-size: 300% 300%;
+      box-shadow:
+        0 0 25px rgba(255,0,168,.35),
+        0 0 45px rgba(0,247,255,.25);
+      animation: rainbowMove 5s linear infinite;
+      transition: transform .18s ease, filter .18s ease;
     }
 
-    .expired-btn:hover{
-      filter: brightness(1.06);
-      transform: translateY(-1px);
+    .btn-psy:hover {
+      transform: translateY(-2px) scale(1.02);
+      filter: brightness(1.08);
     }
 
-    .expired-footer{
-      margin-top: 1.75rem;
-      font-size: .95rem;
-      color: #94a3b8;
+    .footer-psy {
+      margin-top: 1.7rem;
+      font-size: .98rem;
+      color: rgba(255,255,255,.82);
+      text-shadow: 0 0 10px rgba(255,255,255,.15);
     }
 
-    @media (max-width: 640px){
-      .expired-card{
-        padding: 2rem 1.25rem;
-        border-radius: 20px;
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(20px);
+      opacity: .38;
+      mix-blend-mode: screen;
+      animation: blobMove 12s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .blob.b1 {
+      width: 220px;
+      height: 220px;
+      background: #ff00a8;
+      top: -60px;
+      left: -40px;
+    }
+
+    .blob.b2 {
+      width: 180px;
+      height: 180px;
+      background: #00f7ff;
+      right: -40px;
+      top: 40px;
+      animation-delay: -4s;
+    }
+
+    .blob.b3 {
+      width: 240px;
+      height: 240px;
+      background: #ffe600;
+      bottom: -90px;
+      left: 50%;
+      transform: translateX(-50%);
+      animation-delay: -7s;
+    }
+
+    @keyframes spinA {
+      from { transform: rotate(0deg) scale(1); }
+      to   { transform: rotate(360deg) scale(1.08); }
+    }
+
+    @keyframes pulseRings {
+      0%,100% { transform: scale(1); opacity: .35; }
+      50%     { transform: scale(1.08); opacity: .55; }
+    }
+
+    @keyframes driftColors {
+      0%,100% { background-position: 0% 50%; }
+      50%     { background-position: 100% 50%; }
+    }
+
+    @keyframes borderFlow {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+
+    @keyframes rainbowMove {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+
+    @keyframes floatCard {
+      0%,100% { transform: translateY(0px) rotate(0deg); }
+      50%     { transform: translateY(-8px) rotate(.35deg); }
+    }
+
+    @keyframes wobble {
+      0%,100% { transform: rotate(0deg) scale(1); }
+      25%     { transform: rotate(-6deg) scale(1.04); }
+      50%     { transform: rotate(4deg) scale(1.08); }
+      75%     { transform: rotate(-3deg) scale(1.03); }
+    }
+
+    @keyframes titleFlicker {
+      0%,100% {
+        transform: translateY(0);
+        filter: hue-rotate(0deg);
+      }
+      50% {
+        transform: translateY(-1px);
+        filter: hue-rotate(25deg);
+      }
+    }
+
+    @keyframes blobMove {
+      0%,100% { transform: translate(0,0) scale(1); }
+      33%     { transform: translate(20px,-16px) scale(1.12); }
+      66%     { transform: translate(-18px,18px) scale(.92); }
+    }
+
+    @media (max-width: 640px) {
+      body {
+        overflow: auto;
       }
 
-      .expired-contact{
-        padding: .95rem;
+      .wrap-psy {
+        padding: 1rem;
       }
 
-      .expired-btn{
-        width: 100%;
+      .card-psy {
+        padding: 2rem 1.15rem;
+        border-radius: 24px;
+      }
+
+      .text-psy {
+        font-size: 1.02rem;
+        line-height: 1.65;
+      }
+
+      .btn-psy {
+        min-width: 100%;
+      }
+
+      .name-psy {
+        font-size: 1.35rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .psy-bg,
+      .psy-bg::before,
+      .psy-bg::after,
+      .card-psy,
+      .card-psy::before,
+      .icon-psy,
+      .title-psy,
+      .mail-psy,
+      .btn-psy,
+      .blob {
+        animation: none !important;
       }
     }
   </style>
 </head>
 <body>
-  {{ bg|safe }}
+  <div class="psy-bg"></div>
 
-  <div class="expired-wrap">
-    <div class="expired-card">
-      <div class="expired-icon">!</div>
+  <div class="wrap-psy">
+    <div class="card-psy">
+      <div class="blob b1"></div>
+      <div class="blob b2"></div>
+      <div class="blob b3"></div>
 
-      <h1 class="expired-title">Downloadlink verlopen</h1>
+      <div class="icon-psy">☄</div>
 
-      <p class="expired-text">
-        Deze downloadlink is helaas verlopen of niet meer beschikbaar.
-        Neem contact op voor een nieuwe link of verdere hulp.
+      <h1 class="title-psy">Downloadlink<br>verlopen</h1>
+
+      <p class="text-psy">
+        Deze downloadlink is verdwenen in een andere dimensie,
+        verlopen in de tijd of simpelweg niet meer beschikbaar.
+        Neem contact op voor een nieuwe link.
       </p>
 
-      <div class="expired-contact">
-        <p class="expired-label">Contactpersoon</p>
-        <p class="expired-name">Patrick Lankhorst</p>
-        <a class="expired-mail" href="mailto:Patrick@oldehanter.nl">
+      <div class="contact-psy">
+        <p class="label-psy">Contact</p>
+        <p class="name-psy">Patrick Lankhorst</p>
+        <a class="mail-psy" href="mailto:Patrick@oldehanter.nl">
           Patrick@oldehanter.nl
         </a>
       </div>
 
-      <div class="expired-actions">
-        <a class="expired-btn" href="/">Terug naar de website</a>
+      <div class="actions-psy">
+        <a class="btn-psy" href="/">Terug naar de website</a>
       </div>
 
-      <div class="expired-footer">
+      <div class="footer-psy">
         Olde Hanter Bouwconstructies • Bestandentransfer
       </div>
     </div>
@@ -1865,7 +2142,6 @@ EXPIRED_HTML = """
 </body>
 </html>
 """
-
 PRIVACY_HTML = """
 <!doctype html><html lang="nl"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
