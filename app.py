@@ -2493,8 +2493,8 @@ canvas{ display:block; }
   right:14px;
   top:14px;
   z-index:23;
-  width:154px;
-  height:154px;
+  width:220px;
+  height:220px;
   border-radius:18px;
   overflow:hidden;
   background:rgba(2,10,25,.58);
@@ -2676,7 +2676,7 @@ canvas{ display:block; }
 <div id="damageFlash"></div>
 <div id="crosshair"></div>
 
-<div id="minimapWrap"><div id="minimapLabel">Tactische kaart</div><canvas id="minimapCanvas" width="154" height="154"></canvas></div>
+<div id="minimapWrap"><div id="minimapLabel">Tactische kaart</div><canvas id="minimapCanvas" width="220" height="220"></canvas></div>
 
 <div id="bossBarWrap">
   <div id="bossBarLabel">BOSS</div>
@@ -2701,15 +2701,21 @@ canvas{ display:block; }
     <div class="stat"><div class="label">Rockets</div><div class="value" id="ammoRockets">0</div></div>
     <div class="stat"><div class="label">Grenades</div><div class="value" id="ammoGrenades">0</div></div>
     <div class="stat"><div class="label">Weapon</div><div class="value" id="weaponName">Bullet</div></div>
+    <div class="stat"><div class="label">Plasma</div><div class="value" id="ammoPlasma">3</div></div>
+    <div class="stat"><div class="label">Mines</div><div class="value" id="ammoMine">2</div></div>
+    <div class="stat"><div class="label">Orbital</div><div class="value" id="ammoOrbital">1</div></div>
   </div>
 
-  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten.</div>
+  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten. Pickups tonen nu exact wat je krijgt.</div>
 </div>
 
 <div id="weaponBar">
   <div class="weapon-chip active" id="chipBullet">1 Bullet</div>
   <div class="weapon-chip" id="chipRocket">2 Rocket</div>
   <div class="weapon-chip" id="chipGrenade">3 Grenade</div>
+  <div class="weapon-chip" id="chipPlasma">4 Plasma Burst</div>
+  <div class="weapon-chip" id="chipMine">5 Shock Mine</div>
+  <div class="weapon-chip" id="chipOrbital">6 Orbital Beam</div>
 </div>
 
 <div id="centerMessage">
@@ -2720,7 +2726,7 @@ canvas{ display:block; }
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b> en <b>tik om te schieten</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b> en <b>tik om te schieten</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -2767,10 +2773,16 @@ canvas{ display:block; }
     ammoBullets: document.getElementById("ammoBullets"),
     ammoRockets: document.getElementById("ammoRockets"),
     ammoGrenades: document.getElementById("ammoGrenades"),
+    ammoPlasma: document.getElementById("ammoPlasma"),
+    ammoMine: document.getElementById("ammoMine"),
+    ammoOrbital: document.getElementById("ammoOrbital"),
     weaponName: document.getElementById("weaponName"),
     chipBullet: document.getElementById("chipBullet"),
     chipRocket: document.getElementById("chipRocket"),
     chipGrenade: document.getElementById("chipGrenade"),
+    chipPlasma: document.getElementById("chipPlasma"),
+    chipMine: document.getElementById("chipMine"),
+    chipOrbital: document.getElementById("chipOrbital"),
     center: document.getElementById("centerMessage"),
     startBtn: document.getElementById("startBtn"),
     restartBtn: document.getElementById("restartBtn"),
@@ -3236,62 +3248,93 @@ canvas{ display:block; }
     const ctx = minimapCtx;
     if(!c || !ctx) return;
     const w = c.width, h = c.height;
-    const scale = 1.35;
-    const range = 30;
+    const range = 36;
     ctx.clearRect(0,0,w,h);
     const bg = ctx.createLinearGradient(0,0,0,h);
-    bg.addColorStop(0, "rgba(10,30,55,.92)");
-    bg.addColorStop(1, "rgba(5,10,22,.96)");
+    bg.addColorStop(0, "rgba(7,22,40,.96)");
+    bg.addColorStop(1, "rgba(3,8,18,.98)");
     ctx.fillStyle = bg;
     ctx.fillRect(0,0,w,h);
-    ctx.strokeStyle = "rgba(77,247,255,.15)";
-    for(let i=0;i<=6;i++){
-      const x = (i/6)*w;
-      const y = (i/6)*h;
-      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+
+    ctx.strokeStyle = "rgba(77,247,255,.12)";
+    ctx.lineWidth = 1;
+    for(let i=0;i<=8;i++){
+      const p = (i/8)*w;
+      ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(w,p); ctx.stroke();
     }
-    function plot(wx,wz,color,size=4){
+
+    function worldToMap(wx,wz){
       const dx = wx - player.pos.x;
       const dz = wz - player.pos.z;
-      const px = w/2 + (dx/range)*(w/2-10)*scale;
-      const py = h/2 + (dz/range)*(h/2-10)*scale;
-      if(px<6||px>w-6||py<6||py>h-6) return;
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(px,py,size,0,Math.PI*2); ctx.fill();
+      return {
+        x: w/2 + (dx/range)*(w/2-14),
+        y: h/2 + (dz/range)*(h/2-14)
+      };
     }
+    function plot(wx,wz,color,size=4,stroke=null){
+      const p = worldToMap(wx,wz);
+      if(p.x<8||p.x>w-8||p.y<8||p.y>h-8) return;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,size,0,Math.PI*2); ctx.fill();
+      if(stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+    }
+
     for(const cinfo of colliders){
       const b = cinfo.box;
-      const cx = (b.min.x+b.max.x)*0.5;
-      const cz = (b.min.z+b.max.z)*0.5;
-      const bw = b.max.x-b.min.x;
-      const bz = b.max.z-b.min.z;
-      const px = w/2 + ((cx-player.pos.x)/range)*(w/2-10)*scale;
-      const py = h/2 + ((cz-player.pos.z)/range)*(h/2-10)*scale;
-      const rw = Math.max(2,(bw/range)*(w/2-10)*scale);
-      const rh = Math.max(2,(bz/range)*(h/2-10)*scale);
-      ctx.fillStyle = "rgba(120,170,255,.12)";
-      ctx.fillRect(px-rw*0.5, py-rh*0.5, rw, rh);
+      const p = worldToMap((b.min.x+b.max.x)*0.5, (b.min.z+b.max.z)*0.5);
+      const rw = Math.max(2, ((b.max.x-b.min.x)/range)*(w/2-14));
+      const rh = Math.max(2, ((b.max.z-b.min.z)/range)*(h/2-14));
+      ctx.fillStyle = "rgba(120,170,255,.16)";
+      ctx.fillRect(p.x-rw, p.y-rh, rw*2, rh*2);
     }
+
+    const coneRadius = Math.min(w,h)*0.28;
+    ctx.save();
+    ctx.translate(w/2,h/2);
+    ctx.rotate(-lookYaw);
+    ctx.fillStyle = "rgba(77,247,255,.08)";
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,coneRadius,-0.42,0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
     for(const e of state.enemies){
-      const color = e.type === "logo" ? "#ffd166" : e.type === "tank" ? "#ff7f95" : e.type === "runner" ? "#9dff7c" : "#7ed8ff";
-      plot(e.mesh.position.x, e.mesh.position.z, color, e.type === "logo" ? 5 : 4);
+      const color = e.type === "elite" ? "#ff9f6e" : e.type === "logo" ? "#ffd166" : e.type === "tank" ? "#ff7f95" : e.type === "runner" ? "#9dff7c" : "#7ed8ff";
+      plot(e.mesh.position.x, e.mesh.position.z, color, e.type === "tank" ? 5 : 4);
     }
     if(state.boss){
-      plot(state.boss.mesh.position.x, state.boss.mesh.position.z, "#ff2b80", 6);
+      plot(state.boss.mesh.position.x, state.boss.mesh.position.z, "#ff2b80", 7, "rgba(255,255,255,.75)");
     }
     for(const p of state.pickups){
-      plot(p.mesh.position.x, p.mesh.position.z, "#f5fbff", 2.5);
+      const pickupColor = p.kind === "heal" ? "#62ffb0" : p.kind === "shield" ? "#74a8ff" : p.kind === "rocket" ? "#ff7b7b" : p.kind === "grenade" ? "#9dff7c" : "#ffd166";
+      plot(p.mesh.position.x, p.mesh.position.z, pickupColor, 2.6);
     }
+    for(const hzd of state.hazards){
+      plot(hzd.mesh.position.x, hzd.mesh.position.z, hzd.kind === "mine" ? "#a2f3ff" : "#ff5c5c", 3.2);
+    }
+
     ctx.save();
     ctx.translate(w/2, h/2);
     ctx.rotate(-lookYaw);
     ctx.fillStyle = "#f5fbff";
     ctx.beginPath();
-    ctx.moveTo(0,-10); ctx.lineTo(7,8); ctx.lineTo(0,4); ctx.lineTo(-7,8);
+    ctx.moveTo(0,-13); ctx.lineTo(8,9); ctx.lineTo(0,5); ctx.lineTo(-8,9);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+
+    ctx.fillStyle = "rgba(245,251,255,.85)";
+    ctx.font = "bold 12px system-ui";
+    ctx.fillText("N", w/2-4, 14);
+    ctx.font = "bold 11px system-ui";
+    ctx.fillText(`Wave ${player.wave}`, 10, h-30);
+    ctx.fillText(`Enemies ${state.enemies.length + (state.boss?1:0)}`, 10, h-15);
+    ctx.textAlign = "right";
+    ctx.fillText(`HP ${Math.round(player.hp)}`, w-10, h-15);
+    ctx.textAlign = "left";
     ctx.strokeStyle = "rgba(77,247,255,.55)";
     ctx.lineWidth = 2;
     ctx.strokeRect(1,1,w-2,h-2);
@@ -3376,6 +3419,11 @@ canvas{ display:block; }
       rocket: 4,
       grenade: 3
     },
+    abilities: {
+      plasma: 3,
+      mine: 2,
+      orbital: 1
+    },
     weapon: "bullet"
   };
 
@@ -3401,7 +3449,10 @@ canvas{ display:block; }
     ambientPulse:0,
     emergencyAmmoTimer:0,
     ammoHintTimer:0,
-    lastClearStamp:performance.now()
+    lastClearStamp:performance.now(),
+    ragdolls: [],
+    hazards: [],
+    lastAbility: ""
   };
 
   const input = {
@@ -3429,10 +3480,16 @@ canvas{ display:block; }
     ui.ammoBullets.textContent = player.ammo.bullet;
     ui.ammoRockets.textContent = player.ammo.rocket;
     ui.ammoGrenades.textContent = player.ammo.grenade;
+    ui.ammoPlasma.textContent = player.abilities.plasma;
+    ui.ammoMine.textContent = player.abilities.mine;
+    ui.ammoOrbital.textContent = player.abilities.orbital;
     ui.weaponName.textContent = player.weapon === "bullet" ? "Bullet" : player.weapon === "rocket" ? "Rocket" : "Grenade";
     ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
     ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
     ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
+    ui.chipPlasma.classList.toggle("active", state.lastAbility === "plasma");
+    ui.chipMine.classList.toggle("active", state.lastAbility === "mine");
+    ui.chipOrbital.classList.toggle("active", state.lastAbility === "orbital");
   }
   setStat();
   resetPlayerPosition();
@@ -3597,148 +3654,114 @@ canvas{ display:block; }
   function makeEnemyMesh(type="basic", isBoss=false){
     if(type === "logo") return makeLogoEnemyMesh(isBoss);
     const palette = isBoss
-      ? [0x1f5fbf, 0x0c2850, 0xf5fbff]
-      : type === "runner"
-        ? [0x2f78d2, 0x14345d, 0xf8fcff]
-        : type === "tank"
-          ? [0x335f9a, 0x0f2744, 0xeaf4ff]
-          : [0x2e6bc0, 0x16335b, 0xf2f8ff];
+      ? { jacket:0x18396c, cloth:0x0c203d, accent:0xc5ecff, trim:0x9fd8ef }
+      : type === "elite"
+        ? { jacket:0x274f86, cloth:0x162841, accent:0xffd166, trim:0xe6f6ff }
+        : type === "runner"
+          ? { jacket:0x3b6fb4, cloth:0x1a3154, accent:0x9fd8ef, trim:0xf4fbff }
+          : type === "tank"
+            ? { jacket:0x29496f, cloth:0x1a2434, accent:0xffd166, trim:0xf7fbff }
+            : { jacket:0x315c96, cloth:0x1d304f, accent:0x9fd8ef, trim:0xf2f8ff };
 
     const group = new THREE.Group();
-    const coatMat = new THREE.MeshStandardMaterial({
-      color:palette[0], emissive:palette[1], emissiveIntensity:isBoss?0.95:.46, roughness:.38, metalness:.24
-    });
-    const leatherMat = new THREE.MeshStandardMaterial({
-      color:palette[1], emissive:palette[1], emissiveIntensity:.18, roughness:.66, metalness:.18
-    });
-    const detailMat = new THREE.MeshStandardMaterial({
-      color:palette[2], emissive:0x93bfff, emissiveIntensity:0.78, roughness:.28, metalness:.32
-    });
-    const skinMat = new THREE.MeshStandardMaterial({ color:0xe0b48f, emissive:0x51321f, emissiveIntensity:isBoss?0.18:0.05, roughness:.82, metalness:.02 });
+    const clothMat = new THREE.MeshStandardMaterial({ color:palette.jacket, emissive:palette.cloth, emissiveIntensity:isBoss?0.5:0.18, roughness:.62, metalness:.18 });
+    const darkMat = new THREE.MeshStandardMaterial({ color:palette.cloth, roughness:.82, metalness:.12 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:palette.trim, emissive:palette.trim, emissiveIntensity:.28, roughness:.34, metalness:.26 });
+    const accentMat = new THREE.MeshStandardMaterial({ color:palette.accent, emissive:palette.accent, emissiveIntensity:.32, roughness:.26, metalness:.38 });
+    const skinMat = new THREE.MeshStandardMaterial({ color:0xddb08b, roughness:.88, metalness:.03 });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.58:1.2, 1.48, .56), coatMat);
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.95:0.72,0.34,0.34), darkMat);
+    pelvis.position.y = 0.94;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.12:0.86,1.05,0.42), clothMat);
     torso.position.y = 1.72;
-    torso.castShadow = torso.receiveShadow = true;
-    group.add(torso);
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.95:0.7,0.74,0.16), trimMat);
+    chest.position.set(0,1.82,0.24);
+    const logo = makeLogoGlyph(type === "tank" ? 0.82 : 0.68);
+    logo.position.set(0,1.82,0.34);
+    const backLogo = makeLogoGlyph(type === "tank" ? 0.62 : 0.54);
+    backLogo.position.set(0,1.78,-0.31);
+    backLogo.rotation.y = Math.PI;
 
-    const waist = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.16:0.94, 0.42, .5), leatherMat);
-    waist.position.y = 1.0;
-    waist.castShadow = true;
-    group.add(waist);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
+    neck.position.y = 2.34;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.52,0.62,0.52), skinMat);
+    head.position.y = 2.78;
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38,18,16,0,Math.PI*2,0,Math.PI/2), darkMat);
+    helmet.position.set(0,3.02,0.02);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46,0.12,0.08), accentMat);
+    visor.position.set(0,2.82,0.27);
 
-    const coatTail = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.1:0.9, 0.9, .24), coatMat);
-    coatTail.position.set(0,0.76,-0.15);
-    coatTail.castShadow = true;
-    group.add(coatTail);
-
-    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.22,0.34), detailMat);
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.22,0.28), clothMat);
     const shoulderR = shoulderL.clone();
-    shoulderL.position.set(-0.56,2.28,0.02);
-    shoulderR.position.set(0.56,2.28,0.02);
-    group.add(shoulderL, shoulderR);
+    shoulderL.position.set(-0.57,2.05,0.02);
+    shoulderR.position.set(0.57,2.05,0.02);
 
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.68,0.72,0.64), skinMat);
-    head.position.y = 2.72;
-    head.castShadow = true;
-    group.add(head);
+    const armGeo = new THREE.BoxGeometry(0.22,0.72,0.22);
+    const foreGeo = new THREE.BoxGeometry(0.2,0.72,0.2);
+    const upperArmL = new THREE.Mesh(armGeo, clothMat);
+    const upperArmR = new THREE.Mesh(armGeo, clothMat);
+    upperArmL.position.set(-0.6,1.62,0.02);
+    upperArmR.position.set(0.6,1.62,0.02);
+    const foreArmL = new THREE.Mesh(foreGeo, darkMat);
+    const foreArmR = new THREE.Mesh(foreGeo, darkMat);
+    foreArmL.position.set(-0.6,0.92,0.05);
+    foreArmR.position.set(0.6,0.92,0.05);
 
-    const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.58,0.66,0.08,24), leatherMat);
-    hatBrim.position.y = 3.14;
-    hatBrim.castShadow = true;
-    group.add(hatBrim);
-
-    const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.5,0.42,24), coatMat);
-    hatTop.position.y = 3.36;
-    hatTop.castShadow = true;
-    group.add(hatTop);
-
-    const hatBadge = makeLogoGlyph(0.42);
-    hatBadge.position.set(0,3.34,0.44);
-    group.add(hatBadge);
-
-    const beard = new THREE.Mesh(new THREE.BoxGeometry(0.42,0.24,0.18), leatherMat);
-    beard.position.set(0,2.45,0.28);
-    group.add(beard);
-
-    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.08,0.06), detailMat);
-    const eyeR = eyeL.clone();
-    eyeL.position.set(-0.16,2.8,0.35);
-    eyeR.position.set(0.16,2.8,0.35);
-    group.add(eyeL, eyeR);
-
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.12,0.1), new THREE.MeshStandardMaterial({ color:0xd7a07c, roughness:.9 }));
-    nose.position.set(0,2.66,0.37);
-    group.add(nose);
-
-    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.88:0.72, 0.5, 0.1), detailMat);
-    chestPlate.position.set(0,1.82,0.33);
-    chestPlate.castShadow = true;
-    group.add(chestPlate);
-
-    const logo = makeLogoGlyph(type === "tank" ? 0.9 : 0.78);
-    logo.position.set(0,1.83,0.39);
-    group.add(logo);
-
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.2:0.94, 0.1, 0.54), detailMat);
-    belt.position.set(0,1.07,0.02);
-    group.add(belt);
-
-    const armGeo = new THREE.BoxGeometry(0.24, type==="runner"?1.16:1.28, 0.24);
-    const armL = new THREE.Mesh(armGeo, coatMat);
-    const armR = new THREE.Mesh(armGeo, coatMat);
-    armL.position.set(-0.76,1.72,0.02);
-    armR.position.set(0.76,1.72,0.02);
-    armL.rotation.z = 0.12;
-    armR.rotation.z = -0.16;
-    armL.castShadow = armR.castShadow = true;
-    group.add(armL, armR);
-
-    const handL = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.18,0.18), skinMat);
+    const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
     const handR = handL.clone();
-    handL.position.set(-0.76,1.08,0.02);
-    handR.position.set(0.76,1.08,0.02);
-    group.add(handL, handR);
+    handL.position.set(-0.6,0.5,0.06);
+    handR.position.set(0.6,0.5,0.06);
 
-    const legGeo = new THREE.BoxGeometry(0.28, type==="runner"?1.28:1.18, 0.28);
-    const legL = new THREE.Mesh(legGeo, leatherMat);
-    const legR = new THREE.Mesh(legGeo, leatherMat);
-    legL.position.set(-0.3,0.46,0.02);
-    legR.position.set(0.3,0.46,0.02);
-    legL.castShadow = legR.castShadow = true;
-    group.add(legL, legR);
-
-    const bootGeo = new THREE.BoxGeometry(0.36,0.18,0.42);
-    const bootL = new THREE.Mesh(bootGeo, leatherMat);
+    const thighGeo = new THREE.BoxGeometry(0.24,0.78,0.24);
+    const shinGeo = new THREE.BoxGeometry(0.22,0.72,0.22);
+    const thighL = new THREE.Mesh(thighGeo, darkMat);
+    const thighR = new THREE.Mesh(thighGeo, darkMat);
+    thighL.position.set(-0.22,0.48,0.02);
+    thighR.position.set(0.22,0.48,0.02);
+    const shinL = new THREE.Mesh(shinGeo, clothMat);
+    const shinR = new THREE.Mesh(shinGeo, clothMat);
+    shinL.position.set(-0.22,-0.2,0.03);
+    shinR.position.set(0.22,-0.2,0.03);
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.18,0.42), darkMat);
     const bootR = bootL.clone();
-    bootL.position.set(-0.3,-0.12,0.08);
-    bootR.position.set(0.3,-0.12,0.08);
-    group.add(bootL, bootR);
+    bootL.position.set(-0.22,-0.66,0.09);
+    bootR.position.set(0.22,-0.66,0.09);
+
+    const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.38,0.08), accentMat);
+    shoulderHolster.position.set(-0.28,1.72,0.28);
+    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.24,0.1), darkMat);
+    radio.position.set(0.28,1.58,0.28);
 
     const gun = new THREE.Group();
-    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.16,0.72), leatherMat);
-    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.72,12), detailMat);
+    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.14,0.76), darkMat);
+    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.84,12), trimMat);
     rifleBarrel.rotation.x = Math.PI/2;
-    rifleBarrel.position.set(0,0,-0.48);
-    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.22), coatMat);
+    rifleBarrel.position.set(0,0,-0.54);
+    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.24), clothMat);
     rifleStock.position.set(0,-0.02,0.34);
-    gun.add(rifleBody, rifleBarrel, rifleStock);
-    gun.position.set(0.22,1.58,0.34);
+    const rifleLogo = makeLogoGlyph(0.16);
+    rifleLogo.position.set(0.07,0.02,-0.08);
+    rifleLogo.rotation.y = Math.PI/2;
+    gun.add(rifleBody, rifleBarrel, rifleStock, rifleLogo);
+    gun.position.set(0.18,1.34,0.34);
     gun.rotation.x = -0.2;
     gun.rotation.y = Math.PI/2;
-    group.add(gun);
+
+    const cape = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.92:0.68,1.0,0.06), clothMat);
+    cape.position.set(0,1.56,-0.26);
+    cape.rotation.x = 0.08;
+
+    [pelvis, torso, chest, logo, backLogo, neck, head, helmet, visor, shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, handL, handR, thighL, thighR, shinL, shinR, bootL, bootR, shoulderHolster, radio, gun, cape].forEach(m=>{ m.castShadow = true; m.receiveShadow = true; group.add(m); });
 
     if(isBoss){
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(.98,.07,12,32),
-        new THREE.MeshStandardMaterial({ color:0xf8fbff, emissive:0x8bb5ff, emissiveIntensity:1.12 })
-      );
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.08,.08,12,40), accentMat);
       ring.rotation.x = Math.PI/2;
-      ring.position.y = 3.52;
+      ring.position.y = 3.5;
       group.add(ring);
     }
 
-    group.userData.parts = { armL, armR, legL, legR, gun, logo, hatBadge };
-    group.scale.setScalar(isBoss ? 1.92 : 1.02);
+    group.userData.parts = { armL: upperArmL, armR: upperArmR, foreArmL, foreArmR, legL: thighL, legR: thighR, shinL, shinR, gun, logo, hatBadge: visor, head, torso, pelvis, bootL, bootR, chest, backLogo };
+    group.scale.setScalar(isBoss ? 1.94 : type === "tank" ? 1.14 : type === "elite" ? 1.08 : 1.02);
     return group;
   }
 
@@ -3755,9 +3778,10 @@ canvas{ display:block; }
     let type = "basic";
     if(!isBoss){
       const roll = Math.random();
-      if(player.wave >= 4 && roll < .16) type = "logo";
-      else if(player.wave >= 3 && roll < .34) type = "tank";
-      else if(player.wave >= 2 && roll < .58) type = "runner";
+      if(player.wave >= 6 && roll < .12) type = "elite";
+      else if(player.wave >= 4 && roll < .22) type = "logo";
+      else if(player.wave >= 3 && roll < .40) type = "tank";
+      else if(player.wave >= 2 && roll < .66) type = "runner";
     }
 
     const mesh = makeEnemyMesh(type, isBoss);
@@ -3765,10 +3789,11 @@ canvas{ display:block; }
     scene.add(mesh);
 
     const baseHp = isBoss ? 230 + player.wave*28 :
-      type === "runner" ? 14 + player.wave*3 :
-      type === "tank" ? 38 + player.wave*6 :
-      type === "logo" ? 30 + player.wave*5 :
-      20 + player.wave*4;
+      type === "runner" ? 16 + player.wave*3 :
+      type === "tank" ? 42 + player.wave*6 :
+      type === "elite" ? 52 + player.wave*7 :
+      type === "logo" ? 32 + player.wave*5 :
+      22 + player.wave*4;
 
     const enemy = {
       type,
@@ -3777,11 +3802,12 @@ canvas{ display:block; }
       hp: baseHp,
       maxHp: baseHp,
       speed: isBoss ? 2.9 :
-        type === "runner" ? 5.2 + player.wave*.12 :
-        type === "tank" ? 2.1 + player.wave*.05 :
-        type === "logo" ? 3.6 + player.wave*.08 :
-        3.2 + player.wave*.1,
-      radius: isBoss ? 1.8 : (type === "tank" ? 1.15 : type === "logo" ? 1.05 : .95),
+        type === "runner" ? 5.3 + player.wave*.14 :
+        type === "tank" ? 2.2 + player.wave*.06 :
+        type === "elite" ? 3.9 + player.wave*.1 :
+        type === "logo" ? 3.7 + player.wave*.08 :
+        3.25 + player.wave*.1,
+      radius: isBoss ? 1.8 : (type === "tank" ? 1.2 : type === "elite" ? 1.08 : type === "logo" ? 1.05 : 1.0),
       fireCooldown: isBoss ? .95 : rand(.9,2.2),
       strafe: rand(-1,1),
       bob: rand(0,Math.PI*2)
@@ -3938,18 +3964,35 @@ canvas{ display:block; }
       shield: 0x183560
     };
 
-    const mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(.58,0),
-      new THREE.MeshStandardMaterial({
-        color: colors[kind],
-        emissive: emissive[kind],
-        emissiveIntensity:.85
-      })
-    );
+    const mat = new THREE.MeshStandardMaterial({ color: colors[kind], emissive: emissive[kind], emissiveIntensity:.95, metalness:.22, roughness:.32 });
+    const mesh = new THREE.Group();
+    let core;
+    if(kind === "ammo"){
+      core = new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.72,12), mat);
+      const c2 = core.clone(); c2.rotation.z = Math.PI/2;
+      mesh.add(core,c2);
+    }else if(kind === "rocket"){
+      core = new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.8,14), mat);
+      core.rotation.z = Math.PI/2;
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(.14,.26,12), mat); nose.rotation.z = -Math.PI/2; nose.position.x = .48;
+      mesh.add(core,nose);
+    }else if(kind === "grenade"){
+      core = new THREE.Mesh(new THREE.SphereGeometry(.28,14,14), mat);
+      const pin = new THREE.Mesh(new THREE.TorusGeometry(.12,.03,8,16), mat); pin.position.y = .32;
+      mesh.add(core,pin);
+    }else if(kind === "heal"){
+      core = new THREE.Mesh(new THREE.BoxGeometry(.22,.62,.22), mat);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(.62,.22,.22), mat);
+      mesh.add(core,bar);
+    }else if(kind === "shield"){
+      core = new THREE.Mesh(new THREE.TorusGeometry(.34,.09,10,18), mat);
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(.14,0), mat); gem.position.z = .12;
+      mesh.add(core,gem);
+    }
     mesh.position.copy(position);
     mesh.position.y = .95;
     scene.add(mesh);
-    state.pickups.push({ mesh, kind, life:12 });
+    state.pickups.push({ mesh, kind, life:12, spin: rand(1.2,2.4) });
   }
 
   function registerKill(points){
@@ -4055,25 +4098,123 @@ canvas{ display:block; }
 
   function enemyShoot(enemy){
     const start = enemy.mesh.position.clone();
-    start.y = enemy.isBoss ? 3.0 : 2.35;
-    const dir = player.pos.clone().sub(start);
-    dir.y = 0.14;
-    dir.normalize();
+    start.y = enemy.isBoss ? 2.9 : 2.05;
+    const target = player.pos.clone();
+    target.y = 1.45;
+    const dir = target.sub(start).normalize();
 
-    let speed = enemy.isBoss ? 17 : 11;
+    let speed = enemy.isBoss ? 18 : 12;
     let color = enemy.isBoss ? 0xff6ea1 : 0x78d7ff;
-    if(enemy.type === "runner") speed = 13;
-    if(enemy.type === "tank") speed = 9;
+    let damage = enemy.isBoss ? 16 : 11;
+    if(enemy.type === "runner"){ speed = 14; damage = 9; }
+    if(enemy.type === "tank"){ speed = 10; damage = 14; color = 0xffd166; }
+    if(enemy.type === "elite"){ speed = 13; damage = 15; color = 0xffa86e; }
 
-    state.enemyBullets.push(createProjectile(start, dir, {
-      speed,
-      friendly:false,
-      color,
-      size: enemy.isBoss ? .18 : .12,
-      life: 3.0,
-      damage: enemy.isBoss ? 16 : 11,
-      type:"enemy"
-    }));
+    const burstCount = enemy.isBoss ? 2 : (enemy.type === "runner" ? 1 : enemy.type === "elite" ? 2 : 1);
+    for(let i=0;i<burstCount;i++){
+      const shotDir = dir.clone();
+      shotDir.x += (Math.random()-0.5) * (enemy.isBoss ? 0.04 : 0.025);
+      shotDir.y += (Math.random()-0.5) * 0.02;
+      shotDir.z += (Math.random()-0.5) * (enemy.isBoss ? 0.04 : 0.025);
+      shotDir.normalize();
+      state.enemyBullets.push(createProjectile(start.clone(), shotDir, {
+        speed,
+        friendly:false,
+        color,
+        size: enemy.isBoss ? .18 : .13,
+        life: 3.2,
+        damage,
+        type:"enemy"
+      }));
+    }
+  }
+
+  function spawnRagdoll(enemy){
+    const pieces = [];
+    const base = enemy.mesh.position.clone();
+    const color = enemy.isBoss ? 0x315c96 : enemy.type === "elite" ? 0x274f86 : enemy.type === "tank" ? 0x29496f : 0x315c96;
+    const dark = enemy.isBoss ? 0x0c203d : 0x1d304f;
+    const skin = 0xddb08b;
+    const defs = [
+      { size:[0.44,0.62,0.3], off:[0,2.65,0], c:skin },
+      { size:[0.82,1.0,0.38], off:[0,1.7,0], c:color },
+      { size:[0.7,0.34,0.32], off:[0,0.95,0], c:dark },
+      { size:[0.2,0.72,0.2], off:[-0.56,1.55,0], c:color },
+      { size:[0.2,0.72,0.2], off:[0.56,1.55,0], c:color },
+      { size:[0.22,0.82,0.22], off:[-0.22,0.35,0], c:dark },
+      { size:[0.22,0.82,0.22], off:[0.22,0.35,0], c:dark },
+      { size:[0.28,0.16,0.42], off:[-0.22,-0.28,0.08], c:dark },
+      { size:[0.28,0.16,0.42], off:[0.22,-0.28,0.08], c:dark }
+    ];
+    defs.forEach(def => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...def.size), new THREE.MeshStandardMaterial({ color:def.c, roughness:.7, metalness:.1 }));
+      mesh.position.copy(base).add(new THREE.Vector3(...def.off));
+      mesh.rotation.set(Math.random()*0.6, Math.random()*Math.PI, Math.random()*0.6);
+      mesh.castShadow = mesh.receiveShadow = true;
+      scene.add(mesh);
+      pieces.push({ mesh, vel:new THREE.Vector3((Math.random()-0.5)*7, 5+Math.random()*3, (Math.random()-0.5)*7), spin:new THREE.Vector3((Math.random()-0.5)*5,(Math.random()-0.5)*5,(Math.random()-0.5)*5) });
+    });
+    state.ragdolls.push({ pieces, life:4.8 });
+  }
+
+  function deployShockMine(){
+    if(!state.running || !player.alive || player.abilities.mine <= 0) return;
+    player.abilities.mine -= 1;
+    state.lastAbility = "mine";
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.12,18), new THREE.MeshStandardMaterial({ color:0x8bf0ff, emissive:0x2a8aa0, emissiveIntensity:0.9 }));
+    mesh.position.set(player.pos.x, 0.16, player.pos.z);
+    scene.add(mesh);
+    state.hazards.push({ kind:"mine", mesh, life:18, radius:5.2, damage:44, pulse:0 });
+    createShockwave(mesh.position.clone(), 0x8bf0ff, 1.5);
+    setStat();
+  }
+
+  function deployOrbital(){
+    if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
+    player.abilities.orbital -= 1;
+    state.lastAbility = "orbital";
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
+    pos.y = 0.2;
+    const marker = new THREE.Mesh(new THREE.RingGeometry(1.1,1.6,28), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.8, side:THREE.DoubleSide }));
+    marker.rotation.x = -Math.PI/2;
+    marker.position.copy(pos);
+    scene.add(marker);
+    state.hazards.push({ kind:"orbital", mesh:marker, life:1.25, radius:6.5, damage:64, pulse:0 });
+    setStat();
+  }
+
+  function firePlasmaBurst(){
+    if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
+    player.abilities.plasma -= 1;
+    state.lastAbility = "plasma";
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    for(let i=-2;i<=2;i++){
+      const d = dir.clone();
+      d.x += i * 0.03;
+      d.y += Math.abs(i) * 0.005;
+      d.normalize();
+      const start = player.pos.clone();
+      start.y = 1.52;
+      start.add(d.clone().multiplyScalar(.9));
+      state.bullets.push(createProjectile(start, d, {
+        speed: 26,
+        friendly: true,
+        color: 0x8bf0ff,
+        trailColor: 0xc9fbff,
+        size: 0.16,
+        life: 2.0,
+        damage: 14,
+        radius: 2.8,
+        type: "plasma",
+        explosionColor: 0x8bf0ff
+      }));
+    }
+    state.cameraShake = Math.min(1.6, state.cameraShake + 0.25);
+    createShockwave(player.pos.clone(), 0x8bf0ff, 1.6);
+    setStat();
   }
 
   function applyDamage(amount){
@@ -4102,8 +4243,9 @@ canvas{ display:block; }
   }
 
   function killEnemy(enemy){
+    spawnRagdoll(enemy);
     scene.remove(enemy.mesh);
-    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 28 : 16, enemy.isBoss ? 8 : 5);
+    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 28 : 16, enemy.isBoss ? 8 : 5);
 
     if(enemy.isBoss){
       registerKill(150);
@@ -4115,7 +4257,7 @@ canvas{ display:block; }
       sfxBoss();
       queueNextWave(1.1);
     } else {
-      registerKill(enemy.type === "tank" ? 18 : enemy.type === "runner" ? 12 : 10);
+      registerKill(enemy.type === "elite" ? 24 : enemy.type === "tank" ? 18 : enemy.type === "runner" ? 12 : 10);
       dropPickup(enemy.mesh.position.clone());
       if(state.enemies.length <= 1 && !state.boss) queueNextWave(1.0);
     }
@@ -4132,11 +4274,15 @@ canvas{ display:block; }
   }
 
   function restartGame(){
-    for(const arr of [state.bullets, state.enemyBullets, state.particles, state.pickups, state.rings]){
+    for(const arr of [state.bullets, state.enemyBullets, state.particles, state.pickups, state.rings, state.hazards]){
       while(arr.length){
         const item = arr.pop();
         if(item.mesh) scene.remove(item.mesh);
       }
+    }
+    while(state.ragdolls.length){
+      const rag = state.ragdolls.pop();
+      for(const piece of rag.pieces) scene.remove(piece.mesh);
     }
 
     for(const e of state.enemies) scene.remove(e.mesh);
@@ -4157,6 +4303,10 @@ canvas{ display:block; }
     player.ammo.bullet = 64;
     player.ammo.rocket = 4;
     player.ammo.grenade = 3;
+    player.abilities.plasma = 3;
+    player.abilities.mine = 2;
+    player.abilities.orbital = 1;
+    state.lastAbility = "";
     setWeapon("bullet");
     state.emergencyAmmoTimer = 0;
     state.ammoHintTimer = 0;
@@ -4265,7 +4415,7 @@ canvas{ display:block; }
         remove = true;
       }
 
-      if(b.mesh.position.y <= 0.2 && b.type === "grenade"){
+      if(b.mesh.position.y <= 0.2 && (b.type === "grenade" || b.type === "plasma")){
         explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
         remove = true;
       }
@@ -4275,7 +4425,7 @@ canvas{ display:block; }
         const hitPos = e.mesh.position.clone();
         hitPos.y = 1.9;
         if(b.mesh.position.distanceTo(hitPos) < e.radius){
-          if(b.type === "rocket" || b.type === "grenade"){
+          if(b.type === "rocket" || b.type === "grenade" || b.type === "plasma"){
             explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
           } else {
             e.hp -= b.damage;
@@ -4294,7 +4444,7 @@ canvas{ display:block; }
         const bp = state.boss.mesh.position.clone();
         bp.y = 2.5;
         if(b.mesh.position.distanceTo(bp) < state.boss.radius){
-          if(b.type === "rocket" || b.type === "grenade"){
+          if(b.type === "rocket" || b.type === "grenade" || b.type === "plasma"){
             explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
           } else {
             state.boss.hp -= b.damage;
@@ -4324,7 +4474,7 @@ canvas{ display:block; }
       if(collidesAt(b.mesh.position.x, b.mesh.position.z, 0.14)) remove = true;
 
       const playerHit = new THREE.Vector3(player.pos.x, 1.45, player.pos.z);
-      if(b.mesh.position.distanceTo(playerHit) < 0.8){
+      if(b.mesh.position.distanceTo(playerHit) < 1.15){
         applyDamage(b.damage);
         createBurst(b.mesh.position, 0xff6ea1, 7, 2.8);
         remove = true;
@@ -4342,11 +4492,13 @@ canvas{ display:block; }
       const e = state.enemies[i];
       e.bob += dt * (e.type === "runner" ? 6.5 : 4.2);
       if(e.mesh.userData.parts){
-        const swing = Math.sin(e.bob) * (e.type === "runner" ? 0.55 : e.type === "tank" ? 0.24 : 0.36);
-        e.mesh.userData.parts.armL.rotation.x = swing * 0.6;
-        e.mesh.userData.parts.armR.rotation.x = -swing * 0.6;
+        const swing = Math.sin(e.bob) * (e.type === "runner" ? 0.6 : e.type === "tank" ? 0.22 : e.type === "elite" ? 0.4 : 0.34);
+        e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
+        e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
         e.mesh.userData.parts.legL.rotation.x = -swing;
         e.mesh.userData.parts.legR.rotation.x = swing;
+        if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
+        if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
         e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.5) * 0.05;
         e.mesh.userData.parts.logo.rotation.y += dt * 0.8;
         e.mesh.userData.parts.hatBadge.rotation.y = Math.sin(e.bob * 0.4) * 0.08;
@@ -4359,7 +4511,7 @@ canvas{ display:block; }
       const dirX = dx / dist;
       const dirZ = dz / dist;
 
-      const ideal = e.type === "tank" ? (dist > 8 ? 1 : -0.12) : (dist > 7 ? 1 : -0.32);
+      const ideal = e.type === "tank" ? (dist > 8 ? 1 : -0.12) : e.type === "elite" ? (dist > 10 ? 1 : -0.2) : (dist > 7 ? 1 : -0.32);
       const sideX = -dirZ * e.strafe * (e.type === "runner" ? 0.5 : 0.3);
       const sideZ =  dirX * e.strafe * (e.type === "runner" ? 0.5 : 0.3);
 
@@ -4376,13 +4528,18 @@ canvas{ display:block; }
       e.mesh.position.y = 0.02 + Math.sin(e.bob) * 0.04;
       e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
 
-      if(dist < (e.type === "tank" ? 1.9 : e.type === "logo" ? 1.7 : 1.55)){
-        applyDamage((e.type === "tank" ? 18 : e.type === "logo" ? 16 : 12) * dt * 8);
+      if(dist < (e.type === "tank" ? 2.0 : e.type === "logo" ? 1.8 : e.type === "elite" ? 1.85 : 1.6)){
+        applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : e.type === "logo" ? 16 : 12) * dt * 8);
+        if(Math.random() < dt * (e.type === "runner" ? 3.0 : 2.0)) createShockwave(e.mesh.position.clone(), e.type === "elite" ? 0xffa86e : 0xff6ea1, e.type === "tank" ? 2.4 : 1.6);
       }
 
-      if(e.fireCooldown <= 0 && dist < (e.type === "tank" ? 18 : 24)){
+      if(e.type === "elite" && e.fireCooldown <= 0 && dist < 14){
+        createShockwave(e.mesh.position.clone(), 0xffa86e, 3.6);
+        explodeAt(player.pos.clone(), 3.0, 8, 0xffa86e);
+        e.fireCooldown = rand(3.0,4.2);
+      } else if(e.fireCooldown <= 0 && dist < (e.type === "tank" ? 18 : 24)){
         enemyShoot(e);
-        e.fireCooldown = e.type === "runner" ? rand(1.2,2.0) : e.type === "tank" ? rand(1.8,2.8) : rand(1.0,2.0);
+        e.fireCooldown = e.type === "runner" ? rand(1.1,1.8) : e.type === "tank" ? rand(1.7,2.6) : e.type === "elite" ? rand(1.5,2.1) : rand(0.95,1.8);
       }
     }
 
@@ -4451,6 +4608,69 @@ canvas{ display:block; }
     }
   }
 
+  function updateRagdolls(dt){
+    for(let i=state.ragdolls.length-1;i>=0;i--){
+      const r = state.ragdolls[i];
+      r.life -= dt;
+      for(const piece of r.pieces){
+        piece.mesh.position.addScaledVector(piece.vel, dt);
+        piece.vel.multiplyScalar(0.985);
+        piece.vel.y -= 12 * dt;
+        if(piece.mesh.position.y < 0.09){
+          piece.mesh.position.y = 0.09;
+          piece.vel.y *= -0.18;
+          piece.vel.x *= 0.86;
+          piece.vel.z *= 0.86;
+        }
+        piece.mesh.rotation.x += piece.spin.x * dt;
+        piece.mesh.rotation.y += piece.spin.y * dt;
+        piece.mesh.rotation.z += piece.spin.z * dt;
+        piece.mesh.material.transparent = true;
+        piece.mesh.material.opacity = clamp(r.life / 4.8, 0, 1);
+      }
+      if(r.life <= 0){
+        for(const piece of r.pieces) scene.remove(piece.mesh);
+        state.ragdolls.splice(i,1);
+      }
+    }
+  }
+
+  function updateHazards(dt){
+    for(let i=state.hazards.length-1;i>=0;i--){
+      const h = state.hazards[i];
+      h.life -= dt;
+      h.pulse += dt;
+      if(h.kind === "mine"){
+        h.mesh.rotation.y += dt * 4;
+        h.mesh.position.y = 0.16 + Math.sin(h.pulse * 5) * 0.03;
+        for(let j=state.enemies.length-1;j>=0;j--){
+          const e = state.enemies[j];
+          if(e.mesh.position.distanceTo(h.mesh.position) < 2.0){
+            explodeAt(h.mesh.position.clone(), h.radius, h.damage, 0x8bf0ff);
+            scene.remove(h.mesh);
+            state.hazards.splice(i,1);
+            h.life = -1;
+            break;
+          }
+        }
+      }else if(h.kind === "orbital"){
+        h.mesh.material.opacity = 0.55 + Math.sin(h.pulse * 15) * 0.25;
+        h.mesh.rotation.z += dt * 1.4;
+        if(h.life <= 0){
+          const strike = h.mesh.position.clone();
+          strike.y = 0.4;
+          for(let n=0;n<4;n++) createFlash(strike.clone(), 0xff6ea1, 6, 18, 0.18);
+          createShockwave(strike, 0xff6ea1, h.radius);
+          explodeAt(strike, h.radius, h.damage, 0xff6ea1);
+        }
+      }
+      if(h.life <= 0){
+        scene.remove(h.mesh);
+        state.hazards.splice(i,1);
+      }
+    }
+  }
+
   function updateEffects(dt){
     for(let i=state.rings.length-1;i>=0;i--){
       const ring = state.rings[i];
@@ -4482,21 +4702,30 @@ canvas{ display:block; }
       const p = state.pickups[i];
       p.life -= dt;
       p.mesh.rotation.x += dt * 1.2;
-      p.mesh.rotation.y += dt * 2.1;
+      p.mesh.rotation.y += dt * (p.spin || 2.1);
       p.mesh.position.y = 1 + Math.sin(performance.now()*0.004 + i) * 0.16;
 
       if(player.pos.distanceTo(p.mesh.position) < 1.5){
         if(p.kind === "ammo"){
-          player.ammo.bullet += 12 + Math.floor(Math.random()*10);
+          const gain = 12 + Math.floor(Math.random()*10);
+          player.ammo.bullet += gain;
+          showFloating(`AMMO +${gain}`);
         } else if(p.kind === "rocket"){
-          player.ammo.rocket += 1 + (Math.random() < 0.35 ? 1 : 0);
+          const gain = 1 + (Math.random() < 0.35 ? 1 : 0);
+          player.ammo.rocket += gain;
+          showFloating(`ROCKET +${gain}`);
         } else if(p.kind === "grenade"){
-          player.ammo.grenade += 1 + (Math.random() < 0.35 ? 1 : 0);
+          const gain = 1 + (Math.random() < 0.35 ? 1 : 0);
+          player.ammo.grenade += gain;
+          showFloating(`GRENADE +${gain}`);
         } else if(p.kind === "heal"){
           player.hp = Math.min(player.maxHp, player.hp + 24);
+          showFloating("HEAL +24");
         } else if(p.kind === "shield"){
           player.hp = Math.min(player.maxHp, player.hp + 10);
           player.damageCooldown = 1.0;
+          player.abilities.plasma = Math.min(5, player.abilities.plasma + 1);
+          showFloating("SHIELD + PLASMA");
         }
 
         sfxPickup();
@@ -4622,6 +4851,9 @@ canvas{ display:block; }
     if(e.code === "Digit1") setWeapon("bullet");
     if(e.code === "Digit2") setWeapon("rocket");
     if(e.code === "Digit3") setWeapon("grenade");
+    if(e.code === "Digit4") firePlasmaBurst();
+    if(e.code === "Digit5") deployShockMine();
+    if(e.code === "Digit6") deployOrbital();
 
     if(e.code === "Space" || e.code === "Enter"){
       if(player.weapon === "bullet"){
