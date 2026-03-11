@@ -2293,6 +2293,28 @@ canvas{ display:block; }
   line-height:1.35;
 }
 
+#topButtons{
+  position:fixed;
+  right:14px;
+  bottom:14px;
+  z-index:28;
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+#muteBtn{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.42);
+  color:#fff;
+  border-radius:999px;
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:700;
+  backdrop-filter:blur(10px);
+  cursor:pointer;
+}
+
 #weaponBar{
   position:fixed;
   left:50%;
@@ -2321,7 +2343,7 @@ canvas{ display:block; }
 #mobileWeaponBar{
   position:fixed;
   right:12px;
-  bottom:12px;
+  bottom:58px;
   z-index:26;
   display:none;
   flex-direction:column;
@@ -2338,6 +2360,7 @@ canvas{ display:block; }
   font-size:12px;
   font-weight:700;
   box-shadow:0 8px 18px rgba(0,0,0,.22);
+  cursor:pointer;
 }
 .mw-btn.active{
   box-shadow:0 0 0 1px rgba(77,247,255,.6), 0 0 18px rgba(77,247,255,.18);
@@ -2520,17 +2543,13 @@ canvas{ display:block; }
 }
 
 #mailLink{
-  position:fixed;
-  right:10px;
-  bottom:8px;
-  z-index:26;
   font-size:11px;
   color:rgba(255,255,255,.55);
   text-decoration:none;
   background:rgba(0,0,0,.18);
   border:1px solid rgba(255,255,255,.08);
   border-radius:999px;
-  padding:6px 10px;
+  padding:8px 10px;
   backdrop-filter:blur(6px);
   transition:.2s ease;
 }
@@ -2648,6 +2667,10 @@ canvas{ display:block; }
     height:110px;
     border-radius:14px;
   }
+  #topButtons{
+    right:10px;
+    bottom:10px;
+  }
 }
 </style>
 </head>
@@ -2694,9 +2717,9 @@ canvas{ display:block; }
 </div>
 
 <div id="mobileWeaponBar">
-  <button class="mw-btn active" id="mwBullet">Bullet</button>
-  <button class="mw-btn" id="mwRocket">Rocket</button>
-  <button class="mw-btn" id="mwGrenade">Grenade</button>
+  <button class="mw-btn active" id="mwBullet" type="button">Bullet</button>
+  <button class="mw-btn" id="mwRocket" type="button">Rocket</button>
+  <button class="mw-btn" id="mwGrenade" type="button">Grenade</button>
 </div>
 
 <div id="centerMessage">
@@ -2709,8 +2732,8 @@ canvas{ display:block; }
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>joystick links</b>, <b>tik om te schieten</b>, <b>weapon buttons rechts</b>.</p>
 
-  <button id="startBtn" onclick="window.__startGame && window.__startGame()">Start spel</button>
-  <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
+  <button id="startBtn" type="button" onclick="window.__startGame && window.__startGame()">Start spel</button>
+  <div><button id="restartBtn" type="button" style="display:none;">Opnieuw spelen</button></div>
 
   <div id="boardWrap">
     <div class="board-meta">
@@ -2731,7 +2754,10 @@ canvas{ display:block; }
 
 <div id="minimap"><canvas id="minimapCanvas" width="150" height="150"></canvas></div>
 
-<a id="mailLink" href="mailto:patrick@oldehanter.nl?subject=Nieuwe%20downloadlink%20aanvragen&body=Hallo%20Patrick,%0D%0A%0D%0ADe%20downloadlink%20is%20vervallen.%20Kun%20je%20een%20nieuwe%20sturen%3F%0D%0A%0D%0AMet%20vriendelijke%20groet,">Vervallen link? Vraag een nieuwe aan</a>
+<div id="topButtons">
+  <button id="muteBtn" type="button">🔊 Muziek aan</button>
+  <a id="mailLink" href="mailto:patrick@oldehanter.nl?subject=Nieuwe%20downloadlink%20aanvragen&body=Hallo%20Patrick,%0D%0A%0D%0ADe%20downloadlink%20is%20vervallen.%20Kun%20je%20een%20nieuwe%20sturen%3F%0D%0A%0D%0AMet%20vriendelijke%20groet,">Vervallen link?</a>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158/build/three.min.js"></script>
 
@@ -2764,10 +2790,11 @@ canvas{ display:block; }
     playerName: document.getElementById("playerName"),
     gameWrap: document.getElementById("gameWrap"),
     pickupLabel: document.getElementById("pickupLabel"),
-    minimapCanvas: document.getElementById("minimapCanvas")
+    minimapCanvas: document.getElementById("minimapCanvas"),
+    muteBtn: document.getElementById("muteBtn")
   };
 
-  const LB_KEY = "olde_hanter_arcade_leaderboard_v5";
+  const LB_KEY = "olde_hanter_arcade_leaderboard_v6";
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, m => ({
@@ -2813,6 +2840,10 @@ canvas{ display:block; }
   renderBoard();
 
   let audioCtx = null;
+  let musicTimer = null;
+  let musicMuted = false;
+  let musicStep = 0;
+
   function ensureAudio(){
     if(!audioCtx){
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -2822,7 +2853,7 @@ canvas{ display:block; }
   }
 
   function tone(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
-    if(!audioCtx) return;
+    if(!audioCtx || musicMuted) return;
     const now = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -2841,8 +2872,27 @@ canvas{ display:block; }
     osc.stop(now + dur);
   }
 
+  function playVoice(freq=220, dur=0.16, type="square", volume=0.02, delay=0){
+    if(!audioCtx || musicMuted) return;
+    const now = audioCtx.currentTime + delay;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 1800;
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now);
+    osc.stop(now + dur);
+  }
+
   function noiseBurst(dur=0.06, volume=0.02){
-    if(!audioCtx) return;
+    if(!audioCtx || musicMuted) return;
     const size = Math.max(1, (audioCtx.sampleRate * dur)|0);
     const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -2859,6 +2909,39 @@ canvas{ display:block; }
     gain.connect(audioCtx.destination);
     src.start();
   }
+
+  function startMusic(){
+    ensureAudio();
+    if(musicTimer) return;
+    const lead = [523.25,659.25,783.99,659.25,523.25,659.25,880.00,659.25];
+    const bass = [130.81,130.81,146.83,146.83,164.81,164.81,146.83,146.83];
+    musicTimer = setInterval(() => {
+      if(!state.running || musicMuted || !audioCtx) return;
+      const i = musicStep % lead.length;
+      playVoice(lead[i], 0.12, "square", 0.018, 0);
+      playVoice(bass[i], 0.18, "triangle", 0.016, 0);
+      if(i % 2 === 0) playVoice(lead[i] * 0.5, 0.08, "square", 0.01, 0.06);
+      musicStep++;
+    }, 180);
+  }
+
+  function stopMusic(){
+    if(musicTimer){
+      clearInterval(musicTimer);
+      musicTimer = null;
+    }
+  }
+
+  function updateMuteButton(){
+    ui.muteBtn.textContent = musicMuted ? "🔇 Muziek uit" : "🔊 Muziek aan";
+  }
+
+  ui.muteBtn.addEventListener("click", () => {
+    musicMuted = !musicMuted;
+    ensureAudio();
+    updateMuteButton();
+  });
+  updateMuteButton();
 
   function sfxShoot(){ tone(930,0.05,"square",0.042,-280); }
   function sfxRocket(){ tone(180,0.13,"sawtooth",0.05,120); }
@@ -3179,17 +3262,9 @@ canvas{ display:block; }
 
   function findSafeSpawn(){
     const candidates = [
-      [0,0],
-      [0,-18],
-      [0,18],
-      [-18,0],
-      [18,0],
-      [-28,28],
-      [28,28],
-      [-28,-28],
-      [28,-28],
-      [0,-32],
-      [0,32]
+      [0,0],[0,-18],[0,18],[-18,0],[18,0],
+      [-28,28],[28,28],[-28,-28],[28,-28],
+      [0,-32],[0,32],[-36,0],[36,0]
     ];
 
     for(const [x,z] of candidates){
@@ -3229,13 +3304,13 @@ canvas{ display:block; }
     });
 
     const torso = new THREE.Mesh(
-  new THREE.BoxGeometry(
-    type === "tank" ? 1.55 : 1.25,
-    type === "runner" ? 0.88 : 1.0,
-    0.42
-  ),
-  matA
-);
+      new THREE.BoxGeometry(
+        type === "tank" ? 1.55 : 1.25,
+        type === "runner" ? 0.88 : 1.0,
+        0.42
+      ),
+      matA
+    );
     torso.position.y = 1.82;
 
     const headOuter = new THREE.Mesh(new THREE.CylinderGeometry(.62,.62,.3,32), matB);
@@ -3271,7 +3346,7 @@ canvas{ display:block; }
     shoulderL.position.set(-.52,2.48,0);
     shoulderR.position.set(.52,2.48,0);
 
-    [ ...parts, feetL, feetR, shoulderL, shoulderR ].forEach(m => {
+    [...parts, feetL, feetR, shoulderL, shoulderR].forEach(m => {
       m.castShadow = true;
       m.receiveShadow = true;
       group.add(m);
@@ -3675,6 +3750,7 @@ canvas{ display:block; }
     ui.bossBarWrap.classList.remove("show");
     ui.pickupLabel.style.display = "none";
     setStat();
+    startMusic();
     spawnWave();
   }
 
@@ -4090,35 +4166,37 @@ canvas{ display:block; }
   }
 
   function startGame(){
-  try{
-    ensureAudio();
-    state.running = true;
-    player.alive = true;
+    try{
+      ensureAudio();
+      state.running = true;
+      player.alive = true;
 
-    const spawn = findSafeSpawn();
-    player.pos.set(spawn.x, 1.7, spawn.z);
-    camera.position.set(spawn.x, 1.7, spawn.z);
+      const spawn = findSafeSpawn();
+      player.pos.set(spawn.x,1.7,spawn.z);
+      camera.position.set(spawn.x,1.7,spawn.z);
 
-    lookYaw = 0;
-    lookPitch = 0;
-    applyCameraLook();
+      lookYaw = 0;
+      lookPitch = 0;
+      applyCameraLook();
 
-    ui.center.classList.add("hidden");
+      ui.center.classList.add("hidden");
 
-    if(!state.enemies.length && !state.boss){
-      spawnWave();
+      if(!state.enemies.length && !state.boss){
+        spawnWave();
+      }
+
+      startMusic();
+
+      if(!isTouch && renderer.domElement.requestPointerLock){
+        renderer.domElement.requestPointerLock();
+      }
+    } catch(err){
+      console.error("StartGame fout:", err);
+      alert("Er zit nog een JavaScript-fout in het spel. Open de console voor details.");
     }
-
-    if(!isTouch && renderer.domElement.requestPointerLock){
-      renderer.domElement.requestPointerLock();
-    }
-  } catch(err){
-    console.error("StartGame fout:", err);
-    alert("Er zit nog een JavaScript-fout in het spel. Open de console voor details.");
   }
-}
 
-window.__startGame = startGame;
+  window.__startGame = startGame;
 
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
