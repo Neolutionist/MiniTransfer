@@ -2767,7 +2767,7 @@ canvas{ display:block; }
     minimapCanvas: document.getElementById("minimapCanvas")
   };
 
-  const LB_KEY = "olde_hanter_arcade_leaderboard_v4";
+  const LB_KEY = "olde_hanter_arcade_leaderboard_v5";
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, m => ({
@@ -2874,7 +2874,7 @@ canvas{ display:block; }
 
   const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
   camera.rotation.order = "YXZ";
-  camera.position.set(0, 1.7, 7);
+  camera.position.set(0, 1.7, 0);
 
   let lookYaw = 0;
   let lookPitch = 0;
@@ -3093,7 +3093,7 @@ canvas{ display:block; }
   const minimapCtx = ui.minimapCanvas.getContext("2d");
 
   const player = {
-    pos: new THREE.Vector3(0,1.7,7),
+    pos: new THREE.Vector3(0,1.7,0),
     radius: 0.7,
     speed: 10.2,
     hp: 100,
@@ -3175,6 +3175,29 @@ canvas{ display:block; }
       if(maxX > b.min.x && minX < b.max.x && maxZ > b.min.z && minZ < b.max.z) return true;
     }
     return false;
+  }
+
+  function findSafeSpawn(){
+    const candidates = [
+      [0,0],
+      [0,-18],
+      [0,18],
+      [-18,0],
+      [18,0],
+      [-28,28],
+      [28,28],
+      [-28,-28],
+      [28,-28],
+      [0,-32],
+      [0,32]
+    ];
+
+    for(const [x,z] of candidates){
+      if(!collidesAt(x,z,player.radius)){
+        return {x,z};
+      }
+    }
+    return {x:0,z:0};
   }
 
   function moveWithCollision(dx,dz){
@@ -3616,7 +3639,10 @@ canvas{ display:block; }
       state.boss = null;
     }
 
-    player.pos.set(0,1.7,7);
+    const spawn = findSafeSpawn();
+    player.pos.set(spawn.x,1.7,spawn.z);
+    camera.position.set(spawn.x,1.7,spawn.z);
+
     player.hp = 100;
     player.score = 0;
     player.wave = 1;
@@ -4060,6 +4086,11 @@ canvas{ display:block; }
     ensureAudio();
     state.running = true;
     player.alive = true;
+
+    const spawn = findSafeSpawn();
+    player.pos.set(spawn.x,1.7,spawn.z);
+    camera.position.set(spawn.x,1.7,spawn.z);
+
     ui.center.classList.add("hidden");
     if(!state.enemies.length && !state.boss) spawnWave();
     if(!isTouch) renderer.domElement.requestPointerLock?.();
@@ -4215,6 +4246,11 @@ canvas{ display:block; }
     const small = innerWidth <= 760;
     ui.minimapCanvas.width = small ? 110 : 150;
     ui.minimapCanvas.height = small ? 110 : 150;
+
+    const spawn = findSafeSpawn();
+    player.pos.set(spawn.x,1.7,spawn.z);
+    camera.position.set(spawn.x,1.7,spawn.z);
+    applyCameraLook();
   }
 
   animate(performance.now());
@@ -4223,7 +4259,6 @@ canvas{ display:block; }
 </body>
 </html>
 """
-
 
 PRIVACY_HTML = """
 <!doctype html><html lang="nl"><head>
