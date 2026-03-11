@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
-    session, jsonify, Response, stream_with_context
+    session, jsonify, Response, stream_with_context, g
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -86,6 +86,17 @@ s3 = boto3.client(
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "olde-hanter-simple-secret")
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024 * 20))),
+)
+
+TOKEN_RE = re.compile(r"^[a-f0-9]{10}$")
+MIN_EXPIRY_DAYS = float(os.environ.get("MIN_EXPIRY_DAYS", "0.04"))  # ~1 uur
+MAX_EXPIRY_DAYS = float(os.environ.get("MAX_EXPIRY_DAYS", "365"))
+MAX_TITLE_LENGTH = int(os.environ.get("MAX_TITLE_LENGTH", "120"))
 
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
@@ -4142,6 +4153,38 @@ ul{margin:.4rem 0 .6rem 1.2rem}
 
 
 
+
+
+def is_valid_token(token: str) -> bool:
+    return bool(token and TOKEN_RE.fullmatch(token))
+
+def clamp_expiry_days(value) -> float:
+    try:
+        days = float(value)
+    except (TypeError, ValueError):
+        return 24.0
+    return max(MIN_EXPIRY_DAYS, min(MAX_EXPIRY_DAYS, days))
+
+def normalize_rel_path(value: str, fallback: str) -> str:
+    raw = (value or fallback or "").replace(chr(92), "/").strip().lstrip("/")
+    parts = [part for part in raw.split("/") if part not in {"", ".", ".."}]
+    return "/".join(parts) or secure_filename(fallback or "bestand")
+
+@app.before_request
+def attach_request_context():
+    g.request_id = uuid.uuid4().hex[:12]
+
+@app.after_request
+def apply_default_headers(resp):
+    resp.headers.setdefault("X-Request-ID", getattr(g, "request_id", "-"))
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.path.startswith(("/login", "/logout")):
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
+
 # -------------- Helpers --------------
 def logged_in() -> bool:
     return session.get("authed", False)
@@ -4162,7 +4205,7 @@ def send_email(to_addr: str, subject: str, body: str):
     msg["From"] = SMTP_FROM
     msg["To"] = to_addr
     msg.set_content(body)
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
 def paypal_access_token():
@@ -4219,6 +4262,8 @@ def login():
         pw    = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
 
         if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
+            session.clear()
+            session.permanent = True
             session["authed"] = True
             session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
@@ -4248,10 +4293,10 @@ def logout():
 def package_init():
     if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    days = float(data.get("expiry_days") or 24)
-    pw   = data.get("password") or ""
+    days = clamp_expiry_days(data.get("expiry_days") or 24)
+    pw   = (data.get("password") or "")[:200]
     title_raw = (data.get("title") or "").strip()
-    title = title_raw[:120] if title_raw else None
+    title = title_raw[:MAX_TITLE_LENGTH] if title_raw else None
     token = uuid.uuid4().hex[:10]
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
@@ -4267,9 +4312,9 @@ def package_init():
 def put_init():
     if not logged_in(): abort(401)
     d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token"); filename = secure_filename(d.get("filename") or "")
-    content_type = d.get("contentType") or "application/octet-stream"
-    if not token or not filename:
+    token = (d.get("token") or "").strip(); filename = secure_filename(d.get("filename") or "")
+    content_type = (d.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
+    if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
     t = current_tenant()["slug"]
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
@@ -4288,9 +4333,9 @@ def put_init():
 def put_complete():
     if not logged_in(): abort(401)
     d = request.get_json(force=True, silent=True) or {}
-    token = d.get("token"); key = d.get("key"); name = d.get("name")
-    path  = d.get("path") or name
-    if not (token and key and name):
+    token = (d.get("token") or "").strip(); key = (d.get("key") or "").strip(); name = (d.get("name") or "").strip()
+    path  = normalize_rel_path(d.get("path") or name, name)
+    if not (is_valid_token(token) and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -4310,10 +4355,10 @@ def put_complete():
 def mpu_init():
     if not logged_in(): abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    token = data.get("token")
+    token = (data.get("token") or "").strip()
     filename = secure_filename(data.get("filename") or "")
-    content_type = data.get("contentType") or "application/octet-stream"
-    if not token or not filename:
+    content_type = (data.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
+    if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     t = current_tenant()["slug"]
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
@@ -4347,11 +4392,11 @@ def mpu_sign():
 def mpu_complete():
     if not logged_in(): abort(401)
     data      = request.get_json(force=True, silent=True) or {}
-    token     = data.get("token"); key = data.get("key")
-    name      = data.get("name");  path = data.get("path") or name
+    token     = (data.get("token") or "").strip(); key = (data.get("key") or "").strip()
+    name      = (data.get("name") or "").strip();  path = normalize_rel_path(data.get("path") or name, name)
     parts_in  = data.get("parts") or []; upload_id = data.get("uploadId")
     client_size = int(data.get("clientSize") or 0)
-    if not (token and key and name and parts_in and upload_id):
+    if not (is_valid_token(token) and key and name and parts_in and upload_id):
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
     try:
         s3.complete_multipart_upload(
@@ -4416,6 +4461,8 @@ def internal_cleanup():
 # -------------- Download Pages --------------
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
+    token = (token or "").strip()
+    if not is_valid_token(token): abort(404)
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
@@ -4467,6 +4514,8 @@ def package_page(token):
 
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
+    token = (token or "").strip()
+    if not is_valid_token(token): abort(404)
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
@@ -4497,6 +4546,8 @@ def stream_file(token, item_id):
 
 @app.route("/zip/<token>")
 def stream_zip(token):
+    token = (token or "").strip()
+    if not is_valid_token(token): abort(404)
     c = db()
     t = current_tenant()["slug"]
     pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
@@ -4838,9 +4889,9 @@ def paypal_webhook():
             status = (resource.get("status") or "ACTIVE").upper()
             if sub_id:
                 c = db()
-                c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at)
-                             VALUES(?,?,?,?,?)""",
-                          (AUTH_EMAIL, plan_value or (plan_id or ""), sub_id, status, datetime.now(timezone.utc).isoformat()))
+                c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
+                             VALUES(?,?,?,?,?,?)""",
+                          (AUTH_EMAIL, plan_value or (plan_id or ""), sub_id, status, datetime.now(timezone.utc).isoformat(), current_tenant()["slug"]))
                 c.commit(); c.close()
             try:
                 plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_id or "(onbekend plan)")
@@ -4898,6 +4949,11 @@ def paypal_webhook():
     return jsonify(ok=True)
 
 # Healthcheck & Aliassen
+@app.route("/health")
+@app.route("/__health")
+def health_basic():
+    return {"ok": True, "service": "minitransfer", "tenant": "oldehanter"}
+
 @app.route("/health-s3")
 def health():
     try:
@@ -4912,6 +4968,35 @@ def package_alias(token): return redirect(url_for("package_page", token=token))
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
+
+
+
+@app.errorhandler(400)
+def handle_400(err):
+    if request.path.startswith(("/package-init", "/put-", "/mpu-", "/billing/", "/internal/", "/webhook/")):
+        return jsonify(ok=False, error="bad_request"), 400
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>400</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>400</h1><p>Het verzoek kon niet worden verwerkt.</p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 400
+
+@app.errorhandler(401)
+def handle_401(err):
+    if request.path.startswith(("/package-init", "/put-", "/mpu-", "/billing/", "/internal/", "/webhook/")):
+        return jsonify(ok=False, error="unauthorized"), 401
+    return redirect(url_for("login"))
+
+@app.errorhandler(404)
+def handle_404(err):
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>404</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>404</h1><p>Deze pagina of download bestaat niet (meer).</p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 404
+
+@app.errorhandler(413)
+def handle_413(err):
+    return jsonify(ok=False, error="payload_too_large", max_bytes=app.config.get("MAX_CONTENT_LENGTH")), 413
+
+@app.errorhandler(500)
+def handle_500(err):
+    log.exception("Unhandled server error", exc_info=err)
+    if request.path.startswith(("/package-init", "/put-", "/mpu-", "/billing/", "/internal/", "/webhook/")):
+        return jsonify(ok=False, error="server_error", request_id=getattr(g, "request_id", None)), 500
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>500</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>500</h1><p>Er ging iets mis op de server.</p><p>Referentie: <code>{{ request_id }}</code></p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, request_id=getattr(g, "request_id", "-")), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
