@@ -2172,7 +2172,7 @@ EXPIRED_HTML = r"""
 
 :root{
   --bg1:#070014;
-  --bg2:#120022;
+  --bg2:#130022;
   --panel:rgba(0,0,0,.42);
   --panel-border:rgba(255,255,255,.12);
   --text:#fff;
@@ -2303,6 +2303,7 @@ canvas{ display:block; }
   gap:8px;
   pointer-events:none;
 }
+
 .weapon-chip{
   background:rgba(0,0,0,.42);
   border:1px solid rgba(255,255,255,.12);
@@ -2314,6 +2315,31 @@ canvas{ display:block; }
   box-shadow:0 8px 18px rgba(0,0,0,.22);
 }
 .weapon-chip.active{
+  box-shadow:0 0 0 1px rgba(77,247,255,.6), 0 0 18px rgba(77,247,255,.18);
+}
+
+#mobileWeaponBar{
+  position:fixed;
+  right:12px;
+  bottom:12px;
+  z-index:26;
+  display:none;
+  flex-direction:column;
+  gap:8px;
+}
+.mw-btn{
+  min-width:88px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.42);
+  color:white;
+  backdrop-filter:blur(10px);
+  font-size:12px;
+  font-weight:700;
+  box-shadow:0 8px 18px rgba(0,0,0,.22);
+}
+.mw-btn.active{
   box-shadow:0 0 0 1px rgba(77,247,255,.6), 0 0 18px rgba(77,247,255,.18);
 }
 
@@ -2334,7 +2360,6 @@ canvas{ display:block; }
 }
 
 #centerMessage.hidden{ display:none; }
-
 #centerMessage h1{ margin:0 0 8px; font-size:28px; }
 #centerMessage p{ margin:8px 0; color:var(--muted); line-height:1.45; }
 
@@ -2457,6 +2482,43 @@ canvas{ display:block; }
   box-shadow:0 0 18px rgba(255,43,128,.38);
 }
 
+#minimap{
+  position:fixed;
+  right:14px;
+  top:14px;
+  z-index:23;
+  width:150px;
+  height:150px;
+  border-radius:18px;
+  background:rgba(0,0,0,.34);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(10px);
+  box-shadow:0 10px 24px rgba(0,0,0,.25);
+  overflow:hidden;
+}
+#minimap canvas{
+  width:100%;
+  height:100%;
+  display:block;
+}
+
+#pickupLabel{
+  position:fixed;
+  z-index:27;
+  transform:translate(-50%,-50%);
+  padding:6px 9px;
+  border-radius:999px;
+  background:rgba(0,0,0,.46);
+  color:white;
+  font-size:11px;
+  font-weight:700;
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter:blur(8px);
+  pointer-events:none;
+  display:none;
+  white-space:nowrap;
+}
+
 #mailLink{
   position:fixed;
   right:10px;
@@ -2518,7 +2580,7 @@ canvas{ display:block; }
 #tapHint{
   position:fixed;
   right:14px;
-  bottom:112px;
+  bottom:118px;
   z-index:25;
   padding:8px 10px;
   font-size:11px;
@@ -2531,7 +2593,7 @@ canvas{ display:block; }
 }
 
 @media (pointer:fine){
-  #mobileControls, #tapHint{ display:none; }
+  #mobileControls, #tapHint, #mobileWeaponBar{ display:none; }
 }
 
 @media (max-width:760px){
@@ -2571,15 +2633,20 @@ canvas{ display:block; }
     display:none;
   }
   #weaponBar{
-    bottom:8px;
-    gap:6px;
+    display:none;
   }
-  .weapon-chip{
-    font-size:10px;
-    padding:7px 9px;
+  #mobileWeaponBar{
+    display:flex;
   }
   #crosshair{
     display:none;
+  }
+  #minimap{
+    right:10px;
+    top:88px;
+    width:110px;
+    height:110px;
+    border-radius:14px;
   }
 }
 </style>
@@ -2590,6 +2657,7 @@ canvas{ display:block; }
 <div id="psyOverlay"></div>
 <div id="damageFlash"></div>
 <div id="crosshair"></div>
+<div id="pickupLabel"></div>
 
 <div id="bossBarWrap">
   <div id="bossBarLabel">BOSS</div>
@@ -2616,13 +2684,19 @@ canvas{ display:block; }
     <div class="stat"><div class="label">Weapon</div><div class="value" id="weaponName">Bullet</div></div>
   </div>
 
-  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: joystick links, tik op het scherm om te schieten.</div>
+  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: joystick links, tik op het speelveld om te schieten, wapens rechts.</div>
 </div>
 
 <div id="weaponBar">
   <div class="weapon-chip active" id="chipBullet">1 Bullet</div>
   <div class="weapon-chip" id="chipRocket">2 Rocket</div>
   <div class="weapon-chip" id="chipGrenade">3 Grenade</div>
+</div>
+
+<div id="mobileWeaponBar">
+  <button class="mw-btn active" id="mwBullet">Bullet</button>
+  <button class="mw-btn" id="mwRocket">Rocket</button>
+  <button class="mw-btn" id="mwGrenade">Grenade</button>
 </div>
 
 <div id="centerMessage">
@@ -2633,7 +2707,7 @@ canvas{ display:block; }
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>joystick links</b> en <b>tik om te schieten</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>joystick links</b>, <b>tik om te schieten</b>, <b>weapon buttons rechts</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -2655,6 +2729,8 @@ canvas{ display:block; }
 
 <div id="tapHint">Tik op het scherm om te schieten</div>
 
+<div id="minimap"><canvas id="minimapCanvas" width="150" height="150"></canvas></div>
+
 <a id="mailLink" href="mailto:patrick@oldehanter.nl?subject=Nieuwe%20downloadlink%20aanvragen&body=Hallo%20Patrick,%0D%0A%0D%0ADe%20downloadlink%20is%20vervallen.%20Kun%20je%20een%20nieuwe%20sturen%3F%0D%0A%0D%0AMet%20vriendelijke%20groet,">Vervallen link? Vraag een nieuwe aan</a>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.158/build/three.min.js"></script>
@@ -2675,6 +2751,9 @@ canvas{ display:block; }
     chipBullet: document.getElementById("chipBullet"),
     chipRocket: document.getElementById("chipRocket"),
     chipGrenade: document.getElementById("chipGrenade"),
+    mwBullet: document.getElementById("mwBullet"),
+    mwRocket: document.getElementById("mwRocket"),
+    mwGrenade: document.getElementById("mwGrenade"),
     center: document.getElementById("centerMessage"),
     startBtn: document.getElementById("startBtn"),
     restartBtn: document.getElementById("restartBtn"),
@@ -2683,10 +2762,12 @@ canvas{ display:block; }
     bossBarInner: document.getElementById("bossBarInner"),
     leaderboard: document.getElementById("leaderboard"),
     playerName: document.getElementById("playerName"),
-    gameWrap: document.getElementById("gameWrap")
+    gameWrap: document.getElementById("gameWrap"),
+    pickupLabel: document.getElementById("pickupLabel"),
+    minimapCanvas: document.getElementById("minimapCanvas")
   };
 
-  const LB_KEY = "olde_hanter_arcade_leaderboard_v3";
+  const LB_KEY = "olde_hanter_arcade_leaderboard_v4";
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, m => ({
@@ -3008,6 +3089,8 @@ canvas{ display:block; }
   buildArena();
 
   const raycaster = new THREE.Raycaster();
+  const screenVec = new THREE.Vector3();
+  const minimapCtx = ui.minimapCanvas.getContext("2d");
 
   const player = {
     pos: new THREE.Vector3(0,1.7,7),
@@ -3049,12 +3132,19 @@ canvas{ display:block; }
     turn:0
   };
 
+  function weaponLabel(w){
+    return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+  }
+
   function setWeapon(w){
     player.weapon = w;
-    ui.weaponName.textContent = w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(w);
     ui.chipBullet.classList.toggle("active", w === "bullet");
     ui.chipRocket.classList.toggle("active", w === "rocket");
     ui.chipGrenade.classList.toggle("active", w === "grenade");
+    ui.mwBullet.classList.toggle("active", w === "bullet");
+    ui.mwRocket.classList.toggle("active", w === "rocket");
+    ui.mwGrenade.classList.toggle("active", w === "grenade");
   }
 
   function setStat(){
@@ -3065,10 +3155,13 @@ canvas{ display:block; }
     ui.ammoBullets.textContent = player.ammo.bullet;
     ui.ammoRockets.textContent = player.ammo.rocket;
     ui.ammoGrenades.textContent = player.ammo.grenade;
-    ui.weaponName.textContent = player.weapon === "bullet" ? "Bullet" : player.weapon === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(player.weapon);
     ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
     ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
     ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
+    ui.mwBullet.classList.toggle("active", player.weapon === "bullet");
+    ui.mwRocket.classList.toggle("active", player.weapon === "rocket");
+    ui.mwGrenade.classList.toggle("active", player.weapon === "grenade");
   }
   setStat();
 
@@ -3295,6 +3388,14 @@ canvas{ display:block; }
         }
       }
     }
+  }
+
+  function pickupName(kind){
+    return kind === "ammo" ? "Ammo +" :
+      kind === "rocket" ? "Rocket +" :
+      kind === "grenade" ? "Grenade +" :
+      kind === "heal" ? "Repair +" :
+      kind === "shield" ? "Shield";
   }
 
   function dropPickup(position){
@@ -3539,6 +3640,7 @@ canvas{ display:block; }
     ui.startBtn.style.display = "";
     ui.restartBtn.style.display = "none";
     ui.bossBarWrap.classList.remove("show");
+    ui.pickupLabel.style.display = "none";
     setStat();
     spawnWave();
   }
@@ -3600,9 +3702,7 @@ canvas{ display:block; }
     for(let i=state.bullets.length-1;i>=0;i--){
       const b = state.bullets[i];
       b.mesh.position.addScaledVector(b.vel, dt);
-      if(b.gravity){
-        b.vel.y -= b.gravity * dt;
-      }
+      if(b.gravity) b.vel.y -= b.gravity * dt;
       b.life -= dt;
 
       let remove = b.life <= 0;
@@ -3781,6 +3881,9 @@ canvas{ display:block; }
   }
 
   function updatePickups(dt){
+    let closest = null;
+    let closestD = Infinity;
+
     for(let i=state.pickups.length-1;i>=0;i--){
       const p = state.pickups[i];
       p.life -= dt;
@@ -3788,7 +3891,13 @@ canvas{ display:block; }
       p.mesh.rotation.y += dt * 2.1;
       p.mesh.position.y = 1 + Math.sin(performance.now()*0.004 + i) * 0.16;
 
-      if(player.pos.distanceTo(p.mesh.position) < 1.5){
+      const d = player.pos.distanceTo(p.mesh.position);
+      if(d < closestD){
+        closestD = d;
+        closest = p;
+      }
+
+      if(d < 1.5){
         if(p.kind === "ammo"){
           player.ammo.bullet += 12 + Math.floor(Math.random()*10);
         } else if(p.kind === "rocket"){
@@ -3814,12 +3923,106 @@ canvas{ display:block; }
         state.pickups.splice(i,1);
       }
     }
+
+    if(closest && closestD < 12){
+      screenVec.copy(closest.mesh.position);
+      screenVec.project(camera);
+      const x = (screenVec.x * 0.5 + 0.5) * innerWidth;
+      const y = (-screenVec.y * 0.5 + 0.5) * innerHeight - 24;
+      if(screenVec.z < 1){
+        ui.pickupLabel.textContent = pickupName(closest.kind);
+        ui.pickupLabel.style.left = x + "px";
+        ui.pickupLabel.style.top = y + "px";
+        ui.pickupLabel.style.display = "block";
+      } else {
+        ui.pickupLabel.style.display = "none";
+      }
+    } else {
+      ui.pickupLabel.style.display = "none";
+    }
   }
 
   function updateTimers(dt){
     player.fireCooldown = Math.max(0, player.fireCooldown - dt);
     player.damageCooldown = Math.max(0, player.damageCooldown - dt);
     setStat();
+  }
+
+  function drawMinimap(){
+    const c = minimapCtx;
+    const w = ui.minimapCanvas.width;
+    const h = ui.minimapCanvas.height;
+    c.clearRect(0,0,w,h);
+
+    c.fillStyle = "rgba(5,8,20,0.94)";
+    c.fillRect(0,0,w,h);
+
+    const worldHalf = 62;
+    const scale = w / (worldHalf * 2);
+
+    function mapX(x){ return (x + worldHalf) * scale; }
+    function mapY(z){ return (z + worldHalf) * scale; }
+
+    c.strokeStyle = "rgba(77,247,255,0.18)";
+    c.lineWidth = 1;
+    for(let i=0;i<=8;i++){
+      const p = i * (w/8);
+      c.beginPath(); c.moveTo(p,0); c.lineTo(p,h); c.stroke();
+      c.beginPath(); c.moveTo(0,p); c.lineTo(w,p); c.stroke();
+    }
+
+    c.fillStyle = "rgba(125,100,255,0.22)";
+    for(const col of colliders){
+      const b = col.box;
+      const x = mapX(b.min.x);
+      const y = mapY(b.min.z);
+      const ww = (b.max.x - b.min.x) * scale;
+      const hh = (b.max.z - b.min.z) * scale;
+      c.fillRect(x,y,ww,hh);
+    }
+
+    for(const p of state.pickups){
+      c.fillStyle =
+        p.kind === "ammo" ? "#ffd166" :
+        p.kind === "rocket" ? "#ff7b7b" :
+        p.kind === "grenade" ? "#9dff7c" :
+        p.kind === "heal" ? "#62ffb0" : "#74a8ff";
+      c.beginPath();
+      c.arc(mapX(p.mesh.position.x), mapY(p.mesh.position.z), 2.5, 0, Math.PI*2);
+      c.fill();
+    }
+
+    for(const e of state.enemies){
+      c.fillStyle = e.type === "runner" ? "#9dff7c" : e.type === "tank" ? "#ffd166" : "#74a8ff";
+      c.beginPath();
+      c.arc(mapX(e.mesh.position.x), mapY(e.mesh.position.z), 3, 0, Math.PI*2);
+      c.fill();
+    }
+
+    if(state.boss){
+      c.fillStyle = "#ff5a8a";
+      c.beginPath();
+      c.arc(mapX(state.boss.mesh.position.x), mapY(state.boss.mesh.position.z), 5, 0, Math.PI*2);
+      c.fill();
+    }
+
+    const px = mapX(player.pos.x);
+    const py = mapY(player.pos.z);
+
+    c.save();
+    c.translate(px, py);
+    c.rotate(-lookYaw);
+    c.fillStyle = "#ffffff";
+    c.beginPath();
+    c.moveTo(0,-7);
+    c.lineTo(5,6);
+    c.lineTo(-5,6);
+    c.closePath();
+    c.fill();
+    c.restore();
+
+    c.strokeStyle = "rgba(255,255,255,0.18)";
+    c.strokeRect(0.5,0.5,w-1,h-1);
   }
 
   function animate(now){
@@ -3845,8 +4048,11 @@ canvas{ display:block; }
       if(state.fireHeld && !isTouch && player.weapon === "bullet"){
         shootWithDirection();
       }
+    } else {
+      ui.pickupLabel.style.display = "none";
     }
 
+    drawMinimap();
     renderer.render(scene, camera);
   }
 
@@ -3861,6 +4067,13 @@ canvas{ display:block; }
 
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
+
+  ui.chipBullet.addEventListener("click", () => setWeapon("bullet"));
+  ui.chipRocket.addEventListener("click", () => setWeapon("rocket"));
+  ui.chipGrenade.addEventListener("click", () => setWeapon("grenade"));
+  ui.mwBullet.addEventListener("click", () => setWeapon("bullet"));
+  ui.mwRocket.addEventListener("click", () => setWeapon("rocket"));
+  ui.mwGrenade.addEventListener("click", () => setWeapon("grenade"));
 
   document.addEventListener("pointerlockchange", () => {
     state.pointerLocked = document.pointerLockElement === renderer.domElement;
@@ -3887,9 +4100,7 @@ canvas{ display:block; }
     if(e.code === "Digit3") setWeapon("grenade");
 
     if(e.code === "Space" || e.code === "Enter"){
-      if(player.weapon === "bullet"){
-        state.fireHeld = true;
-      }
+      if(player.weapon === "bullet") state.fireHeld = true;
       shootWithDirection();
     }
 
@@ -3925,16 +4136,21 @@ canvas{ display:block; }
 
   renderer.domElement.addEventListener("pointerdown", e => {
     if(!isTouch) return;
-    if(!state.running){
-      startGame();
-    }
+    if(!state.running) startGame();
 
     const joyRect = document.getElementById("joy").getBoundingClientRect();
     const insideJoy = e.clientX >= joyRect.left && e.clientX <= joyRect.right && e.clientY >= joyRect.top && e.clientY <= joyRect.bottom;
+
     const uiRect = document.getElementById("ui").getBoundingClientRect();
     const insideUi = e.clientX >= uiRect.left && e.clientX <= uiRect.right && e.clientY >= uiRect.top && e.clientY <= uiRect.bottom;
 
-    if(!insideJoy && !insideUi){
+    const mwRect = document.getElementById("mobileWeaponBar").getBoundingClientRect();
+    const insideMw = e.clientX >= mwRect.left && e.clientX <= mwRect.right && e.clientY >= mwRect.top && e.clientY <= mwRect.bottom;
+
+    const mmRect = document.getElementById("minimap").getBoundingClientRect();
+    const insideMini = e.clientX >= mmRect.left && e.clientX <= mmRect.right && e.clientY >= mmRect.top && e.clientY <= mmRect.bottom;
+
+    if(!insideJoy && !insideUi && !insideMw && !insideMini){
       touchShootAt(e.clientX, e.clientY);
     }
   });
@@ -3989,7 +4205,17 @@ canvas{ display:block; }
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+    const small = innerWidth <= 760;
+    ui.minimapCanvas.width = small ? 110 : 150;
+    ui.minimapCanvas.height = small ? 110 : 150;
   });
+
+  {
+    const small = innerWidth <= 760;
+    ui.minimapCanvas.width = small ? 110 : 150;
+    ui.minimapCanvas.height = small ? 110 : 150;
+  }
 
   animate(performance.now());
 })();
