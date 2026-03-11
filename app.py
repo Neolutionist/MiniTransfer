@@ -2331,6 +2331,10 @@ canvas{ display:block; }
 .weapon-chip.active{
   box-shadow:0 0 0 1px rgba(77,247,255,.6), 0 0 18px rgba(77,247,255,.18);
 }
+.weapon-chip.fired{
+  box-shadow:0 0 0 1px rgba(255,140,192,.7), 0 0 24px rgba(255,110,161,.28);
+  transform:translateY(-2px) scale(1.03);
+}
 
 #centerMessage{
   position:fixed;
@@ -3745,7 +3749,8 @@ canvas{ display:block; }
     lastClearStamp:performance.now(),
     ragdolls: [],
     hazards: [],
-    lastAbility: ""
+    firedAbility: "",
+    abilityFlashTimers: { plasma:null, mine:null, orbital:null }
   };
 
   const input = {
@@ -3757,12 +3762,32 @@ canvas{ display:block; }
     lookY:0
   };
 
+  function weaponLabel(w){
+    return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+  }
+
+  function pulseAbilityUI(kind){
+    const chip = kind === "plasma" ? ui.chipPlasma : kind === "mine" ? ui.chipMine : ui.chipOrbital;
+    const btn = kind === "plasma" ? ui.abilityPlasma : kind === "mine" ? ui.abilityMine : ui.abilityOrbital;
+    chip?.classList.add("fired");
+    btn?.classList.add("active");
+    if(state.abilityFlashTimers[kind]) clearTimeout(state.abilityFlashTimers[kind]);
+    state.abilityFlashTimers[kind] = setTimeout(() => {
+      chip?.classList.remove("fired");
+      btn?.classList.remove("active");
+      if(state.firedAbility === kind) state.firedAbility = "";
+    }, 240);
+  }
+
   function setWeapon(w){
     player.weapon = w;
-    ui.weaponName.textContent = w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(w);
     ui.chipBullet.classList.toggle("active", w === "bullet");
     ui.chipRocket.classList.toggle("active", w === "rocket");
     ui.chipGrenade.classList.toggle("active", w === "grenade");
+    ui.chipPlasma.classList.remove("active");
+    ui.chipMine.classList.remove("active");
+    ui.chipOrbital.classList.remove("active");
   }
 
   function setStat(){
@@ -3777,19 +3802,13 @@ canvas{ display:block; }
     ui.ammoMine.textContent = player.abilities.mine;
     ui.ammoOrbital.textContent = player.abilities.orbital;
     ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
-    ui.weaponName.textContent = player.weapon === "bullet" ? "Bullet" : player.weapon === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(player.weapon);
     ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
     ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
     ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
-    ui.chipPlasma.classList.toggle("active", state.lastAbility === "plasma");
-    ui.chipMine.classList.toggle("active", state.lastAbility === "mine");
-    ui.chipOrbital.classList.toggle("active", state.lastAbility === "orbital");
     ui.abilityPlasmaCount.textContent = `${player.abilities.plasma} charges`;
     ui.abilityMineCount.textContent = `${player.abilities.mine} charges`;
     ui.abilityOrbitalCount.textContent = `${player.abilities.orbital} charges`;
-    ui.abilityPlasma.classList.toggle("active", state.lastAbility === "plasma");
-    ui.abilityMine.classList.toggle("active", state.lastAbility === "mine");
-    ui.abilityOrbital.classList.toggle("active", state.lastAbility === "orbital");
     ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
     ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
     ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
@@ -4132,7 +4151,13 @@ canvas{ display:block; }
     for(let i=0;i<count;i++) spawnEnemy(false);
     if(player.wave % 4 === 0){
       setTimeout(() => {
-        if(state.running && player.alive && !state.boss) spawnEnemy(true);
+        if(state.running && player.alive && !state.boss){
+          if(state.enemies.length > 16){
+            const overflow = state.enemies.splice(16);
+            for(const extra of overflow) scene.remove(extra.mesh);
+          }
+          spawnEnemy(true);
+        }
       }, 900);
     }
     if(player.wave >= 5 && player.wave % 3 === 0){
@@ -4499,7 +4524,8 @@ canvas{ display:block; }
   function deployShockMine(){
     if(!state.running || !player.alive || player.abilities.mine <= 0) return;
     player.abilities.mine -= 1;
-    state.lastAbility = "mine";
+    state.firedAbility = "mine";
+    pulseAbilityUI("mine");
     const group = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.12,18), new THREE.MeshStandardMaterial({ color:0x8bf0ff, emissive:0x2a8aa0, emissiveIntensity:0.9, metalness:0.35, roughness:0.22 }));
     const coil = new THREE.Mesh(new THREE.TorusGeometry(0.4,0.05,10,28), new THREE.MeshStandardMaterial({ color:0xd8fbff, emissive:0x8bf0ff, emissiveIntensity:1.1 }));
@@ -4521,7 +4547,8 @@ canvas{ display:block; }
   function deployOrbital(){
     if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
     player.abilities.orbital -= 1;
-    state.lastAbility = "orbital";
+    state.firedAbility = "orbital";
+    pulseAbilityUI("orbital");
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
@@ -4546,7 +4573,8 @@ canvas{ display:block; }
   function firePlasmaBurst(){
     if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
     player.abilities.plasma -= 1;
-    state.lastAbility = "plasma";
+    state.firedAbility = "plasma";
+    pulseAbilityUI("plasma");
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     for(let i=-2;i<=2;i++){
@@ -4667,7 +4695,12 @@ canvas{ display:block; }
     player.abilities.plasma = 3;
     player.abilities.mine = 2;
     player.abilities.orbital = 1;
-    state.lastAbility = "";
+    state.firedAbility = "";
+    Object.keys(state.abilityFlashTimers).forEach(key => {
+      if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
+      state.abilityFlashTimers[key] = null;
+    });
+    [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital].forEach(el => el?.classList.remove("active", "fired"));
     state.combo = 1;
     state.comboTimer = 0;
     state.comboBest = 1;
@@ -5467,6 +5500,24 @@ canvas{ display:block; }
   lookJoy.addEventListener("pointerup", releaseLookJoy);
   lookJoy.addEventListener("pointercancel", releaseLookJoy);
 
+
+  [
+    [ui.chipBullet, () => setWeapon("bullet")],
+    [ui.chipRocket, () => setWeapon("rocket")],
+    [ui.chipGrenade, () => setWeapon("grenade")],
+    [ui.chipPlasma, firePlasmaBurst],
+    [ui.chipMine, deployShockMine],
+    [ui.chipOrbital, deployOrbital]
+  ].forEach(([btn, fn]) => {
+    btn?.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio();
+      if(!state.running) startGame();
+      fn();
+    });
+  });
+
   [
     [ui.abilityPlasma, firePlasmaBurst],
     [ui.abilityMine, deployShockMine],
@@ -5490,173 +5541,6 @@ canvas{ display:block; }
 
   animate(performance.now());
 })();
-
-/* === Olde Hanter Advanced Gameplay Extension === */
-
-let playerHP = 100;
-let level = 1;
-let enemiesKilled = 0;
-let nextLevelKills = 15;
-
-function showFloating(text,x=window.innerWidth/2,y=120){
-  const d=document.createElement("div");
-  d.innerText=text;
-  d.style.position="fixed";
-  d.style.left=x+"px";
-  d.style.top=y+"px";
-  d.style.color="#4df7ff";
-  d.style.fontWeight="700";
-  d.style.zIndex=9999;
-  d.style.textShadow="0 0 10px #4df7ff";
-  document.body.appendChild(d);
-  setTimeout(()=>d.remove(),1500);
-}
-
-/* damage system */
-function damagePlayer(amount){
-  playerHP -= amount;
-  if(playerHP<0) playerHP=0;
-
-  let hud=document.getElementById("hpValue");
-  if(hud) hud.innerText=playerHP;
-
-  document.body.style.boxShadow="inset 0 0 80px rgba(255,0,0,.6)";
-
-  setTimeout(()=>{document.body.style.boxShadow="";},120);
-
-  if(playerHP<=0){
-    showFloating("YOU WERE DEFEATED");
-  }
-}
-
-/* enemy attack behaviours */
-function enemyAttack(enemy,player){
-
-  const type=Math.floor(Math.random()*3);
-
-  if(type===0){
-    damagePlayer(5);
-  }
-
-  if(type===1){
-    damagePlayer(8);
-    spawnShockwave(enemy.x,enemy.y);
-  }
-
-  if(type===2){
-    damagePlayer(3);
-  }
-
-}
-
-/* level system */
-function registerKill(){
-  enemiesKilled++;
-
-  if(enemiesKilled>=nextLevelKills){
-    levelUp();
-  }
-}
-
-function levelUp(){
-  level++;
-  enemiesKilled=0;
-  nextLevelKills+=10;
-
-  showFloating("LEVEL "+level);
-
-  spawnBoss();
-}
-
-/* bosses */
-function spawnBoss(){
-
-  const boss={
-    x:Math.random()*window.innerWidth,
-    y:-120,
-    hp:500+level*150,
-    type:"oldehanter_boss",
-    size:120
-  };
-
-  if(window.enemies){
-    enemies.push(boss);
-  }
-
-  showFloating("⚠ OLDE HANTER BOSS INCOMING ⚠");
-}
-
-/* epic effects */
-function spawnShockwave(x,y){
-
-  const ring=document.createElement("div");
-
-  ring.style.position="fixed";
-  ring.style.left=x+"px";
-  ring.style.top=y+"px";
-  ring.style.width="20px";
-  ring.style.height="20px";
-  ring.style.border="3px solid #ff4fd8";
-  ring.style.borderRadius="50%";
-  ring.style.pointerEvents="none";
-  ring.style.zIndex=9999;
-
-  document.body.appendChild(ring);
-
-  let size=20;
-
-  const anim=setInterval(()=>{
-    size+=12;
-    ring.style.width=size+"px";
-    ring.style.height=size+"px";
-    ring.style.opacity=1-size/300;
-
-    if(size>280){
-      clearInterval(anim);
-      ring.remove();
-    }
-  },16);
-}
-
-/* mobile orientation button */
-
-
-/* Olde Hanter enemy visual marker */
-
-function markOldeHanter(enemyMesh){
-
-  if(!enemyMesh) return;
-
-  const badge=document.createElement("div");
-  badge.innerText="OH";
-  badge.style.position="absolute";
-  badge.style.color="#4df7ff";
-  badge.style.fontWeight="900";
-  badge.style.textShadow="0 0 10px #4df7ff";
-
-  document.body.appendChild(badge);
-}
-
-/* ammo safety */
-
-setInterval(()=>{
-  if(window.ammo!==undefined && ammo<=0){
-    ammo=10;
-    showFloating("Emergency ammo");
-  }
-},3000);
-
-/* epic boss pulse */
-
-setInterval(()=>{
-  const bosses=(window.enemies||[]).filter(e=>e.type==="oldehanter_boss");
-
-  bosses.forEach(b=>{
-    spawnShockwave(b.x||innerWidth/2,b.y||innerHeight/3);
-  });
-
-},2500);
-
 
 </script>
 </body>
