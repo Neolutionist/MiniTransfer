@@ -3228,7 +3228,7 @@ canvas{ display:block; }
       color:palette[2], emissive:palette[2], emissiveIntensity:1.2
     });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.55:1.25, type==="runner"?.88:1.0, .42), matA);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.55:1.25, type==="runner" ? 0.88 : 1.0, .42), matA);
     torso.position.y = 1.82;
 
     const headOuter = new THREE.Mesh(new THREE.CylinderGeometry(.62,.62,.3,32), matB);
