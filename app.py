@@ -2704,6 +2704,7 @@ canvas{ display:block; }
     <div class="stat"><div class="label">Plasma</div><div class="value" id="ammoPlasma">3</div></div>
     <div class="stat"><div class="label">Mines</div><div class="value" id="ammoMine">2</div></div>
     <div class="stat"><div class="label">Orbital</div><div class="value" id="ammoOrbital">1</div></div>
+    <div class="stat"><div class="label">Combo</div><div class="value" id="combo">x1.0</div></div>
   </div>
 
   <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten. Pickups tonen nu exact wat je krijgt.</div>
@@ -2776,6 +2777,7 @@ canvas{ display:block; }
     ammoPlasma: document.getElementById("ammoPlasma"),
     ammoMine: document.getElementById("ammoMine"),
     ammoOrbital: document.getElementById("ammoOrbital"),
+    combo: document.getElementById("combo"),
     weaponName: document.getElementById("weaponName"),
     chipBullet: document.getElementById("chipBullet"),
     chipRocket: document.getElementById("chipRocket"),
@@ -2939,7 +2941,13 @@ canvas{ display:block; }
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(170,170,24,24),
-    new THREE.MeshStandardMaterial({ color:0x0c1230, roughness:0.92, metalness:0.1 })
+    new THREE.MeshStandardMaterial({
+      color:0x10182f,
+      emissive:0x09111f,
+      emissiveIntensity:0.22,
+      roughness:0.96,
+      metalness:0.08
+    })
   );
   floor.rotation.x = -Math.PI/2;
   floor.receiveShadow = true;
@@ -3161,6 +3169,117 @@ canvas{ display:block; }
     emberField.add(ember);
   }
   scene.add(emberField);
+
+  const arenaDeco = {
+    searchlights:new THREE.Group(),
+    fogWisps:new THREE.Group(),
+    crystalClusters:new THREE.Group(),
+    ruins:new THREE.Group(),
+    cliffs:new THREE.Group()
+  };
+  scene.add(arenaDeco.searchlights, arenaDeco.fogWisps, arenaDeco.crystalClusters, arenaDeco.ruins, arenaDeco.cliffs);
+
+  function addDecalRing(x,z,radius,color=0x2bc1ff){
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(radius*0.72, radius, 40),
+      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.18, side:THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI/2;
+    ring.position.set(x,0.031,z);
+    scene.add(ring);
+    return ring;
+  }
+
+  function buildSetDressing(){
+    const rockMat = new THREE.MeshStandardMaterial({ color:0x202635, roughness:0.96, metalness:0.04 });
+    const ruinMat = new THREE.MeshStandardMaterial({ color:0x3a3f52, roughness:0.78, metalness:0.16, emissive:0x111827, emissiveIntensity:0.16 });
+    const crystalMat = new THREE.MeshStandardMaterial({ color:0x7be6ff, emissive:0x2a92b6, emissiveIntensity:0.8, roughness:0.24, metalness:0.32 });
+
+    for(let i=0;i<22;i++){
+      const cliff = new THREE.Mesh(
+        new THREE.ConeGeometry(5 + Math.random()*6, 10 + Math.random()*16, 6),
+        rockMat
+      );
+      cliff.position.set(-88 + i*8.2, 4 + Math.random()*2, (i % 2 ? -93 : 93) + Math.random()*6 - 3);
+      cliff.rotation.z = rand(-0.08,0.08);
+      cliff.rotation.x = rand(-0.05,0.05);
+      cliff.castShadow = cliff.receiveShadow = true;
+      arenaDeco.cliffs.add(cliff);
+    }
+
+    [
+      { x:0, z:-56, w:24, h:8.5 },
+      { x:-54, z:0, w:7.5, h:8 },
+      { x:54, z:0, w:7.5, h:8 },
+      { x:0, z:56, w:18, h:7.2 }
+    ].forEach((cfg, idx) => {
+      const left = new THREE.Mesh(new THREE.BoxGeometry(2.2, cfg.h, 2.2), ruinMat);
+      const right = left.clone();
+      const top = new THREE.Mesh(new THREE.BoxGeometry(cfg.w, 1.4, 2.4), ruinMat);
+      if(Math.abs(cfg.x) > Math.abs(cfg.z)){
+        left.position.set(cfg.x, cfg.h/2, cfg.z - cfg.w/2 + 1.6);
+        right.position.set(cfg.x, cfg.h/2, cfg.z + cfg.w/2 - 1.6);
+        top.position.set(cfg.x, cfg.h - 0.7, cfg.z);
+        top.rotation.y = Math.PI/2;
+      } else {
+        left.position.set(cfg.x - cfg.w/2 + 1.6, cfg.h/2, cfg.z);
+        right.position.set(cfg.x + cfg.w/2 - 1.6, cfg.h/2, cfg.z);
+        top.position.set(cfg.x, cfg.h - 0.7, cfg.z);
+      }
+      [left,right,top].forEach(part => {
+        part.castShadow = part.receiveShadow = true;
+        arenaDeco.ruins.add(part);
+      });
+      addDecalRing(cfg.x, cfg.z, idx === 0 ? 6.8 : 4.8, idx % 2 ? 0xff4fd8 : 0x4df7ff);
+    });
+
+    for(let i=0;i<14;i++){
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.8 + Math.random()*0.65, 0), crystalMat.clone());
+      crystal.material.color.offsetHSL((Math.random()-0.5)*0.08, 0, 0);
+      crystal.position.set((i < 7 ? -1 : 1) * rand(20,57), 0.8 + Math.random()*0.8, rand(-48,48));
+      crystal.scale.y = 1.3 + Math.random()*2.5;
+      crystal.rotation.y = Math.random()*Math.PI;
+      crystal.castShadow = crystal.receiveShadow = true;
+      crystal.userData.baseY = crystal.position.y;
+      crystal.userData.floatOffset = Math.random()*Math.PI*2;
+      arenaDeco.crystalClusters.add(crystal);
+    }
+
+    const fogGeo = new THREE.SphereGeometry(1.4, 10, 10);
+    for(let i=0;i<18;i++){
+      const fog = new THREE.Mesh(
+        fogGeo,
+        new THREE.MeshBasicMaterial({ color: i % 2 ? 0x4df7ff : 0xff4fd8, transparent:true, opacity:0.06, depthWrite:false })
+      );
+      fog.position.set(rand(-56,56), rand(0.5,2.2), rand(-56,56));
+      fog.scale.setScalar(rand(1.4,3.2));
+      fog.userData.base = fog.position.clone();
+      fog.userData.speed = rand(0.12,0.34);
+      fog.userData.phase = Math.random()*Math.PI*2;
+      arenaDeco.fogWisps.add(fog);
+    }
+
+    for(let i=0;i<4;i++){
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.5,11,10), ruinMat);
+      tower.position.set(i < 2 ? -58 : 58, 5.5, i % 2 ? 42 : -42);
+      tower.castShadow = tower.receiveShadow = true;
+      arenaDeco.searchlights.add(tower);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.55,1.1), new THREE.MeshStandardMaterial({ color:0x858ca8, metalness:0.48, roughness:0.32 }));
+      head.position.set(tower.position.x, 11.2, tower.position.z);
+      head.castShadow = true;
+      head.userData.phase = i * Math.PI * 0.5;
+      arenaDeco.searchlights.add(head);
+
+      const glow = new THREE.SpotLight(i % 2 ? 0x4df7ff : 0xffd166, 1.4, 96, 0.28, 0.45, 1);
+      glow.position.copy(head.position);
+      glow.target.position.set(0,0,0);
+      scene.add(glow, glow.target);
+      head.userData.spot = glow;
+      head.userData.baseY = head.position.y;
+    }
+  }
+  buildSetDressing();
 
   const weaponRig = new THREE.Group();
   camera.add(weaponRig);
@@ -3447,6 +3566,9 @@ canvas{ display:block; }
     songClock:0,
     songStep:-1,
     ambientPulse:0,
+    combo:1,
+    comboTimer:0,
+    comboBest:1,
     emergencyAmmoTimer:0,
     ammoHintTimer:0,
     lastClearStamp:performance.now(),
@@ -3483,6 +3605,7 @@ canvas{ display:block; }
     ui.ammoPlasma.textContent = player.abilities.plasma;
     ui.ammoMine.textContent = player.abilities.mine;
     ui.ammoOrbital.textContent = player.abilities.orbital;
+    ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
     ui.weaponName.textContent = player.weapon === "bullet" ? "Bullet" : player.weapon === "rocket" ? "Rocket" : "Grenade";
     ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
     ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
@@ -3997,7 +4120,10 @@ canvas{ display:block; }
 
   function registerKill(points){
     player.kills += 1;
-    player.score += points;
+    state.comboTimer = 3.2;
+    state.combo = clamp(state.combo + 0.2, 1, 3.6);
+    state.comboBest = Math.max(state.comboBest, state.combo);
+    player.score += Math.round(points * state.combo);
     setStat();
   }
 
@@ -4131,30 +4257,63 @@ canvas{ display:block; }
 
   function spawnRagdoll(enemy){
     const pieces = [];
+    const constraints = [];
     const base = enemy.mesh.position.clone();
     const color = enemy.isBoss ? 0x315c96 : enemy.type === "elite" ? 0x274f86 : enemy.type === "tank" ? 0x29496f : 0x315c96;
     const dark = enemy.isBoss ? 0x0c203d : 0x1d304f;
     const skin = 0xddb08b;
+    const impulse = new THREE.Vector3((Math.random()-0.5)*6.5, 5.5 + Math.random()*2.4, (Math.random()-0.5)*6.5);
     const defs = [
-      { size:[0.44,0.62,0.3], off:[0,2.65,0], c:skin },
-      { size:[0.82,1.0,0.38], off:[0,1.7,0], c:color },
-      { size:[0.7,0.34,0.32], off:[0,0.95,0], c:dark },
-      { size:[0.2,0.72,0.2], off:[-0.56,1.55,0], c:color },
-      { size:[0.2,0.72,0.2], off:[0.56,1.55,0], c:color },
-      { size:[0.22,0.82,0.22], off:[-0.22,0.35,0], c:dark },
-      { size:[0.22,0.82,0.22], off:[0.22,0.35,0], c:dark },
-      { size:[0.28,0.16,0.42], off:[-0.22,-0.28,0.08], c:dark },
-      { size:[0.28,0.16,0.42], off:[0.22,-0.28,0.08], c:dark }
+      { name:"head", size:[0.44,0.62,0.3], off:[0,2.65,0], c:skin, mass:0.85 },
+      { name:"torso", size:[0.82,1.0,0.38], off:[0,1.7,0], c:color, mass:1.3 },
+      { name:"hips", size:[0.7,0.34,0.32], off:[0,0.95,0], c:dark, mass:1.2 },
+      { name:"armL", size:[0.2,0.72,0.2], off:[-0.56,1.55,0], c:color, mass:0.7 },
+      { name:"armR", size:[0.2,0.72,0.2], off:[0.56,1.55,0], c:color, mass:0.7 },
+      { name:"legL", size:[0.22,0.82,0.22], off:[-0.22,0.35,0], c:dark, mass:0.9 },
+      { name:"legR", size:[0.22,0.82,0.22], off:[0.22,0.35,0], c:dark, mass:0.9 },
+      { name:"footL", size:[0.28,0.16,0.42], off:[-0.22,-0.28,0.08], c:dark, mass:0.55 },
+      { name:"footR", size:[0.28,0.16,0.42], off:[0.22,-0.28,0.08], c:dark, mass:0.55 }
     ];
-    defs.forEach(def => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...def.size), new THREE.MeshStandardMaterial({ color:def.c, roughness:.7, metalness:.1 }));
-      mesh.position.copy(base).add(new THREE.Vector3(...def.off));
-      mesh.rotation.set(Math.random()*0.6, Math.random()*Math.PI, Math.random()*0.6);
+    const idx = {};
+    defs.forEach((def, index) => {
+      idx[def.name] = index;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...def.size), new THREE.MeshStandardMaterial({ color:def.c, roughness:.72, metalness:.12 }));
+      const pos = base.clone().add(new THREE.Vector3(...def.off));
+      mesh.position.copy(pos);
+      mesh.rotation.set(Math.random()*0.45, Math.random()*Math.PI, Math.random()*0.45);
       mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh);
-      pieces.push({ mesh, vel:new THREE.Vector3((Math.random()-0.5)*7, 5+Math.random()*3, (Math.random()-0.5)*7), spin:new THREE.Vector3((Math.random()-0.5)*5,(Math.random()-0.5)*5,(Math.random()-0.5)*5) });
+      pieces.push({
+        mesh,
+        size:def.size,
+        mass:def.mass,
+        pos,
+        prev:pos.clone().sub(impulse.clone().multiplyScalar(0.016 / def.mass)),
+        spin:new THREE.Vector3((Math.random()-0.5)*3.5,(Math.random()-0.5)*4.8,(Math.random()-0.5)*3.5),
+        lift:0.5 + Math.random()*0.6,
+        radius:Math.max(def.size[0], def.size[1], def.size[2]) * 0.32
+      });
     });
-    state.ragdolls.push({ pieces, life:4.8 });
+
+    const link = (a, b, slack=1) => {
+      const pa = pieces[idx[a]].pos;
+      const pb = pieces[idx[b]].pos;
+      constraints.push({ a:idx[a], b:idx[b], len:pa.distanceTo(pb) * slack });
+    };
+    link("head", "torso", 1.0);
+    link("torso", "hips", 1.0);
+    link("torso", "armL", 1.02);
+    link("torso", "armR", 1.02);
+    link("hips", "legL", 1.0);
+    link("hips", "legR", 1.0);
+    link("legL", "footL", 1.0);
+    link("legR", "footR", 1.0);
+    link("armL", "armR", 1.08);
+    link("legL", "legR", 1.16);
+    link("armL", "hips", 1.22);
+    link("armR", "hips", 1.22);
+
+    state.ragdolls.push({ pieces, constraints, life:6.4, fade:1.8 });
   }
 
   function deployShockMine(){
@@ -4307,6 +4466,9 @@ canvas{ display:block; }
     player.abilities.mine = 2;
     player.abilities.orbital = 1;
     state.lastAbility = "";
+    state.combo = 1;
+    state.comboTimer = 0;
+    state.comboBest = 1;
     setWeapon("bullet");
     state.emergencyAmmoTimer = 0;
     state.ammoHintTimer = 0;
@@ -4609,24 +4771,51 @@ canvas{ display:block; }
   }
 
   function updateRagdolls(dt){
+    const gravity = 18;
     for(let i=state.ragdolls.length-1;i>=0;i--){
       const r = state.ragdolls[i];
       r.life -= dt;
       for(const piece of r.pieces){
-        piece.mesh.position.addScaledVector(piece.vel, dt);
-        piece.vel.multiplyScalar(0.985);
-        piece.vel.y -= 12 * dt;
-        if(piece.mesh.position.y < 0.09){
-          piece.mesh.position.y = 0.09;
-          piece.vel.y *= -0.18;
-          piece.vel.x *= 0.86;
-          piece.vel.z *= 0.86;
+        const velocity = piece.pos.clone().sub(piece.prev).multiplyScalar(0.988);
+        piece.prev.copy(piece.pos);
+        piece.pos.add(velocity);
+        piece.pos.y += (piece.lift - gravity) * dt * dt;
+      }
+
+      for(let iter=0; iter<5; iter++){
+        for(const c of r.constraints){
+          const a = r.pieces[c.a];
+          const b = r.pieces[c.b];
+          const delta = b.pos.clone().sub(a.pos);
+          let dist = delta.length() || 0.0001;
+          const diff = (dist - c.len) / dist;
+          const aWeight = b.mass / (a.mass + b.mass);
+          const bWeight = a.mass / (a.mass + b.mass);
+          a.pos.addScaledVector(delta, diff * 0.5 * aWeight);
+          b.pos.addScaledVector(delta, -diff * 0.5 * bWeight);
         }
-        piece.mesh.rotation.x += piece.spin.x * dt;
-        piece.mesh.rotation.y += piece.spin.y * dt;
-        piece.mesh.rotation.z += piece.spin.z * dt;
+
+        for(const piece of r.pieces){
+          const floorY = 0.08 + piece.radius;
+          if(piece.pos.y < floorY){
+            const vy = piece.pos.y - piece.prev.y;
+            piece.pos.y = floorY;
+            piece.prev.y = piece.pos.y + vy * -0.22;
+            piece.prev.x = piece.pos.x - (piece.pos.x - piece.prev.x) * 0.72;
+            piece.prev.z = piece.pos.z - (piece.pos.z - piece.prev.z) * 0.72;
+          }
+        }
+      }
+
+      const opacity = clamp(r.life / r.fade, 0, 1);
+      for(const piece of r.pieces){
+        const move = piece.pos.clone().sub(piece.prev);
+        piece.mesh.position.copy(piece.pos);
+        piece.mesh.rotation.x += piece.spin.x * dt + move.z * 0.6;
+        piece.mesh.rotation.y += piece.spin.y * dt + move.x * 0.35;
+        piece.mesh.rotation.z += piece.spin.z * dt - move.x * 0.6;
         piece.mesh.material.transparent = true;
-        piece.mesh.material.opacity = clamp(r.life / 4.8, 0, 1);
+        piece.mesh.material.opacity = opacity;
       }
       if(r.life <= 0){
         for(const piece of r.pieces) scene.remove(piece.mesh);
@@ -4745,6 +4934,10 @@ canvas{ display:block; }
   function updateTimers(dt){
     player.fireCooldown = Math.max(0, player.fireCooldown - dt);
     player.damageCooldown = Math.max(0, player.damageCooldown - dt);
+    if(state.comboTimer > 0){
+      state.comboTimer = Math.max(0, state.comboTimer - dt);
+      if(state.comboTimer === 0) state.combo = 1;
+    }
 
     if(totalAmmo() === 0 && player.alive){
       state.emergencyAmmoTimer += dt;
@@ -4775,6 +4968,26 @@ canvas{ display:block; }
 
     stars.rotation.y += dt * 0.01;
     skyline.position.x = Math.sin(now * 0.00006) * 1.6;
+    arenaDeco.crystalClusters.children.forEach((crystal, i) => {
+      crystal.position.y = crystal.userData.baseY + Math.sin(now * 0.0011 + crystal.userData.floatOffset + i) * 0.08;
+      crystal.rotation.y += dt * 0.35;
+    });
+    arenaDeco.fogWisps.children.forEach((fog, i) => {
+      fog.position.x = fog.userData.base.x + Math.sin(now * 0.00025 * (i+1) + fog.userData.phase) * 3.2;
+      fog.position.z = fog.userData.base.z + Math.cos(now * 0.0002 * (i+1) + fog.userData.phase) * 2.4;
+      fog.position.y = fog.userData.base.y + Math.sin(now * 0.0008 + fog.userData.phase) * 0.22;
+    });
+    arenaDeco.searchlights.children.forEach((item, i) => {
+      if(item.userData.spot){
+        item.rotation.y = Math.sin(now * 0.00045 + item.userData.phase) * 1.2;
+        item.rotation.x = -0.26 + Math.sin(now * 0.00033 + item.userData.phase) * 0.12;
+        const spot = item.userData.spot;
+        const dir = new THREE.Vector3(0, -1, -1).applyEuler(item.rotation).normalize();
+        spot.position.copy(item.position);
+        spot.target.position.copy(item.position).add(dir.multiplyScalar(36));
+        spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
+      }
+    });
     emberField.children.forEach((ember, i) => {
       ember.position.y = ember.userData.baseY + Math.sin(now * 0.001 * ember.userData.speed + i) * 0.18;
       ember.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
@@ -4793,6 +5006,7 @@ canvas{ display:block; }
       updateEnemies(dt);
       updateParticles(dt);
       updateEffects(dt);
+      updateRagdolls(dt);
       updatePickups(dt);
       tryAdvanceWave();
 
@@ -4803,6 +5017,7 @@ canvas{ display:block; }
       updateViewWeapon(dt);
       updateEffects(dt);
       updateParticles(dt);
+      updateRagdolls(dt);
     }
 
     drawMinimap();
