@@ -2172,7 +2172,7 @@ EXPIRED_HTML = r"""
 
 :root{
   --bg:#070014;
-  --panel:rgba(0,0,0,.46);
+  --panel:rgba(0,0,0,.48);
   --panel-border:rgba(255,255,255,.12);
   --accent:#7db4ff;
   --accent2:#00e5ff;
@@ -2198,18 +2198,10 @@ html,body{
   touch-action:none;
 }
 
-body{
-  overscroll-behavior:none;
-}
+body{ overscroll-behavior:none; }
+canvas{ display:block; }
 
-canvas{
-  display:block;
-}
-
-#gameWrap{
-  position:fixed;
-  inset:0;
-}
+#gameWrap{ position:fixed; inset:0; }
 
 #ui{
   position:fixed;
@@ -2222,7 +2214,8 @@ canvas{
   border:1px solid var(--panel-border);
   backdrop-filter:blur(10px);
   box-shadow:0 12px 28px rgba(0,0,0,.28);
-  min-width:260px;
+  min-width:320px;
+  max-width:min(92vw, 420px);
 }
 
 #topline{
@@ -2254,24 +2247,13 @@ canvas{
   color:#dff3ff;
 }
 
-#brandText{
-  line-height:1.15;
-}
-
-#brandText b{
-  display:block;
-  font-size:14px;
-}
-
-#brandText span{
-  display:block;
-  color:var(--muted);
-  font-size:12px;
-}
+#brandText{ line-height:1.15; }
+#brandText b{ display:block; font-size:14px; }
+#brandText span{ display:block; color:var(--muted); font-size:12px; }
 
 #hud{
   display:grid;
-  grid-template-columns:repeat(2,minmax(90px,1fr));
+  grid-template-columns:repeat(3,minmax(80px,1fr));
   gap:8px;
   margin-top:10px;
 }
@@ -2315,20 +2297,19 @@ canvas{
   left:50%;
   top:50%;
   transform:translate(-50%,-50%);
-  z-index:22;
+  z-index:30;
   text-align:center;
-  background:rgba(0,0,0,.44);
+  background:rgba(0,0,0,.48);
   border:1px solid rgba(255,255,255,.12);
   border-radius:20px;
-  padding:20px 22px;
-  max-width:min(92vw,540px);
+  padding:22px 22px 18px;
+  max-width:min(92vw,620px);
+  width:min(92vw,620px);
   backdrop-filter:blur(12px);
   box-shadow:0 16px 40px rgba(0,0,0,.34);
 }
 
-#centerMessage.hidden{
-  display:none;
-}
+#centerMessage.hidden{ display:none; }
 
 #centerMessage h1{
   margin:0 0 8px;
@@ -2341,7 +2322,7 @@ canvas{
   line-height:1.45;
 }
 
-#centerMessage .kbd{
+.kbd{
   display:inline-block;
   padding:4px 8px;
   border-radius:8px;
@@ -2363,6 +2344,60 @@ canvas{
   box-shadow:0 8px 24px rgba(103,175,255,.28);
 }
 
+#nameRow{
+  margin-top:14px;
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+
+#playerName{
+  width:min(280px, 70vw);
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);
+  padding:12px 14px;
+  background:rgba(255,255,255,.08);
+  color:white;
+  outline:none;
+  font-size:15px;
+}
+
+#boardWrap{
+  margin-top:16px;
+  text-align:left;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+  padding:12px;
+}
+
+#boardWrap h3{
+  margin:0 0 10px;
+  font-size:14px;
+}
+
+#leaderboard{
+  margin:0;
+  padding-left:20px;
+  max-height:180px;
+  overflow:auto;
+}
+
+#leaderboard li{
+  margin:6px 0;
+  color:var(--muted);
+  font-size:14px;
+}
+
+.board-meta{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  color:rgba(255,255,255,.65);
+  font-size:12px;
+}
+
 #crosshair{
   position:fixed;
   left:50%;
@@ -2375,19 +2410,14 @@ canvas{
   opacity:.95;
 }
 
-#crosshair:before,
-#crosshair:after{
+#crosshair:before,#crosshair:after{
   content:"";
   position:absolute;
   background:rgba(255,255,255,.95);
   box-shadow:0 0 8px rgba(125,180,255,.55);
 }
-#crosshair:before{
-  left:10px; top:0; width:2px; height:22px;
-}
-#crosshair:after{
-  left:0; top:10px; width:22px; height:2px;
-}
+#crosshair:before{ left:10px; top:0; width:2px; height:22px; }
+#crosshair:after{ left:0; top:10px; width:22px; height:2px; }
 
 #damageFlash{
   position:fixed;
@@ -2478,7 +2508,7 @@ canvas{
   border-radius:14px;
   padding:10px 12px;
   backdrop-filter:blur(8px);
-  min-width:180px;
+  min-width:210px;
 }
 
 #powerBadge .title{
@@ -2504,9 +2534,7 @@ canvas{
   display:none;
 }
 
-#bossBarWrap.show{
-  display:block;
-}
+#bossBarWrap.show{ display:block; }
 
 #bossBarLabel{
   text-align:center;
@@ -2533,14 +2561,8 @@ canvas{
   box-shadow:0 0 16px rgba(255,37,109,.42);
 }
 
-.hidden-mobile{
-  display:block;
-}
-
 @media (pointer:fine){
-  #mobileControls{
-    display:none;
-  }
+  #mobileControls{ display:none; }
 }
 
 @media (max-width:720px){
@@ -2549,18 +2571,17 @@ canvas{
     left:12px;
     right:12px;
     min-width:unset;
+    max-width:none;
   }
   #powerBadge{
     top:auto;
     right:12px;
     bottom:162px;
+    min-width:unset;
+    max-width:calc(100vw - 24px);
   }
-  #centerMessage h1{
-    font-size:24px;
-  }
-  .hidden-mobile{
-    display:none;
-  }
+  #centerMessage h1{ font-size:24px; }
+  #hud{ grid-template-columns:repeat(2,minmax(80px,1fr)); }
 }
 </style>
 </head>
@@ -2600,8 +2621,16 @@ canvas{
       <div class="value" id="hp">100</div>
     </div>
     <div class="stat">
-      <div class="label">Ammo</div>
-      <div class="value" id="ammo">∞</div>
+      <div class="label">Combo</div>
+      <div class="value" id="combo">x1</div>
+    </div>
+    <div class="stat">
+      <div class="label">Dash</div>
+      <div class="value" id="dash">Ready</div>
+    </div>
+    <div class="stat">
+      <div class="label">Kills</div>
+      <div class="value" id="kills">0</div>
     </div>
   </div>
 
@@ -2609,6 +2638,7 @@ canvas{
   <div id="controlsHint">
     Bewegen: <span class="kbd">WASD</span> <span class="kbd">pijltjes</span>
     Schieten: <span class="kbd">spatie</span> <span class="kbd">klik</span> <span class="kbd">enter</span> <span class="kbd">shift</span>
+    Dash: <span class="kbd">F</span> <span class="kbd">dubbel tap vooruit</span>
     Kijken: <span class="kbd">muis</span> <span class="kbd">Q/E</span>
   </div>
 </div>
@@ -2620,10 +2650,29 @@ canvas{
 
 <div id="centerMessage">
   <h1>Downloadlink verlopen</h1>
-  <p>Speel ondertussen een uitgebreide Olde Hanter mini-game. Op desktop kun je met muis richten en met toetsen bewegen. Op mobiel gebruik je de virtuele joystick en de vuurknop.</p>
-  <p class="hidden-mobile">Klik op starten voor muisbesturing via pointer lock.</p>
+  <p>Speel ondertussen een uitdagende Olde Hanter mini-game. Vul je naam in voor de lokale leaderboard.</p>
+
+  <div id="nameRow">
+    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
+  </div>
+
+  <p>
+    <span class="kbd">WASD</span>
+    <span class="kbd">Pijltjes</span>
+    <span class="kbd">Klik / Spatie</span>
+    <span class="kbd">F = Dash</span>
+  </p>
+
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
+
+  <div id="boardWrap">
+    <div class="board-meta">
+      <h3>Leaderboard</h3>
+      <span>Lokaal op dit apparaat</span>
+    </div>
+    <ol id="leaderboard"></ol>
+  </div>
 </div>
 
 <div id="mobileControls">
@@ -2647,15 +2696,64 @@ canvas{
     score: document.getElementById("score"),
     wave: document.getElementById("wave"),
     hp: document.getElementById("hp"),
-    ammo: document.getElementById("ammo"),
+    combo: document.getElementById("combo"),
+    kills: document.getElementById("kills"),
+    dash: document.getElementById("dash"),
     powerText: document.getElementById("powerText"),
     center: document.getElementById("centerMessage"),
     startBtn: document.getElementById("startBtn"),
     restartBtn: document.getElementById("restartBtn"),
     damageFlash: document.getElementById("damageFlash"),
     bossBarWrap: document.getElementById("bossBarWrap"),
-    bossBarInner: document.getElementById("bossBarInner")
+    bossBarInner: document.getElementById("bossBarInner"),
+    leaderboard: document.getElementById("leaderboard"),
+    playerName: document.getElementById("playerName")
   };
+
+  const LB_KEY = "olde_hanter_arcade_leaderboard_v1";
+
+  function getPlayerName(){
+    return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
+  }
+
+  function loadBoard(){
+    try{
+      const raw = localStorage.getItem(LB_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){
+      return [];
+    }
+  }
+
+  function saveBoard(rows){
+    localStorage.setItem(LB_KEY, JSON.stringify(rows.slice(0,10)));
+  }
+
+  function renderBoard(){
+    const rows = loadBoard();
+    ui.leaderboard.innerHTML = rows.length
+      ? rows.map(r => `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`).join("")
+      : `<li>Nog geen scores</li>`;
+  }
+
+  function submitScore(){
+    const score = player.score|0;
+    const wave = player.wave|0;
+    if(score <= 0) return;
+    const rows = loadBoard();
+    rows.push({ name:getPlayerName(), score, wave, ts:Date.now() });
+    rows.sort((a,b) => b.score - a.score || b.wave - a.wave || a.ts - b.ts);
+    saveBoard(rows);
+    renderBoard();
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    })[m]);
+  }
+
+  renderBoard();
 
   let audioCtx = null;
   function ensureAudio(){
@@ -2705,15 +2803,17 @@ canvas{
     src.start();
   }
 
-  function sfxShoot(){ tone(900, 0.05, "square", 0.045, -250); }
-  function sfxHit(){ tone(180, 0.09, "sawtooth", 0.045, -80); }
-  function sfxEnemyDown(){ tone(280,0.07,"square",0.05,120); setTimeout(()=>tone(430,0.07,"square",0.04,-40),40); }
+  function sfxShoot(){ tone(920, 0.05, "square", 0.045, -250); }
+  function sfxHit(){ tone(180, 0.08, "sawtooth", 0.04, -60); }
+  function sfxEnemyDown(){ tone(280,0.07,"square",0.05,120); setTimeout(()=>tone(450,0.08,"square",0.04,-40),40); }
   function sfxPower(){ tone(520,0.08,"triangle",0.045,90); setTimeout(()=>tone(780,0.12,"triangle",0.035,120),60); }
   function sfxDamage(){ noiseBurst(0.06,0.025); tone(120,0.08,"sawtooth",0.025,-50); }
   function sfxBoss(){ tone(90,0.16,"sawtooth",0.06,10); }
+  function sfxDash(){ tone(300,0.06,"triangle",0.05,160); }
+  function sfxCombo(){ tone(620,0.05,"square",0.03,80); }
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x070014, 20, 110);
+  scene.fog = new THREE.Fog(0x070014, 20, 115);
 
   const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
   camera.position.set(0, 1.7, 7);
@@ -2745,34 +2845,28 @@ canvas{
   grid.material.opacity = 0.22;
   scene.add(grid);
 
-  const floorGeo = new THREE.PlaneGeometry(150,150,20,20);
-  const floorMat = new THREE.MeshStandardMaterial({
-    color:0x0a1024,
-    roughness:0.92,
-    metalness:0.08
-  });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(150,150,20,20),
+    new THREE.MeshStandardMaterial({ color:0x0a1024, roughness:0.92, metalness:0.08 })
+  );
   floor.rotation.x = -Math.PI/2;
   floor.receiveShadow = true;
   scene.add(floor);
 
   const stars = new THREE.Group();
   const starGeo = new THREE.SphereGeometry(0.05,6,6);
-  for(let i=0;i<140;i++){
-    const m = new THREE.MeshBasicMaterial({
-      color: i % 4 === 0 ? 0x7db4ff : (i % 3 === 0 ? 0xffffff : 0x99e6ff)
-    });
+  for(let i=0;i<160;i++){
+    const m = new THREE.MeshBasicMaterial({ color: i % 4 === 0 ? 0x7db4ff : (i % 3 === 0 ? 0xffffff : 0x99e6ff) });
     const s = new THREE.Mesh(starGeo, m);
     s.position.set((Math.random()-0.5)*140, Math.random()*40+8, (Math.random()-0.5)*140);
     stars.add(s);
   }
   scene.add(stars);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color:0x16254f, roughness:0.84, metalness:0.12 });
   const obstacleMat = new THREE.MeshStandardMaterial({ color:0x284889, roughness:0.72, metalness:0.18 });
+  const wallMat = new THREE.MeshStandardMaterial({ color:0x16254f, roughness:0.84, metalness:0.12 });
   const powerMat = new THREE.MeshStandardMaterial({ color:0xffd166, emissive:0x8a5d00, emissiveIntensity:0.9 });
 
-  const obstacles = [];
   const colliders = [];
 
   function addBox(w,h,d,x,y,z,mat=wallMat){
@@ -2781,9 +2875,7 @@ canvas{
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    const box = new THREE.Box3().setFromObject(mesh);
-    obstacles.push(mesh);
-    colliders.push({mesh, box});
+    colliders.push({mesh, box:new THREE.Box3().setFromObject(mesh)});
     return mesh;
   }
 
@@ -2794,11 +2886,11 @@ canvas{
     addBox(boundary*2,4,2, 0, 2,-boundary);
     addBox(boundary*2,4,2, 0, 2, boundary);
 
-    const blocks = [
+    [
       [-18,1.5,-10,8,3,8], [14,1.5,-12,10,3,6], [0,1.5,16,12,3,8],
-      [-24,1.5,20,6,3,10], [22,1.5,10,8,3,8], [-8,1.5,2,8,3,5], [9,1.5,1,6,3,9]
-    ];
-    blocks.forEach(([x,y,z,w,h,d]) => addBox(w,h,d,x,y,z, obstacleMat));
+      [-24,1.5,20,6,3,10], [22,1.5,10,8,3,8], [-8,1.5,2,8,3,5], [9,1.5,1,6,3,9],
+      [-32,1.5,-26,10,3,6], [32,1.5,-26,10,3,6], [0,1.5,-30,12,3,8]
+    ].forEach(([x,y,z,w,h,d]) => addBox(w,h,d,x,y,z, obstacleMat));
 
     for(let i=0;i<12;i++){
       const p = new THREE.Mesh(
@@ -2815,7 +2907,6 @@ canvas{
 
   const player = {
     pos: new THREE.Vector3(0, 1.7, 7),
-    vel: new THREE.Vector3(),
     radius: 0.7,
     speed: 10.5,
     sprint: 1.2,
@@ -2828,7 +2919,12 @@ canvas{
     power: null,
     powerTimer: 0,
     alive: true,
-    damageCooldown: 0
+    damageCooldown: 0,
+    kills: 0,
+    combo: 1,
+    comboTimer: 0,
+    dashCooldown: 0,
+    lastForwardTap: 0
   };
 
   const state = {
@@ -2842,85 +2938,92 @@ canvas{
     pickups: [],
     boss: null,
     lastTime: performance.now(),
-    spawnTimer: 0,
-    waveKills: 0,
-    targetKills: 8,
     bossEvery: 4
   };
 
   const keys = Object.create(null);
 
-  function keyName(k){ return (k || "").toLowerCase(); }
-
-  addEventListener("keydown", e => {
-    keys[e.code] = true;
-    keys[keyName(e.key)] = true;
-    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
-    if((e.code === "Space" || e.code === "Enter" || e.code === "ShiftLeft" || e.code === "ShiftRight" || e.code === "Numpad0") && state.running){
-      shoot();
-    }
-    if(e.code === "KeyR" && !player.alive){
-      restartGame();
-    }
-  }, {passive:false});
-
-  addEventListener("keyup", e => {
-    keys[e.code] = false;
-    keys[keyName(e.key)] = false;
-  });
-
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function rand(a,b){ return a + Math.random()*(b-a); }
-  function dist2D(a,b){
-    const dx = a.x-b.x, dz = a.z-b.z;
-    return Math.sqrt(dx*dx + dz*dz);
-  }
+  function dist2D(a,b){ const dx = a.x-b.x, dz = a.z-b.z; return Math.sqrt(dx*dx + dz*dz); }
 
-  function collidesAt(x,z, radius=player.radius){
-    const pMinX = x - radius;
-    const pMaxX = x + radius;
-    const pMinZ = z - radius;
-    const pMaxZ = z + radius;
+  function collidesAt(x,z,radius=player.radius){
+    const pMinX = x - radius, pMaxX = x + radius, pMinZ = z - radius, pMaxZ = z + radius;
     for(const c of colliders){
       const b = c.box;
-      if(pMaxX > b.min.x && pMinX < b.max.x && pMaxZ > b.min.z && pMinZ < b.max.z){
-        return true;
-      }
+      if(pMaxX > b.min.x && pMinX < b.max.x && pMaxZ > b.min.z && pMinZ < b.max.z) return true;
     }
     return false;
   }
 
-  function moveWithCollision(dx, dz){
+  function moveWithCollision(dx,dz){
     const nx = player.pos.x + dx;
     const nz = player.pos.z + dz;
     if(!collidesAt(nx, player.pos.z)) player.pos.x = nx;
     if(!collidesAt(player.pos.x, nz)) player.pos.z = nz;
   }
 
-  function makeOHEnemy(scale=1, isBoss=false){
+  function updateDashText(){
+    ui.dash.textContent = player.dashCooldown <= 0 ? "Ready" : (player.dashCooldown.toFixed(1) + "s");
+  }
+
+  function addScore(base){
+    const gained = Math.round(base * player.combo);
+    player.score += gained;
+    ui.score.textContent = player.score;
+  }
+
+  function registerKill(baseScore=10){
+    player.kills += 1;
+    player.combo = clamp(player.combo + 0.15, 1, 5);
+    player.comboTimer = 3.8;
+    addScore(baseScore);
+    ui.kills.textContent = player.kills;
+    ui.combo.textContent = "x" + player.combo.toFixed(1);
+    if(player.combo > 1.4) sfxCombo();
+  }
+
+  function decayCombo(dt){
+    if(player.comboTimer > 0){
+      player.comboTimer -= dt;
+      if(player.comboTimer <= 0){
+        player.combo = 1;
+        ui.combo.textContent = "x1";
+      }
+    }
+  }
+
+  function makeOHEnemy(scale=1, isBoss=false, variant="basic"){
     const group = new THREE.Group();
 
+    const palette = {
+      basic:[0x7db4ff,0x0a2756,0xdff6ff],
+      runner:[0x65ff9a,0x0f5a39,0xe0fff1],
+      tank:[0xffc36d,0x734600,0xfff1d7],
+      boss:[0xff7b9d,0x65152a,0xffdbe5]
+    }[isBoss ? "boss" : variant];
+
     const blue = new THREE.MeshStandardMaterial({
-      color:0x7db4ff,
-      emissive:0x234a8d,
-      emissiveIntensity:isBoss ? 0.95 : 0.55,
+      color:palette[0],
+      emissive:palette[1],
+      emissiveIntensity:isBoss ? 1.0 : 0.55,
       roughness:0.45,
       metalness:0.25
     });
     const dark = new THREE.MeshStandardMaterial({
-      color:0x0a2756,
-      emissive:0x06152d,
+      color:palette[1],
+      emissive:palette[1],
       emissiveIntensity:0.35,
       roughness:0.55,
       metalness:0.15
     });
     const eye = new THREE.MeshStandardMaterial({
-      color:0xdff6ff,
-      emissive:0x9ddfff,
-      emissiveIntensity:1.4
+      color:palette[2],
+      emissive:palette[2],
+      emissiveIntensity:1.3
     });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(1.3,1.0,0.42), blue);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(variant==="tank"?1.6:1.3, variant==="runner"?0.9:1.0, 0.42), blue);
     torso.position.y = 1.8;
 
     const headOuter = new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.62,0.30,32), dark);
@@ -2931,7 +3034,7 @@ canvas{
     headInner.rotation.x = Math.PI/2;
     headInner.position.set(0,2.75,0.08);
 
-    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.22,1.5,0.22), dark);
+    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.22, variant==="runner"?1.65:1.5, 0.22), dark);
     leftArm.position.set(-0.82,1.8,0);
     const rightArm = leftArm.clone();
     rightArm.position.x = 0.82;
@@ -2941,7 +3044,7 @@ canvas{
     const rightTop = leftTop.clone();
     rightTop.position.x = 0.52;
 
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22,1.35,0.22), dark);
+    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22,variant==="runner"?1.6:1.35,0.22), dark);
     leftLeg.position.set(-0.55,0.7,0);
     const rightLeg = leftLeg.clone();
     rightLeg.position.x = 0.55;
@@ -2962,7 +3065,7 @@ canvas{
 
     if(isBoss){
       const crown = new THREE.Mesh(
-        new THREE.TorusGeometry(0.95, 0.06, 8, 24),
+        new THREE.TorusGeometry(0.95,0.06,8,24),
         new THREE.MeshStandardMaterial({ color:0xff7b9d, emissive:0x7a1530, emissiveIntensity:1.0 })
       );
       crown.rotation.x = Math.PI/2;
@@ -2971,30 +3074,46 @@ canvas{
     }
 
     group.scale.setScalar(scale);
+    group.userData.variant = variant;
     return group;
   }
 
   function spawnEnemy(isBoss=false){
-    let tries = 0;
-    let x = 0, z = 0;
+    let tries = 0, x = 0, z = 0;
     while(tries < 40){
-      x = rand(-45,45);
-      z = rand(-45,45);
-      if(dist2D({x,z}, player.pos) > 14 && !collidesAt(x,z,1.2)) break;
+      x = rand(-46,46);
+      z = rand(-46,46);
+      if(dist2D({x,z}, player.pos) > 15 && !collidesAt(x,z,1.2)) break;
       tries++;
     }
 
-    const mesh = makeOHEnemy(isBoss ? 1.9 : rand(0.8, 1.08), isBoss);
-    mesh.position.set(x, 0, z);
+    let variant = "basic";
+    if(!isBoss){
+      const roll = Math.random();
+      if(player.wave >= 2 && roll < 0.25) variant = "runner";
+      else if(player.wave >= 3 && roll < 0.43) variant = "tank";
+    }
+
+    const mesh = makeOHEnemy(isBoss ? 1.9 : rand(0.85,1.08), isBoss, variant);
+    mesh.position.set(x,0,z);
     scene.add(mesh);
 
     const enemy = {
       mesh,
-      hp: isBoss ? 180 + player.wave*20 : Math.floor(18 + player.wave*4 + rand(0,10)),
-      speed: isBoss ? 2.6 : rand(2.2, 3.8) + player.wave * 0.12,
-      radius: isBoss ? 1.7 : 0.95,
-      fireCooldown: rand(1.2, 2.8),
+      hp: isBoss ? 220 + player.wave*28 : (
+        variant === "runner" ? Math.floor(12 + player.wave*3) :
+        variant === "tank" ? Math.floor(34 + player.wave*6) :
+        Math.floor(18 + player.wave*4 + rand(0,10))
+      ),
+      speed: isBoss ? 2.8 : (
+        variant === "runner" ? rand(4.6,5.6) + player.wave*0.15 :
+        variant === "tank" ? rand(1.8,2.4) + player.wave*0.06 :
+        rand(2.6,3.7) + player.wave*0.12
+      ),
+      radius: isBoss ? 1.8 : (variant === "tank" ? 1.15 : 0.95),
+      fireCooldown: isBoss ? 1.0 : rand(0.8,2.2),
       isBoss,
+      variant,
       bob: rand(0, Math.PI*2),
       strafe: rand(-1,1),
       hitFlash: 0
@@ -3011,14 +3130,13 @@ canvas{
   }
 
   function spawnWave(){
-    state.waveKills = 0;
     ui.wave.textContent = player.wave;
-    const count = Math.min(5 + player.wave * 2, 20);
+    const count = Math.min(6 + player.wave * 2, 24);
     for(let i=0;i<count;i++) spawnEnemy(false);
     if(player.wave % state.bossEvery === 0){
       setTimeout(() => {
         if(state.running && player.alive) spawnEnemy(true);
-      }, 1100);
+      }, 1000);
     }
   }
 
@@ -3048,8 +3166,8 @@ canvas{
       scene.add(mesh);
       state.particles.push({
         mesh,
-        vel: new THREE.Vector3(rand(-1,1), rand(0.2,1.4), rand(-1,1)).normalize().multiplyScalar(rand(speed*0.5, speed)),
-        life: rand(0.25,0.7)
+        vel:new THREE.Vector3(rand(-1,1), rand(0.2,1.4), rand(-1,1)).normalize().multiplyScalar(rand(speed*0.5, speed)),
+        life:rand(0.25,0.7)
       });
     }
   }
@@ -3057,24 +3175,18 @@ canvas{
   function dropPickup(position){
     const roll = Math.random();
     let kind = null;
-    if(roll < 0.18) kind = "rapid";
-    else if(roll < 0.31) kind = "double";
-    else if(roll < 0.43) kind = "heal";
+    if(roll < 0.16) kind = "rapid";
+    else if(roll < 0.28) kind = "double";
+    else if(roll < 0.38) kind = "heal";
+    else if(roll < 0.45) kind = "shield";
     if(!kind) return;
 
-    const mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.58, 0),
-      powerMat.clone()
-    );
+    const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.58, 0), powerMat.clone());
     mesh.position.copy(position);
     mesh.position.y = 0.95;
     scene.add(mesh);
 
-    state.pickups.push({
-      mesh,
-      kind,
-      life: 12
-    });
+    state.pickups.push({ mesh, kind, life: 12 });
   }
 
   function setPower(kind, seconds){
@@ -3083,7 +3195,8 @@ canvas{
     ui.powerText.textContent =
       kind === "rapid" ? "Rapid Fire" :
       kind === "double" ? "Double Damage" :
-      kind === "heal" ? "Repair Boost" : "Geen";
+      kind === "heal" ? "Repair Boost" :
+      kind === "shield" ? "Shield" : "Geen";
     sfxPower();
   }
 
@@ -3104,12 +3217,17 @@ canvas{
     start.y = 1.55;
     start.add(dir.clone().multiplyScalar(0.9));
 
-    state.bullets.push(makeBullet(start, dir, player.power === "rapid" ? 36 : 28, true, 0xffea7a, player.power === "rapid" ? 0.09 : 0.12));
-    if(player.power === "rapid"){
-      player.fireCooldown = 0.08;
-    }else{
-      player.fireCooldown = player.shootRate;
-    }
+    const bullet = makeBullet(
+      start,
+      dir,
+      player.power === "rapid" ? 38 : 30,
+      true,
+      player.power === "double" ? 0xff9ed1 : 0xffea7a,
+      player.power === "rapid" ? 0.09 : 0.12
+    );
+    state.bullets.push(bullet);
+
+    player.fireCooldown = player.power === "rapid" ? 0.09 : player.shootRate;
     sfxShoot();
   }
 
@@ -3117,25 +3235,39 @@ canvas{
     const start = enemy.mesh.position.clone();
     start.y = enemy.isBoss ? 3.0 : 2.35;
     const dir = player.pos.clone().sub(start);
-    dir.y = 0.2;
+    dir.y = 0.15;
     dir.normalize();
-    state.enemyBullets.push(makeBullet(start, dir, enemy.isBoss ? 16 : 11, false, enemy.isBoss ? 0xff6d8f : 0x8ad7ff, enemy.isBoss ? 0.18 : 0.12));
+
+    let speed = enemy.isBoss ? 18 : 11;
+    let color = enemy.isBoss ? 0xff6d8f : 0x8ad7ff;
+    if(enemy.variant === "runner") speed = 13;
+    if(enemy.variant === "tank") speed = 9;
+
+    state.enemyBullets.push(makeBullet(start, dir, speed, false, color, enemy.isBoss ? 0.18 : 0.12));
   }
 
   function applyDamage(amount){
     if(player.damageCooldown > 0 || !player.alive) return;
+    if(player.power === "shield") amount *= 0.45;
     player.hp = Math.max(0, player.hp - amount);
-    player.damageCooldown = 0.45;
-    ui.hp.textContent = player.hp;
+    player.damageCooldown = 0.35;
+    ui.hp.textContent = Math.round(player.hp);
     ui.damageFlash.style.opacity = "1";
     setTimeout(() => ui.damageFlash.style.opacity = "0", 90);
     sfxDamage();
+
+    if(player.combo > 1){
+      player.combo = Math.max(1, player.combo - 0.4);
+      ui.combo.textContent = "x" + player.combo.toFixed(1);
+    }
+
     if(player.hp <= 0){
       player.alive = false;
       state.running = false;
+      submitScore();
       ui.center.classList.remove("hidden");
       ui.center.querySelector("h1").textContent = "Game over";
-      ui.center.querySelector("p").textContent = "Je bent verslagen. Druk op opnieuw spelen of gebruik R.";
+      ui.center.querySelector("p").textContent = "Je score is opgeslagen in de lokale leaderboard.";
       ui.startBtn.style.display = "none";
       ui.restartBtn.style.display = "";
       if(document.pointerLockElement === renderer.domElement) document.exitPointerLock();
@@ -3146,26 +3278,23 @@ canvas{
     scene.remove(enemy.mesh);
     createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6d8f : 0x7db4ff, enemy.isBoss ? 30 : 16, enemy.isBoss ? 8 : 5);
     if(enemy.isBoss){
-      player.score += 120;
+      registerKill(120);
       player.wave += 1;
       state.boss = null;
       ui.bossBarWrap.classList.remove("show");
       dropPickup(enemy.mesh.position.clone());
       sfxBoss();
     }else{
-      player.score += 10;
-      state.waveKills += 1;
+      registerKill(enemy.variant === "tank" ? 18 : enemy.variant === "runner" ? 12 : 10);
       dropPickup(enemy.mesh.position.clone());
     }
-    ui.score.textContent = player.score;
     sfxEnemyDown();
   }
 
   function updateBossBar(){
     if(state.boss){
-      const maxHp = 180 + player.wave*20;
-      const pct = clamp(state.boss.hp / maxHp, 0, 1);
-      ui.bossBarInner.style.width = (pct*100).toFixed(1) + "%";
+      const maxHp = 220 + player.wave*28;
+      ui.bossBarInner.style.width = (clamp(state.boss.hp / maxHp, 0, 1) * 100).toFixed(1) + "%";
     }
   }
 
@@ -3186,19 +3315,25 @@ canvas{
 
     player.pos.set(0,1.7,7);
     player.hp = 100;
-    player.maxHp = 100;
     player.score = 0;
     player.wave = 1;
     player.alive = true;
     player.fireCooldown = 0;
     player.damageCooldown = 0;
+    player.kills = 0;
+    player.combo = 1;
+    player.comboTimer = 0;
+    player.dashCooldown = 0;
     clearPower();
 
     ui.hp.textContent = player.hp;
     ui.score.textContent = player.score;
     ui.wave.textContent = player.wave;
+    ui.kills.textContent = player.kills;
+    ui.combo.textContent = "x1";
     ui.bossBarWrap.classList.remove("show");
     camera.rotation.set(0,0,0);
+    updateDashText();
 
     state.running = true;
     ui.center.classList.add("hidden");
@@ -3210,11 +3345,24 @@ canvas{
   function tryAdvanceWave(){
     if(state.enemies.length === 0 && !state.boss){
       player.wave += 1;
-      player.hp = Math.min(player.maxHp, player.hp + 10);
-      ui.hp.textContent = player.hp;
+      player.hp = Math.min(player.maxHp, player.hp + 12);
+      ui.hp.textContent = Math.round(player.hp);
       ui.wave.textContent = player.wave;
       spawnWave();
     }
+  }
+
+  function dashForward(){
+    if(player.dashCooldown > 0 || !player.alive || !state.running) return;
+    const sin = Math.sin(camera.rotation.y), cos = Math.cos(camera.rotation.y);
+    const dashDist = 5.5;
+    const dx = -sin * dashDist;
+    const dz = -cos * dashDist;
+    moveWithCollision(dx, dz);
+    player.dashCooldown = 3.0;
+    updateDashText();
+    sfxDash();
+    createBurst(player.pos.clone(), 0x8ad7ff, 16, 5);
   }
 
   function updateMovement(dt){
@@ -3247,7 +3395,7 @@ canvas{
     moveWithCollision(dx, dz);
 
     camera.position.copy(player.pos);
-    camera.position.y = 1.7 + Math.sin(performance.now()*0.012) * (forward || strafe ? 0.03 : 0.01);
+    camera.position.y = 1.7 + Math.sin(performance.now()*0.013) * (forward || strafe ? 0.03 : 0.01);
   }
 
   function updateBullets(dt){
@@ -3266,7 +3414,12 @@ canvas{
         const e = state.enemies[j];
         const hitPos = e.mesh.position.clone(); hitPos.y = 1.9;
         if(b.mesh.position.distanceTo(hitPos) < e.radius){
-          e.hp -= b.damage;
+          let damage = b.damage;
+          if(Math.random() < 0.14){
+            damage *= 2;
+            createBurst(b.mesh.position, 0xffffff, 10, 3.5);
+          }
+          e.hp -= damage;
           e.hitFlash = 0.08;
           createBurst(b.mesh.position, 0xffea7a, 7, 3);
           sfxHit();
@@ -3281,7 +3434,9 @@ canvas{
       if(state.boss && !remove){
         const hitPos = state.boss.mesh.position.clone(); hitPos.y = 2.5;
         if(b.mesh.position.distanceTo(hitPos) < state.boss.radius){
-          state.boss.hp -= b.damage;
+          let damage = b.damage;
+          if(Math.random() < 0.10) damage *= 2;
+          state.boss.hp -= damage;
           state.boss.hitFlash = 0.09;
           createBurst(b.mesh.position, 0xffa1b8, 8, 3.2);
           sfxHit();
@@ -3327,7 +3482,7 @@ canvas{
   function updateEnemies(dt){
     for(let i=state.enemies.length-1;i>=0;i--){
       const e = state.enemies[i];
-      e.bob += dt * 4.2;
+      e.bob += dt * (e.variant === "runner" ? 6.5 : 4.2);
       e.fireCooldown -= dt;
       e.hitFlash -= dt;
 
@@ -3335,9 +3490,10 @@ canvas{
       const dist = Math.max(0.001, Math.hypot(toPlayer.x, toPlayer.z));
       const dir = new THREE.Vector3(toPlayer.x / dist, 0, toPlayer.z / dist);
 
-      const ideal = dist > 7 ? 1 : -0.35;
-      const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(e.strafe * 0.32);
+      const ideal = e.variant === "tank" ? (dist > 8 ? 1 : -0.2) : (dist > 7 ? 1 : -0.35);
+      const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(e.strafe * (e.variant === "runner" ? 0.55 : 0.32));
       const move = dir.clone().multiplyScalar(ideal * e.speed * dt).add(side.multiplyScalar(dt * e.speed));
+
       const nx = e.mesh.position.x + move.x;
       const nz = e.mesh.position.z + move.z;
       if(!collidesAt(nx, nz, e.radius)){
@@ -3348,27 +3504,13 @@ canvas{
       e.mesh.position.y = Math.sin(e.bob)*0.08;
       e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
 
-      if(e.hitFlash > 0){
-        e.mesh.traverse(obj => {
-          if(obj.material && obj.material.emissive){
-            obj.material.emissiveIntensity = 1.3;
-          }
-        });
-      }else{
-        e.mesh.traverse(obj => {
-          if(obj.material && obj.material.emissive){
-            obj.material.emissiveIntensity = obj.material.color && obj.material.color.getHex() === 0x7db4ff ? 0.55 : 0.35;
-          }
-        });
+      if(dist < (e.variant === "tank" ? 1.9 : 1.5)){
+        applyDamage((e.variant === "tank" ? 20 : 14) * dt);
       }
 
-      if(dist < 1.6){
-        applyDamage(14 * dt);
-      }
-
-      if(e.fireCooldown <= 0 && dist < 24){
+      if(e.fireCooldown <= 0 && dist < (e.variant === "tank" ? 18 : 24)){
         enemyShoot(e);
-        e.fireCooldown = rand(1.0, 2.2);
+        e.fireCooldown = e.variant === "runner" ? rand(1.2,2.0) : e.variant === "tank" ? rand(1.8,2.8) : rand(0.95,2.0);
       }
     }
 
@@ -3376,7 +3518,6 @@ canvas{
       const e = state.boss;
       e.bob += dt * 2.3;
       e.fireCooldown -= dt;
-      e.hitFlash -= dt;
 
       const toPlayer = player.pos.clone().sub(e.mesh.position);
       const dist = Math.max(0.001, Math.hypot(toPlayer.x, toPlayer.z));
@@ -3395,14 +3536,13 @@ canvas{
       e.mesh.position.y = Math.sin(e.bob)*0.12;
       e.mesh.lookAt(player.pos.x, 2.0, player.pos.z);
 
-      if(dist < 2.4){
-        applyDamage(22 * dt);
-      }
+      if(dist < 2.5) applyDamage(24 * dt);
 
       if(e.fireCooldown <= 0 && dist < 32){
         enemyShoot(e);
         enemyShoot(e);
-        e.fireCooldown = 0.55;
+        if(player.wave >= 8) enemyShoot(e);
+        e.fireCooldown = player.wave >= 8 ? 0.42 : 0.58;
       }
 
       updateBossBar();
@@ -3437,13 +3577,11 @@ canvas{
       if(player.pos.distanceTo(p.mesh.position) < 1.5){
         if(p.kind === "heal"){
           player.hp = Math.min(player.maxHp, player.hp + 28);
-          ui.hp.textContent = player.hp;
-          setPower("heal", 2.5);
-          setTimeout(() => {
-            if(player.power === "heal") clearPower();
-          }, 700);
+          ui.hp.textContent = Math.round(player.hp);
+          setPower("heal", 2.0);
+          setTimeout(() => { if(player.power === "heal") clearPower(); }, 700);
         } else {
-          setPower(p.kind, 10);
+          setPower(p.kind, p.kind === "shield" ? 8 : 10);
         }
         scene.remove(p.mesh);
         state.pickups.splice(i,1);
@@ -3467,6 +3605,9 @@ canvas{
   function updateTimers(dt){
     player.fireCooldown = Math.max(0, player.fireCooldown - dt);
     player.damageCooldown = Math.max(0, player.damageCooldown - dt);
+    player.dashCooldown = Math.max(0, player.dashCooldown - dt);
+    updateDashText();
+    decayCombo(dt);
   }
 
   function animate(now){
@@ -3499,13 +3640,38 @@ canvas{
     player.alive = true;
     ui.center.classList.add("hidden");
     if(!state.enemies.length && !state.boss) spawnWave();
-    if(!isTouch){
-      renderer.domElement.requestPointerLock?.();
-    }
+    if(!isTouch) renderer.domElement.requestPointerLock?.();
   }
+
+  addEventListener("keydown", e => {
+    keys[e.code] = true;
+    keys[(e.key || "").toLowerCase()] = true;
+
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+
+    if((e.code === "Space" || e.code === "Enter" || e.code === "ShiftLeft" || e.code === "ShiftRight" || e.code === "Numpad0") && state.running){
+      shoot();
+    }
+
+    if(e.code === "KeyF") dashForward();
+
+    if(e.code === "KeyR" && !player.alive) restartGame();
+
+    if(e.code === "KeyW" || e.code === "ArrowUp"){
+      const now = performance.now();
+      if(now - player.lastForwardTap < 250) dashForward();
+      player.lastForwardTap = now;
+    }
+  }, {passive:false});
+
+  addEventListener("keyup", e => {
+    keys[e.code] = false;
+    keys[(e.key || "").toLowerCase()] = false;
+  });
 
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
+
   renderer.domElement.addEventListener("click", () => {
     if(state.running && player.alive && !isTouch) shoot();
   });
@@ -3527,16 +3693,9 @@ canvas{
   const fireBtn = document.getElementById("fire");
   const lookPad = document.getElementById("lookPad");
 
-  const touchState = {
-    moveId:null,
-    lookId:null,
-    joyX:0,
-    joyY:0
-  };
+  const touchState = { moveId:null, lookId:null };
 
   function joyApply(dx,dy){
-    touchState.joyX = dx;
-    touchState.joyY = dy;
     joyKnob.style.left = (39 + dx * 34) + "px";
     joyKnob.style.top  = (39 + dy * 34) + "px";
   }
@@ -3574,23 +3733,17 @@ canvas{
   joy.addEventListener("pointerup", releaseJoy);
   joy.addEventListener("pointercancel", releaseJoy);
 
-  fireBtn.addEventListener("pointerdown", e => {
+  let fireLoop = null;
+  fireBtn.addEventListener("pointerdown", () => {
     ensureAudio();
     if(!state.running) startGame();
     shoot();
-  });
-
-  let fireLoop = null;
-  fireBtn.addEventListener("pointerdown", () => {
     clearInterval(fireLoop);
     fireLoop = setInterval(() => {
       if(state.running && player.alive) shoot();
     }, 120);
   });
-  function stopFireLoop(){
-    clearInterval(fireLoop);
-    fireLoop = null;
-  }
+  function stopFireLoop(){ clearInterval(fireLoop); fireLoop = null; }
   fireBtn.addEventListener("pointerup", stopFireLoop);
   fireBtn.addEventListener("pointercancel", stopFireLoop);
 
@@ -3615,6 +3768,8 @@ canvas{
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   });
 
+  updateDashText();
+  renderBoard();
   animate(performance.now());
 })();
 </script>
