@@ -2517,16 +2517,24 @@ canvas{ display:block; }
   height:100%;
   display:block;
 }
-.rotate-btn{
-  pointer-events:auto;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:14px;
-  padding:12px 14px;
-  background:rgba(0,0,0,.42);
-  color:#fff;
+#rightControls{
+  display:flex;
+  gap:14px;
+  align-items:flex-end;
+}
+.joy-wrap{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+}
+.joy-label{
+  font-size:10px;
   font-weight:800;
-  backdrop-filter:blur(8px);
-  box-shadow:0 10px 22px rgba(0,0,0,.25);
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.78);
+  text-shadow:0 2px 8px rgba(0,0,0,.35);
 }
 #mailLink:hover{
   color:#fff;
@@ -2560,7 +2568,12 @@ canvas{ display:block; }
   pointer-events:auto;
   box-shadow:inset 0 0 26px rgba(255,255,255,.04), 0 10px 22px rgba(0,0,0,.25);
 }
-#joyKnob{
+.look-joy{
+  background:radial-gradient(circle at 50% 50%, rgba(255,180,89,.10), rgba(255,255,255,.03));
+  border-color:rgba(255,183,76,.22);
+}
+#joyKnob,
+#lookJoyKnob{
   position:absolute;
   width:52px;
   height:52px;
@@ -2569,6 +2582,10 @@ canvas{ display:block; }
   border-radius:50%;
   background:linear-gradient(180deg, rgba(77,247,255,.95), rgba(157,107,255,.8));
   box-shadow:0 0 18px rgba(77,247,255,.45);
+}
+#lookJoyKnob{
+  background:linear-gradient(180deg, rgba(255,215,110,.96), rgba(255,120,80,.82));
+  box-shadow:0 0 18px rgba(255,181,72,.42);
 }
 
 #tapHint{
@@ -2686,7 +2703,7 @@ canvas{ display:block; }
     <div class="stat"><div class="label">Weapon</div><div class="value" id="weaponName">Bullet</div></div>
   </div>
 
-  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: joystick links, tik op het scherm om te schieten.</div>
+  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten.</div>
 </div>
 
 <div id="weaponBar">
@@ -2703,7 +2720,7 @@ canvas{ display:block; }
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>joystick links</b> en <b>tik om te schieten</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b> en <b>tik om te schieten</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -2719,12 +2736,20 @@ canvas{ display:block; }
 
 <div id="mobileControls">
   <div id="leftControls">
-    <div class="joy" id="joy"><div id="joyKnob"></div></div>
+    <div class="joy-wrap">
+      <div class="joy-label">MOVE</div>
+      <div class="joy" id="joy"><div id="joyKnob"></div></div>
+    </div>
   </div>
-  <button id="rotateBtn" class="rotate-btn">🔄 Draai scherm</button>
+  <div id="rightControls">
+    <div class="joy-wrap">
+      <div class="joy-label">LOOK</div>
+      <div class="joy look-joy" id="lookJoy"><div id="lookJoyKnob"></div></div>
+    </div>
+  </div>
 </div>
 
-<div id="tapHint">Tik op het scherm om te schieten</div>
+<div id="tapHint">Rechter joystick kijkt · tik om te schieten</div>
 
 <a id="mailLink" href="mailto:patrick@oldehanter.nl?subject=Nieuwe%20downloadlink%20aanvragen&body=Hallo%20Patrick,%0D%0A%0D%0ADe%20downloadlink%20is%20vervallen.%20Kun%20je%20een%20nieuwe%20sturen%3F%0D%0A%0D%0AMet%20vriendelijke%20groet,">Vervallen link? Vraag een nieuwe aan</a>
 
@@ -2755,7 +2780,6 @@ canvas{ display:block; }
     leaderboard: document.getElementById("leaderboard"),
     playerName: document.getElementById("playerName"),
     gameWrap: document.getElementById("gameWrap"),
-    rotateBtn: document.getElementById("rotateBtn"),
     minimapCanvas: document.getElementById("minimapCanvas"),
     minimapWrap: document.getElementById("minimapWrap")
   };
@@ -2806,25 +2830,6 @@ canvas{ display:block; }
   renderBoard();
 
   const minimapCtx = ui.minimapCanvas.getContext("2d");
-  let forcedLandscape = false;
-
-  if(!isTouch && ui.rotateBtn){
-    ui.rotateBtn.style.display = "none";
-  }
-
-  function toggleOrientation(){
-    if(!isTouch || !screen.orientation) return;
-    if(forcedLandscape){
-      if(screen.orientation.unlock) screen.orientation.unlock();
-      forcedLandscape = false;
-    }else if(screen.orientation.lock){
-      screen.orientation.lock("landscape").then(() => {
-        forcedLandscape = true;
-      }).catch(() => {});
-    }
-  }
-
-  ui.rotateBtn?.addEventListener("click", toggleOrientation);
 
   let audioCtx = null;
   function ensureAudio(){
@@ -3309,34 +3314,46 @@ canvas{ display:block; }
     }, delay * 1000);
   }
 
-  const chiptuneLead = [659, 784, 988, 784, 659, 523, 587, 659, 494, 523, 659, 784, 988, 784, 659, 523];
-  const chiptuneBass = [165, 165, 196, 165, 131, 131, 147, 131, 165, 165, 196, 220, 131, 131, 147, 165];
-  function playChip(freq, when, dur, type, gain){
+  const musicLead = [784, 988, 1175, 1568, 1175, 988, 880, 988, 784, 988, 1175, 1760, 1568, 1175, 988, 880, 698, 880, 988, 1319, 988, 880, 784, 880, 659, 784, 988, 1175, 988, 784, 698, 784];
+  const musicHarmony = [392, 494, 587, 784, 587, 494, 440, 494, 392, 494, 587, 880, 784, 587, 494, 440, 349, 440, 494, 659, 494, 440, 392, 440, 330, 392, 494, 587, 494, 392, 349, 392];
+  const musicBass = [98, 98, 123, 123, 110, 110, 123, 123, 98, 98, 123, 147, 131, 131, 123, 110, 87, 87, 110, 110, 98, 98, 110, 110, 82, 82, 98, 98, 87, 87, 98, 98];
+  const musicArp = [1568, 1760, 1976, 1760, 1568, 1760, 1976, 2349, 1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093, 1175, 1319, 1568, 1319, 1175, 1319, 1568, 1760, 1047, 1175, 1319, 1175, 1047, 1175, 1319, 1568];
+  function playChip(freq, when, dur, type, gain, detune=0){
     if(!audioCtx) return;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(type === 'square' ? 1800 : 2400, when);
     o.type = type;
     o.frequency.setValueAtTime(freq, when);
+    if(detune) o.detune.setValueAtTime(detune, when);
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(gain, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain*0.55), when + dur*0.55);
     g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(g).connect(audioCtx.destination);
+    o.connect(filter).connect(g).connect(audioCtx.destination);
     o.start(when);
-    o.stop(when + dur + 0.02);
+    o.stop(when + dur + 0.03);
   }
 
   function updateMusic(){
     if(!audioCtx || !state.running) return;
     const t = audioCtx.currentTime;
-    while(state.songClock < t + 0.16){
-      state.songStep = (state.songStep + 1) % chiptuneLead.length;
+    while(state.songClock < t + 0.28){
+      state.songStep = (state.songStep + 1) % musicLead.length;
       const when = Math.max(t, state.songClock);
-      const lead = chiptuneLead[state.songStep];
-      const bass = chiptuneBass[state.songStep];
-      playChip(lead, when, 0.14, state.songStep % 4 === 0 ? 'square' : 'triangle', 0.018);
-      playChip(bass, when, 0.16, 'square', 0.012);
-      if(state.songStep % 4 === 2) playChip(lead * 2, when, 0.06, 'square', 0.006);
-      state.songClock += 0.18;
+      const lead = musicLead[state.songStep];
+      const harmony = musicHarmony[state.songStep];
+      const bass = musicBass[state.songStep];
+      const arp = musicArp[state.songStep];
+      const accent = state.songStep % 8 === 0;
+      playChip(lead, when, accent ? 0.22 : 0.16, accent ? 'sawtooth' : 'square', accent ? 0.026 : 0.02, accent ? -4 : 0);
+      playChip(harmony, when + 0.02, 0.14, 'triangle', 0.010);
+      playChip(bass, when, 0.18, 'square', 0.015, -8);
+      if(state.songStep % 2 === 0) playChip(arp, when + 0.09, 0.08, 'square', 0.008, 6);
+      if(state.songStep % 4 === 3) noiseBurst(0.025, 0.0045);
+      state.songClock += 0.145;
     }
   }
 
@@ -3391,7 +3408,9 @@ canvas{ display:block; }
     keyboard:{},
     forward:0,
     strafe:0,
-    turn:0
+    turn:0,
+    lookX:0,
+    lookY:0
   };
 
   function setWeapon(w){
@@ -3435,8 +3454,8 @@ canvas{ display:block; }
     const box = document.getElementById("msg");
     if(!box) return;
     box.textContent = isTouch
-      ? "Mobiel: joystick links, tik op het scherm om te schieten."
-      : "Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: joystick links, tik op het scherm om te schieten.";
+      ? "Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten."
+      : "Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten.";
   }
 
   function ensureUsableWeapon(){
@@ -4158,6 +4177,8 @@ canvas{ display:block; }
 
     lookYaw = 0;
     lookPitch = 0;
+    input.lookX = 0;
+    input.lookY = 0;
     applyCameraLook();
 
     ui.center.classList.add("hidden");
@@ -4199,7 +4220,8 @@ canvas{ display:block; }
   function updateMovement(dt){
     updateKeyboardAxes();
 
-    lookYaw += input.turn * 1.9 * dt;
+    lookYaw += (input.turn * 1.9 + input.lookX * 2.35) * dt;
+    lookPitch = clamp(lookPitch - input.lookY * 1.8 * dt, -1.05, 1.05);
     applyCameraLook();
 
     const forward = input.forward;
@@ -4656,11 +4678,38 @@ canvas{ display:block; }
 
   const joy = document.getElementById("joy");
   const joyKnob = document.getElementById("joyKnob");
-  const touchState = { moveId:null };
+  const lookJoy = document.getElementById("lookJoy");
+  const lookJoyKnob = document.getElementById("lookJoyKnob");
+  const touchState = { moveId:null, lookId:null };
 
-  function setJoy(dx,dy){
-    joyKnob.style.left = (37 + dx * 34) + "px";
-    joyKnob.style.top = (37 + dy * 34) + "px";
+  function setJoy(knob, dx, dy){
+    knob.style.left = (37 + dx * 34) + "px";
+    knob.style.top = (37 + dy * 34) + "px";
+  }
+
+  function handleMoveJoystick(dx, dy){
+    setJoy(joyKnob, dx, dy);
+    input.keyboard["KeyW"] = dy < -0.18;
+    input.keyboard["KeyS"] = dy > 0.18;
+    input.keyboard["KeyA"] = dx < -0.18;
+    input.keyboard["KeyD"] = dx > 0.18;
+  }
+
+  function handleLookJoystick(dx, dy){
+    setJoy(lookJoyKnob, dx, dy);
+    input.lookX = Math.abs(dx) > 0.08 ? dx : 0;
+    input.lookY = Math.abs(dy) > 0.08 ? dy : 0;
+  }
+
+  function readStick(e, el){
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width/2;
+    const cy = r.top + r.height/2;
+    let dx = (e.clientX - cx) / (r.width/2);
+    let dy = (e.clientY - cy) / (r.height/2);
+    const len = Math.hypot(dx,dy) || 1;
+    if(len > 1){ dx /= len; dy /= len; }
+    return {dx,dy};
   }
 
   joy.addEventListener("pointerdown", e => {
@@ -4672,32 +4721,37 @@ canvas{ display:block; }
 
   joy.addEventListener("pointermove", e => {
     if(touchState.moveId !== e.pointerId) return;
-    const r = joy.getBoundingClientRect();
-    const cx = r.left + r.width/2;
-    const cy = r.top + r.height/2;
-    let dx = (e.clientX - cx) / (r.width/2);
-    let dy = (e.clientY - cy) / (r.height/2);
-    const len = Math.hypot(dx,dy) || 1;
-    if(len > 1){ dx /= len; dy /= len; }
-    setJoy(dx,dy);
-
-    input.keyboard["KeyW"] = dy < -0.18;
-    input.keyboard["KeyS"] = dy > 0.18;
-    input.keyboard["KeyA"] = dx < -0.18;
-    input.keyboard["KeyD"] = dx > 0.18;
+    const {dx,dy} = readStick(e, joy);
+    handleMoveJoystick(dx, dy);
   });
 
-  function releaseJoy(){
+  lookJoy.addEventListener("pointerdown", e => {
+    touchState.lookId = e.pointerId;
+    lookJoy.setPointerCapture(e.pointerId);
+    ensureAudio();
+    if(!state.running) startGame();
+  });
+
+  lookJoy.addEventListener("pointermove", e => {
+    if(touchState.lookId !== e.pointerId) return;
+    const {dx,dy} = readStick(e, lookJoy);
+    handleLookJoystick(dx, dy);
+  });
+
+  function releaseMoveJoy(){
     touchState.moveId = null;
-    setJoy(0,0);
-    input.keyboard["KeyW"] = false;
-    input.keyboard["KeyS"] = false;
-    input.keyboard["KeyA"] = false;
-    input.keyboard["KeyD"] = false;
+    handleMoveJoystick(0,0);
   }
 
-  joy.addEventListener("pointerup", releaseJoy);
-  joy.addEventListener("pointercancel", releaseJoy);
+  function releaseLookJoy(){
+    touchState.lookId = null;
+    handleLookJoystick(0,0);
+  }
+
+  joy.addEventListener("pointerup", releaseMoveJoy);
+  joy.addEventListener("pointercancel", releaseMoveJoy);
+  lookJoy.addEventListener("pointerup", releaseLookJoy);
+  lookJoy.addEventListener("pointercancel", releaseLookJoy);
 
   window.addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
@@ -4838,31 +4892,6 @@ function spawnShockwave(x,y){
 
 /* mobile orientation button */
 
-function addRotateButton(){
-
-  const btn=document.createElement("button");
-  btn.innerText="🔄 Rotate Screen";
-  btn.style.position="fixed";
-  btn.style.bottom="10px";
-  btn.style.right="10px";
-  btn.style.zIndex=9999;
-  btn.style.padding="10px 14px";
-  btn.style.background="#ff4fd8";
-  btn.style.border="none";
-  btn.style.borderRadius="8px";
-  btn.style.color="white";
-
-  btn.onclick=()=>{
-    if(screen.orientation){
-      screen.orientation.lock("landscape").catch(()=>{});
-    }
-  };
-
-  if(window.matchMedia("(pointer:fine)").matches){ btn.style.display="none"; }
-  document.body.appendChild(btn);
-}
-
-if(window.matchMedia("(pointer:coarse)").matches){ addRotateButton(); }
 
 /* Olde Hanter enemy visual marker */
 
