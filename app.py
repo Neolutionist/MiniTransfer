@@ -2331,6 +2331,10 @@ canvas{ display:block; }
 .weapon-chip.active{
   box-shadow:0 0 0 1px rgba(77,247,255,.6), 0 0 18px rgba(77,247,255,.18);
 }
+.weapon-chip.fired{
+  box-shadow:0 0 0 1px rgba(255,140,192,.7), 0 0 24px rgba(255,110,161,.28);
+  transform:translateY(-2px) scale(1.03);
+}
 
 #centerMessage{
   position:fixed;
@@ -2658,13 +2662,102 @@ canvas{ display:block; }
   #weaponBar{
     bottom:8px;
     gap:6px;
+    max-width:94vw;
+    overflow-x:auto;
+    padding:0 6px 2px;
   }
   .weapon-chip{
     font-size:10px;
     padding:7px 9px;
+    white-space:nowrap;
   }
   #crosshair{
     display:none;
+  }
+}
+
+@media (max-width:940px) and (orientation:landscape){
+  #ui{
+    left:max(8px, env(safe-area-inset-left));
+    top:max(8px, env(safe-area-inset-top));
+    transform:none;
+    width:min(330px, 44vw);
+    padding:8px 9px;
+    border-radius:12px;
+    background:rgba(5,10,18,.70);
+  }
+  #brand{
+    margin-bottom:4px;
+  }
+  #brandText span,
+  #msg{
+    display:none;
+  }
+  #hud{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:5px;
+  }
+  .stat{
+    padding:5px 6px;
+  }
+  .stat .label{
+    font-size:8px;
+    margin-bottom:1px;
+  }
+  .stat .value{
+    font-size:12px;
+  }
+  #weaponBar{
+    left:52%;
+    bottom:max(6px, env(safe-area-inset-bottom));
+    max-width:58vw;
+    gap:5px;
+  }
+  .weapon-chip{
+    font-size:10px;
+    padding:6px 8px;
+  }
+  #abilityDock{
+    right:max(10px, env(safe-area-inset-right));
+    bottom:102px;
+    gap:7px;
+  }
+  .ability-btn{
+    min-width:66px;
+    padding:8px 10px;
+    border-radius:14px;
+    font-size:11px;
+  }
+  .ability-btn small{
+    font-size:9px;
+    margin-top:3px;
+  }
+  #mobileControls{
+    bottom:max(10px, env(safe-area-inset-bottom));
+    left:max(10px, env(safe-area-inset-left));
+    right:max(10px, env(safe-area-inset-right));
+  }
+  #moveJoy, #lookJoy{
+    width:100px;
+    height:100px;
+  }
+  #moveJoyKnob, #lookJoyKnob{
+    width:46px;
+    height:46px;
+    left:27px;
+    top:27px;
+  }
+  #tapHint{
+    right:max(10px, env(safe-area-inset-right));
+    bottom:88px;
+    font-size:10px;
+    padding:6px 8px;
+  }
+  #minimapWrap{
+    right:max(10px, env(safe-area-inset-right));
+    bottom:206px;
+    width:104px;
+    height:104px;
   }
 }
 
@@ -2837,7 +2930,7 @@ canvas{ display:block; }
 
 <div id="centerMessage">
   <h1>Downloadlink verlopen</h1>
-  <p>Speel ondertussen een uitdagende mini-game. Vul je naam in voor de lokale leaderboard op dit apparaat.</p>
+  <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten en een lokale leaderboard op dit apparaat.</p>
 
   <div id="nameRow">
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
@@ -3745,7 +3838,8 @@ canvas{ display:block; }
     lastClearStamp:performance.now(),
     ragdolls: [],
     hazards: [],
-    lastAbility: ""
+    firedAbility: "",
+    abilityFlashTimers: { plasma:null, mine:null, orbital:null }
   };
 
   const input = {
@@ -3757,12 +3851,32 @@ canvas{ display:block; }
     lookY:0
   };
 
+  function weaponLabel(w){
+    return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+  }
+
+  function pulseAbilityUI(kind){
+    const chip = kind === "plasma" ? ui.chipPlasma : kind === "mine" ? ui.chipMine : ui.chipOrbital;
+    const btn = kind === "plasma" ? ui.abilityPlasma : kind === "mine" ? ui.abilityMine : ui.abilityOrbital;
+    chip?.classList.add("fired");
+    btn?.classList.add("active");
+    if(state.abilityFlashTimers[kind]) clearTimeout(state.abilityFlashTimers[kind]);
+    state.abilityFlashTimers[kind] = setTimeout(() => {
+      chip?.classList.remove("fired");
+      btn?.classList.remove("active");
+      if(state.firedAbility === kind) state.firedAbility = "";
+    }, 240);
+  }
+
   function setWeapon(w){
     player.weapon = w;
-    ui.weaponName.textContent = w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(w);
     ui.chipBullet.classList.toggle("active", w === "bullet");
     ui.chipRocket.classList.toggle("active", w === "rocket");
     ui.chipGrenade.classList.toggle("active", w === "grenade");
+    ui.chipPlasma.classList.remove("active");
+    ui.chipMine.classList.remove("active");
+    ui.chipOrbital.classList.remove("active");
   }
 
   function setStat(){
@@ -3777,19 +3891,13 @@ canvas{ display:block; }
     ui.ammoMine.textContent = player.abilities.mine;
     ui.ammoOrbital.textContent = player.abilities.orbital;
     ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
-    ui.weaponName.textContent = player.weapon === "bullet" ? "Bullet" : player.weapon === "rocket" ? "Rocket" : "Grenade";
+    ui.weaponName.textContent = weaponLabel(player.weapon);
     ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
     ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
     ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
-    ui.chipPlasma.classList.toggle("active", state.lastAbility === "plasma");
-    ui.chipMine.classList.toggle("active", state.lastAbility === "mine");
-    ui.chipOrbital.classList.toggle("active", state.lastAbility === "orbital");
     ui.abilityPlasmaCount.textContent = `${player.abilities.plasma} charges`;
     ui.abilityMineCount.textContent = `${player.abilities.mine} charges`;
     ui.abilityOrbitalCount.textContent = `${player.abilities.orbital} charges`;
-    ui.abilityPlasma.classList.toggle("active", state.lastAbility === "plasma");
-    ui.abilityMine.classList.toggle("active", state.lastAbility === "mine");
-    ui.abilityOrbital.classList.toggle("active", state.lastAbility === "orbital");
     ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
     ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
     ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
@@ -3816,6 +3924,10 @@ canvas{ display:block; }
     box.textContent = isTouch
       ? "Mobiel: linker joystick beweegt, rechter joystick kijkt, tik om te schieten en gebruik 4-5-6 rechts voor skills."
       : "Desktop: WASD / pijltjes / klik / 1-2-3 voor wapens en 4-5-6 voor skills. Mobiel heeft extra skillknoppen rechts.";
+  }
+
+  function showFloating(message){
+    flashHint(message, 1650);
   }
 
   function ensureUsableWeapon(){
@@ -3955,116 +4067,138 @@ canvas{ display:block; }
   }
 
   function makeEnemyMesh(type="basic", isBoss=false){
-    if(type === "logo") return makeLogoEnemyMesh(isBoss);
     const palette = isBoss
-      ? { jacket:0x18396c, cloth:0x0c203d, accent:0xc5ecff, trim:0x9fd8ef }
+      ? { suit:0x143461, bodysuit:0x0c1b30, cape:0xa30f33, trim:0xd5f3ff, glow:0x8deaff }
       : type === "elite"
-        ? { jacket:0x274f86, cloth:0x162841, accent:0xffd166, trim:0xe6f6ff }
+        ? { suit:0x244f84, bodysuit:0x12243d, cape:0x7d0f2a, trim:0xffe1a0, glow:0xffd166 }
         : type === "runner"
-          ? { jacket:0x3b6fb4, cloth:0x1a3154, accent:0x9fd8ef, trim:0xf4fbff }
+          ? { suit:0x3f75ba, bodysuit:0x1a3154, cape:0x8a1838, trim:0xd9f4ff, glow:0xa7f1ff }
           : type === "tank"
-            ? { jacket:0x29496f, cloth:0x1a2434, accent:0xffd166, trim:0xf7fbff }
-            : { jacket:0x315c96, cloth:0x1d304f, accent:0x9fd8ef, trim:0xf2f8ff };
+            ? { suit:0x284668, bodysuit:0x1a2332, cape:0x631323, trim:0xffd98b, glow:0xffd166 }
+            : { suit:0x315c96, bodysuit:0x1d304f, cape:0x7a1631, trim:0xe8f7ff, glow:0x9fd8ef };
 
+    const scale = isBoss ? 1.94 : type === "tank" ? 1.16 : type === "elite" ? 1.08 : 1.02;
     const group = new THREE.Group();
-    const clothMat = new THREE.MeshStandardMaterial({ color:palette.jacket, emissive:palette.cloth, emissiveIntensity:isBoss?0.5:0.18, roughness:.62, metalness:.18 });
-    const darkMat = new THREE.MeshStandardMaterial({ color:palette.cloth, roughness:.82, metalness:.12 });
-    const trimMat = new THREE.MeshStandardMaterial({ color:palette.trim, emissive:palette.trim, emissiveIntensity:.28, roughness:.34, metalness:.26 });
-    const accentMat = new THREE.MeshStandardMaterial({ color:palette.accent, emissive:palette.accent, emissiveIntensity:.32, roughness:.26, metalness:.38 });
+    const suitMat = new THREE.MeshStandardMaterial({ color:palette.suit, emissive:palette.bodysuit, emissiveIntensity:isBoss?0.36:0.16, roughness:.56, metalness:.16 });
+    const bodysuitMat = new THREE.MeshStandardMaterial({ color:palette.bodysuit, roughness:.84, metalness:.08 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:palette.trim, emissive:palette.trim, emissiveIntensity:.20, roughness:.34, metalness:.28 });
+    const glowMat = new THREE.MeshStandardMaterial({ color:palette.glow, emissive:palette.glow, emissiveIntensity:.42, roughness:.24, metalness:.34 });
+    const capeMat = new THREE.MeshStandardMaterial({ color:palette.cape, emissive:0x230811, emissiveIntensity:.16, roughness:.74, metalness:.04, side:THREE.DoubleSide });
     const skinMat = new THREE.MeshStandardMaterial({ color:0xddb08b, roughness:.88, metalness:.03 });
 
-    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.95:0.72,0.34,0.34), darkMat);
-    pelvis.position.y = 0.94;
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.12:0.86,1.05,0.42), clothMat);
-    torso.position.y = 1.72;
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.95:0.7,0.74,0.16), trimMat);
-    chest.position.set(0,1.82,0.24);
-    const logo = makeLogoGlyph(type === "tank" ? 0.82 : 0.68);
-    logo.position.set(0,1.82,0.34);
-    const backLogo = makeLogoGlyph(type === "tank" ? 0.62 : 0.54);
-    backLogo.position.set(0,1.78,-0.31);
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.02:0.78,0.38,0.34), bodysuitMat);
+    pelvis.position.y = 0.96;
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.16:0.88,1.10,0.46), suitMat);
+    torso.position.y = 1.76;
+
+    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.98:0.72,0.78,0.18), trimMat);
+    chestPlate.position.set(0,1.84,0.24);
+
+    const waistBelt = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.02:0.84,0.12,0.20), glowMat);
+    waistBelt.position.set(0,1.24,0.24);
+
+    const chestLogo = makeLogoGlyph(type === "tank" ? 0.78 : 0.66);
+    chestLogo.position.set(0,1.84,0.35);
+    const backLogo = makeLogoGlyph(type === "tank" ? 0.66 : 0.56);
+    backLogo.position.set(0,1.78,-0.30);
     backLogo.rotation.y = Math.PI;
 
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
-    neck.position.y = 2.34;
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.52,0.62,0.52), skinMat);
-    head.position.y = 2.78;
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.38,18,16,0,Math.PI*2,0,Math.PI/2), darkMat);
-    helmet.position.set(0,3.02,0.02);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46,0.12,0.08), accentMat);
-    visor.position.set(0,2.82,0.27);
+    neck.position.y = 2.36;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.54,0.64,0.54), skinMat);
+    head.position.y = 2.80;
 
-    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.22,0.28), clothMat);
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(0.56,0.18,0.56), bodysuitMat);
+    hair.position.set(0,3.05,0.01);
+    const mask = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.18,0.08), glowMat);
+    mask.position.set(0,2.84,0.28);
+    const jawGuard = new THREE.Mesh(new THREE.BoxGeometry(0.44,0.14,0.08), trimMat);
+    jawGuard.position.set(0,2.62,0.27);
+
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.24,0.30), suitMat);
     const shoulderR = shoulderL.clone();
-    shoulderL.position.set(-0.57,2.05,0.02);
-    shoulderR.position.set(0.57,2.05,0.02);
+    shoulderL.position.set(-0.60,2.06,0.02);
+    shoulderR.position.set(0.60,2.06,0.02);
 
-    const armGeo = new THREE.BoxGeometry(0.22,0.72,0.22);
-    const foreGeo = new THREE.BoxGeometry(0.2,0.72,0.2);
-    const upperArmL = new THREE.Mesh(armGeo, clothMat);
-    const upperArmR = new THREE.Mesh(armGeo, clothMat);
-    upperArmL.position.set(-0.6,1.62,0.02);
-    upperArmR.position.set(0.6,1.62,0.02);
-    const foreArmL = new THREE.Mesh(foreGeo, darkMat);
-    const foreArmR = new THREE.Mesh(foreGeo, darkMat);
-    foreArmL.position.set(-0.6,0.92,0.05);
-    foreArmR.position.set(0.6,0.92,0.05);
+    const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.74,0.24), suitMat);
+    const upperArmR = upperArmL.clone();
+    upperArmL.position.set(-0.62,1.62,0.02);
+    upperArmR.position.set(0.62,1.62,0.02);
+
+    const foreArmL = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.74,0.22), bodysuitMat);
+    const foreArmR = foreArmL.clone();
+    foreArmL.position.set(-0.62,0.90,0.05);
+    foreArmR.position.set(0.62,0.90,0.05);
+
+    const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.20,0.24), glowMat);
+    const gauntletR = gauntletL.clone();
+    gauntletL.position.set(-0.62,0.56,0.06);
+    gauntletR.position.set(0.62,0.56,0.06);
 
     const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
     const handR = handL.clone();
-    handL.position.set(-0.6,0.5,0.06);
-    handR.position.set(0.6,0.5,0.06);
+    handL.position.set(-0.62,0.42,0.06);
+    handR.position.set(0.62,0.42,0.06);
 
-    const thighGeo = new THREE.BoxGeometry(0.24,0.78,0.24);
-    const shinGeo = new THREE.BoxGeometry(0.22,0.72,0.22);
-    const thighL = new THREE.Mesh(thighGeo, darkMat);
-    const thighR = new THREE.Mesh(thighGeo, darkMat);
-    thighL.position.set(-0.22,0.48,0.02);
-    thighR.position.set(0.22,0.48,0.02);
-    const shinL = new THREE.Mesh(shinGeo, clothMat);
-    const shinR = new THREE.Mesh(shinGeo, clothMat);
-    shinL.position.set(-0.22,-0.2,0.03);
-    shinR.position.set(0.22,-0.2,0.03);
-    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.18,0.42), darkMat);
+    const thighL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.84,0.26), bodysuitMat);
+    const thighR = thighL.clone();
+    thighL.position.set(-0.23,0.46,0.03);
+    thighR.position.set(0.23,0.46,0.03);
+
+    const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.14,0.28), glowMat);
+    const kneeR = kneeL.clone();
+    kneeL.position.set(-0.23,0.08,0.08);
+    kneeR.position.set(0.23,0.08,0.08);
+
+    const shinL = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.76,0.24), suitMat);
+    const shinR = shinL.clone();
+    shinL.position.set(-0.23,-0.24,0.03);
+    shinR.position.set(0.23,-0.24,0.03);
+
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.30,0.20,0.46), bodysuitMat);
     const bootR = bootL.clone();
-    bootL.position.set(-0.22,-0.66,0.09);
-    bootR.position.set(0.22,-0.66,0.09);
+    bootL.position.set(-0.23,-0.72,0.10);
+    bootR.position.set(0.23,-0.72,0.10);
 
-    const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.38,0.08), accentMat);
+    const cape = new THREE.Mesh(new THREE.PlaneGeometry(type==="tank"?1.18:0.92, type==="tank"?1.52:1.24, 1, 6), capeMat);
+    cape.position.set(0,1.68,-0.28);
+    cape.rotation.x = 0.08;
+
+    const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.34,0.08), trimMat);
     shoulderHolster.position.set(-0.28,1.72,0.28);
-    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.24,0.1), darkMat);
+    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.22,0.1), bodysuitMat);
     radio.position.set(0.28,1.58,0.28);
 
     const gun = new THREE.Group();
-    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.14,0.76), darkMat);
-    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.84,12), trimMat);
+    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.14,0.78), bodysuitMat);
+    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.86,12), trimMat);
     rifleBarrel.rotation.x = Math.PI/2;
-    rifleBarrel.position.set(0,0,-0.54);
-    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.24), clothMat);
+    rifleBarrel.position.set(0,0,-0.55);
+    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.24), suitMat);
     rifleStock.position.set(0,-0.02,0.34);
-    const rifleLogo = makeLogoGlyph(0.16);
-    rifleLogo.position.set(0.07,0.02,-0.08);
-    rifleLogo.rotation.y = Math.PI/2;
-    gun.add(rifleBody, rifleBarrel, rifleStock, rifleLogo);
-    gun.position.set(0.18,1.34,0.34);
-    gun.rotation.x = -0.2;
+    const rifleCore = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.12), glowMat);
+    rifleCore.position.set(0.04,0.03,-0.08);
+    gun.add(rifleBody, rifleBarrel, rifleStock, rifleCore);
+    gun.position.set(0.20,1.34,0.34);
+    gun.rotation.x = -0.22;
     gun.rotation.y = Math.PI/2;
 
-    const cape = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.92:0.68,1.0,0.06), clothMat);
-    cape.position.set(0,1.56,-0.26);
-    cape.rotation.x = 0.08;
-
-    [pelvis, torso, chest, logo, backLogo, neck, head, helmet, visor, shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, handL, handR, thighL, thighR, shinL, shinR, bootL, bootR, shoulderHolster, radio, gun, cape].forEach(m=>{ m.castShadow = true; m.receiveShadow = true; group.add(m); });
+    [pelvis, torso, chestPlate, waistBelt, chestLogo, backLogo, neck, head, hair, mask, jawGuard, shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR, handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape, shoulderHolster, radio, gun].forEach(m => {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+    });
 
     if(isBoss){
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.08,.08,12,40), accentMat);
-      ring.rotation.x = Math.PI/2;
-      ring.position.y = 3.5;
-      group.add(ring);
+      const crest = new THREE.Mesh(new THREE.TorusGeometry(1.08,.08,12,40), glowMat);
+      crest.rotation.x = Math.PI/2;
+      crest.position.y = 3.56;
+      group.add(crest);
     }
 
-    group.userData.parts = { armL: upperArmL, armR: upperArmR, foreArmL, foreArmR, legL: thighL, legR: thighR, shinL, shinR, gun, logo, hatBadge: visor, head, torso, pelvis, bootL, bootR, chest, backLogo };
-    group.scale.setScalar(isBoss ? 1.94 : type === "tank" ? 1.14 : type === "elite" ? 1.08 : 1.02);
+    group.userData.parts = { armL: upperArmL, armR: upperArmR, foreArmL, foreArmR, legL: thighL, legR: thighR, shinL, shinR, gun, logo: chestLogo, backLogo, hatBadge: mask, head, torso, pelvis, bootL, bootR, chest: chestPlate, cape, gauntletL, gauntletR };
+    group.scale.setScalar(scale);
     return group;
   }
 
@@ -4081,10 +4215,9 @@ canvas{ display:block; }
     let type = "basic";
     if(!isBoss){
       const roll = Math.random();
-      if(player.wave >= 6 && roll < .12) type = "elite";
-      else if(player.wave >= 4 && roll < .22) type = "logo";
-      else if(player.wave >= 3 && roll < .40) type = "tank";
-      else if(player.wave >= 2 && roll < .66) type = "runner";
+      if(player.wave >= 7 && roll < .16) type = "elite";
+      else if(player.wave >= 4 && roll < .38) type = "tank";
+      else if(player.wave >= 2 && roll < .68) type = "runner";
     }
 
     const mesh = makeEnemyMesh(type, isBoss);
@@ -4098,19 +4231,26 @@ canvas{ display:block; }
       type === "logo" ? 32 + player.wave*5 :
       22 + player.wave*4;
 
+    const ringGeo = new THREE.RingGeometry(isBoss ? 1.8 : 0.78, isBoss ? 2.02 : 0.92, 40);
+    const ringMat = new THREE.MeshBasicMaterial({ color:isBoss ? 0xff8aa7 : (type === "elite" ? 0xffd166 : 0x7dd8ff), transparent:true, opacity:isBoss ? 0.34 : 0.20, side:THREE.DoubleSide });
+    const groundRing = new THREE.Mesh(ringGeo, ringMat);
+    groundRing.rotation.x = -Math.PI/2;
+    groundRing.position.set(x, 0.03, z);
+    scene.add(groundRing);
+
     const enemy = {
       type,
       isBoss,
       mesh,
+      groundRing,
       hp: baseHp,
       maxHp: baseHp,
       speed: isBoss ? 2.9 :
         type === "runner" ? 5.3 + player.wave*.14 :
         type === "tank" ? 2.2 + player.wave*.06 :
         type === "elite" ? 3.9 + player.wave*.1 :
-        type === "logo" ? 3.7 + player.wave*.08 :
         3.25 + player.wave*.1,
-      radius: isBoss ? 1.8 : (type === "tank" ? 1.2 : type === "elite" ? 1.08 : type === "logo" ? 1.05 : 1.0),
+      radius: isBoss ? 1.8 : (type === "tank" ? 1.2 : type === "elite" ? 1.08 : 1.0),
       fireCooldown: isBoss ? .95 : rand(.9,2.2),
       strafe: rand(-1,1),
       bob: rand(0,Math.PI*2)
@@ -4119,8 +4259,11 @@ canvas{ display:block; }
     if(isBoss){
       state.boss = enemy;
       ui.bossBarWrap.classList.add("show");
+      showFloating("BOSS INBOUND", "boss");
+      createShockwave(mesh.position.clone(), 0xff6ea1, 4.8);
       sfxBoss();
     } else {
+      if(type === "elite") showFloating("Elite trooper incoming");
       state.enemies.push(enemy);
     }
   }
@@ -4132,7 +4275,14 @@ canvas{ display:block; }
     for(let i=0;i<count;i++) spawnEnemy(false);
     if(player.wave % 4 === 0){
       setTimeout(() => {
-        if(state.running && player.alive && !state.boss) spawnEnemy(true);
+        if(state.running && player.alive && !state.boss){
+          if(state.enemies.length > 16){
+            const overflow = state.enemies.splice(16);
+            for(const extra of overflow) scene.remove(extra.mesh);
+            if(extra.groundRing) scene.remove(extra.groundRing);
+          }
+          spawnEnemy(true);
+        }
       }, 900);
     }
     if(player.wave >= 5 && player.wave % 3 === 0){
@@ -4441,37 +4591,39 @@ canvas{ display:block; }
     const base = enemy.mesh.position.clone();
     const color = enemy.isBoss ? 0x315c96 : enemy.type === "elite" ? 0x274f86 : enemy.type === "tank" ? 0x29496f : 0x315c96;
     const dark = enemy.isBoss ? 0x0c203d : 0x1d304f;
+    const capeColor = enemy.isBoss ? 0x8a0f2d : 0x70142a;
     const skin = 0xddb08b;
-    const impulse = new THREE.Vector3((Math.random()-0.5)*6.5, 5.5 + Math.random()*2.4, (Math.random()-0.5)*6.5);
+    const impulse = new THREE.Vector3((Math.random()-0.5)*5.8, 5.0 + Math.random()*2.0, (Math.random()-0.5)*5.8);
     const defs = [
-      { name:"head", size:[0.44,0.62,0.3], off:[0,2.65,0], c:skin, mass:0.85 },
-      { name:"torso", size:[0.82,1.0,0.38], off:[0,1.7,0], c:color, mass:1.3 },
-      { name:"hips", size:[0.7,0.34,0.32], off:[0,0.95,0], c:dark, mass:1.2 },
-      { name:"armL", size:[0.2,0.72,0.2], off:[-0.56,1.55,0], c:color, mass:0.7 },
-      { name:"armR", size:[0.2,0.72,0.2], off:[0.56,1.55,0], c:color, mass:0.7 },
-      { name:"legL", size:[0.22,0.82,0.22], off:[-0.22,0.35,0], c:dark, mass:0.9 },
-      { name:"legR", size:[0.22,0.82,0.22], off:[0.22,0.35,0], c:dark, mass:0.9 },
-      { name:"footL", size:[0.28,0.16,0.42], off:[-0.22,-0.28,0.08], c:dark, mass:0.55 },
-      { name:"footR", size:[0.28,0.16,0.42], off:[0.22,-0.28,0.08], c:dark, mass:0.55 }
+      { name:"head", geo:new THREE.BoxGeometry(0.44,0.56,0.42), off:[0,2.54,0.02], c:skin, mass:0.8 },
+      { name:"torso", geo:new THREE.BoxGeometry(0.84,0.92,0.42), off:[0,1.66,0], c:color, mass:1.45 },
+      { name:"hips", geo:new THREE.BoxGeometry(0.72,0.32,0.32), off:[0,0.98,0], c:dark, mass:1.2 },
+      { name:"armL", geo:new THREE.BoxGeometry(0.22,0.88,0.22), off:[-0.58,1.44,0.02], c:color, mass:0.72 },
+      { name:"armR", geo:new THREE.BoxGeometry(0.22,0.88,0.22), off:[0.58,1.44,0.02], c:color, mass:0.72 },
+      { name:"legL", geo:new THREE.BoxGeometry(0.24,1.02,0.24), off:[-0.22,0.18,0.02], c:dark, mass:0.92 },
+      { name:"legR", geo:new THREE.BoxGeometry(0.24,1.02,0.24), off:[0.22,0.18,0.02], c:dark, mass:0.92 },
+      { name:"footL", geo:new THREE.BoxGeometry(0.30,0.18,0.44), off:[-0.22,-0.46,0.10], c:dark, mass:0.55 },
+      { name:"footR", geo:new THREE.BoxGeometry(0.30,0.18,0.44), off:[0.22,-0.46,0.10], c:dark, mass:0.55 },
+      { name:"cape", geo:new THREE.BoxGeometry(0.72,0.92,0.06), off:[0,1.46,-0.24], c:capeColor, mass:0.38 }
     ];
     const idx = {};
     defs.forEach((def, index) => {
       idx[def.name] = index;
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...def.size), new THREE.MeshStandardMaterial({ color:def.c, roughness:.72, metalness:.12 }));
+      const mesh = new THREE.Mesh(def.geo, new THREE.MeshStandardMaterial({ color:def.c, roughness:.72, metalness:.10 }));
       const pos = base.clone().add(new THREE.Vector3(...def.off));
       mesh.position.copy(pos);
-      mesh.rotation.set(Math.random()*0.45, Math.random()*Math.PI, Math.random()*0.45);
+      mesh.rotation.set(Math.random()*0.30, Math.random()*Math.PI, Math.random()*0.30);
       mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh);
       pieces.push({
         mesh,
-        size:def.size,
         mass:def.mass,
         pos,
-        prev:pos.clone().sub(impulse.clone().multiplyScalar(0.016 / def.mass)),
-        spin:new THREE.Vector3((Math.random()-0.5)*3.5,(Math.random()-0.5)*4.8,(Math.random()-0.5)*3.5),
-        lift:0.5 + Math.random()*0.6,
-        radius:Math.max(def.size[0], def.size[1], def.size[2]) * 0.32
+        prev:pos.clone().sub(impulse.clone().multiplyScalar(0.015 / def.mass)),
+        spin:new THREE.Vector3((Math.random()-0.5)*2.8,(Math.random()-0.5)*3.8,(Math.random()-0.5)*2.8),
+        lift:def.name === "cape" ? 0.9 : 0.35 + Math.random()*0.45,
+        radius:0.18 + (def.name.includes("torso") ? 0.18 : def.name.includes("leg") ? 0.10 : 0.08),
+        drag:def.name === "cape" ? 0.985 : 0.972
       });
     });
 
@@ -4482,24 +4634,25 @@ canvas{ display:block; }
     };
     link("head", "torso", 1.0);
     link("torso", "hips", 1.0);
-    link("torso", "armL", 1.02);
-    link("torso", "armR", 1.02);
+    link("torso", "armL", 1.0);
+    link("torso", "armR", 1.0);
     link("hips", "legL", 1.0);
     link("hips", "legR", 1.0);
     link("legL", "footL", 1.0);
     link("legR", "footR", 1.0);
     link("armL", "armR", 1.08);
-    link("legL", "legR", 1.16);
-    link("armL", "hips", 1.22);
-    link("armR", "hips", 1.22);
+    link("legL", "legR", 1.12);
+    link("torso", "cape", 1.0);
+    link("hips", "cape", 1.06);
 
-    state.ragdolls.push({ pieces, constraints, life:6.4, fade:1.8 });
+    state.ragdolls.push({ pieces, constraints, life:6.6, fade:1.8 });
   }
 
   function deployShockMine(){
     if(!state.running || !player.alive || player.abilities.mine <= 0) return;
     player.abilities.mine -= 1;
-    state.lastAbility = "mine";
+    state.firedAbility = "mine";
+    pulseAbilityUI("mine");
     const group = new THREE.Group();
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.12,18), new THREE.MeshStandardMaterial({ color:0x8bf0ff, emissive:0x2a8aa0, emissiveIntensity:0.9, metalness:0.35, roughness:0.22 }));
     const coil = new THREE.Mesh(new THREE.TorusGeometry(0.4,0.05,10,28), new THREE.MeshStandardMaterial({ color:0xd8fbff, emissive:0x8bf0ff, emissiveIntensity:1.1 }));
@@ -4521,7 +4674,8 @@ canvas{ display:block; }
   function deployOrbital(){
     if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
     player.abilities.orbital -= 1;
-    state.lastAbility = "orbital";
+    state.firedAbility = "orbital";
+    pulseAbilityUI("orbital");
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
@@ -4546,7 +4700,8 @@ canvas{ display:block; }
   function firePlasmaBurst(){
     if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
     player.abilities.plasma -= 1;
-    state.lastAbility = "plasma";
+    state.firedAbility = "plasma";
+    pulseAbilityUI("plasma");
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     for(let i=-2;i<=2;i++){
@@ -4603,6 +4758,7 @@ canvas{ display:block; }
   function killEnemy(enemy){
     spawnRagdoll(enemy);
     scene.remove(enemy.mesh);
+    if(enemy.groundRing) scene.remove(enemy.groundRing);
     createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 28 : 16, enemy.isBoss ? 8 : 5);
 
     if(enemy.isBoss){
@@ -4646,10 +4802,11 @@ canvas{ display:block; }
       for(const piece of rag.pieces) scene.remove(piece.mesh);
     }
 
-    for(const e of state.enemies) scene.remove(e.mesh);
+    for(const e of state.enemies){ scene.remove(e.mesh); if(e.groundRing) scene.remove(e.groundRing); }
     state.enemies.length = 0;
     if(state.boss){
       scene.remove(state.boss.mesh);
+      if(state.boss.groundRing) scene.remove(state.boss.groundRing);
       state.boss = null;
     }
 
@@ -4667,7 +4824,12 @@ canvas{ display:block; }
     player.abilities.plasma = 3;
     player.abilities.mine = 2;
     player.abilities.orbital = 1;
-    state.lastAbility = "";
+    state.firedAbility = "";
+    Object.keys(state.abilityFlashTimers).forEach(key => {
+      if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
+      state.abilityFlashTimers[key] = null;
+    });
+    [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital].forEach(el => el?.classList.remove("active", "fired"));
     state.combo = 1;
     state.comboTimer = 0;
     state.comboBest = 1;
@@ -4864,8 +5026,8 @@ canvas{ display:block; }
         if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
         if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
         e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.5) * 0.05;
-        e.mesh.userData.parts.logo.rotation.y += dt * 0.8;
-        e.mesh.userData.parts.hatBadge.rotation.y = Math.sin(e.bob * 0.4) * 0.08;
+        if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.08;
+        e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
       }
       e.fireCooldown -= dt;
 
@@ -4890,10 +5052,14 @@ canvas{ display:block; }
       }
 
       e.mesh.position.y = 0.02 + Math.sin(e.bob) * 0.04;
+      if(e.groundRing){
+        e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
+        e.groundRing.material.opacity = 0.12 + 0.16 * (e.hp / e.maxHp);
+      }
       e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
 
-      if(dist < (e.type === "tank" ? 2.0 : e.type === "logo" ? 1.8 : e.type === "elite" ? 1.85 : 1.6)){
-        applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : e.type === "logo" ? 16 : 12) * dt * 8);
+      if(dist < (e.type === "tank" ? 2.0 : e.type === "elite" ? 1.85 : 1.6)){
+        applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : 12) * dt * 8);
         if(Math.random() < dt * (e.type === "runner" ? 3.0 : 2.0)) createShockwave(e.mesh.position.clone(), e.type === "elite" ? 0xffa86e : 0xff6ea1, e.type === "tank" ? 2.4 : 1.6);
       }
 
@@ -4916,8 +5082,8 @@ canvas{ display:block; }
         e.mesh.userData.parts.armR.rotation.x = -swing * 0.5;
         e.mesh.userData.parts.legL.rotation.x = -swing * 0.75;
         e.mesh.userData.parts.legR.rotation.x = swing * 0.75;
-        e.mesh.userData.parts.logo.rotation.y += dt * 1.1;
-        e.mesh.userData.parts.hatBadge.rotation.y = Math.sin(e.bob * 0.35) * 0.1;
+        if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.45)) * 0.1;
+        e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.04;
       }
       e.fireCooldown -= dt;
 
@@ -4937,6 +5103,10 @@ canvas{ display:block; }
       }
 
       e.mesh.position.y = 0.04 + Math.sin(e.bob) * 0.06;
+      if(e.groundRing){
+        e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
+        e.groundRing.material.opacity = 0.18 + 0.22 * (e.hp / e.maxHp);
+      }
       e.mesh.lookAt(player.pos.x, 2.0, player.pos.z);
 
       if(dist < 2.6){
@@ -5467,6 +5637,24 @@ canvas{ display:block; }
   lookJoy.addEventListener("pointerup", releaseLookJoy);
   lookJoy.addEventListener("pointercancel", releaseLookJoy);
 
+
+  [
+    [ui.chipBullet, () => setWeapon("bullet")],
+    [ui.chipRocket, () => setWeapon("rocket")],
+    [ui.chipGrenade, () => setWeapon("grenade")],
+    [ui.chipPlasma, firePlasmaBurst],
+    [ui.chipMine, deployShockMine],
+    [ui.chipOrbital, deployOrbital]
+  ].forEach(([btn, fn]) => {
+    btn?.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio();
+      if(!state.running) startGame();
+      fn();
+    });
+  });
+
   [
     [ui.abilityPlasma, firePlasmaBurst],
     [ui.abilityMine, deployShockMine],
@@ -5490,173 +5678,6 @@ canvas{ display:block; }
 
   animate(performance.now());
 })();
-
-/* === Olde Hanter Advanced Gameplay Extension === */
-
-let playerHP = 100;
-let level = 1;
-let enemiesKilled = 0;
-let nextLevelKills = 15;
-
-function showFloating(text,x=window.innerWidth/2,y=120){
-  const d=document.createElement("div");
-  d.innerText=text;
-  d.style.position="fixed";
-  d.style.left=x+"px";
-  d.style.top=y+"px";
-  d.style.color="#4df7ff";
-  d.style.fontWeight="700";
-  d.style.zIndex=9999;
-  d.style.textShadow="0 0 10px #4df7ff";
-  document.body.appendChild(d);
-  setTimeout(()=>d.remove(),1500);
-}
-
-/* damage system */
-function damagePlayer(amount){
-  playerHP -= amount;
-  if(playerHP<0) playerHP=0;
-
-  let hud=document.getElementById("hpValue");
-  if(hud) hud.innerText=playerHP;
-
-  document.body.style.boxShadow="inset 0 0 80px rgba(255,0,0,.6)";
-
-  setTimeout(()=>{document.body.style.boxShadow="";},120);
-
-  if(playerHP<=0){
-    showFloating("YOU WERE DEFEATED");
-  }
-}
-
-/* enemy attack behaviours */
-function enemyAttack(enemy,player){
-
-  const type=Math.floor(Math.random()*3);
-
-  if(type===0){
-    damagePlayer(5);
-  }
-
-  if(type===1){
-    damagePlayer(8);
-    spawnShockwave(enemy.x,enemy.y);
-  }
-
-  if(type===2){
-    damagePlayer(3);
-  }
-
-}
-
-/* level system */
-function registerKill(){
-  enemiesKilled++;
-
-  if(enemiesKilled>=nextLevelKills){
-    levelUp();
-  }
-}
-
-function levelUp(){
-  level++;
-  enemiesKilled=0;
-  nextLevelKills+=10;
-
-  showFloating("LEVEL "+level);
-
-  spawnBoss();
-}
-
-/* bosses */
-function spawnBoss(){
-
-  const boss={
-    x:Math.random()*window.innerWidth,
-    y:-120,
-    hp:500+level*150,
-    type:"oldehanter_boss",
-    size:120
-  };
-
-  if(window.enemies){
-    enemies.push(boss);
-  }
-
-  showFloating("⚠ OLDE HANTER BOSS INCOMING ⚠");
-}
-
-/* epic effects */
-function spawnShockwave(x,y){
-
-  const ring=document.createElement("div");
-
-  ring.style.position="fixed";
-  ring.style.left=x+"px";
-  ring.style.top=y+"px";
-  ring.style.width="20px";
-  ring.style.height="20px";
-  ring.style.border="3px solid #ff4fd8";
-  ring.style.borderRadius="50%";
-  ring.style.pointerEvents="none";
-  ring.style.zIndex=9999;
-
-  document.body.appendChild(ring);
-
-  let size=20;
-
-  const anim=setInterval(()=>{
-    size+=12;
-    ring.style.width=size+"px";
-    ring.style.height=size+"px";
-    ring.style.opacity=1-size/300;
-
-    if(size>280){
-      clearInterval(anim);
-      ring.remove();
-    }
-  },16);
-}
-
-/* mobile orientation button */
-
-
-/* Olde Hanter enemy visual marker */
-
-function markOldeHanter(enemyMesh){
-
-  if(!enemyMesh) return;
-
-  const badge=document.createElement("div");
-  badge.innerText="OH";
-  badge.style.position="absolute";
-  badge.style.color="#4df7ff";
-  badge.style.fontWeight="900";
-  badge.style.textShadow="0 0 10px #4df7ff";
-
-  document.body.appendChild(badge);
-}
-
-/* ammo safety */
-
-setInterval(()=>{
-  if(window.ammo!==undefined && ammo<=0){
-    ammo=10;
-    showFloating("Emergency ammo");
-  }
-},3000);
-
-/* epic boss pulse */
-
-setInterval(()=>{
-  const bosses=(window.enemies||[]).filter(e=>e.type==="oldehanter_boss");
-
-  bosses.forEach(b=>{
-    spawnShockwave(b.x||innerWidth/2,b.y||innerHeight/3);
-  });
-
-},2500);
-
 
 </script>
 </body>
