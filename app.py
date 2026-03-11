@@ -2667,6 +2667,122 @@ canvas{ display:block; }
     display:none;
   }
 }
+
+#abilityDock{
+  position:fixed;
+  right:max(16px, env(safe-area-inset-right));
+  bottom:160px;
+  z-index:26;
+  display:none;
+  flex-direction:column;
+  gap:10px;
+  pointer-events:none;
+}
+.ability-btn{
+  min-width:72px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:16px;
+  padding:9px 12px;
+  color:#fff;
+  font-weight:800;
+  font-size:12px;
+  line-height:1.15;
+  letter-spacing:.02em;
+  background:linear-gradient(180deg, rgba(15,25,45,.88), rgba(5,10,18,.82));
+  backdrop-filter:blur(10px);
+  box-shadow:0 10px 22px rgba(0,0,0,.28);
+  pointer-events:auto;
+  touch-action:manipulation;
+}
+.ability-btn small{
+  display:block;
+  margin-top:4px;
+  color:rgba(255,255,255,.68);
+  font-size:10px;
+  font-weight:700;
+}
+.ability-btn.active{
+  box-shadow:0 0 0 1px rgba(77,247,255,.7), 0 0 20px rgba(77,247,255,.24);
+}
+.ability-btn.empty{
+  opacity:.45;
+}
+@media (pointer:coarse){
+  #abilityDock{ display:flex; }
+}
+@media (pointer:coarse) and (orientation:landscape) and (max-height:560px){
+  #ui{
+    left:10px;
+    transform:none;
+    top:calc(8px + env(safe-area-inset-top));
+    width:min(54vw, 340px);
+    padding:8px;
+  }
+  #brandText span,
+  #msg{
+    display:none;
+  }
+  #hud{
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    gap:4px;
+  }
+  .stat{
+    padding:5px 6px;
+    border-radius:10px;
+  }
+  .stat .label{ font-size:8px; }
+  .stat .value{ font-size:11px; }
+  #bossBarWrap{
+    top:calc(8px + env(safe-area-inset-top));
+    width:min(38vw, 280px);
+  }
+  #minimapWrap{
+    top:calc(8px + env(safe-area-inset-top));
+    right:10px;
+    bottom:auto;
+    width:92px;
+    height:92px;
+    border-radius:14px;
+  }
+  #minimapLabel{ display:none; }
+  #weaponBar{
+    left:50%;
+    bottom:6px;
+    transform:translateX(-50%) scale(.92);
+    transform-origin:center bottom;
+  }
+  #mobileControls{
+    inset:auto 0 6px 0;
+    padding:0 max(10px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-right));
+  }
+  .joy{
+    width:108px;
+    height:108px;
+  }
+  #joyKnob,
+  #lookJoyKnob{
+    width:44px;
+    height:44px;
+    left:32px;
+    top:32px;
+  }
+  #tapHint{
+    right:10px;
+    bottom:88px;
+    font-size:10px;
+  }
+  #abilityDock{
+    right:max(10px, env(safe-area-inset-right));
+    bottom:124px;
+    gap:8px;
+  }
+  .ability-btn{
+    min-width:64px;
+    padding:8px 10px;
+    border-radius:14px;
+    font-size:11px;
+  }
+}
 </style>
 </head>
 
@@ -2707,7 +2823,7 @@ canvas{ display:block; }
     <div class="stat"><div class="label">Combo</div><div class="value" id="combo">x1.0</div></div>
   </div>
 
-  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten. Pickups tonen nu exact wat je krijgt.</div>
+  <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik om te schieten en gebruik rechts de skillknoppen.</div>
 </div>
 
 <div id="weaponBar">
@@ -2727,7 +2843,7 @@ canvas{ display:block; }
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b> en <b>tik om te schieten</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -2754,6 +2870,12 @@ canvas{ display:block; }
       <div class="joy look-joy" id="lookJoy"><div id="lookJoyKnob"></div></div>
     </div>
   </div>
+</div>
+
+<div id="abilityDock">
+  <button class="ability-btn" id="abilityPlasma">4 Plasma<small id="abilityPlasmaCount">3 charges</small></button>
+  <button class="ability-btn" id="abilityMine">5 Mine<small id="abilityMineCount">2 charges</small></button>
+  <button class="ability-btn" id="abilityOrbital">6 Orbital<small id="abilityOrbitalCount">1 charge</small></button>
 </div>
 
 <div id="tapHint">Rechter joystick kijkt · tik om te schieten</div>
@@ -2795,7 +2917,13 @@ canvas{ display:block; }
     playerName: document.getElementById("playerName"),
     gameWrap: document.getElementById("gameWrap"),
     minimapCanvas: document.getElementById("minimapCanvas"),
-    minimapWrap: document.getElementById("minimapWrap")
+    minimapWrap: document.getElementById("minimapWrap"),
+    abilityPlasma: document.getElementById("abilityPlasma"),
+    abilityMine: document.getElementById("abilityMine"),
+    abilityOrbital: document.getElementById("abilityOrbital"),
+    abilityPlasmaCount: document.getElementById("abilityPlasmaCount"),
+    abilityMineCount: document.getElementById("abilityMineCount"),
+    abilityOrbitalCount: document.getElementById("abilityOrbitalCount")
   };
 
   const LB_KEY = "olde_hanter_arcade_leaderboard_v3";
@@ -3175,9 +3303,12 @@ canvas{ display:block; }
     fogWisps:new THREE.Group(),
     crystalClusters:new THREE.Group(),
     ruins:new THREE.Group(),
-    cliffs:new THREE.Group()
+    cliffs:new THREE.Group(),
+    monoliths:new THREE.Group(),
+    skyBands:new THREE.Group(),
+    floatingShards:new THREE.Group()
   };
-  scene.add(arenaDeco.searchlights, arenaDeco.fogWisps, arenaDeco.crystalClusters, arenaDeco.ruins, arenaDeco.cliffs);
+  scene.add(arenaDeco.searchlights, arenaDeco.fogWisps, arenaDeco.crystalClusters, arenaDeco.ruins, arenaDeco.cliffs, arenaDeco.monoliths, arenaDeco.skyBands, arenaDeco.floatingShards);
 
   function addDecalRing(x,z,radius,color=0x2bc1ff){
     const ring = new THREE.Mesh(
@@ -3277,6 +3408,46 @@ canvas{ display:block; }
       scene.add(glow, glow.target);
       head.userData.spot = glow;
       head.userData.baseY = head.position.y;
+    }
+
+    [
+      [-18,-18,0x4df7ff], [18,-18,0xff4fd8], [-18,18,0xffd166], [18,18,0x8bf0ff],
+      [-30,0,0x6db7ff], [30,0,0xff6ea1], [0,-30,0x4df7ff], [0,30,0xffd166]
+    ].forEach(([x,z,color], i) => {
+      const monolith = new THREE.Mesh(
+        new THREE.BoxGeometry(2.4, 8 + (i%3)*1.2, 2.4),
+        new THREE.MeshStandardMaterial({ color:0x1b2338, emissive:color, emissiveIntensity:0.12, roughness:0.46, metalness:0.44 })
+      );
+      monolith.position.set(x, monolith.geometry.parameters.height/2, z);
+      monolith.castShadow = monolith.receiveShadow = true;
+      arenaDeco.monoliths.add(monolith);
+      addDecalRing(x, z, 2.4, color);
+    });
+
+    const bandGeo = new THREE.PlaneGeometry(96, 12, 1, 1);
+    for(let i=0;i<5;i++){
+      const band = new THREE.Mesh(
+        bandGeo,
+        new THREE.MeshBasicMaterial({ color:i%2?0x4df7ff:0xff4fd8, transparent:true, opacity:0.08, side:THREE.DoubleSide, depthWrite:false })
+      );
+      band.position.set(0, 18 + i*4.5, -42 - i*8);
+      band.rotation.x = -0.38 + i*0.02;
+      band.userData.phase = i * 1.3;
+      band.userData.baseY = band.position.y;
+      arenaDeco.skyBands.add(band);
+    }
+
+    for(let i=0;i<24;i++){
+      const shard = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.24 + Math.random()*0.34, 0),
+        new THREE.MeshStandardMaterial({ color:i%2?0xa7f1ff:0xffa0d2, emissive:i%2?0x3ab4cd:0xc94d8e, emissiveIntensity:0.52, roughness:0.22, metalness:0.34 })
+      );
+      shard.position.set(rand(-46,46), rand(3.4,9.8), rand(-46,46));
+      shard.userData.base = shard.position.clone();
+      shard.userData.phase = Math.random()*Math.PI*2;
+      shard.userData.spin = rand(0.4,1.2);
+      shard.castShadow = true;
+      arenaDeco.floatingShards.add(shard);
     }
   }
   buildSetDressing();
@@ -3613,6 +3784,15 @@ canvas{ display:block; }
     ui.chipPlasma.classList.toggle("active", state.lastAbility === "plasma");
     ui.chipMine.classList.toggle("active", state.lastAbility === "mine");
     ui.chipOrbital.classList.toggle("active", state.lastAbility === "orbital");
+    ui.abilityPlasmaCount.textContent = `${player.abilities.plasma} charges`;
+    ui.abilityMineCount.textContent = `${player.abilities.mine} charges`;
+    ui.abilityOrbitalCount.textContent = `${player.abilities.orbital} charges`;
+    ui.abilityPlasma.classList.toggle("active", state.lastAbility === "plasma");
+    ui.abilityMine.classList.toggle("active", state.lastAbility === "mine");
+    ui.abilityOrbital.classList.toggle("active", state.lastAbility === "orbital");
+    ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
+    ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
+    ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
   }
   setStat();
   resetPlayerPosition();
@@ -3634,8 +3814,8 @@ canvas{ display:block; }
     const box = document.getElementById("msg");
     if(!box) return;
     box.textContent = isTouch
-      ? "Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten."
-      : "Desktop: WASD / pijltjes / klik / 1-2-3. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik op het scherm om te schieten.";
+      ? "Mobiel: linker joystick beweegt, rechter joystick kijkt, tik om te schieten en gebruik 4-5-6 rechts voor skills."
+      : "Desktop: WASD / pijltjes / klik / 1-2-3 voor wapens en 4-5-6 voor skills. Mobiel heeft extra skillknoppen rechts.";
   }
 
   function ensureUsableWeapon(){
@@ -4320,11 +4500,21 @@ canvas{ display:block; }
     if(!state.running || !player.alive || player.abilities.mine <= 0) return;
     player.abilities.mine -= 1;
     state.lastAbility = "mine";
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.12,18), new THREE.MeshStandardMaterial({ color:0x8bf0ff, emissive:0x2a8aa0, emissiveIntensity:0.9 }));
-    mesh.position.set(player.pos.x, 0.16, player.pos.z);
-    scene.add(mesh);
-    state.hazards.push({ kind:"mine", mesh, life:18, radius:5.2, damage:44, pulse:0 });
-    createShockwave(mesh.position.clone(), 0x8bf0ff, 1.5);
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.12,18), new THREE.MeshStandardMaterial({ color:0x8bf0ff, emissive:0x2a8aa0, emissiveIntensity:0.9, metalness:0.35, roughness:0.22 }));
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.4,0.05,10,28), new THREE.MeshStandardMaterial({ color:0xd8fbff, emissive:0x8bf0ff, emissiveIntensity:1.1 }));
+    coil.rotation.x = Math.PI/2;
+    group.add(body, coil);
+    group.position.set(player.pos.x, 0.16, player.pos.z);
+    scene.add(group);
+    const aura = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.15, 40), new THREE.MeshBasicMaterial({ color:0x8bf0ff, transparent:true, opacity:.5, side:THREE.DoubleSide }));
+    aura.rotation.x = -Math.PI/2;
+    aura.position.copy(group.position);
+    aura.position.y = 0.03;
+    scene.add(aura);
+    state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:58, pulse:0, tick:0 });
+    createShockwave(group.position.clone(), 0x8bf0ff, 1.6);
+    flashHint("Shock Mine geplaatst");
     setStat();
   }
 
@@ -4335,12 +4525,21 @@ canvas{ display:block; }
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
+    pos.x = clamp(pos.x, -54, 54);
+    pos.z = clamp(pos.z, -54, 54);
     pos.y = 0.2;
-    const marker = new THREE.Mesh(new THREE.RingGeometry(1.1,1.6,28), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.8, side:THREE.DoubleSide }));
+    const marker = new THREE.Mesh(new THREE.RingGeometry(1.25,1.9,36), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.86, side:THREE.DoubleSide }));
     marker.rotation.x = -Math.PI/2;
     marker.position.copy(pos);
-    scene.add(marker);
-    state.hazards.push({ kind:"orbital", mesh:marker, life:1.25, radius:6.5, damage:64, pulse:0 });
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(1.1, 28), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.18, side:THREE.DoubleSide }));
+    inner.rotation.x = -Math.PI/2;
+    inner.position.copy(pos);
+    inner.position.y = 0.02;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
+    beam.position.set(pos.x, 20, pos.z);
+    scene.add(marker, inner, beam);
+    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
+    flashHint("Orbital lock bevestigd");
     setStat();
   }
 
@@ -4437,6 +4636,9 @@ canvas{ display:block; }
       while(arr.length){
         const item = arr.pop();
         if(item.mesh) scene.remove(item.mesh);
+        if(item.aura) scene.remove(item.aura);
+        if(item.inner) scene.remove(item.inner);
+        if(item.beam) scene.remove(item.beam);
       }
     }
     while(state.ragdolls.length){
@@ -4832,29 +5034,76 @@ canvas{ display:block; }
       if(h.kind === "mine"){
         h.mesh.rotation.y += dt * 4;
         h.mesh.position.y = 0.16 + Math.sin(h.pulse * 5) * 0.03;
-        for(let j=state.enemies.length-1;j>=0;j--){
-          const e = state.enemies[j];
-          if(e.mesh.position.distanceTo(h.mesh.position) < 2.0){
-            explodeAt(h.mesh.position.clone(), h.radius, h.damage, 0x8bf0ff);
-            scene.remove(h.mesh);
-            state.hazards.splice(i,1);
-            h.life = -1;
-            break;
+        if(h.aura){
+          h.aura.position.copy(h.mesh.position);
+          h.aura.position.y = 0.03;
+          const auraPulse = 1 + Math.sin(h.pulse * 6) * 0.18;
+          h.aura.scale.setScalar(auraPulse);
+          h.aura.material.opacity = 0.22 + Math.sin(h.pulse * 8) * 0.12;
+        }
+        h.tick -= dt;
+        if(h.tick <= 0){
+          h.tick = 0.42;
+          for(let j=state.enemies.length-1;j>=0;j--){
+            const e = state.enemies[j];
+            const dist = e.mesh.position.distanceTo(h.mesh.position);
+            if(dist < h.radius){
+              e.hp -= 10;
+              const arcPos = e.mesh.position.clone().lerp(h.mesh.position, 0.45).add(new THREE.Vector3(0,1.2,0));
+              createBurst(arcPos, 0x8bf0ff, 4, 2.2, { minLife:.12, maxLife:.24, gravity:0.2, shrink:0.92 });
+              createFlash(arcPos, 0x8bf0ff, 1.5, 5, 0.08);
+              if(dist < h.triggerRadius) h.life = Math.min(h.life, 0.08);
+              if(e.hp <= 0){
+                killEnemy(e);
+                state.enemies.splice(j,1);
+              }
+            }
           }
         }
+        if(h.life <= 0){
+          explodeAt(h.mesh.position.clone(), h.radius, h.damage, 0x8bf0ff);
+        }
       }else if(h.kind === "orbital"){
-        h.mesh.material.opacity = 0.55 + Math.sin(h.pulse * 15) * 0.25;
+        const pulse = 0.45 + Math.sin(h.pulse * 16) * 0.18;
+        h.mesh.material.opacity = 0.58 + Math.sin(h.pulse * 15) * 0.22;
         h.mesh.rotation.z += dt * 1.4;
+        if(h.inner){
+          h.inner.material.opacity = 0.15 + pulse * 0.22;
+          h.inner.scale.setScalar(1 + Math.sin(h.pulse * 9) * 0.08);
+        }
+        if(h.beam){
+          h.beam.material.opacity = 0.10 + pulse * 0.22;
+          h.beam.position.y = 18 + Math.sin(h.pulse * 10) * 0.7;
+        }
+        h.tick -= dt;
+        if(h.tick <= 0){
+          h.tick = 0.2;
+          h.strikes += 1;
+          const strike = h.mesh.position.clone();
+          strike.y = 0.4;
+          createFlash(strike.clone().add(new THREE.Vector3(0,10,0)), 0xff8cc0, 2.2, 10, 0.12);
+          createBurst(strike.clone().add(new THREE.Vector3(0,0.8,0)), 0xff8cc0, 10, 5.2, { minLife:.16, maxLife:.38, gravity:0.8, shrink:0.94 });
+          if(h.strikes < 5){
+            explodeAt(strike, Math.max(2.6, h.radius * 0.45), 14, 0xff8cc0);
+          }
+        }
         if(h.life <= 0){
           const strike = h.mesh.position.clone();
           strike.y = 0.4;
-          for(let n=0;n<4;n++) createFlash(strike.clone(), 0xff6ea1, 6, 18, 0.18);
+          for(let n=0;n<6;n++) createFlash(strike.clone(), 0xff6ea1, 7, 22, 0.2);
+          if(h.beam){
+            h.beam.material.opacity = 0.5;
+            h.beam.scale.set(1.6, 1.0, 1.6);
+          }
           createShockwave(strike, 0xff6ea1, h.radius);
           explodeAt(strike, h.radius, h.damage, 0xff6ea1);
         }
       }
       if(h.life <= 0){
         scene.remove(h.mesh);
+        if(h.aura) scene.remove(h.aura);
+        if(h.inner) scene.remove(h.inner);
+        if(h.beam) scene.remove(h.beam);
         state.hazards.splice(i,1);
       }
     }
@@ -4988,6 +5237,22 @@ canvas{ display:block; }
         spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
       }
     });
+    arenaDeco.skyBands.children.forEach((band, i) => {
+      band.position.y = band.userData.baseY + Math.sin(now * 0.00035 + band.userData.phase) * 1.6;
+      band.position.x = Math.sin(now * 0.00022 + band.userData.phase) * 12;
+      band.material.opacity = 0.05 + Math.sin(now * 0.0008 + band.userData.phase) * 0.03;
+      band.rotation.z = Math.sin(now * 0.00012 + i) * 0.07;
+    });
+    arenaDeco.floatingShards.children.forEach((shard, i) => {
+      shard.position.x = shard.userData.base.x + Math.sin(now * 0.0006 + shard.userData.phase + i) * 1.1;
+      shard.position.y = shard.userData.base.y + Math.sin(now * 0.0012 + shard.userData.phase) * 0.48;
+      shard.position.z = shard.userData.base.z + Math.cos(now * 0.00055 + shard.userData.phase) * 1.1;
+      shard.rotation.x += dt * shard.userData.spin;
+      shard.rotation.y += dt * shard.userData.spin * 0.8;
+    });
+    arenaDeco.monoliths.children.forEach((monolith, i) => {
+      monolith.material.emissiveIntensity = 0.08 + Math.sin(now * 0.0011 + i) * 0.05;
+    });
     emberField.children.forEach((ember, i) => {
       ember.position.y = ember.userData.baseY + Math.sin(now * 0.001 * ember.userData.speed + i) * 0.18;
       ember.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
@@ -5117,8 +5382,10 @@ canvas{ display:block; }
     const insideJoy = e.clientX >= joyRect.left && e.clientX <= joyRect.right && e.clientY >= joyRect.top && e.clientY <= joyRect.bottom;
     const uiRect = document.getElementById("ui").getBoundingClientRect();
     const insideUi = e.clientX >= uiRect.left && e.clientX <= uiRect.right && e.clientY >= uiRect.top && e.clientY <= uiRect.bottom;
+    const abilityRect = document.getElementById("abilityDock")?.getBoundingClientRect();
+    const insideAbility = abilityRect && e.clientX >= abilityRect.left && e.clientX <= abilityRect.right && e.clientY >= abilityRect.top && e.clientY <= abilityRect.bottom;
 
-    if(!insideJoy && !insideUi){
+    if(!insideJoy && !insideUi && !insideAbility){
       touchShootAt(e.clientX, e.clientY);
     }
   });
@@ -5199,6 +5466,20 @@ canvas{ display:block; }
   joy.addEventListener("pointercancel", releaseMoveJoy);
   lookJoy.addEventListener("pointerup", releaseLookJoy);
   lookJoy.addEventListener("pointercancel", releaseLookJoy);
+
+  [
+    [ui.abilityPlasma, firePlasmaBurst],
+    [ui.abilityMine, deployShockMine],
+    [ui.abilityOrbital, deployOrbital]
+  ].forEach(([btn, fn]) => {
+    btn?.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio();
+      if(!state.running) startGame();
+      fn();
+    });
+  });
 
   window.addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
