@@ -4507,6 +4507,198 @@ canvas{ display:block; }
 
   animate(performance.now());
 })();
+
+/* === Olde Hanter Advanced Gameplay Extension === */
+
+let playerHP = 100;
+let level = 1;
+let enemiesKilled = 0;
+let nextLevelKills = 15;
+
+function showFloating(text,x=window.innerWidth/2,y=120){
+  const d=document.createElement("div");
+  d.innerText=text;
+  d.style.position="fixed";
+  d.style.left=x+"px";
+  d.style.top=y+"px";
+  d.style.color="#4df7ff";
+  d.style.fontWeight="700";
+  d.style.zIndex=9999;
+  d.style.textShadow="0 0 10px #4df7ff";
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),1500);
+}
+
+/* damage system */
+function damagePlayer(amount){
+  playerHP -= amount;
+  if(playerHP<0) playerHP=0;
+
+  let hud=document.getElementById("hpValue");
+  if(hud) hud.innerText=playerHP;
+
+  document.body.style.boxShadow="inset 0 0 80px rgba(255,0,0,.6)";
+
+  setTimeout(()=>{document.body.style.boxShadow="";},120);
+
+  if(playerHP<=0){
+    showFloating("YOU WERE DEFEATED");
+  }
+}
+
+/* enemy attack behaviours */
+function enemyAttack(enemy,player){
+
+  const type=Math.floor(Math.random()*3);
+
+  if(type===0){
+    damagePlayer(5);
+  }
+
+  if(type===1){
+    damagePlayer(8);
+    spawnShockwave(enemy.x,enemy.y);
+  }
+
+  if(type===2){
+    damagePlayer(3);
+  }
+
+}
+
+/* level system */
+function registerKill(){
+  enemiesKilled++;
+
+  if(enemiesKilled>=nextLevelKills){
+    levelUp();
+  }
+}
+
+function levelUp(){
+  level++;
+  enemiesKilled=0;
+  nextLevelKills+=10;
+
+  showFloating("LEVEL "+level);
+
+  spawnBoss();
+}
+
+/* bosses */
+function spawnBoss(){
+
+  const boss={
+    x:Math.random()*window.innerWidth,
+    y:-120,
+    hp:500+level*150,
+    type:"oldehanter_boss",
+    size:120
+  };
+
+  if(window.enemies){
+    enemies.push(boss);
+  }
+
+  showFloating("⚠ OLDE HANTER BOSS INCOMING ⚠");
+}
+
+/* epic effects */
+function spawnShockwave(x,y){
+
+  const ring=document.createElement("div");
+
+  ring.style.position="fixed";
+  ring.style.left=x+"px";
+  ring.style.top=y+"px";
+  ring.style.width="20px";
+  ring.style.height="20px";
+  ring.style.border="3px solid #ff4fd8";
+  ring.style.borderRadius="50%";
+  ring.style.pointerEvents="none";
+  ring.style.zIndex=9999;
+
+  document.body.appendChild(ring);
+
+  let size=20;
+
+  const anim=setInterval(()=>{
+    size+=12;
+    ring.style.width=size+"px";
+    ring.style.height=size+"px";
+    ring.style.opacity=1-size/300;
+
+    if(size>280){
+      clearInterval(anim);
+      ring.remove();
+    }
+  },16);
+}
+
+/* mobile orientation button */
+
+function addRotateButton(){
+
+  const btn=document.createElement("button");
+  btn.innerText="🔄 Rotate Screen";
+  btn.style.position="fixed";
+  btn.style.bottom="10px";
+  btn.style.right="10px";
+  btn.style.zIndex=9999;
+  btn.style.padding="10px 14px";
+  btn.style.background="#ff4fd8";
+  btn.style.border="none";
+  btn.style.borderRadius="8px";
+  btn.style.color="white";
+
+  btn.onclick=()=>{
+    if(screen.orientation){
+      screen.orientation.lock("landscape").catch(()=>{});
+    }
+  };
+
+  document.body.appendChild(btn);
+}
+
+addRotateButton();
+
+/* Olde Hanter enemy visual marker */
+
+function markOldeHanter(enemyMesh){
+
+  if(!enemyMesh) return;
+
+  const badge=document.createElement("div");
+  badge.innerText="OH";
+  badge.style.position="absolute";
+  badge.style.color="#4df7ff";
+  badge.style.fontWeight="900";
+  badge.style.textShadow="0 0 10px #4df7ff";
+
+  document.body.appendChild(badge);
+}
+
+/* ammo safety */
+
+setInterval(()=>{
+  if(window.ammo!==undefined && ammo<=0){
+    ammo=10;
+    showFloating("Emergency ammo");
+  }
+},3000);
+
+/* epic boss pulse */
+
+setInterval(()=>{
+  const bosses=(window.enemies||[]).filter(e=>e.type==="oldehanter_boss");
+
+  bosses.forEach(b=>{
+    spawnShockwave(b.x||innerWidth/2,b.y||innerHeight/3);
+  });
+
+},2500);
+
+
 </script>
 </body>
 </html>
