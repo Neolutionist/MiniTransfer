@@ -2487,6 +2487,47 @@ canvas{ display:block; }
   backdrop-filter:blur(6px);
   transition:.2s ease;
 }
+
+#minimapWrap{
+  position:fixed;
+  right:14px;
+  top:14px;
+  z-index:23;
+  width:154px;
+  height:154px;
+  border-radius:18px;
+  overflow:hidden;
+  background:rgba(2,10,25,.58);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 12px 28px rgba(0,0,0,.28);
+  backdrop-filter:blur(10px);
+}
+#minimapLabel{
+  position:absolute;
+  left:10px;
+  top:8px;
+  z-index:2;
+  font-size:10px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.75);
+}
+#minimapCanvas{
+  width:100%;
+  height:100%;
+  display:block;
+}
+.rotate-btn{
+  pointer-events:auto;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:14px;
+  padding:12px 14px;
+  background:rgba(0,0,0,.42);
+  color:#fff;
+  font-weight:800;
+  backdrop-filter:blur(8px);
+  box-shadow:0 10px 22px rgba(0,0,0,.25);
+}
 #mailLink:hover{
   color:#fff;
   background:rgba(0,0,0,.32);
@@ -2550,6 +2591,18 @@ canvas{ display:block; }
 }
 
 @media (max-width:760px){
+  #minimapWrap{
+    top:auto;
+    right:10px;
+    bottom:148px;
+    width:118px;
+    height:118px;
+    border-radius:16px;
+  }
+  #minimapLabel{ font-size:9px; }
+}
+
+@media (max-width:760px){
   #ui{
     left:50%;
     transform:translateX(-50%);
@@ -2605,6 +2658,8 @@ canvas{ display:block; }
 <div id="psyOverlay"></div>
 <div id="damageFlash"></div>
 <div id="crosshair"></div>
+
+<div id="minimapWrap"><div id="minimapLabel">Tactische kaart</div><canvas id="minimapCanvas" width="154" height="154"></canvas></div>
 
 <div id="bossBarWrap">
   <div id="bossBarLabel">BOSS</div>
@@ -2666,6 +2721,7 @@ canvas{ display:block; }
   <div id="leftControls">
     <div class="joy" id="joy"><div id="joyKnob"></div></div>
   </div>
+  <button id="rotateBtn" class="rotate-btn">🔄 Draai scherm</button>
 </div>
 
 <div id="tapHint">Tik op het scherm om te schieten</div>
@@ -2698,7 +2754,10 @@ canvas{ display:block; }
     bossBarInner: document.getElementById("bossBarInner"),
     leaderboard: document.getElementById("leaderboard"),
     playerName: document.getElementById("playerName"),
-    gameWrap: document.getElementById("gameWrap")
+    gameWrap: document.getElementById("gameWrap"),
+    rotateBtn: document.getElementById("rotateBtn"),
+    minimapCanvas: document.getElementById("minimapCanvas"),
+    minimapWrap: document.getElementById("minimapWrap")
   };
 
   const LB_KEY = "olde_hanter_arcade_leaderboard_v3";
@@ -2745,6 +2804,27 @@ canvas{ display:block; }
   }
 
   renderBoard();
+
+  const minimapCtx = ui.minimapCanvas.getContext("2d");
+  let forcedLandscape = false;
+
+  if(!isTouch && ui.rotateBtn){
+    ui.rotateBtn.style.display = "none";
+  }
+
+  function toggleOrientation(){
+    if(!isTouch || !screen.orientation) return;
+    if(forcedLandscape){
+      if(screen.orientation.unlock) screen.orientation.unlock();
+      forcedLandscape = false;
+    }else if(screen.orientation.lock){
+      screen.orientation.lock("landscape").then(() => {
+        forcedLandscape = true;
+      }).catch(() => {});
+    }
+  }
+
+  ui.rotateBtn?.addEventListener("click", toggleOrientation);
 
   let audioCtx = null;
   function ensureAudio(){
@@ -3095,6 +3175,11 @@ canvas{ display:block; }
     shroud.castShadow = true;
     root.add(shroud);
 
+    const weaponLogo = makeLogoGlyph(0.18);
+    weaponLogo.position.set(0.058, 0.045, -0.1);
+    weaponLogo.rotation.y = Math.PI * 0.5;
+    root.add(weaponLogo);
+
     const grip = new THREE.Mesh(new THREE.BoxGeometry(0.11,0.24,0.12), woodMat);
     grip.position.set(0,-0.19,0.05);
     grip.rotation.x = 0.22;
@@ -3139,6 +3224,72 @@ canvas{ display:block; }
     if(flash) flash.intensity = Math.max(0, flash.intensity - dt * 18);
     camera.position.x += (Math.random()-0.5) * state.cameraShake * 0.05;
     camera.position.y += (Math.random()-0.5) * state.cameraShake * 0.04;
+  }
+
+  function drawMinimap(){
+    const c = ui.minimapCanvas;
+    const ctx = minimapCtx;
+    if(!c || !ctx) return;
+    const w = c.width, h = c.height;
+    const scale = 1.35;
+    const range = 30;
+    ctx.clearRect(0,0,w,h);
+    const bg = ctx.createLinearGradient(0,0,0,h);
+    bg.addColorStop(0, "rgba(10,30,55,.92)");
+    bg.addColorStop(1, "rgba(5,10,22,.96)");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle = "rgba(77,247,255,.15)";
+    for(let i=0;i<=6;i++){
+      const x = (i/6)*w;
+      const y = (i/6)*h;
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+    function plot(wx,wz,color,size=4){
+      const dx = wx - player.pos.x;
+      const dz = wz - player.pos.z;
+      const px = w/2 + (dx/range)*(w/2-10)*scale;
+      const py = h/2 + (dz/range)*(h/2-10)*scale;
+      if(px<6||px>w-6||py<6||py>h-6) return;
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(px,py,size,0,Math.PI*2); ctx.fill();
+    }
+    for(const cinfo of colliders){
+      const b = cinfo.box;
+      const cx = (b.min.x+b.max.x)*0.5;
+      const cz = (b.min.z+b.max.z)*0.5;
+      const bw = b.max.x-b.min.x;
+      const bz = b.max.z-b.min.z;
+      const px = w/2 + ((cx-player.pos.x)/range)*(w/2-10)*scale;
+      const py = h/2 + ((cz-player.pos.z)/range)*(h/2-10)*scale;
+      const rw = Math.max(2,(bw/range)*(w/2-10)*scale);
+      const rh = Math.max(2,(bz/range)*(h/2-10)*scale);
+      ctx.fillStyle = "rgba(120,170,255,.12)";
+      ctx.fillRect(px-rw*0.5, py-rh*0.5, rw, rh);
+    }
+    for(const e of state.enemies){
+      const color = e.type === "logo" ? "#ffd166" : e.type === "tank" ? "#ff7f95" : e.type === "runner" ? "#9dff7c" : "#7ed8ff";
+      plot(e.mesh.position.x, e.mesh.position.z, color, e.type === "logo" ? 5 : 4);
+    }
+    if(state.boss){
+      plot(state.boss.mesh.position.x, state.boss.mesh.position.z, "#ff2b80", 6);
+    }
+    for(const p of state.pickups){
+      plot(p.mesh.position.x, p.mesh.position.z, "#f5fbff", 2.5);
+    }
+    ctx.save();
+    ctx.translate(w/2, h/2);
+    ctx.rotate(-lookYaw);
+    ctx.fillStyle = "#f5fbff";
+    ctx.beginPath();
+    ctx.moveTo(0,-10); ctx.lineTo(7,8); ctx.lineTo(0,4); ctx.lineTo(-7,8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(77,247,255,.55)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1,1,w-2,h-2);
   }
 
   function queueNextWave(delay=1.2){
@@ -3380,7 +3531,52 @@ canvas{ display:block; }
     if(!collidesAt(player.pos.x, nz)) player.pos.z = nz;
   }
 
+  function makeLogoEnemyMesh(isBoss=false){
+    const group = new THREE.Group();
+    const navy = new THREE.MeshStandardMaterial({ color:0x0d2f63, emissive:0x071b3a, emissiveIntensity:isBoss?0.8:0.32, roughness:.38, metalness:.26 });
+    const sky = new THREE.MeshStandardMaterial({ color:0x9fd8ef, emissive:0x397b95, emissiveIntensity:isBoss?0.75:0.36, roughness:.26, metalness:.18 });
+    const body = new THREE.Group();
+    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, isBoss?2.8:2.05, 0.36), navy);
+    leftLeg.position.set(-0.78, isBoss?1.4:1.02, 0);
+    const rightLeg = leftLeg.clone();
+    rightLeg.position.x = 0.78;
+    const leftFoot = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.18, 0.46), navy);
+    leftFoot.position.set(-0.78, 0.08, 0);
+    const rightFoot = leftFoot.clone();
+    rightFoot.position.x = 0.78;
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.26, 0.38), sky);
+    bridge.position.set(0, isBoss?2.12:1.52, 0);
+    const crownL = new THREE.Mesh(new THREE.BoxGeometry(0.22, isBoss?1.2:0.9, 0.34), navy);
+    crownL.position.set(-0.78, isBoss?3.06:2.34, 0);
+    const crownR = crownL.clone();
+    crownR.position.x = 0.78;
+    const ringOuter = new THREE.Mesh(new THREE.CylinderGeometry(isBoss?0.7:0.52, isBoss?0.7:0.52, 0.34, 28), navy);
+    ringOuter.rotation.x = Math.PI/2;
+    ringOuter.position.set(0, isBoss?2.82:2.18, 0.02);
+    const ringInner = new THREE.Mesh(new THREE.CylinderGeometry(isBoss?0.33:0.24, isBoss?0.33:0.24, 0.4, 24), sky);
+    ringInner.rotation.x = Math.PI/2;
+    ringInner.position.set(0, isBoss?2.82:2.18, 0.03);
+    [leftLeg,rightLeg,leftFoot,rightFoot,bridge,crownL,crownR,ringOuter,ringInner].forEach(m => { m.castShadow = m.receiveShadow = true; body.add(m); });
+    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.9,0.28), navy);
+    shoulderL.position.set(-1.08, isBoss?2.12:1.64, 0);
+    const shoulderR = shoulderL.clone();
+    shoulderR.position.x = 1.08;
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, isBoss?1.3:1.0, 0.24), sky);
+    armL.position.set(-1.08, isBoss?1.38:1.05, 0);
+    const armR = armL.clone();
+    armR.position.x = 1.08;
+    const core = makeLogoGlyph(isBoss?1.25:1.0);
+    core.position.set(0, isBoss?1.62:1.18, 0.24);
+    body.add(shoulderL, shoulderR, armL, armR, core);
+    const aura = new THREE.PointLight(0x9fd8ef, isBoss?1.8:0.8, isBoss?9:5, 2);
+    aura.position.set(0, isBoss?2.5:1.9, 1.1);
+    group.add(body, aura);
+    group.userData.parts = { body, armL, armR, legL:leftLeg, legR:rightLeg, logo:core, hatBadge:core, ringOuter, ringInner };
+    return group;
+  }
+
   function makeEnemyMesh(type="basic", isBoss=false){
+    if(type === "logo") return makeLogoEnemyMesh(isBoss);
     const palette = isBoss
       ? [0x1f5fbf, 0x0c2850, 0xf5fbff]
       : type === "runner"
@@ -3540,8 +3736,9 @@ canvas{ display:block; }
     let type = "basic";
     if(!isBoss){
       const roll = Math.random();
-      if(player.wave >= 2 && roll < .24) type = "runner";
-      else if(player.wave >= 3 && roll < .43) type = "tank";
+      if(player.wave >= 4 && roll < .16) type = "logo";
+      else if(player.wave >= 3 && roll < .34) type = "tank";
+      else if(player.wave >= 2 && roll < .58) type = "runner";
     }
 
     const mesh = makeEnemyMesh(type, isBoss);
@@ -3551,6 +3748,7 @@ canvas{ display:block; }
     const baseHp = isBoss ? 230 + player.wave*28 :
       type === "runner" ? 14 + player.wave*3 :
       type === "tank" ? 38 + player.wave*6 :
+      type === "logo" ? 30 + player.wave*5 :
       20 + player.wave*4;
 
     const enemy = {
@@ -3562,8 +3760,9 @@ canvas{ display:block; }
       speed: isBoss ? 2.9 :
         type === "runner" ? 5.2 + player.wave*.12 :
         type === "tank" ? 2.1 + player.wave*.05 :
+        type === "logo" ? 3.6 + player.wave*.08 :
         3.2 + player.wave*.1,
-      radius: isBoss ? 1.8 : (type === "tank" ? 1.15 : .95),
+      radius: isBoss ? 1.8 : (type === "tank" ? 1.15 : type === "logo" ? 1.05 : .95),
       fireCooldown: isBoss ? .95 : rand(.9,2.2),
       strafe: rand(-1,1),
       bob: rand(0,Math.PI*2)
@@ -3581,6 +3780,7 @@ canvas{ display:block; }
   function spawnWave(){
     state.lastClearStamp = performance.now();
     const count = Math.min(6 + player.wave * 2, 30);
+    showFloating(`WAVE ${player.wave} · ${count} vijanden`);
     for(let i=0;i<count;i++) spawnEnemy(false);
     if(player.wave % 4 === 0){
       setTimeout(() => {
@@ -4154,8 +4354,8 @@ canvas{ display:block; }
       e.mesh.position.y = 0.02 + Math.sin(e.bob) * 0.04;
       e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
 
-      if(dist < (e.type === "tank" ? 1.9 : 1.55)){
-        applyDamage((e.type === "tank" ? 18 : 12) * dt * 8);
+      if(dist < (e.type === "tank" ? 1.9 : e.type === "logo" ? 1.7 : 1.55)){
+        applyDamage((e.type === "tank" ? 18 : e.type === "logo" ? 16 : 12) * dt * 8);
       }
 
       if(e.fireCooldown <= 0 && dist < (e.type === "tank" ? 18 : 24)){
@@ -4354,6 +4554,7 @@ canvas{ display:block; }
       updateParticles(dt);
     }
 
+    drawMinimap();
     renderer.render(scene, camera);
   }
 
@@ -4657,10 +4858,11 @@ function addRotateButton(){
     }
   };
 
+  if(window.matchMedia("(pointer:fine)").matches){ btn.style.display="none"; }
   document.body.appendChild(btn);
 }
 
-addRotateButton();
+if(window.matchMedia("(pointer:coarse)").matches){ addRotateButton(); }
 
 /* Olde Hanter enemy visual marker */
 
