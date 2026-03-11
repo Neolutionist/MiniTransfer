@@ -2709,7 +2709,7 @@ canvas{ display:block; }
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b>. Mobiel: <b>joystick links</b>, <b>tik om te schieten</b>, <b>weapon buttons rechts</b>.</p>
 
-  <button id="startBtn">Start spel</button>
+  <button id="startBtn" onclick="window.__startGame && window.__startGame()">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
 
   <div id="boardWrap">
@@ -3228,7 +3228,14 @@ canvas{ display:block; }
       color:palette[2], emissive:palette[2], emissiveIntensity:1.2
     });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.55:1.25, type==="runner" ? 0.88 : 1.0, .42), matA);
+    const torso = new THREE.Mesh(
+  new THREE.BoxGeometry(
+    type === "tank" ? 1.55 : 1.25,
+    type === "runner" ? 0.88 : 1.0,
+    0.42
+  ),
+  matA
+);
     torso.position.y = 1.82;
 
     const headOuter = new THREE.Mesh(new THREE.CylinderGeometry(.62,.62,.3,32), matB);
@@ -4083,18 +4090,35 @@ canvas{ display:block; }
   }
 
   function startGame(){
+  try{
     ensureAudio();
     state.running = true;
     player.alive = true;
 
     const spawn = findSafeSpawn();
-    player.pos.set(spawn.x,1.7,spawn.z);
-    camera.position.set(spawn.x,1.7,spawn.z);
+    player.pos.set(spawn.x, 1.7, spawn.z);
+    camera.position.set(spawn.x, 1.7, spawn.z);
+
+    lookYaw = 0;
+    lookPitch = 0;
+    applyCameraLook();
 
     ui.center.classList.add("hidden");
-    if(!state.enemies.length && !state.boss) spawnWave();
-    if(!isTouch) renderer.domElement.requestPointerLock?.();
+
+    if(!state.enemies.length && !state.boss){
+      spawnWave();
+    }
+
+    if(!isTouch && renderer.domElement.requestPointerLock){
+      renderer.domElement.requestPointerLock();
+    }
+  } catch(err){
+    console.error("StartGame fout:", err);
+    alert("Er zit nog een JavaScript-fout in het spel. Open de console voor details.");
   }
+}
+
+window.__startGame = startGame;
 
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
