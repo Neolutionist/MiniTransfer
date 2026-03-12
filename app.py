@@ -5737,2625 +5737,2054 @@ function spawnWave(){
   });
 
 /* =========================
-   OLDE HANTER APOCALYPSE PACK
-   plak dit direct boven: animate(performance.now());
-   ========================= */
-(() => {
-  const apoc = {
-    fury: 0,
-    furyMax: 100,
-    furyActive: false,
-    furyTime: 0,
-    dashCd: 0,
-    lastExtraShot: 0,
-    lastAuraPulse: 0,
-    drones: [],
-    overlay: null,
-    hud: {},
-    mobile: {},
-    extraLast: performance.now()
-  };
-
-  function ohClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function ohLerp(a,b,t){ return a + (b-a) * t; }
-
-  function addApocStyles(){
-    const style = document.createElement("style");
-    style.textContent = `
-      #apocHud{
-        position:fixed; right:16px; top:16px; z-index:25; width:min(320px,calc(100vw - 32px));
-        display:flex; flex-direction:column; gap:10px; pointer-events:none;
-      }
-      .apoc-card{
-        pointer-events:auto;
-        background:linear-gradient(180deg, rgba(8,8,18,.78), rgba(14,8,28,.64));
-        border:1px solid rgba(255,255,255,.14);
-        border-radius:16px;
-        padding:10px 12px;
-        box-shadow:0 10px 32px rgba(0,0,0,.28), 0 0 24px rgba(157,107,255,.12);
-        backdrop-filter: blur(12px) saturate(1.15);
-      }
-      .apoc-row{
-        display:flex; align-items:center; justify-content:space-between; gap:10px;
-        color:#fff; font-weight:800; letter-spacing:.03em;
-      }
-      .apoc-sub{ font-size:.8rem; color:rgba(255,255,255,.72); font-weight:700; }
-      .apoc-meter{
-        height:12px; margin-top:8px; border-radius:999px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.12);
-        background:rgba(255,255,255,.08);
-        box-shadow: inset 0 0 12px rgba(255,255,255,.04);
-      }
-      .apoc-meter > i{
-        display:block; height:100%; width:0%;
-        background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600,#00f7ff);
-        background-size:220% 220%;
-        animation:apocFlow 3.2s linear infinite;
-        box-shadow:0 0 18px rgba(255,0,168,.22);
-      }
-      .apoc-ready{
-        box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 26px rgba(255,230,0,.16), 0 0 40px rgba(255,0,168,.12);
-      }
-      .apoc-btn{
-        appearance:none; border:0; cursor:pointer;
-        border-radius:999px; padding:.72rem 1rem; font-weight:900; color:#fff;
-        background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
-        background-size:250% 250%;
-        animation:apocFlow 4.5s linear infinite;
-        box-shadow:0 0 18px rgba(255,0,168,.24), 0 0 30px rgba(0,247,255,.14);
-        text-transform:uppercase; letter-spacing:.06em;
-      }
-      .apoc-btn:disabled{
-        filter:grayscale(.6) brightness(.7);
-        box-shadow:none; cursor:not-allowed;
-      }
-      #apocOverlay{
-        position:fixed; inset:0; z-index:6; pointer-events:none; opacity:0;
-        background:
-          radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 32%),
-          radial-gradient(circle at 20% 30%, rgba(0,247,255,.12), transparent 28%),
-          radial-gradient(circle at 80% 20%, rgba(255,0,168,.12), transparent 30%),
-          radial-gradient(circle at 50% 80%, rgba(255,230,0,.10), transparent 30%);
-        mix-blend-mode:screen;
-        transition:opacity .18s ease;
-      }
-      #apocOverlay.active{
-        opacity:1;
-        animation:apocPulse .9s linear infinite;
-      }
-      #apocToast{
-        position:fixed; left:50%; top:90px; transform:translateX(-50%);
-        z-index:26; pointer-events:none;
-        padding:.72rem 1rem; border-radius:999px;
-        background:rgba(12,10,30,.74);
-        border:1px solid rgba(255,255,255,.14);
-        color:#fff; font-weight:900; letter-spacing:.06em;
-        box-shadow:0 0 18px rgba(255,0,168,.16), 0 0 26px rgba(0,247,255,.10);
-        opacity:0; transition:opacity .16s ease, transform .16s ease;
-      }
-      #apocToast.show{ opacity:1; transform:translateX(-50%) translateY(-4px); }
-
-      #apocMobileDock{
-        position:fixed; right:14px; bottom:124px; z-index:22;
-        display:flex; flex-direction:column; gap:10px;
-      }
-      .apoc-mobile-btn{
-        min-width:86px; min-height:58px;
-        border-radius:18px; border:1px solid rgba(255,255,255,.16);
-        background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.08));
-        color:#fff; font-weight:900; letter-spacing:.04em;
-        box-shadow:0 0 18px rgba(0,0,0,.18), inset 0 0 18px rgba(255,255,255,.03);
-        backdrop-filter: blur(10px) saturate(1.08);
-      }
-      .apoc-mobile-btn small{
-        display:block; font-size:.72rem; font-weight:700; opacity:.8; margin-top:2px;
-      }
-      .apoc-mobile-btn.ready{
-        box-shadow:0 0 24px rgba(255,230,0,.22), 0 0 34px rgba(255,0,168,.14), inset 0 0 18px rgba(255,255,255,.04);
-      }
-
-      @keyframes apocFlow{
-        0%{ background-position:0% 50%; }
-        100%{ background-position:200% 50%; }
-      }
-      @keyframes apocPulse{
-        0%{ filter:hue-rotate(0deg) saturate(1.0); }
-        100%{ filter:hue-rotate(360deg) saturate(1.3); }
-      }
-      @media (max-width:780px){
-        #apocHud{ right:10px; top:10px; width:min(280px,calc(100vw - 20px)); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function makeHud(){
-    addApocStyles();
-
-    apoc.overlay = document.createElement("div");
-    apoc.overlay.id = "apocOverlay";
-    document.body.appendChild(apoc.overlay);
-
-    const toast = document.createElement("div");
-    toast.id = "apocToast";
-    document.body.appendChild(toast);
-    apoc.hud.toast = toast;
-
-    const hud = document.createElement("div");
-    hud.id = "apocHud";
-    hud.innerHTML = `
-      <div id="apocCard" class="apoc-card">
-        <div class="apoc-row">
-          <span>FURY MODE</span>
-          <span id="apocFuryPct">0%</span>
-        </div>
-        <div class="apoc-sub" id="apocFuryText">Maak kills om Fury op te laden</div>
-        <div class="apoc-meter"><i id="apocFuryFill"></i></div>
-        <div style="display:flex;gap:8px;margin-top:10px;pointer-events:auto">
-          <button id="apocFuryBtn" class="apoc-btn" type="button" disabled>Q / V Fury</button>
-          <button id="apocDashBtn" class="apoc-btn" type="button">Shift Dash</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(hud);
-
-    apoc.hud.root = hud;
-    apoc.hud.card = hud.querySelector("#apocCard");
-    apoc.hud.fill = hud.querySelector("#apocFuryFill");
-    apoc.hud.pct = hud.querySelector("#apocFuryPct");
-    apoc.hud.text = hud.querySelector("#apocFuryText");
-    apoc.hud.furyBtn = hud.querySelector("#apocFuryBtn");
-    apoc.hud.dashBtn = hud.querySelector("#apocDashBtn");
-
-    const mobileDock = document.createElement("div");
-    mobileDock.id = "apocMobileDock";
-    mobileDock.innerHTML = `
-      <button id="apocMobileFury" class="apoc-mobile-btn" type="button">V FURY<small>combo mode</small></button>
-      <button id="apocMobileDash" class="apoc-mobile-btn" type="button">SHIFT<small>dash</small></button>
-    `;
-    document.body.appendChild(mobileDock);
-
-    apoc.mobile.root = mobileDock;
-    apoc.mobile.fury = mobileDock.querySelector("#apocMobileFury");
-    apoc.mobile.dash = mobileDock.querySelector("#apocMobileDash");
-
-    if(!isTouch){
-      mobileDock.style.display = "none";
-    }
-
-    apoc.hud.furyBtn.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      activateFury();
-    });
-    apoc.hud.dashBtn.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      doDash();
-    });
-    apoc.mobile.fury.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      activateFury();
-    });
-    apoc.mobile.dash.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      doDash();
-    });
-
-    updateApocHud();
-  }
-
-  function apocToast(msg){
-    if(!apoc.hud.toast) return;
-    apoc.hud.toast.textContent = msg;
-    apoc.hud.toast.classList.add("show");
-    clearTimeout(apoc.hud.toastTimer);
-    apoc.hud.toastTimer = setTimeout(() => apoc.hud.toast.classList.remove("show"), 1200);
-  }
-
-  function updateApocHud(){
-    if(!apoc.hud.fill) return;
-    const pct = ohClamp((apoc.fury / apoc.furyMax) * 100, 0, 100);
-    apoc.hud.fill.style.width = pct.toFixed(1) + "%";
-    apoc.hud.pct.textContent = Math.round(pct) + "%";
-
-    const ready = apoc.fury >= apoc.furyMax && !apoc.furyActive;
-    apoc.hud.card.classList.toggle("apoc-ready", ready);
-    apoc.hud.furyBtn.disabled = !ready && !apoc.furyActive;
-    apoc.mobile.fury.classList.toggle("ready", ready);
-
-    if(apoc.furyActive){
-      apoc.hud.text.textContent = `FURY ACTIEF • ${apoc.furyTime.toFixed(1)}s • drones online`;
-      apoc.hud.furyBtn.textContent = "Fury actief";
-      apoc.mobile.fury.innerHTML = `FURY<small>${apoc.furyTime.toFixed(1)}s</small>`;
-    }else if(ready){
-      apoc.hud.text.textContent = "Vol! Druk op Q of V om los te gaan";
-      apoc.hud.furyBtn.textContent = "Q / V Fury";
-      apoc.mobile.fury.innerHTML = `V FURY<small>gereed</small>`;
-    }else{
-      apoc.hud.text.textContent = "Maak kills om Fury op te laden";
-      apoc.hud.furyBtn.textContent = "Q / V Fury";
-      apoc.mobile.fury.innerHTML = `V FURY<small>combo mode</small>`;
-    }
-
-    const dashReady = apoc.dashCd <= 0;
-    apoc.hud.dashBtn.disabled = !dashReady;
-    apoc.hud.dashBtn.textContent = dashReady ? "Shift Dash" : `Dash ${apoc.dashCd.toFixed(1)}s`;
-    apoc.mobile.dash.classList.toggle("ready", dashReady);
-    apoc.mobile.dash.innerHTML = dashReady ? `SHIFT<small>dash</small>` : `SHIFT<small>${apoc.dashCd.toFixed(1)}s</small>`;
-  }
-
-  function addFury(amount){
-    if(apoc.furyActive) return;
-    apoc.fury = ohClamp(apoc.fury + amount, 0, apoc.furyMax);
-    updateApocHud();
-    if(apoc.fury >= apoc.furyMax){
-      flashHint?.("FURY VOL — druk op Q of V");
-      apocToast("FURY READY");
-    }
-  }
-
-  function makeDrone(color = 0x8bf0ff){
-    const g = new THREE.Group();
-
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 14, 14),
-      new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: 1.25,
-        metalness: 0.32,
-        roughness: 0.18
-      })
-    );
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.34, 0.04, 10, 22),
-      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:.8 })
-    );
-    ring.rotation.x = Math.PI / 2;
-
-    const finA = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.05, 0.12),
-      new THREE.MeshStandardMaterial({ color:0xffffff, emissive:color, emissiveIntensity:.5 })
-    );
-    const finB = finA.clone();
-    finB.rotation.y = Math.PI / 2;
-
-    g.add(core, ring, finA, finB);
-    scene.add(g);
-
-    return {
-      mesh: g,
-      ring,
-      core,
-      angle: Math.random() * Math.PI * 2,
-      radius: 2.5 + Math.random() * 0.55,
-      y: 1.8 + Math.random() * 0.25,
-      fireCd: 0.1 + Math.random() * 0.2,
-      bob: Math.random() * Math.PI * 2,
-      spin: 1.2 + Math.random() * 0.8
-    };
-  }
-
-  function spawnDrones(){
-    clearDrones();
-    apoc.drones.push(makeDrone(0x8bf0ff));
-    apoc.drones.push(makeDrone(0xff7ce0));
-  }
-
-  function clearDrones(){
-    while(apoc.drones.length){
-      const d = apoc.drones.pop();
-      scene.remove(d.mesh);
-    }
-  }
-
-  function nearestEnemy(maxDist = 20){
-    let best = null;
-    let bestDist = maxDist;
-
-    if(state.boss?.mesh){
-      const dist = state.boss.mesh.position.distanceTo(player.pos);
-      if(dist < bestDist){
-        best = state.boss;
-        bestDist = dist;
-      }
-    }
-
-    for(const e of state.enemies){
-      if(!e?.mesh) continue;
-      const dist = e.mesh.position.distanceTo(player.pos);
-      if(dist < bestDist){
-        best = e;
-        bestDist = dist;
-      }
-    }
-    return best;
-  }
-
-  function damageEnemyDirect(enemy, damage){
-    if(!enemy || !enemy.mesh) return false;
-    enemy.hp -= damage;
-    const hitPos = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-    createBurst?.(hitPos, 0xfff7bf, 5, 1.6, { minLife:.10, maxLife:.22, gravity:0.2, shrink:0.92 });
-    createFlash?.(hitPos, 0xffffff, 1.2, 4.2, 0.07);
-
-    if(enemy.hp <= 0){
-      if(enemy === state.boss){
-        killEnemy(enemy);
-      }else{
-        const idx = state.enemies.indexOf(enemy);
-        if(idx !== -1){
-          killEnemy(enemy);
-          state.enemies.splice(idx, 1);
-        }
-      }
-    }
-    return true;
-  }
-
-  function droneShoot(drone, enemy){
-    if(!enemy?.mesh) return;
-    const from = drone.mesh.position.clone();
-    const to = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.3, 0));
-    const dir = to.clone().sub(from).normalize();
-
-    state.bullets.push(createProjectile(from, dir, {
-      speed: 28,
-      friendly: true,
-      color: 0x9cfbff,
-      trailColor: 0xffffff,
-      size: 0.09,
-      life: 1.2,
-      damage: 9,
-      type: "drone"
-    }));
-    createFlash?.(from.clone(), 0x8bf0ff, 1.0, 2.5, 0.05);
-  }
-
-  function updateDrones(dt, now){
-    if(!apoc.drones.length) return;
-
-    apoc.drones.forEach((d, i) => {
-      d.angle += dt * (1.4 + i * 0.25);
-      d.bob += dt * 2.8;
-      d.fireCd -= dt;
-      const offX = Math.cos(d.angle) * d.radius;
-      const offZ = Math.sin(d.angle) * d.radius;
-      const y = d.y + Math.sin(d.bob) * 0.18;
-      d.mesh.position.set(player.pos.x + offX, y, player.pos.z + offZ);
-      d.mesh.rotation.y += dt * 4.8;
-      d.ring.rotation.z += dt * d.spin;
-
-      const enemy = nearestEnemy(19);
-      if(apoc.furyActive && enemy && d.fireCd <= 0){
-        d.fireCd = 0.22 + Math.random() * 0.08;
-        droneShoot(d, enemy);
-      }
-    });
-  }
-
-  function activateFury(){
-    if(apoc.furyActive || apoc.fury < apoc.furyMax) return;
-    apoc.furyActive = true;
-    apoc.fury = 0;
-    apoc.furyTime = 12;
-    apoc.lastExtraShot = 0;
-    apoc.lastAuraPulse = 0;
-    apoc.overlay.classList.add("active");
-
-    spawnDrones();
-    player.damageCooldown = Math.max(player.damageCooldown, 0.2);
-    state.cameraShake = Math.min(2.0, state.cameraShake + 0.9);
-    createShockwave?.(player.pos.clone(), 0xff00a8, 4.2);
-    createShockwave?.(player.pos.clone(), 0x00f7ff, 5.4);
-    flashHint?.("FURY MODE geactiveerd");
-    apocToast("FURY MODE");
-    updateApocHud();
-  }
-
-  function stopFury(silent=false){
-    apoc.furyActive = false;
-    apoc.furyTime = 0;
-    apoc.overlay.classList.remove("active");
-    clearDrones();
-    if(!silent){
-      flashHint?.("Fury voorbij");
-    }
-    updateApocHud();
-  }
-
-  function getMoveVector(){
-    const v = new THREE.Vector3();
-    if(input.forward || input.strafe){
-      const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
-      const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
-      v.addScaledVector(forward, input.forward);
-      v.addScaledVector(right, input.strafe);
-    }else{
-      camera.getWorldDirection(v);
-      v.y = 0;
-    }
-    if(v.lengthSq() < 0.0001){
-      v.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
-    }
-    return v.normalize();
-  }
-
-  function doDash(){
-    if(!state.running || !player.alive || apoc.dashCd > 0) return;
-
-    const dir = getMoveVector();
-    const old = player.pos.clone();
-    let moved = false;
-
-    for(let step = 1; step <= 10; step++){
-      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
-      const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
-      if(blocked) break;
-      player.pos.copy(test);
-      moved = true;
-    }
-
-    if(!moved) return;
-
-    apoc.dashCd = 3.5;
-    player.damageCooldown = Math.max(player.damageCooldown, 0.35);
-    state.cameraShake = Math.min(1.8, state.cameraShake + 0.42);
-
-    for(let i=0;i<5;i++){
-      const p = old.clone().lerp(player.pos, i / 4);
-      createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
-    }
-    createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
-    flashHint?.("Dash");
-    updateApocHud();
-  }
-
-  function furySideShots(dirOverride=null){
-    if(!apoc.furyActive || !state.running || !player.alive) return;
-    if(player.weapon !== "bullet") return;
-
-    const now = performance.now();
-    if(now - apoc.lastExtraShot < 95) return;
-    apoc.lastExtraShot = now;
-
-    const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
-    if(!dirOverride){
-      camera.getWorldDirection(dir);
-      dir.normalize();
-    }
-
-    const base = player.pos.clone();
-    base.y = 1.52;
-    const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
-    const spreadA = dir.clone().addScaledVector(right, 0.12).normalize();
-    const spreadB = dir.clone().addScaledVector(right, -0.12).normalize();
-
-    [spreadA, spreadB].forEach((d, idx) => {
-      const start = base.clone().addScaledVector(right, idx === 0 ? 0.24 : -0.24).add(d.clone().multiplyScalar(.8));
-      state.bullets.push(createProjectile(start, d, {
-        speed: 34,
-        friendly: true,
-        color: idx === 0 ? 0x00f7ff : 0xff7ce0,
-        trailColor: 0xffffff,
-        size: 0.08,
-        life: 1.25,
-        damage: 7,
-        type: "fury"
-      }));
-    });
-
-    createFlash?.(base.clone(), 0xffffff, 0.8, 2.0, 0.04);
-  }
-
-  function updateFury(dt){
-    if(apoc.dashCd > 0){
-      apoc.dashCd = Math.max(0, apoc.dashCd - dt);
-    }
-
-    if(apoc.furyActive){
-      apoc.furyTime = Math.max(0, apoc.furyTime - dt);
-
-      if(player.weapon === "bullet"){
-        player.fireCooldown *= 0.82;
-      }else if(player.weapon === "rocket"){
-        player.fireCooldown *= 0.9;
-      }else if(player.weapon === "grenade"){
-        player.fireCooldown *= 0.92;
-      }
-
-      apoc.overlay.style.opacity = String(0.52 + Math.sin(performance.now() * 0.012) * 0.12);
-
-      apoc.lastAuraPulse -= dt;
-      if(apoc.lastAuraPulse <= 0){
-        apoc.lastAuraPulse = 0.48;
-        createShockwave?.(player.pos.clone(), Math.random() > 0.5 ? 0xff00a8 : 0x00f7ff, 1.8 + Math.random() * 1.4);
-
-        for(const e of state.enemies){
-          if(!e?.mesh) continue;
-          const dist = e.mesh.position.distanceTo(player.pos);
-          if(dist < 4.4){
-            damageEnemyDirect(e, 3);
-          }
-        }
-        if(state.boss?.mesh && state.boss.mesh.position.distanceTo(player.pos) < 4.8){
-          damageEnemyDirect(state.boss, 3);
-        }
-      }
-
-      if(apoc.furyTime <= 0){
-        stopFury();
-      }
-    }else{
-      apoc.overlay.style.opacity = "0";
-    }
-
-    updateApocHud();
-  }
-
-  /* wrappers rond bestaande gamefuncties */
-  const _registerKill = registerKill;
-  registerKill = function(points){
-    _registerKill(points);
-    addFury(10 + state.combo * 4);
-
-    if(apoc.furyActive){
-      player.hp = Math.min(player.maxHp, player.hp + 4);
-      setStat?.();
-      createFlash?.(player.pos.clone().add(new THREE.Vector3(0,1.3,0)), 0x9dff7c, 1.2, 3.0, 0.06);
-    }
-  };
-
-  const _restartGame = restartGame;
-  restartGame = function(){
-    stopFury(true);
-    apoc.fury = 0;
-    apoc.dashCd = 0;
-    updateApocHud();
-    return _restartGame();
-  };
-
-  const _shootWithDirection = shootWithDirection;
-  shootWithDirection = function(dirOverride=null){
-    const ok = _shootWithDirection(dirOverride);
-    if(ok && apoc.furyActive){
-      furySideShots(dirOverride);
-    }
-    return ok;
-  };
-
-  const _applyDamage = applyDamage;
-  applyDamage = function(amount){
-    if(apoc.furyActive){
-      amount *= 0.78;
-    }
-    return _applyDamage(amount);
-  };
-
-  /* extra inputlaag: lost 4/5/6 issues op + nieuwe controls */
-  function handleApocHotkeys(e){
-    const code = e.code || "";
-    const key = (e.key || "").toLowerCase();
-
-    const hit = (wantedCodes, wantedKeys=[]) =>
-      wantedCodes.includes(code) || wantedKeys.includes(key);
-
-    if(hit(["Digit4","Numpad4"],["4","z"])){
-      e.preventDefault();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      firePlasmaBurst?.();
-      return;
-    }
-    if(hit(["Digit5","Numpad5"],["5","x"])){
-      e.preventDefault();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      deployShockMine?.();
-      return;
-    }
-    if(hit(["Digit6","Numpad6"],["6","c"])){
-      e.preventDefault();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      deployOrbital?.();
-      return;
-    }
-    if(hit(["KeyQ","KeyV"],["q","v"])){
-      e.preventDefault();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      activateFury();
-      return;
-    }
-    if(hit(["ShiftLeft","ShiftRight"],["shift"])){
-      e.preventDefault();
-      ensureAudio?.();
-      if(!state.running) startGame?.();
-      doDash();
-    }
-  }
-
-  window.addEventListener("keydown", handleApocHotkeys, { capture:true, passive:false });
-
-  /* frame wrapper */
-  const _animate = animate;
-  animate = function(now){
-    const dt = Math.min(0.033, (now - apoc.extraLast) / 1000 || 0.016);
-    apoc.extraLast = now;
-
-    updateFury(dt);
-    updateDrones(dt, now);
-
-    _animate(now);
-  };
-
-  makeHud();
-})();
-
-/* =========================
-   OLDE HANTER NEMESIS PACK
-   plak dit boven: animate(performance.now());
-   werkt samen met de vorige expansion pack
-   ========================= */
-(() => {
-  const nemesis = {
-    lastNow: performance.now(),
-    phase: 0,
-    activeBossId: 0,
-    activeEvent: null,
-    eventTimer: 0,
-    crateCooldown: 18,
-    fogAlpha: 0,
-    moonIntensity: 0,
-    stormPulse: 0,
-    bossMark: null,
-    hud: {},
-    bossDecor: [],
-    pendingEventToast: 0
-  };
-
-  function nClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function nRand(a, b){ return a + Math.random() * (b - a); }
-
-  function addNemesisStyles(){
-    const style = document.createElement("style");
-    style.textContent = `
-      #nemesisHud{
-        position:fixed; left:16px; top:16px; z-index:24;
-        width:min(320px, calc(100vw - 32px));
-        display:flex; flex-direction:column; gap:10px; pointer-events:none;
-      }
-      .nem-card{
-        pointer-events:auto;
-        padding:12px 14px;
-        border-radius:18px;
-        background:linear-gradient(180deg, rgba(12,12,22,.74), rgba(18,8,28,.60));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow:0 12px 36px rgba(0,0,0,.22), 0 0 22px rgba(255,110,161,.08);
-        color:#fff;
-        backdrop-filter: blur(12px) saturate(1.1);
-      }
-      .nem-title{
-        font-size:.8rem; letter-spacing:.14em; text-transform:uppercase;
-        opacity:.78; font-weight:900;
-      }
-      .nem-main{
-        margin-top:6px;
-        display:flex; justify-content:space-between; gap:12px; align-items:center;
-        font-weight:900; font-size:1rem;
-      }
-      .nem-sub{
-        margin-top:8px; color:rgba(255,255,255,.78); font-size:.82rem; font-weight:700;
-      }
-      .nem-bar{
-        margin-top:10px; height:10px; border-radius:999px; overflow:hidden;
-        background:rgba(255,255,255,.08);
-        border:1px solid rgba(255,255,255,.10);
-      }
-      .nem-bar > i{
-        display:block; height:100%; width:0%;
-        background:linear-gradient(90deg, #ffe066, #ff6ea1, #8bf0ff, #ffe066);
-        background-size:200% 200%;
-        animation:nemflow 4s linear infinite;
-      }
-      #nemesisOverlayFog,
-      #nemesisOverlayMoon,
-      #nemesisOverlayStorm{
-        position:fixed; inset:0; pointer-events:none; z-index:5;
-        opacity:0; transition:opacity .35s ease;
-      }
-      #nemesisOverlayFog{
-        background:
-          radial-gradient(circle at 50% 60%, rgba(255,255,255,.08), transparent 28%),
-          radial-gradient(circle at 20% 30%, rgba(180,220,255,.08), transparent 30%),
-          radial-gradient(circle at 80% 70%, rgba(255,180,220,.08), transparent 34%),
-          linear-gradient(180deg, rgba(210,220,255,.08), rgba(110,120,150,.14));
-      }
-      #nemesisOverlayMoon{
-        background:
-          radial-gradient(circle at 50% 18%, rgba(255,70,110,.20), transparent 16%),
-          linear-gradient(180deg, rgba(80,0,18,.08), rgba(25,0,10,.18));
-        mix-blend-mode:screen;
-      }
-      #nemesisOverlayStorm{
-        background:
-          linear-gradient(115deg, transparent 20%, rgba(139,240,255,.16) 42%, transparent 60%),
-          linear-gradient(295deg, transparent 26%, rgba(255,255,255,.12) 46%, transparent 62%);
-        background-size:220% 220%;
-        animation:nemstorm 2.3s linear infinite;
-      }
-      @keyframes nemflow{
-        0%{ background-position:0% 50%; }
-        100%{ background-position:200% 50%; }
-      }
-      @keyframes nemstorm{
-        0%{ background-position:0% 0%, 100% 100%; }
-        100%{ background-position:200% 0%, -100% 100%; }
-      }
-      @media (max-width:780px){
-        #nemesisHud{ left:10px; top:10px; width:min(280px, calc(100vw - 20px)); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function buildNemesisHud(){
-    addNemesisStyles();
-
-    const fog = document.createElement("div");
-    fog.id = "nemesisOverlayFog";
-    document.body.appendChild(fog);
-
-    const moon = document.createElement("div");
-    moon.id = "nemesisOverlayMoon";
-    document.body.appendChild(moon);
-
-    const storm = document.createElement("div");
-    storm.id = "nemesisOverlayStorm";
-    document.body.appendChild(storm);
-
-    const hud = document.createElement("div");
-    hud.id = "nemesisHud";
-    hud.innerHTML = `
-      <div class="nem-card">
-        <div class="nem-title">Arena Event</div>
-        <div class="nem-main">
-          <span id="nemEventName">Geen event</span>
-          <span id="nemEventTime">0.0s</span>
-        </div>
-        <div class="nem-sub" id="nemEventDesc">De arena is stabiel.</div>
-        <div class="nem-bar"><i id="nemEventFill"></i></div>
-      </div>
-      <div class="nem-card">
-        <div class="nem-title">Boss Phase</div>
-        <div class="nem-main">
-          <span id="nemBossState">Geen baas</span>
-          <span id="nemBossPhase">-</span>
-        </div>
-        <div class="nem-sub" id="nemBossDesc">Nog geen Nemesis actief.</div>
-        <div class="nem-bar"><i id="nemBossFill"></i></div>
-      </div>
-    `;
-    document.body.appendChild(hud);
-
-    nemesis.hud.root = hud;
-    nemesis.hud.fog = fog;
-    nemesis.hud.moon = moon;
-    nemesis.hud.storm = storm;
-    nemesis.hud.eventName = hud.querySelector("#nemEventName");
-    nemesis.hud.eventTime = hud.querySelector("#nemEventTime");
-    nemesis.hud.eventDesc = hud.querySelector("#nemEventDesc");
-    nemesis.hud.eventFill = hud.querySelector("#nemEventFill");
-    nemesis.hud.bossState = hud.querySelector("#nemBossState");
-    nemesis.hud.bossPhase = hud.querySelector("#nemBossPhase");
-    nemesis.hud.bossDesc = hud.querySelector("#nemBossDesc");
-    nemesis.hud.bossFill = hud.querySelector("#nemBossFill");
-
-    refreshNemesisHud();
-  }
-
-  function refreshNemesisHud(){
-    if(!nemesis.hud.root) return;
-
-    if(nemesis.activeEvent){
-      const max = nemesis.activeEvent.maxTime || 1;
-      const pct = nClamp((nemesis.eventTimer / max) * 100, 0, 100);
-      nemesis.hud.eventName.textContent = nemesis.activeEvent.label;
-      nemesis.hud.eventTime.textContent = nemesis.eventTimer.toFixed(1) + "s";
-      nemesis.hud.eventDesc.textContent = nemesis.activeEvent.desc;
-      nemesis.hud.eventFill.style.width = pct.toFixed(1) + "%";
-    }else{
-      nemesis.hud.eventName.textContent = "Geen event";
-      nemesis.hud.eventTime.textContent = "0.0s";
-      nemesis.hud.eventDesc.textContent = "De arena is stabiel.";
-      nemesis.hud.eventFill.style.width = "0%";
-    }
-
-    if(state.boss){
-      const hpPct = nClamp(state.boss.hp / state.boss.maxHp, 0, 1);
-      nemesis.hud.bossState.textContent = "Nemesis actief";
-      nemesis.hud.bossPhase.textContent = "Fase " + (nemesis.phase + 1);
-      nemesis.hud.bossDesc.textContent = bossPhaseText();
-      nemesis.hud.bossFill.style.width = (hpPct * 100).toFixed(1) + "%";
-    }else{
-      nemesis.hud.bossState.textContent = "Geen baas";
-      nemesis.hud.bossPhase.textContent = "-";
-      nemesis.hud.bossDesc.textContent = "Nog geen Nemesis actief.";
-      nemesis.hud.bossFill.style.width = "0%";
-    }
-  }
-
-  function bossPhaseText(){
-    if(!state.boss) return "Nog geen Nemesis actief.";
-    if(nemesis.phase === 0) return "Zoekt je op en vuurt standaard salvo's.";
-    if(nemesis.phase === 1) return "Wordt sneller en roept extra troepen op.";
-    return "Wordt gevaarlijk: arena pulses, extra salvo's en hogere druk.";
-  }
-
-  function chooseArenaEvent(){
-    const roll = Math.random();
-    if(roll < 0.25){
-      return {
-        type: "fog",
-        label: "Ghost Mist",
-        desc: "Mist verlaagt zicht, vijanden komen dichterbij.",
-        maxTime: 18,
-        onStart(){
-          flashHint?.("ARENA EVENT: GHOST MIST");
-        },
-        onUpdate(dt){
-          nemesis.fogAlpha = nClamp(nemesis.fogAlpha + dt * 0.18, 0, 0.92);
-          if(nemesis.hud.fog) nemesis.hud.fog.style.opacity = String(nemesis.fogAlpha * 0.85);
-        },
-        onEnd(){
-          nemesis.fogAlpha = 0;
-          if(nemesis.hud.fog) nemesis.hud.fog.style.opacity = "0";
-        }
-      };
-    }
-    if(roll < 0.5){
-      return {
-        type: "moon",
-        label: "Blood Moon",
-        desc: "Meer drops, maar vijanden bewegen sneller.",
-        maxTime: 16,
-        onStart(){
-          flashHint?.("ARENA EVENT: BLOOD MOON");
-        },
-        onUpdate(dt){
-          nemesis.moonIntensity = nClamp(nemesis.moonIntensity + dt * 0.22, 0, 1);
-          if(nemesis.hud.moon) nemesis.hud.moon.style.opacity = String(0.7 * nemesis.moonIntensity);
-          for(const e of state.enemies){
-            if(e && !e.isBoss) e.speed *= 1.0009;
-          }
-        },
-        onEnd(){
-          nemesis.moonIntensity = 0;
-          if(nemesis.hud.moon) nemesis.hud.moon.style.opacity = "0";
-        }
-      };
-    }
-    if(roll < 0.75){
-      return {
-        type: "storm",
-        label: "Neon Storm",
-        desc: "Bliksempulsen raken de arena en tikken vijanden weg.",
-        maxTime: 14,
-        pulse: 1.1,
-        onStart(){
-          flashHint?.("ARENA EVENT: NEON STORM");
-        },
-        onUpdate(dt){
-          nemesis.stormPulse -= dt;
-          if(nemesis.hud.storm) nemesis.hud.storm.style.opacity = "0.56";
-          if(nemesis.stormPulse <= 0){
-            nemesis.stormPulse = 1.1 + Math.random() * 0.55;
-            doStormStrike();
-          }
-        },
-        onEnd(){
-          if(nemesis.hud.storm) nemesis.hud.storm.style.opacity = "0";
-        }
-      };
-    }
-    return {
-      type: "rage",
-      label: "Rage Protocol",
-      desc: "Jij schiet sneller, maar Olde Hanter spawnt agressiever.",
-      maxTime: 15,
-      onStart(){
-        flashHint?.("ARENA EVENT: RAGE PROTOCOL");
-      },
-      onUpdate(dt){
-        player.fireCooldown *= 0.9;
-        if(Math.random() < dt * 0.18 && state.enemies.length < 26 && state.running && player.alive){
-          spawnEnemy(false);
-        }
-      },
-      onEnd(){}
-    };
-  }
-
-  function startArenaEvent(force=false){
-    if(!state.running || !player.alive) return;
-    if(nemesis.activeEvent && !force) return;
-
-    if(nemesis.activeEvent?.onEnd) nemesis.activeEvent.onEnd();
-
-    nemesis.activeEvent = chooseArenaEvent();
-    nemesis.eventTimer = nemesis.activeEvent.maxTime;
-    nemesis.pendingEventToast = 1.6;
-    nemesis.activeEvent.onStart?.();
-    refreshNemesisHud();
-  }
-
-  function endArenaEvent(){
-    if(!nemesis.activeEvent) return;
-    nemesis.activeEvent.onEnd?.();
-    nemesis.activeEvent = null;
-    nemesis.eventTimer = 0;
-    refreshNemesisHud();
-  }
-
-  function doStormStrike(){
-    const targets = [];
-    if(state.boss?.mesh) targets.push(state.boss);
-    for(const e of state.enemies){
-      if(e?.mesh) targets.push(e);
-    }
-    if(!targets.length) return;
-    const target = targets[(Math.random() * targets.length) | 0];
-    const p = target.mesh.position.clone();
-    createShockwave?.(p.clone(), 0x8bf0ff, 2.8);
-    createFlash?.(p.clone().add(new THREE.Vector3(0, 2.5, 0)), 0xffffff, 1.4, 6.2, 0.07);
-    createBurst?.(p.clone().add(new THREE.Vector3(0, 1.2, 0)), 0xdafcff, 10, 5, {
-      minLife: .14, maxLife: .36, gravity: 0.5, shrink: 0.95
-    });
-    target.hp -= 18;
-    if(target.hp <= 0){
-      if(target === state.boss){
-        killEnemy(target);
-      }else{
-        const idx = state.enemies.indexOf(target);
-        if(idx !== -1){
-          killEnemy(target);
-          state.enemies.splice(idx, 1);
-        }
-      }
-    }
-  }
-
-  function spawnSupplyCrate(pos){
-    const group = new THREE.Group();
-
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 0.9, 0.9),
-      new THREE.MeshStandardMaterial({
-        color: 0x1d2130,
-        emissive: 0x6d2a48,
-        emissiveIntensity: 0.85,
-        metalness: 0.34,
-        roughness: 0.32
-      })
-    );
-    const trim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.48, 0.06, 10, 24),
-      new THREE.MeshStandardMaterial({
-        color: 0xffd166,
-        emissive: 0xffd166,
-        emissiveIntensity: 0.85
-      })
-    );
-    trim.rotation.x = Math.PI / 2;
-    group.add(body, trim);
-
-    group.position.copy(pos);
-    group.position.y = 0.52;
-    scene.add(group);
-
-    const aura = new THREE.Mesh(
-      new THREE.RingGeometry(0.8, 1.25, 34),
-      new THREE.MeshBasicMaterial({
-        color: 0xffd166,
-        transparent: true,
-        opacity: 0.55,
-        side: THREE.DoubleSide
-      })
-    );
-    aura.rotation.x = -Math.PI / 2;
-    aura.position.set(pos.x, 0.03, pos.z);
-    scene.add(aura);
-
-    state.pickups.push({
-      kind: "nemesisCrate",
-      mesh: group,
-      aura,
-      life: 18,
-      amount: 1,
-      pulse: 0
-    });
-  }
-
-  function spawnBossDecor(){
-    clearBossDecor();
-    if(!state.boss?.mesh) return;
-
-    for(let i=0;i<3;i++){
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(2.8 + i * 0.55, 0.04 + i * 0.01, 8, 48),
-        new THREE.MeshBasicMaterial({
-          color: i === 1 ? 0x8bf0ff : 0xff6ea1,
-          transparent: true,
-          opacity: 0.26 - i * 0.05
-        })
-      );
-      ring.rotation.x = Math.PI / 2;
-      scene.add(ring);
-      nemesis.bossDecor.push(ring);
-    }
-  }
-
-  function clearBossDecor(){
-    while(nemesis.bossDecor.length){
-      scene.remove(nemesis.bossDecor.pop());
-    }
-  }
-
-  function updateBossDecor(dt, now){
-    if(!state.boss?.mesh){
-      clearBossDecor();
-      return;
-    }
-    if(!nemesis.bossDecor.length) spawnBossDecor();
-
-    nemesis.bossDecor.forEach((ring, i) => {
-      ring.position.copy(state.boss.mesh.position);
-      ring.position.y = 0.15 + i * 0.28 + Math.sin(now * 0.002 + i) * 0.06;
-      ring.rotation.z += dt * (0.55 + i * 0.22);
-      ring.material.opacity = 0.16 + Math.sin(now * 0.003 + i) * 0.08;
-    });
-  }
-
-  function updateBossPhases(dt){
-    if(!state.boss?.mesh){
-      nemesis.phase = 0;
-      clearBossDecor();
-      refreshNemesisHud();
-      return;
-    }
-
-    const hpPct = state.boss.hp / state.boss.maxHp;
-    const newPhase = hpPct < 0.33 ? 2 : hpPct < 0.66 ? 1 : 0;
-
-    if(newPhase !== nemesis.phase){
-      nemesis.phase = newPhase;
-      state.cameraShake = Math.min(2.0, state.cameraShake + 0.8);
-      flashHint?.(`BOSS PHASE ${nemesis.phase + 1}`);
-      createShockwave?.(state.boss.mesh.position.clone(), nemesis.phase === 2 ? 0xffd166 : 0xff6ea1, 4 + nemesis.phase);
-      if(nemesis.phase >= 1){
-        for(let i=0;i<Math.min(2 + nemesis.phase, 4); i++){
-          if(state.enemies.length < 28) spawnEnemy(false);
-        }
-      }
-      if(nemesis.phase === 2){
-        spawnSupplyCrate(player.pos.clone().add(new THREE.Vector3(nRand(-4,4),0,nRand(-4,4))));
-      }
-    }
-
-    if(nemesis.phase >= 1){
-      state.boss.speed *= 1.0007;
-      state.boss.fireCooldown -= dt * 0.18;
-    }
-    if(nemesis.phase >= 2){
-      state.boss.fireCooldown -= dt * 0.22;
-
-      if(Math.random() < dt * 0.7){
-        const pos = state.boss.mesh.position.clone().add(new THREE.Vector3(nRand(-2.8,2.8), 0, nRand(-2.8,2.8)));
-        createShockwave?.(pos.clone(), 0xff6ea1, 1.6);
-        createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffb2c8, 6, 4.2, {
-          minLife:.16, maxLife:.3, gravity:0.45, shrink:0.95
-        });
-        if(pos.distanceTo(player.pos) < 2.8){
-          applyDamage?.(8);
-        }
-      }
-    }
-
-    refreshNemesisHud();
-  }
-
-  function updateArenaEvent(dt){
-    if(!state.running || !player.alive){
-      endArenaEvent();
-      return;
-    }
-
-    nemesis.crateCooldown -= dt;
-    if(nemesis.crateCooldown <= 0){
-      nemesis.crateCooldown = 20 + Math.random() * 10;
-      spawnSupplyCrate(new THREE.Vector3(nRand(-30,30), 0, nRand(-30,30)));
-      flashHint?.("Supply crate gedropt");
-    }
-
-    if(!nemesis.activeEvent){
-      if(player.wave >= 3 && Math.random() < dt * 0.04){
-        startArenaEvent();
-      }
-      refreshNemesisHud();
-      return;
-    }
-
-    nemesis.eventTimer = Math.max(0, nemesis.eventTimer - dt);
-    nemesis.activeEvent.onUpdate?.(dt);
-
-    if(nemesis.eventTimer <= 0){
-      endArenaEvent();
-    }
-
-    refreshNemesisHud();
-  }
-
-  function updateCrates(dt, now){
-    for(let i = state.pickups.length - 1; i >= 0; i--){
-      const p = state.pickups[i];
-      if(p.kind !== "nemesisCrate") continue;
-
-      p.life -= dt;
-      p.pulse = (p.pulse || 0) + dt * 3.2;
-
-      if(p.mesh){
-        p.mesh.rotation.y += dt * 1.25;
-        p.mesh.position.y = 0.56 + Math.sin(now * 0.003 + i) * 0.08;
-      }
-      if(p.aura){
-        p.aura.material.opacity = 0.25 + Math.sin(p.pulse) * 0.18;
-      }
-
-      if(player.pos.distanceTo(p.mesh.position) < 1.6){
-        rewardFromCrate(p.mesh.position.clone());
-        if(p.mesh) scene.remove(p.mesh);
-        if(p.aura) scene.remove(p.aura);
-        state.pickups.splice(i, 1);
-        continue;
-      }
-
-      if(p.life <= 0){
-        if(p.mesh) scene.remove(p.mesh);
-        if(p.aura) scene.remove(p.aura);
-        state.pickups.splice(i, 1);
-      }
-    }
-  }
-
-  function rewardFromCrate(pos){
-    const roll = Math.random();
-    if(roll < 0.2){
-      player.hp = Math.min(player.maxHp, player.hp + 35);
-      flashHint?.("Crate: HP boost");
-    }else if(roll < 0.4){
-      player.ammo.bullet += 50;
-      player.ammo.rocket += 2;
-      player.ammo.grenade += 1;
-      flashHint?.("Crate: ammo cache");
-    }else if(roll < 0.6){
-      player.abilities.plasma += 2;
-      player.abilities.mine += 1;
-      player.abilities.orbital += 1;
-      flashHint?.("Crate: skill refill");
-    }else if(roll < 0.8){
-      registerKill?.(40);
-      flashHint?.("Crate: bonus score");
-    }else{
-      for(let i=0;i<3;i++){
-        if(state.enemies.length < 28) spawnEnemy(false);
-      }
-      flashHint?.("Crate cursed: extra Olde Hanters!");
-    }
-
-    createShockwave?.(pos.clone(), 0xffd166, 3.2);
-    createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffe7a6, 16, 6.2, {
-      minLife:.18, maxLife:.44, gravity:0.5, shrink:0.95
-    });
-    setStat?.();
-  }
-
-  const _spawnWave = spawnWave;
-  spawnWave = function(){
-    _spawnWave();
-
-    if(player.wave >= 2){
-      const bonus = Math.min(1 + Math.floor(player.wave / 5), 4);
-      for(let i=0;i<bonus;i++){
-        if(state.enemies.length < 30 && Math.random() < 0.55){
-          spawnEnemy(false);
-        }
-      }
-    }
-
-    if(player.wave >= 4 && player.wave % 2 === 0){
-      startArenaEvent(true);
-    }
-
-    if(player.wave % 4 === 0){
-      flashHint?.("Nemesis voorwaarden bereikt");
-    }
-
-    refreshNemesisHud();
-  };
-
-  const _killEnemy = killEnemy;
-  killEnemy = function(enemy){
-    const wasBoss = !!enemy?.isBoss;
-    const bossPos = enemy?.mesh?.position?.clone?.() || null;
-
-    _killEnemy(enemy);
-
-    if(wasBoss && bossPos){
-      clearBossDecor();
-      endArenaEvent();
-      for(let i=0;i<2;i++){
-        spawnSupplyCrate(bossPos.clone().add(new THREE.Vector3(i ? 2 : -2, 0, 0)));
-      }
-      registerKill?.(60);
-      flashHint?.("Nemesis verslagen — loot gedropt");
-    }else if(!wasBoss && Math.random() < 0.08){
-      spawnSupplyCrate(enemy.mesh.position.clone());
-    }
-
-    refreshNemesisHud();
-  };
-
-  const _restartGame = restartGame;
-  restartGame = function(){
-    clearBossDecor();
-    endArenaEvent();
-    nemesis.phase = 0;
-    nemesis.crateCooldown = 18;
-    refreshNemesisHud();
-    return _restartGame();
-  };
-
-  const _applyDamage = applyDamage;
-  applyDamage = function(amount){
-    if(nemesis.activeEvent?.type === "fog"){
-      amount *= 1.08;
-    }
-    if(nemesis.activeEvent?.type === "rage"){
-      amount *= 1.04;
-    }
-    return _applyDamage(amount);
-  };
-
-  const _animate = animate;
-  animate = function(now){
-    const dt = Math.min(0.033, (now - nemesis.lastNow) / 1000 || 0.016);
-    nemesis.lastNow = now;
-
-    updateArenaEvent(dt);
-    updateBossPhases(dt);
-    updateBossDecor(dt, now);
-    updateCrates(dt, now);
-
-    _animate(now);
-  };
-
-  buildNemesisHud();
-})();
-
-/* =========================
-   OLDE HANTER HUD REBUILD PACK
+   OLDE HANTER EXTENSIONS - CLEAN STRUCTURE
    plak boven: animate(performance.now());
    ========================= */
 (() => {
-  function injectHudRebuildStyles(){
-    const style = document.createElement("style");
-    style.id = "ohHudRebuildStyles";
-    style.textContent = `
-      :root{
-        --hud-gap: 12px;
-        --hud-radius: 18px;
-        --hud-panel: linear-gradient(180deg, rgba(10,12,24,.82), rgba(14,9,30,.68));
-        --hud-border: rgba(255,255,255,.12);
-        --hud-shadow: 0 16px 34px rgba(0,0,0,.30), 0 0 24px rgba(0,247,255,.06);
-        --hud-blur: blur(14px) saturate(1.08);
-        --hud-top: calc(12px + env(safe-area-inset-top));
-        --hud-side: max(12px, env(safe-area-inset-left));
-        --hud-side-right: max(12px, env(safe-area-inset-right));
+  const OH = {
+    state: {
+      lastFrame: performance.now()
+    },
+
+    utils: {
+      clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      },
+      lerp(a, b, t) {
+        return a + (b - a) * t;
+      },
+      rand(min, max) {
+        return min + Math.random() * (max - min);
+      },
+      now() {
+        return performance.now();
       }
+    },
 
-      /* ===== BASISLAYOUT ===== */
-      #ui,
-      #nemesisHud,
-      #apocHud,
-      #bossBarWrap,
-      #minimapWrap,
-      #weaponBar,
-      #abilityDock,
-      #mobileControls,
-      #tapHint{
-        transition:
-          top .18s ease,
-          left .18s ease,
-          right .18s ease,
-          bottom .18s ease,
-          width .18s ease,
-          transform .18s ease,
-          opacity .18s ease;
+    dom: {
+      injectStyle(id, cssText) {
+        if (document.getElementById(id)) return;
+        const style = document.createElement("style");
+        style.id = id;
+        style.textContent = cssText;
+        document.head.appendChild(style);
+      },
+      createElement(tag, props = {}, html = "") {
+        const el = document.createElement(tag);
+        Object.assign(el, props);
+        if (html) el.innerHTML = html;
+        return el;
       }
+    },
 
-      body.oh-hud-rebuild #ui{
-        position: fixed !important;
-        top: var(--hud-top) !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-        transform: translateX(-50%) !important;
-        width: min(720px, calc(100vw - 360px)) !important;
-        min-width: min(520px, calc(100vw - 40px)) !important;
-        max-width: calc(100vw - 40px) !important;
-        padding: 12px 14px !important;
-        border-radius: 20px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
-        z-index: 30 !important;
-        pointer-events: none !important;
+    hooks: {
+      wrapFunction(name, wrapper) {
+        const original = window[name];
+        if (typeof original !== "function") return;
+        window[name] = wrapper(original);
       }
+    },
 
-      body.oh-hud-rebuild #brand{
-        margin-bottom: 10px !important;
-        display:flex !important;
-        align-items:center !important;
-        gap:10px !important;
-      }
+    apoc: {
+      fury: 0,
+      furyMax: 100,
+      furyActive: false,
+      furyTime: 0,
+      dashCooldown: 0,
+      lastExtraShotAt: 0,
+      auraPulseCooldown: 0,
+      drones: [],
+      overlay: null,
+      hud: {},
+      mobile: {},
 
-      body.oh-hud-rebuild #brandMark{
-        width: 40px !important;
-        height: 40px !important;
-        border-radius: 12px !important;
-        flex: 0 0 auto !important;
-      }
+      init() {
+        this.injectStyles();
+        this.buildHud();
+        this.bindInput();
+      },
 
-      body.oh-hud-rebuild #brandText{
-        min-width: 0 !important;
-      }
+      injectStyles() {
+        OH.dom.injectStyle("oh-apoc-styles", `
+          #apocHud{
+            position:fixed;
+            right:16px;
+            top:16px;
+            z-index:25;
+            width:min(320px,calc(100vw - 32px));
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            pointer-events:none;
+          }
+          .apoc-card{
+            pointer-events:auto;
+            background:linear-gradient(180deg, rgba(8,8,18,.78), rgba(14,8,28,.64));
+            border:1px solid rgba(255,255,255,.14);
+            border-radius:16px;
+            padding:10px 12px;
+            box-shadow:0 10px 32px rgba(0,0,0,.28), 0 0 24px rgba(157,107,255,.12);
+            backdrop-filter: blur(12px) saturate(1.15);
+          }
+          .apoc-row{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            color:#fff;
+            font-weight:800;
+            letter-spacing:.03em;
+          }
+          .apoc-sub{
+            font-size:.8rem;
+            color:rgba(255,255,255,.72);
+            font-weight:700;
+          }
+          .apoc-meter{
+            height:12px;
+            margin-top:8px;
+            border-radius:999px;
+            overflow:hidden;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(255,255,255,.08);
+            box-shadow: inset 0 0 12px rgba(255,255,255,.04);
+          }
+          .apoc-meter > i{
+            display:block;
+            height:100%;
+            width:0%;
+            background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600,#00f7ff);
+            background-size:220% 220%;
+            animation:apocFlow 3.2s linear infinite;
+            box-shadow:0 0 18px rgba(255,0,168,.22);
+          }
+          .apoc-ready{
+            box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 26px rgba(255,230,0,.16), 0 0 40px rgba(255,0,168,.12);
+          }
+          .apoc-btn{
+            appearance:none;
+            border:0;
+            cursor:pointer;
+            border-radius:999px;
+            padding:.72rem 1rem;
+            font-weight:900;
+            color:#fff;
+            background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
+            background-size:250% 250%;
+            animation:apocFlow 4.5s linear infinite;
+            box-shadow:0 0 18px rgba(255,0,168,.24), 0 0 30px rgba(0,247,255,.14);
+            text-transform:uppercase;
+            letter-spacing:.06em;
+          }
+          .apoc-btn:disabled{
+            filter:grayscale(.6) brightness(.7);
+            box-shadow:none;
+            cursor:not-allowed;
+          }
+          #apocOverlay{
+            position:fixed;
+            inset:0;
+            z-index:6;
+            pointer-events:none;
+            opacity:0;
+            background:
+              radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 32%),
+              radial-gradient(circle at 20% 30%, rgba(0,247,255,.12), transparent 28%),
+              radial-gradient(circle at 80% 20%, rgba(255,0,168,.12), transparent 30%),
+              radial-gradient(circle at 50% 80%, rgba(255,230,0,.10), transparent 30%);
+            mix-blend-mode:screen;
+            transition:opacity .18s ease;
+          }
+          #apocOverlay.active{
+            opacity:1;
+            animation:apocPulse .9s linear infinite;
+          }
+          #apocToast{
+            position:fixed;
+            left:50%;
+            top:90px;
+            transform:translateX(-50%);
+            z-index:26;
+            pointer-events:none;
+            padding:.72rem 1rem;
+            border-radius:999px;
+            background:rgba(12,10,30,.74);
+            border:1px solid rgba(255,255,255,.14);
+            color:#fff;
+            font-weight:900;
+            letter-spacing:.06em;
+            box-shadow:0 0 18px rgba(255,0,168,.16), 0 0 26px rgba(0,247,255,.10);
+            opacity:0;
+            transition:opacity .16s ease, transform .16s ease;
+          }
+          #apocToast.show{
+            opacity:1;
+            transform:translateX(-50%) translateY(-4px);
+          }
+          #apocMobileDock{
+            position:fixed;
+            right:14px;
+            bottom:124px;
+            z-index:22;
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+          }
+          .apoc-mobile-btn{
+            min-width:86px;
+            min-height:58px;
+            border-radius:18px;
+            border:1px solid rgba(255,255,255,.16);
+            background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.08));
+            color:#fff;
+            font-weight:900;
+            letter-spacing:.04em;
+            box-shadow:0 0 18px rgba(0,0,0,.18), inset 0 0 18px rgba(255,255,255,.03);
+            backdrop-filter: blur(10px) saturate(1.08);
+          }
+          .apoc-mobile-btn small{
+            display:block;
+            font-size:.72rem;
+            font-weight:700;
+            opacity:.8;
+            margin-top:2px;
+          }
+          .apoc-mobile-btn.ready{
+            box-shadow:0 0 24px rgba(255,230,0,.22), 0 0 34px rgba(255,0,168,.14), inset 0 0 18px rgba(255,255,255,.04);
+          }
+          @keyframes apocFlow{
+            0%{ background-position:0% 50%; }
+            100%{ background-position:200% 50%; }
+          }
+          @keyframes apocPulse{
+            0%{ filter:hue-rotate(0deg) saturate(1.0); }
+            100%{ filter:hue-rotate(360deg) saturate(1.3); }
+          }
+          @media (max-width:780px){
+            #apocHud{
+              right:10px;
+              top:10px;
+              width:min(280px,calc(100vw - 20px));
+            }
+          }
+        `);
+      },
 
-      body.oh-hud-rebuild #brandText b{
-        display:block !important;
-        font-size: 14px !important;
-        line-height: 1.1 !important;
-      }
+      buildHud() {
+        this.overlay = OH.dom.createElement("div", { id: "apocOverlay" });
+        document.body.appendChild(this.overlay);
 
-      body.oh-hud-rebuild #brandText span{
-        display:block !important;
-        font-size: 11px !important;
-        opacity:.82 !important;
-        line-height: 1.15 !important;
-      }
+        this.hud.toast = OH.dom.createElement("div", { id: "apocToast" });
+        document.body.appendChild(this.hud.toast);
 
-      body.oh-hud-rebuild #hud{
-        display:grid !important;
-        grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
-        gap: 8px !important;
-      }
+        const hudRoot = OH.dom.createElement("div", { id: "apocHud" }, `
+          <div id="apocCard" class="apoc-card">
+            <div class="apoc-row">
+              <span>FURY MODE</span>
+              <span id="apocFuryPct">0%</span>
+            </div>
+            <div class="apoc-sub" id="apocFuryText">Maak kills om Fury op te laden</div>
+            <div class="apoc-meter"><i id="apocFuryFill"></i></div>
+            <div style="display:flex;gap:8px;margin-top:10px;pointer-events:auto">
+              <button id="apocFuryBtn" class="apoc-btn" type="button" disabled>Q / V Fury</button>
+              <button id="apocDashBtn" class="apoc-btn" type="button">Shift Dash</button>
+            </div>
+          </div>
+        `);
+        document.body.appendChild(hudRoot);
 
-      body.oh-hud-rebuild .stat{
-        min-width: 0 !important;
-        padding: 9px 10px !important;
-        border-radius: 14px !important;
-        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035)) !important;
-        border: 1px solid rgba(255,255,255,.08) !important;
-        box-shadow: inset 0 0 14px rgba(255,255,255,.02) !important;
-      }
+        this.hud.root = hudRoot;
+        this.hud.card = hudRoot.querySelector("#apocCard");
+        this.hud.fill = hudRoot.querySelector("#apocFuryFill");
+        this.hud.pct = hudRoot.querySelector("#apocFuryPct");
+        this.hud.text = hudRoot.querySelector("#apocFuryText");
+        this.hud.furyBtn = hudRoot.querySelector("#apocFuryBtn");
+        this.hud.dashBtn = hudRoot.querySelector("#apocDashBtn");
 
-      body.oh-hud-rebuild .stat .label{
-        display:block !important;
-        font-size: 10px !important;
-        line-height: 1.05 !important;
-        text-transform: uppercase !important;
-        letter-spacing: .06em !important;
-        color: rgba(255,255,255,.70) !important;
-        margin-bottom: 4px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-      }
+        const mobileDock = OH.dom.createElement("div", { id: "apocMobileDock" }, `
+          <button id="apocMobileFury" class="apoc-mobile-btn" type="button">V FURY<small>combo mode</small></button>
+          <button id="apocMobileDash" class="apoc-mobile-btn" type="button">SHIFT<small>dash</small></button>
+        `);
+        document.body.appendChild(mobileDock);
 
-      body.oh-hud-rebuild .stat .value{
-        display:block !important;
-        font-size: 17px !important;
-        line-height: 1 !important;
-        font-weight: 900 !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-      }
+        this.mobile.root = mobileDock;
+        this.mobile.fury = mobileDock.querySelector("#apocMobileFury");
+        this.mobile.dash = mobileDock.querySelector("#apocMobileDash");
 
-      /* ===== NEMESIS LINKS ===== */
-      body.oh-hud-rebuild #nemesisHud{
-        position: fixed !important;
-        top: var(--hud-top) !important;
-        left: var(--hud-side) !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: min(300px, calc(50vw - 28px)) !important;
-        z-index: 29 !important;
-        display:flex !important;
-        flex-direction:column !important;
-        gap:10px !important;
-        pointer-events:none !important;
-      }
-
-      body.oh-hud-rebuild #nemesisHud .nem-card{
-        border-radius: 18px !important;
-        padding: 11px 12px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
-      }
-
-      body.oh-hud-rebuild #nemesisHud .nem-title{
-        font-size: 10px !important;
-      }
-
-      body.oh-hud-rebuild #nemesisHud .nem-main{
-        font-size: 14px !important;
-        gap: 10px !important;
-      }
-
-      body.oh-hud-rebuild #nemesisHud .nem-sub{
-        font-size: 11px !important;
-        line-height: 1.25 !important;
-      }
-
-      /* ===== APOC RECHTS ===== */
-      body.oh-hud-rebuild #apocHud{
-        position: fixed !important;
-        top: var(--hud-top) !important;
-        right: var(--hud-side-right) !important;
-        left: auto !important;
-        bottom: auto !important;
-        width: min(300px, calc(50vw - 28px)) !important;
-        z-index: 29 !important;
-        display:flex !important;
-        flex-direction:column !important;
-        gap:10px !important;
-        pointer-events:none !important;
-      }
-
-      body.oh-hud-rebuild #apocHud .apoc-card{
-        border-radius: 18px !important;
-        padding: 11px 12px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
-      }
-
-      body.oh-hud-rebuild #apocHud .apoc-row{
-        font-size: 13px !important;
-      }
-
-      body.oh-hud-rebuild #apocHud .apoc-sub{
-        font-size: 11px !important;
-        line-height: 1.25 !important;
-      }
-
-      body.oh-hud-rebuild #apocHud .apoc-btn{
-        font-size: 11px !important;
-        padding: .72rem .85rem !important;
-      }
-
-      /* ===== BOSS BAR LOS VAN ALLE PANELS ===== */
-      body.oh-hud-rebuild #bossBarWrap{
-        position: fixed !important;
-        top: calc(var(--hud-top) + 126px) !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-        transform: translateX(-50%) !important;
-        width: min(560px, calc(100vw - 60px)) !important;
-        z-index: 28 !important;
-      }
-
-      /* ===== MINIMAP RECHTSONDER HOEK BOVEN ===== */
-      body.oh-hud-rebuild #minimapWrap{
-        position: fixed !important;
-        top: calc(var(--hud-top) + 150px) !important;
-        right: var(--hud-side-right) !important;
-        left: auto !important;
-        bottom: auto !important;
-        width: 118px !important;
-        height: 118px !important;
-        border-radius: 18px !important;
-        z-index: 28 !important;
-      }
-
-      body.oh-hud-rebuild #minimapLabel{
-        font-size: 10px !important;
-      }
-
-      /* ===== WEAPON EN ABILITIES ===== */
-      body.oh-hud-rebuild #weaponBar{
-        position: fixed !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: calc(16px + env(safe-area-inset-bottom)) !important;
-        top: auto !important;
-        transform: translateX(-50%) !important;
-        z-index: 28 !important;
-      }
-
-      body.oh-hud-rebuild #abilityDock{
-        position: fixed !important;
-        right: var(--hud-side-right) !important;
-        left: auto !important;
-        bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
-        top: auto !important;
-        z-index: 28 !important;
-        gap: 10px !important;
-      }
-
-      body.oh-hud-rebuild .ability-btn{
-        min-width: 82px !important;
-        border-radius: 16px !important;
-      }
-
-      /* ===== TAPHINT / MOBILE ===== */
-      body.oh-hud-rebuild #tapHint{
-        right: var(--hud-side-right) !important;
-        bottom: calc(16px + env(safe-area-inset-bottom) + 206px) !important;
-        z-index: 28 !important;
-      }
-
-      body.oh-hud-rebuild #mobileControls{
-        z-index: 27 !important;
-      }
-
-      /* ===== DESKTOP / MID ===== */
-      @media (max-width: 1280px){
-        body.oh-hud-rebuild #ui{
-          width: min(620px, calc(100vw - 330px)) !important;
-          min-width: min(460px, calc(100vw - 40px)) !important;
-        }
-        body.oh-hud-rebuild #hud{
-          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-        }
-      }
-
-      @media (max-width: 1080px){
-        body.oh-hud-rebuild #ui{
-          width: min(560px, calc(100vw - 40px)) !important;
-          min-width: 0 !important;
-        }
-        body.oh-hud-rebuild #nemesisHud,
-        body.oh-hud-rebuild #apocHud{
-          width: min(260px, calc(50vw - 22px)) !important;
-        }
-        body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 144px) !important;
-        }
-        body.oh-hud-rebuild #minimapWrap{
-          top: calc(var(--hud-top) + 320px) !important;
-          width: 104px !important;
-          height: 104px !important;
-        }
-      }
-
-      /* ===== TABLET / SMAL ===== */
-      @media (max-width: 860px){
-        body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 170px) !important;
-          width: calc(100vw - 20px) !important;
-          transform: translateX(-50%) !important;
+        if (!isTouch) {
+          mobileDock.style.display = "none";
         }
 
-        body.oh-hud-rebuild #nemesisHud{
-          left: 10px !important;
-          top: var(--hud-top) !important;
-          width: calc(50vw - 15px) !important;
+        const startAnd = (action) => (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          ensureAudio?.();
+          if (!state.running) startGame?.();
+          action();
+        };
+
+        this.hud.furyBtn.addEventListener("pointerdown", startAnd(() => this.activateFury()));
+        this.hud.dashBtn.addEventListener("pointerdown", startAnd(() => this.doDash()));
+        this.mobile.fury.addEventListener("pointerdown", startAnd(() => this.activateFury()));
+        this.mobile.dash.addEventListener("pointerdown", startAnd(() => this.doDash()));
+
+        this.renderHud();
+      },
+
+      showToast(message) {
+        if (!this.hud.toast) return;
+        this.hud.toast.textContent = message;
+        this.hud.toast.classList.add("show");
+        clearTimeout(this.hud.toastTimer);
+        this.hud.toastTimer = setTimeout(() => {
+          this.hud.toast.classList.remove("show");
+        }, 1200);
+      },
+
+      renderHud() {
+        if (!this.hud.fill) return;
+
+        const furyPct = OH.utils.clamp((this.fury / this.furyMax) * 100, 0, 100);
+        const furyReady = this.fury >= this.furyMax && !this.furyActive;
+        const dashReady = this.dashCooldown <= 0;
+
+        this.hud.fill.style.width = `${furyPct.toFixed(1)}%`;
+        this.hud.pct.textContent = `${Math.round(furyPct)}%`;
+
+        this.hud.card.classList.toggle("apoc-ready", furyReady);
+        this.hud.furyBtn.disabled = !furyReady && !this.furyActive;
+
+        if (this.mobile.fury) {
+          this.mobile.fury.classList.toggle("ready", furyReady);
         }
 
-        body.oh-hud-rebuild #apocHud{
-          right: 10px !important;
-          top: var(--hud-top) !important;
-          width: calc(50vw - 15px) !important;
+        if (this.furyActive) {
+          this.hud.text.textContent = `FURY ACTIEF • ${this.furyTime.toFixed(1)}s • drones online`;
+          this.hud.furyBtn.textContent = "Fury actief";
+          if (this.mobile.fury) {
+            this.mobile.fury.innerHTML = `FURY<small>${this.furyTime.toFixed(1)}s</small>`;
+          }
+        } else if (furyReady) {
+          this.hud.text.textContent = "Vol! Druk op Q of V om los te gaan";
+          this.hud.furyBtn.textContent = "Q / V Fury";
+          if (this.mobile.fury) {
+            this.mobile.fury.innerHTML = `V FURY<small>gereed</small>`;
+          }
+        } else {
+          this.hud.text.textContent = "Maak kills om Fury op te laden";
+          this.hud.furyBtn.textContent = "Q / V Fury";
+          if (this.mobile.fury) {
+            this.mobile.fury.innerHTML = `V FURY<small>combo mode</small>`;
+          }
         }
 
-        body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 124px) !important;
-          width: calc(100vw - 20px) !important;
+        this.hud.dashBtn.disabled = !dashReady;
+        this.hud.dashBtn.textContent = dashReady
+          ? "Shift Dash"
+          : `Dash ${this.dashCooldown.toFixed(1)}s`;
+
+        if (this.mobile.dash) {
+          this.mobile.dash.classList.toggle("ready", dashReady);
+          this.mobile.dash.innerHTML = dashReady
+            ? `SHIFT<small>dash</small>`
+            : `SHIFT<small>${this.dashCooldown.toFixed(1)}s</small>`;
+        }
+      },
+
+      addFury(amount) {
+        if (this.furyActive) return;
+        this.fury = OH.utils.clamp(this.fury + amount, 0, this.furyMax);
+        this.renderHud();
+
+        if (this.fury >= this.furyMax) {
+          flashHint?.("FURY VOL — druk op Q of V");
+          this.showToast("FURY READY");
+        }
+      },
+
+      makeDrone(color = 0x8bf0ff) {
+        const group = new THREE.Group();
+
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 14, 14),
+          new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 1.25,
+            metalness: 0.32,
+            roughness: 0.18
+          })
+        );
+
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.34, 0.04, 10, 22),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.8
+          })
+        );
+        ring.rotation.x = Math.PI / 2;
+
+        const finA = new THREE.Mesh(
+          new THREE.BoxGeometry(0.62, 0.05, 0.12),
+          new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: color,
+            emissiveIntensity: 0.5
+          })
+        );
+
+        const finB = finA.clone();
+        finB.rotation.y = Math.PI / 2;
+
+        group.add(core, ring, finA, finB);
+        scene.add(group);
+
+        return {
+          mesh: group,
+          ring,
+          core,
+          angle: Math.random() * Math.PI * 2,
+          radius: 2.5 + Math.random() * 0.55,
+          y: 1.8 + Math.random() * 0.25,
+          fireCooldown: 0.1 + Math.random() * 0.2,
+          bob: Math.random() * Math.PI * 2,
+          spin: 1.2 + Math.random() * 0.8
+        };
+      },
+
+      spawnDrones() {
+        this.clearDrones();
+        this.drones.push(this.makeDrone(0x8bf0ff));
+        this.drones.push(this.makeDrone(0xff7ce0));
+      },
+
+      clearDrones() {
+        while (this.drones.length) {
+          const drone = this.drones.pop();
+          scene.remove(drone.mesh);
+        }
+      },
+
+      findNearestEnemy(maxDistance = 20) {
+        let best = null;
+        let bestDistance = maxDistance;
+
+        if (state.boss?.mesh) {
+          const dist = state.boss.mesh.position.distanceTo(player.pos);
+          if (dist < bestDistance) {
+            best = state.boss;
+            bestDistance = dist;
+          }
         }
 
-        body.oh-hud-rebuild #minimapWrap{
-          top: auto !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 164px) !important;
-          right: 10px !important;
-          width: 96px !important;
-          height: 96px !important;
+        for (const enemy of state.enemies) {
+          if (!enemy?.mesh) continue;
+          const dist = enemy.mesh.position.distanceTo(player.pos);
+          if (dist < bestDistance) {
+            best = enemy;
+            bestDistance = dist;
+          }
         }
 
-        body.oh-hud-rebuild #abilityDock{
-          right: 10px !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
-        }
-      }
+        return best;
+      },
 
-      /* ===== MOBIEL ===== */
-      @media (max-width: 640px){
-        body.oh-hud-rebuild #nemesisHud{
-          top: var(--hud-top) !important;
-          left: 8px !important;
-          width: calc(50vw - 12px) !important;
-          gap: 8px !important;
-        }
+      damageEnemy(enemy, damage) {
+        if (!enemy?.mesh) return false;
 
-        body.oh-hud-rebuild #apocHud{
-          top: var(--hud-top) !important;
-          right: 8px !important;
-          width: calc(50vw - 12px) !important;
-          gap: 8px !important;
-        }
+        enemy.hp -= damage;
 
-        body.oh-hud-rebuild #nemesisHud .nem-card,
-        body.oh-hud-rebuild #apocHud .apoc-card{
-          padding: 9px 10px !important;
-          border-radius: 16px !important;
-        }
+        const hitPos = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+        createBurst?.(hitPos, 0xfff7bf, 5, 1.6, {
+          minLife: 0.10,
+          maxLife: 0.22,
+          gravity: 0.2,
+          shrink: 0.92
+        });
+        createFlash?.(hitPos, 0xffffff, 1.2, 4.2, 0.07);
 
-        body.oh-hud-rebuild #nemesisHud .nem-title,
-        body.oh-hud-rebuild #apocHud .apoc-sub,
-        body.oh-hud-rebuild #nemesisHud .nem-sub{
-          font-size: 10px !important;
+        if (enemy.hp <= 0) {
+          if (enemy === state.boss) {
+            killEnemy(enemy);
+          } else {
+            const idx = state.enemies.indexOf(enemy);
+            if (idx !== -1) {
+              killEnemy(enemy);
+              state.enemies.splice(idx, 1);
+            }
+          }
         }
 
-        body.oh-hud-rebuild #nemesisHud .nem-main,
-        body.oh-hud-rebuild #apocHud .apoc-row{
-          font-size: 12px !important;
+        return true;
+      },
+
+      shootDrone(drone, enemy) {
+        if (!enemy?.mesh) return;
+
+        const from = drone.mesh.position.clone();
+        const to = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.3, 0));
+        const dir = to.clone().sub(from).normalize();
+
+        state.bullets.push(createProjectile(from, dir, {
+          speed: 28,
+          friendly: true,
+          color: 0x9cfbff,
+          trailColor: 0xffffff,
+          size: 0.09,
+          life: 1.2,
+          damage: 9,
+          type: "drone"
+        }));
+
+        createFlash?.(from.clone(), 0x8bf0ff, 1.0, 2.5, 0.05);
+      },
+
+      updateDrones(dt) {
+        if (!this.drones.length) return;
+
+        this.drones.forEach((drone, index) => {
+          drone.angle += dt * (1.4 + index * 0.25);
+          drone.bob += dt * 2.8;
+          drone.fireCooldown -= dt;
+
+          const offsetX = Math.cos(drone.angle) * drone.radius;
+          const offsetZ = Math.sin(drone.angle) * drone.radius;
+          const y = drone.y + Math.sin(drone.bob) * 0.18;
+
+          drone.mesh.position.set(
+            player.pos.x + offsetX,
+            y,
+            player.pos.z + offsetZ
+          );
+
+          drone.mesh.rotation.y += dt * 4.8;
+          drone.ring.rotation.z += dt * drone.spin;
+
+          const enemy = this.findNearestEnemy(19);
+          if (this.furyActive && enemy && drone.fireCooldown <= 0) {
+            drone.fireCooldown = 0.22 + Math.random() * 0.08;
+            this.shootDrone(drone, enemy);
+          }
+        });
+      },
+
+      activateFury() {
+        if (this.furyActive || this.fury < this.furyMax) return;
+
+        this.furyActive = true;
+        this.fury = 0;
+        this.furyTime = 12;
+        this.lastExtraShotAt = 0;
+        this.auraPulseCooldown = 0;
+
+        this.overlay?.classList.add("active");
+        this.spawnDrones();
+
+        player.damageCooldown = Math.max(player.damageCooldown, 0.2);
+        state.cameraShake = Math.min(2.0, state.cameraShake + 0.9);
+
+        createShockwave?.(player.pos.clone(), 0xff00a8, 4.2);
+        createShockwave?.(player.pos.clone(), 0x00f7ff, 5.4);
+
+        flashHint?.("FURY MODE geactiveerd");
+        this.showToast("FURY MODE");
+        this.renderHud();
+      },
+
+      stopFury(silent = false) {
+        this.furyActive = false;
+        this.furyTime = 0;
+        this.overlay?.classList.remove("active");
+        this.clearDrones();
+
+        if (!silent) {
+          flashHint?.("Fury voorbij");
         }
 
-        body.oh-hud-rebuild #apocHud .apoc-btn{
-          font-size: 10px !important;
-          padding: .62rem .72rem !important;
+        this.renderHud();
+      },
+
+      getMoveVector() {
+        const move = new THREE.Vector3();
+
+        if (input.forward || input.strafe) {
+          const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
+          const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
+          move.addScaledVector(forward, input.forward);
+          move.addScaledVector(right, input.strafe);
+        } else {
+          camera.getWorldDirection(move);
+          move.y = 0;
         }
 
-        body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 160px) !important;
-          width: calc(100vw - 16px) !important;
-          padding: 10px !important;
-          border-radius: 16px !important;
+        if (move.lengthSq() < 0.0001) {
+          move.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
         }
 
-        body.oh-hud-rebuild #brand{
-          margin-bottom: 8px !important;
+        return move.normalize();
+      },
+
+      doDash() {
+        if (!state.running || !player.alive || this.dashCooldown > 0) return;
+
+        const dir = this.getMoveVector();
+        const oldPos = player.pos.clone();
+        let moved = false;
+
+        for (let step = 1; step <= 10; step++) {
+          const testPos = oldPos.clone().add(dir.clone().multiplyScalar(step * 0.55));
+          const blocked = typeof collidesAt === "function"
+            ? collidesAt(testPos.x, testPos.z, player.radius * 0.86)
+            : false;
+
+          if (blocked) break;
+          player.pos.copy(testPos);
+          moved = true;
         }
 
-        body.oh-hud-rebuild #brandMark{
-          width: 34px !important;
-          height: 34px !important;
-          border-radius: 10px !important;
+        if (!moved) return;
+
+        this.dashCooldown = 3.5;
+        player.damageCooldown = Math.max(player.damageCooldown, 0.35);
+        state.cameraShake = Math.min(1.8, state.cameraShake + 0.42);
+
+        for (let i = 0; i < 5; i++) {
+          const flashPos = oldPos.clone().lerp(player.pos, i / 4);
+          createFlash?.(
+            flashPos.clone().add(new THREE.Vector3(0, 1.1, 0)),
+            0x8bf0ff,
+            1.3,
+            3.2,
+            0.06
+          );
         }
 
-        body.oh-hud-rebuild #brandText b{
-          font-size: 12px !important;
+        createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
+        flashHint?.("Dash");
+        this.renderHud();
+      },
+
+      fireExtraSideShots(directionOverride = null) {
+        if (!this.furyActive || !state.running || !player.alive) return;
+        if (player.weapon !== "bullet") return;
+
+        const now = OH.utils.now();
+        if (now - this.lastExtraShotAt < 95) return;
+        this.lastExtraShotAt = now;
+
+        const dir = directionOverride
+          ? directionOverride.clone().normalize()
+          : new THREE.Vector3();
+
+        if (!directionOverride) {
+          camera.getWorldDirection(dir);
+          dir.normalize();
         }
 
-        body.oh-hud-rebuild #brandText span{
-          font-size: 10px !important;
+        const base = player.pos.clone();
+        base.y = 1.52;
+
+        const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+        const spreadA = dir.clone().addScaledVector(right, 0.12).normalize();
+        const spreadB = dir.clone().addScaledVector(right, -0.12).normalize();
+
+        [spreadA, spreadB].forEach((shotDir, index) => {
+          const start = base
+            .clone()
+            .addScaledVector(right, index === 0 ? 0.24 : -0.24)
+            .add(shotDir.clone().multiplyScalar(0.8));
+
+          state.bullets.push(createProjectile(start, shotDir, {
+            speed: 34,
+            friendly: true,
+            color: index === 0 ? 0x00f7ff : 0xff7ce0,
+            trailColor: 0xffffff,
+            size: 0.08,
+            life: 1.25,
+            damage: 7,
+            type: "fury"
+          }));
+        });
+
+        createFlash?.(base.clone(), 0xffffff, 0.8, 2.0, 0.04);
+      },
+
+      update(dt) {
+        if (this.dashCooldown > 0) {
+          this.dashCooldown = Math.max(0, this.dashCooldown - dt);
         }
 
-        body.oh-hud-rebuild #hud{
-          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-          gap: 6px !important;
+        if (this.furyActive) {
+          this.furyTime = Math.max(0, this.furyTime - dt);
+
+          if (player.weapon === "bullet") {
+            player.fireCooldown *= 0.82;
+          } else if (player.weapon === "rocket") {
+            player.fireCooldown *= 0.9;
+          } else if (player.weapon === "grenade") {
+            player.fireCooldown *= 0.92;
+          }
+
+          if (this.overlay) {
+            this.overlay.style.opacity = String(
+              0.52 + Math.sin(performance.now() * 0.012) * 0.12
+            );
+          }
+
+          this.auraPulseCooldown -= dt;
+          if (this.auraPulseCooldown <= 0) {
+            this.auraPulseCooldown = 0.48;
+
+            createShockwave?.(
+              player.pos.clone(),
+              Math.random() > 0.5 ? 0xff00a8 : 0x00f7ff,
+              1.8 + Math.random() * 1.4
+            );
+
+            for (const enemy of state.enemies) {
+              if (!enemy?.mesh) continue;
+              const dist = enemy.mesh.position.distanceTo(player.pos);
+              if (dist < 4.4) {
+                this.damageEnemy(enemy, 3);
+              }
+            }
+
+            if (state.boss?.mesh && state.boss.mesh.position.distanceTo(player.pos) < 4.8) {
+              this.damageEnemy(state.boss, 3);
+            }
+          }
+
+          if (this.furyTime <= 0) {
+            this.stopFury();
+          }
+        } else if (this.overlay) {
+          this.overlay.style.opacity = "0";
         }
 
-        body.oh-hud-rebuild .stat{
-          padding: 8px 8px !important;
-          border-radius: 12px !important;
-        }
-
-        body.oh-hud-rebuild .stat .label{
-          font-size: 9px !important;
-          margin-bottom: 3px !important;
-        }
-
-        body.oh-hud-rebuild .stat .value{
-          font-size: 14px !important;
-        }
-
-        body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 114px) !important;
-          width: calc(100vw - 16px) !important;
-        }
-
-        body.oh-hud-rebuild #minimapWrap{
-          width: 84px !important;
-          height: 84px !important;
-          bottom: calc(14px + env(safe-area-inset-bottom) + 176px) !important;
-          border-radius: 14px !important;
-        }
-
-        body.oh-hud-rebuild #weaponBar{
-          bottom: calc(8px + env(safe-area-inset-bottom)) !important;
-          transform: translateX(-50%) scale(.94) !important;
-          transform-origin: center bottom !important;
-        }
-
-        body.oh-hud-rebuild #abilityDock{
-          right: 8px !important;
-          bottom: calc(8px + env(safe-area-inset-bottom) + 76px) !important;
-          gap: 8px !important;
-        }
-
-        body.oh-hud-rebuild .ability-btn{
-          min-width: 68px !important;
-          padding: 8px 10px !important;
-          border-radius: 14px !important;
-          font-size: 11px !important;
-        }
-      }
-
-      /* ===== LANDSCAPE PHONE / COMPACT ===== */
-      @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px){
-        body.oh-hud-rebuild #nemesisHud{
-          top: calc(8px + env(safe-area-inset-top)) !important;
-          left: 8px !important;
-          width: min(220px, 28vw) !important;
-        }
-
-        body.oh-hud-rebuild #apocHud{
-          top: calc(8px + env(safe-area-inset-top)) !important;
-          right: 8px !important;
-          width: min(220px, 28vw) !important;
-        }
-
-        body.oh-hud-rebuild #nemesisHud .nem-card,
-        body.oh-hud-rebuild #apocHud .apoc-card{
-          padding: 8px 9px !important;
-          border-radius: 14px !important;
-        }
-
-        body.oh-hud-rebuild #nemesisHud .nem-title,
-        body.oh-hud-rebuild #nemesisHud .nem-sub,
-        body.oh-hud-rebuild #apocHud .apoc-sub{
-          font-size: 9px !important;
-        }
-
-        body.oh-hud-rebuild #nemesisHud .nem-main,
-        body.oh-hud-rebuild #apocHud .apoc-row{
-          font-size: 11px !important;
-        }
-
-        body.oh-hud-rebuild #apocHud .apoc-btn{
-          font-size: 9px !important;
-          padding: .55rem .6rem !important;
-        }
-
-        body.oh-hud-rebuild #ui{
-          top: calc(8px + env(safe-area-inset-top)) !important;
-          width: min(46vw, 360px) !important;
-          left: 50% !important;
-          transform: translateX(-50%) !important;
-          padding: 8px !important;
-          border-radius: 14px !important;
-        }
-
-        body.oh-hud-rebuild #brandText span{
-          display: none !important;
-        }
-
-        body.oh-hud-rebuild #hud{
-          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-          gap: 4px !important;
-        }
-
-        body.oh-hud-rebuild .stat{
-          padding: 6px !important;
-          border-radius: 10px !important;
-        }
-
-        body.oh-hud-rebuild .stat .label{
-          font-size: 8px !important;
-          margin-bottom: 2px !important;
-        }
-
-        body.oh-hud-rebuild .stat .value{
-          font-size: 11px !important;
-        }
-
-        body.oh-hud-rebuild #bossBarWrap{
-          top: calc(8px + env(safe-area-inset-top) + 88px) !important;
-          width: min(40vw, 320px) !important;
-        }
-
-        body.oh-hud-rebuild #minimapWrap{
-          top: calc(8px + env(safe-area-inset-top) + 94px) !important;
-          right: 8px !important;
-          bottom: auto !important;
-          width: 88px !important;
-          height: 88px !important;
-        }
-
-        body.oh-hud-rebuild #weaponBar{
-          bottom: 6px !important;
-          transform: translateX(-50%) scale(.9) !important;
-        }
-
-        body.oh-hud-rebuild #abilityDock{
-          right: 8px !important;
-          bottom: 112px !important;
-          gap: 6px !important;
-        }
-
-        body.oh-hud-rebuild .ability-btn{
-          min-width: 60px !important;
-          padding: 7px 8px !important;
-          font-size: 10px !important;
-        }
-
-        body.oh-hud-rebuild #tapHint{
-          right: 8px !important;
-          bottom: 78px !important;
-          font-size: 10px !important;
-        }
-      }
-
-      /* ===== VEILIGHEID: compact labels als panelen toch te klein zijn ===== */
-      body.oh-hud-rebuild.oh-hud-tight #brandText span{
-        display:none !important;
-      }
-
-      body.oh-hud-rebuild.oh-hud-tight #hud{
-        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function tightenHudIfNeeded(){
-    const ui = document.getElementById("ui");
-    if(!ui) return;
-
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const tight = vw < 980 || vh < 620;
-    document.body.classList.toggle("oh-hud-tight", tight);
-  }
-
-  function normalizeHudPanels(){
-    const ui = document.getElementById("ui");
-    const nem = document.getElementById("nemesisHud");
-    const apoc = document.getElementById("apocHud");
-    const boss = document.getElementById("bossBarWrap");
-    const map = document.getElementById("minimapWrap");
-
-    if(ui) ui.style.pointerEvents = "none";
-    if(nem) nem.style.pointerEvents = "none";
-    if(apoc) apoc.style.pointerEvents = "none";
-    if(boss) boss.style.pointerEvents = "none";
-    if(map) map.style.pointerEvents = "none";
-  }
-
-  function rebuildHud(){
-    if(document.getElementById("ohHudRebuildStyles")) return;
-    injectHudRebuildStyles();
-    document.body.classList.add("oh-hud-rebuild");
-    normalizeHudPanels();
-    tightenHudIfNeeded();
-  }
-
-  rebuildHud();
-  window.addEventListener("resize", tightenHudIfNeeded, { passive: true });
-  window.addEventListener("orientationchange", tightenHudIfNeeded, { passive: true });
-})();
-
-/* =========================
-   OLDE HANTER AUDIO OVERHAUL PACK
-   plak boven: animate(performance.now());
-   ========================= */
-(() => {
-  const OH_AUDIO = {
-    inited: false,
-    master: null,
-    music: null,
-    sfx: null,
-    duck: null,
-    reverb: null,
-    delay: null,
-    delayFeedback: null,
-    delayFilter: null,
-    noiseBuffer: null,
-    lastNow: performance.now(),
-    musicClockPad: 0.30,
-    sidechainUntil: 0,
-    ambPulse: 0,
-    danger: 0,
-    nearThreat: 0,
-    lastBossState: false,
-    lastWave: -1,
-    bossRisePlayed: false,
-    stepDur: 0.145
-  };
-
-  function ohClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function ohLerp(a, b, t){ return a + (b - a) * t; }
-  function ohRnd(a, b){ return a + Math.random() * (b - a); }
-
-  function ohEnsureAudioChain(){
-    ensureAudio?.();
-    if(!audioCtx || OH_AUDIO.inited) return;
-    OH_AUDIO.inited = true;
-
-    const ctx = audioCtx;
-
-    OH_AUDIO.master = ctx.createGain();
-    OH_AUDIO.music = ctx.createGain();
-    OH_AUDIO.sfx = ctx.createGain();
-    OH_AUDIO.duck = ctx.createGain();
-
-    OH_AUDIO.master.gain.value = 0.92;
-    OH_AUDIO.music.gain.value = 0.34;
-    OH_AUDIO.sfx.gain.value = 0.92;
-    OH_AUDIO.duck.gain.value = 1.0;
-
-    const masterHP = ctx.createBiquadFilter();
-    masterHP.type = "highpass";
-    masterHP.frequency.value = 34;
-
-    const masterLP = ctx.createBiquadFilter();
-    masterLP.type = "lowpass";
-    masterLP.frequency.value = 11000;
-    masterLP.Q.value = 0.35;
-
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.knee.value = 18;
-    comp.ratio.value = 3.2;
-    comp.attack.value = 0.004;
-    comp.release.value = 0.14;
-
-    OH_AUDIO.reverb = makeImpulseReverb(ctx, 1.2, 2.2);
-    const revGain = ctx.createGain();
-    revGain.gain.value = 0.12;
-
-    OH_AUDIO.delay = ctx.createDelay(0.45);
-    OH_AUDIO.delay.delayTime.value = 0.17;
-
-    OH_AUDIO.delayFeedback = ctx.createGain();
-    OH_AUDIO.delayFeedback.gain.value = 0.24;
-
-    OH_AUDIO.delayFilter = ctx.createBiquadFilter();
-    OH_AUDIO.delayFilter.type = "lowpass";
-    OH_AUDIO.delayFilter.frequency.value = 2800;
-
-    const delaySend = ctx.createGain();
-    delaySend.gain.value = 0.09;
-
-    OH_AUDIO.music.connect(OH_AUDIO.duck);
-    OH_AUDIO.duck.connect(masterHP);
-
-    OH_AUDIO.sfx.connect(masterHP);
-
-    masterHP.connect(masterLP);
-    masterLP.connect(comp);
-    comp.connect(OH_AUDIO.master);
-    OH_AUDIO.master.connect(ctx.destination);
-
-    OH_AUDIO.music.connect(revGain);
-    revGain.connect(OH_AUDIO.reverb);
-    OH_AUDIO.reverb.connect(OH_AUDIO.master);
-
-    OH_AUDIO.music.connect(delaySend);
-    delaySend.connect(OH_AUDIO.delay);
-    OH_AUDIO.delay.connect(OH_AUDIO.delayFilter);
-    OH_AUDIO.delayFilter.connect(OH_AUDIO.master);
-    OH_AUDIO.delay.connect(OH_AUDIO.delayFeedback);
-    OH_AUDIO.delayFeedback.connect(OH_AUDIO.delay);
-
-    OH_AUDIO.noiseBuffer = makeNoiseBuffer(ctx, 1.2);
-  }
-
-  function makeNoiseBuffer(ctx, dur=1){
-    const size = Math.max(1, (ctx.sampleRate * dur) | 0);
-    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    let last = 0;
-    for(let i=0;i<size;i++){
-      const white = Math.random() * 2 - 1;
-      last = (last * 0.82) + (white * 0.18);
-      data[i] = last * 0.8 + white * 0.2;
-    }
-    return buffer;
-  }
-
-  function makeImpulseReverb(ctx, dur=1.0, decay=2.0){
-    const len = Math.max(1, (ctx.sampleRate * dur) | 0);
-    const impulse = ctx.createBuffer(2, len, ctx.sampleRate);
-    for(let c=0;c<2;c++){
-      const data = impulse.getChannelData(c);
-      for(let i=0;i<len;i++){
-        const t = i / len;
-        data[i] = (Math.random()*2-1) * Math.pow(1 - t, decay);
-      }
-    }
-    const convolver = ctx.createConvolver();
-    convolver.buffer = impulse;
-    return convolver;
-  }
-
-  function duckMusic(amount=0.74, hold=0.09){
-    ohEnsureAudioChain();
-    if(!audioCtx || !OH_AUDIO.duck) return;
-    const now = audioCtx.currentTime;
-    const target = ohClamp(amount, 0.32, 1);
-    OH_AUDIO.duck.gain.cancelScheduledValues(now);
-    OH_AUDIO.duck.gain.setValueAtTime(OH_AUDIO.duck.gain.value || 1, now);
-    OH_AUDIO.duck.gain.exponentialRampToValueAtTime(target, now + 0.008);
-    OH_AUDIO.duck.gain.exponentialRampToValueAtTime(1.0, now + hold);
-    OH_AUDIO.sidechainUntil = now + hold;
-  }
-
-  function routeNode(node, bus="sfx", sendRev=0, sendDelay=0){
-    ohEnsureAudioChain();
-    if(!audioCtx || !node) return null;
-    const out = audioCtx.createGain();
-    out.gain.value = 1;
-    node.connect(out);
-    out.connect(bus === "music" ? OH_AUDIO.music : OH_AUDIO.sfx);
-
-    if(sendRev > 0){
-      const g = audioCtx.createGain();
-      g.gain.value = sendRev;
-      out.connect(g);
-      g.connect(OH_AUDIO.reverb);
-    }
-    if(sendDelay > 0){
-      const g = audioCtx.createGain();
-      g.gain.value = sendDelay;
-      out.connect(g);
-      g.connect(OH_AUDIO.delay);
-    }
-    return out;
-  }
-
-  function chipVoice({
-    freq=440, when=null, dur=0.12, type="square", gain=0.03,
-    detune=0, slide=0, vibrato=0, vibRate=7,
-    lp=2800, hp=40, pan=0, attack=0.003, release=0.05,
-    bus="sfx", sendRev=0.02, sendDelay=0
-  } = {}){
-    ohEnsureAudioChain();
-    if(!audioCtx) return;
-    const ctx = audioCtx;
-    const t = when ?? ctx.currentTime;
-
-    const osc = ctx.createOscillator();
-    const amp = ctx.createGain();
-    const lpF = ctx.createBiquadFilter();
-    const hpF = ctx.createBiquadFilter();
-    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-
-    hpF.type = "highpass";
-    hpF.frequency.setValueAtTime(hp, t);
-    lpF.type = "lowpass";
-    lpF.frequency.setValueAtTime(lp, t);
-
-    osc.type = type;
-    osc.frequency.setValueAtTime(Math.max(40, freq), t);
-    if(detune) osc.detune.setValueAtTime(detune, t);
-    if(slide) osc.frequency.linearRampToValueAtTime(Math.max(40, freq + slide), t + dur);
-
-    if(vibrato > 0){
-      const lfo = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
-      lfo.type = "sine";
-      lfo.frequency.setValueAtTime(vibRate, t);
-      lfoGain.gain.setValueAtTime(vibrato, t);
-      lfo.connect(lfoGain);
-      lfoGain.connect(osc.frequency);
-      lfo.start(t);
-      lfo.stop(t + dur + 0.06);
-    }
-
-    amp.gain.setValueAtTime(0.0001, t);
-    amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + attack);
-    amp.gain.exponentialRampToValueAtTime(Math.max(0.00015, gain * 0.58), t + dur * 0.55);
-    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
-
-    osc.connect(hpF);
-    hpF.connect(lpF);
-    lpF.connect(amp);
-
-    if(panner){
-      panner.pan.setValueAtTime(ohClamp(pan, -1, 1), t);
-      amp.connect(panner);
-      routeNode(panner, bus, sendRev, sendDelay);
-    }else{
-      routeNode(amp, bus, sendRev, sendDelay);
-    }
-
-    osc.start(t);
-    osc.stop(t + dur + release + 0.03);
-  }
-
-  function noiseVoice({
-    when=null, dur=0.08, gain=0.02, hp=200, lp=6000, band=1200, q=0.7,
-    pan=0, bus="sfx", sendRev=0.01, sendDelay=0
-  } = {}){
-    ohEnsureAudioChain();
-    if(!audioCtx || !OH_AUDIO.noiseBuffer) return;
-    const ctx = audioCtx;
-    const t = when ?? ctx.currentTime;
-
-    const src = ctx.createBufferSource();
-    src.buffer = OH_AUDIO.noiseBuffer;
-
-    const hpF = ctx.createBiquadFilter();
-    hpF.type = "highpass";
-    hpF.frequency.setValueAtTime(hp, t);
-
-    const bpF = ctx.createBiquadFilter();
-    bpF.type = "bandpass";
-    bpF.frequency.setValueAtTime(band, t);
-    bpF.Q.setValueAtTime(q, t);
-
-    const lpF = ctx.createBiquadFilter();
-    lpF.type = "lowpass";
-    lpF.frequency.setValueAtTime(lp, t);
-
-    const amp = ctx.createGain();
-    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-
-    amp.gain.setValueAtTime(Math.max(0.0001, gain), t);
-    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-
-    src.connect(hpF);
-    hpF.connect(bpF);
-    bpF.connect(lpF);
-    lpF.connect(amp);
-
-    if(panner){
-      panner.pan.setValueAtTime(ohClamp(pan, -1, 1), t);
-      amp.connect(panner);
-      routeNode(panner, bus, sendRev, sendDelay);
-    }else{
-      routeNode(amp, bus, sendRev, sendDelay);
-    }
-
-    src.start(t);
-    src.stop(t + dur + 0.02);
-  }
-
-  function subDrop(freq=90, to=38, dur=0.18, gain=0.04, when=null){
-    chipVoice({
-      freq, when, dur, type:"sine", gain, slide:to - freq,
-      lp:220, hp:20, bus:"sfx", sendRev:0.015
-    });
-  }
-
-  /* ==== vervang bestaande primitive helpers ==== */
-  tone = function(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
-    chipVoice({
-      freq, dur, type, gain: volume,
-      slide, lp: type === "square" ? 2600 : 3600,
-      hp: 40, sendRev:0.01, sendDelay:0.01
-    });
-  };
-
-  noiseBurst = function(dur=0.06, volume=0.02){
-    noiseVoice({
-      dur, gain: volume, hp: 240, lp: 5200, band: 1400,
-      q: 0.8, sendRev:0.008
-    });
-  };
-
-  /* ==== rijkere sound effects ==== */
-  function sfxShootNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.76, 0.08);
-    chipVoice({ freq:1240, when:now, dur:0.042, type:"square", gain:0.030, slide:-360, lp:3400, hp:260, pan:ohRnd(-0.08,0.08), sendDelay:0.012 });
-    chipVoice({ freq:910, when:now+0.004, dur:0.048, type:"triangle", gain:0.014, slide:-180, lp:2600, hp:120, sendRev:0.01 });
-    noiseVoice({ when:now, dur:0.028, gain:0.009, hp:1000, lp:7000, band:2200, q:1.1, pan:ohRnd(-0.15,0.15) });
-  }
-
-  function sfxRocketNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.68, 0.12);
-    subDrop(120, 46, 0.28, 0.05, now);
-    chipVoice({ freq:170, when:now, dur:0.18, type:"sawtooth", gain:0.034, slide:120, lp:1500, hp:30, vibrato:4, vibRate:11, sendRev:0.03 });
-    noiseVoice({ when:now+0.01, dur:0.11, gain:0.016, hp:120, lp:2200, band:620, q:0.8, sendRev:0.02 });
-  }
-
-  function sfxGrenadeNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.72, 0.10);
-    chipVoice({ freq:330, when:now, dur:0.08, type:"triangle", gain:0.030, slide:-160, lp:2400, hp:90, sendRev:0.012 });
-    chipVoice({ freq:180, when:now+0.014, dur:0.10, type:"square", gain:0.011, slide:-60, lp:1200, hp:60 });
-    noiseVoice({ when:now+0.008, dur:0.06, gain:0.012, hp:500, lp:3000, band:960, q:1.0 });
-  }
-
-  function sfxHitNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    chipVoice({ freq:240, when:now, dur:0.05, type:"sawtooth", gain:0.025, slide:-100, lp:1800, hp:160, sendRev:0.008 });
-    noiseVoice({ when:now, dur:0.018, gain:0.007, hp:1700, lp:6000, band:2800, q:1.2 });
-  }
-
-  function sfxEnemyDownNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.70, 0.12);
-    chipVoice({ freq:260, when:now, dur:0.07, type:"square", gain:0.024, slide:130, lp:1800, hp:120, sendRev:0.02 });
-    chipVoice({ freq:450, when:now+0.035, dur:0.08, type:"triangle", gain:0.018, slide:-60, lp:2800, hp:80, sendDelay:0.018 });
-    if((state?.combo || 1) > 3){
-      chipVoice({ freq:720, when:now+0.055, dur:0.05, type:"square", gain:0.010, slide:55, lp:3200, hp:180, sendDelay:0.025 });
-    }
-  }
-
-  function sfxDamageNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.56, 0.18);
-    noiseVoice({ when:now, dur:0.10, gain:0.020, hp:150, lp:3000, band:580, q:0.9, sendRev:0.02 });
-    chipVoice({ freq:138, when:now, dur:0.10, type:"sawtooth", gain:0.020, slide:-58, lp:900, hp:40 });
-    subDrop(78, 42, 0.16, 0.04, now);
-  }
-
-  function sfxPickupNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    chipVoice({ freq:540, when:now, dur:0.06, type:"triangle", gain:0.024, slide:120, lp:3600, hp:120, sendRev:0.04, sendDelay:0.02 });
-    chipVoice({ freq:770, when:now+0.045, dur:0.08, type:"triangle", gain:0.018, slide:90, lp:4200, hp:180, sendRev:0.05, sendDelay:0.03 });
-    chipVoice({ freq:1040, when:now+0.085, dur:0.05, type:"square", gain:0.010, slide:40, lp:4600, hp:240, sendDelay:0.04 });
-  }
-
-  function sfxBossNew(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.54, 0.28);
-    subDrop(68, 28, 0.45, 0.06, now);
-    chipVoice({ freq:86, when:now, dur:0.28, type:"sawtooth", gain:0.040, slide:18, lp:880, hp:20, vibrato:2.5, vibRate:7, sendRev:0.06 });
-    noiseVoice({ when:now+0.02, dur:0.14, gain:0.013, hp:90, lp:1200, band:260, q:0.6, sendRev:0.03 });
-    chipVoice({ freq:172, when:now+0.08, dur:0.12, type:"square", gain:0.011, slide:-22, lp:900, hp:50, sendDelay:0.025 });
-  }
-
-  sfxShoot = sfxShootNew;
-  sfxRocket = sfxRocketNew;
-  sfxGrenade = sfxGrenadeNew;
-  sfxHit = sfxHitNew;
-  sfxEnemyDown = sfxEnemyDownNew;
-  sfxDamage = sfxDamageNew;
-  sfxPickup = sfxPickupNew;
-  sfxBoss = sfxBossNew;
-
-  /* ==== extra skill-audio, gekoppeld via wrappers ==== */
-  function sfxPlasma(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.62, 0.16);
-    chipVoice({ freq:720, when:now, dur:0.12, type:"sawtooth", gain:0.028, slide:260, lp:4200, hp:160, vibrato:10, vibRate:13, sendDelay:0.04, sendRev:0.03 });
-    chipVoice({ freq:980, when:now+0.014, dur:0.10, type:"square", gain:0.020, slide:-120, lp:5000, hp:300, sendDelay:0.03 });
-    noiseVoice({ when:now, dur:0.06, gain:0.010, hp:2200, lp:8000, band:3400, q:1.5 });
-  }
-
-  function sfxMine(){
-    const now = audioCtx?.currentTime ?? 0;
-    chipVoice({ freq:180, when:now, dur:0.08, type:"square", gain:0.020, slide:-40, lp:1200, hp:40, sendRev:0.01 });
-    chipVoice({ freq:420, when:now+0.09, dur:0.05, type:"triangle", gain:0.010, slide:80, lp:2600, hp:100, sendDelay:0.02 });
-    noiseVoice({ when:now, dur:0.025, gain:0.006, hp:1000, lp:4800, band:1900, q:1.1 });
-  }
-
-  function sfxOrbital(){
-    const now = audioCtx?.currentTime ?? 0;
-    duckMusic(0.50, 0.26);
-    chipVoice({ freq:420, when:now, dur:0.18, type:"triangle", gain:0.018, slide:340, lp:2600, hp:70, vibrato:8, vibRate:9, sendRev:0.05, sendDelay:0.05 });
-    chipVoice({ freq:1260, when:now+0.12, dur:0.12, type:"square", gain:0.018, slide:-520, lp:5200, hp:320, sendDelay:0.04 });
-    subDrop(88, 32, 0.28, 0.045, now + 0.10);
-    noiseVoice({ when:now+0.10, dur:0.09, gain:0.016, hp:180, lp:3200, band:700, q:0.85, sendRev:0.03 });
-  }
-
-  if(typeof firePlasmaBurst === "function"){
-    const _firePlasmaBurst = firePlasmaBurst;
-    firePlasmaBurst = function(...args){
-      ensureAudio?.();
-      sfxPlasma();
-      return _firePlasmaBurst.apply(this, args);
-    };
-  }
-
-  if(typeof deployShockMine === "function"){
-    const _deployShockMine = deployShockMine;
-    deployShockMine = function(...args){
-      ensureAudio?.();
-      sfxMine();
-      return _deployShockMine.apply(this, args);
-    };
-  }
-
-  if(typeof deployOrbital === "function"){
-    const _deployOrbital = deployOrbital;
-    deployOrbital = function(...args){
-      ensureAudio?.();
-      sfxOrbital();
-      return _deployOrbital.apply(this, args);
-    };
-  }
-
-  /* ==== adaptieve muziek ==== */
-  const OH_MUSIC = {
-    leadA: [1568,1760,1976,1760, 1568,1760,2093,2349, 1319,1568,1760,1568, 1319,1568,1760,2093],
-    leadB: [1175,1319,1568,1319, 1175,1319,1760,1568, 1047,1175,1319,1175, 1047,1175,1568,1760],
-    bassA: [196,196,196,196, 165,165,165,165, 147,147,147,147, 131,131,131,131],
-    bassB: [196,196,220,196, 165,165,185,165, 147,147,165,147, 131,131,147,131],
-    arpA:  [3136,3520,3951,3520, 3136,3520,3951,4699, 2637,3136,3520,3136, 2637,3136,3520,4186],
-    arpB:  [2350,2637,3136,2637, 2350,2637,3520,3136, 2093,2350,2637,2350, 2093,2350,3136,3520],
-    pulse: [784,0,784,0, 988,0,784,0, 659,0,659,0, 784,0,988,0]
-  };
-
-  function computeThreat(){
-    let near = 0;
-    let boss = !!state?.boss;
-    const p = player?.pos;
-    if(p && Array.isArray(state?.enemies)){
-      for(const e of state.enemies){
-        if(!e?.mesh) continue;
-        const d = e.mesh.position.distanceTo(p);
-        if(d < 8) near += (8 - d) / 8;
-      }
-    }
-    if(boss && state.boss?.mesh && p){
-      const d = state.boss.mesh.position.distanceTo(p);
-      near += 1.2 + Math.max(0, (14 - d) / 14);
-    }
-    OH_AUDIO.nearThreat = near;
-    const hpDanger = player ? (1 - (player.hp / Math.max(1, player.maxHp))) : 0;
-    const comboBoost = Math.min(1, ((state?.combo || 1) - 1) / 8);
-    const furyBoost = (typeof apoc !== "undefined" && apoc?.furyActive) ? 0.9 : 0;
-    OH_AUDIO.danger = ohClamp(
-      near * 0.23 + hpDanger * 0.85 + comboBoost * 0.25 + furyBoost,
-      0, 1.45
-    );
-  }
-
-  function playStepVoice(freq, when, dur, opts={}){
-    if(!freq) return;
-    chipVoice({
-      freq,
-      when,
-      dur,
-      type: opts.type || "square",
-      gain: opts.gain ?? 0.02,
-      detune: opts.detune || 0,
-      slide: opts.slide || 0,
-      vibrato: opts.vibrato || 0,
-      vibRate: opts.vibRate || 6,
-      lp: opts.lp || 2800,
-      hp: opts.hp || 40,
-      pan: opts.pan || 0,
-      bus: "music",
-      sendRev: opts.sendRev ?? 0.025,
-      sendDelay: opts.sendDelay ?? 0.015
-    });
-  }
-
-  function musicKick(when, gain=0.032){
-    subDrop(94, 46, 0.12, gain, when);
-    noiseVoice({ when, dur:0.018, gain:0.004, hp:1100, lp:7000, band:2600, q:1.1, bus:"music" });
-  }
-
-  function musicSnare(when, gain=0.010){
-    noiseVoice({ when, dur:0.05, gain, hp:900, lp:5000, band:1700, q:1.0, bus:"music", sendRev:0.01 });
-    chipVoice({ freq:210, when, dur:0.035, type:"triangle", gain:0.006, slide:-30, lp:1200, hp:180, bus:"music" });
-  }
-
-  function musicHat(when, gain=0.004){
-    noiseVoice({ when, dur:0.014, gain, hp:2400, lp:9000, band:4200, q:1.6, bus:"music" });
-  }
-
-  updateMusic = function(){
-    ohEnsureAudioChain();
-    if(!audioCtx || !state?.running) return;
-
-    computeThreat();
-
-    const ctx = audioCtx;
-    const t = ctx.currentTime;
-    const bossActive = !!state?.boss;
-    const hpPct = player ? player.hp / Math.max(1, player.maxHp) : 1;
-    const pattern = (player?.wave || 1) % 2 === 0 ? "B" : "A";
-
-    const lead = pattern === "A" ? OH_MUSIC.leadA : OH_MUSIC.leadB;
-    const bass = pattern === "A" ? OH_MUSIC.bassA : OH_MUSIC.bassB;
-    const arp  = pattern === "A" ? OH_MUSIC.arpA  : OH_MUSIC.arpB;
-
-    const stepDur = OH_AUDIO.stepDur * ohLerp(1.0, 0.90, Math.min(1, OH_AUDIO.danger * 0.7));
-    OH_AUDIO.stepDur = stepDur;
-
-    if(state.songClock < t){
-      state.songClock = t + 0.04;
-    }
-
-    if(bossActive && !OH_AUDIO.lastBossState){
-      sfxBossNew();
-      OH_AUDIO.bossRisePlayed = true;
-    }
-    OH_AUDIO.lastBossState = bossActive;
-
-    while(state.songClock < t + OH_AUDIO.musicClockPad){
-      state.songStep = (state.songStep + 1) % lead.length;
-      const step = state.songStep;
-      const when = Math.max(t, state.songClock);
-
-      const accent = step % 8 === 0;
-      const offbeat = step % 2 === 1;
-      const danger = OH_AUDIO.danger;
-      const strong = accent || bossActive;
-
-      const leadGain =
-        bossActive ? 0.022 :
-        hpPct < 0.35 ? 0.019 :
-        0.016 + Math.min(0.008, danger * 0.006);
-
-      const bassGain = 0.014 + Math.min(0.01, danger * 0.005);
-      const arpGain = 0.006 + Math.min(0.006, danger * 0.004);
-
-      playStepVoice(lead[step], when, strong ? 0.20 : 0.15, {
-        type: strong ? "sawtooth" : "square",
-        gain: leadGain,
-        detune: accent ? -3 : 0,
-        slide: accent ? -6 : 0,
-        vibrato: bossActive ? 4 : 0,
-        vibRate: 7,
-        lp: bossActive ? 2200 : 3000,
-        hp: 120,
-        pan: Math.sin(step * 0.8) * 0.20,
-        sendRev: bossActive ? 0.045 : 0.025,
-        sendDelay: 0.02
-      });
-
-      playStepVoice(bass[step], when, 0.19, {
-        type: "square",
-        gain: bassGain,
-        detune: -8,
-        lp: 920,
-        hp: 30,
-        sendRev: 0.008,
-        sendDelay: 0
-      });
-
-      if(step % 2 === 0){
-        playStepVoice(arp[step], when + 0.085, 0.07, {
-          type: "square",
-          gain: arpGain,
-          detune: 5,
-          lp: 4200,
-          hp: 300,
-          pan: step % 4 === 0 ? -0.25 : 0.25,
-          sendRev: 0.03,
-          sendDelay: 0.03
+        this.updateDrones(dt);
+        this.renderHud();
+      },
+
+      bindInput() {
+        const hit = (e, codes, keys = []) => {
+          const code = e.code || "";
+          const key = (e.key || "").toLowerCase();
+          return codes.includes(code) || keys.includes(key);
+        };
+
+        window.addEventListener("keydown", (e) => {
+          if (hit(e, ["Digit4", "Numpad4"], ["4", "z"])) {
+            e.preventDefault();
+            ensureAudio?.();
+            if (!state.running) startGame?.();
+            firePlasmaBurst?.();
+            return;
+          }
+
+          if (hit(e, ["Digit5", "Numpad5"], ["5", "x"])) {
+            e.preventDefault();
+            ensureAudio?.();
+            if (!state.running) startGame?.();
+            deployShockMine?.();
+            return;
+          }
+
+          if (hit(e, ["Digit6", "Numpad6"], ["6", "c"])) {
+            e.preventDefault();
+            ensureAudio?.();
+            if (!state.running) startGame?.();
+            deployOrbital?.();
+            return;
+          }
+
+          if (hit(e, ["KeyQ", "KeyV"], ["q", "v"])) {
+            e.preventDefault();
+            ensureAudio?.();
+            if (!state.running) startGame?.();
+            this.activateFury();
+            return;
+          }
+
+          if (hit(e, ["ShiftLeft", "ShiftRight"], ["shift"])) {
+            e.preventDefault();
+            ensureAudio?.();
+            if (!state.running) startGame?.();
+            this.doDash();
+          }
+        }, { capture: true, passive: false });
+      },
+
+      installHooks() {
+        OH.hooks.wrapFunction("registerKill", (original) => function(points) {
+          original(points);
+
+          OH.apoc.addFury(10 + state.combo * 4);
+
+          if (OH.apoc.furyActive) {
+            player.hp = Math.min(player.maxHp, player.hp + 4);
+            setStat?.();
+            createFlash?.(
+              player.pos.clone().add(new THREE.Vector3(0, 1.3, 0)),
+              0x9dff7c,
+              1.2,
+              3.0,
+              0.06
+            );
+          }
+        });
+
+        OH.hooks.wrapFunction("restartGame", (original) => function(...args) {
+          OH.apoc.stopFury(true);
+          OH.apoc.fury = 0;
+          OH.apoc.dashCooldown = 0;
+          OH.apoc.renderHud();
+          return original.apply(this, args);
+        });
+
+        OH.hooks.wrapFunction("shootWithDirection", (original) => function(dirOverride = null) {
+          const ok = original(dirOverride);
+          if (ok && OH.apoc.furyActive) {
+            OH.apoc.fireExtraSideShots(dirOverride);
+          }
+          return ok;
+        });
+
+        OH.hooks.wrapFunction("applyDamage", (original) => function(amount) {
+          const damage = OH.apoc.furyActive ? amount * 0.78 : amount;
+          return original(damage);
         });
       }
+    },
 
-      if(!offbeat && OH_MUSIC.pulse[step]){
-        playStepVoice(OH_MUSIC.pulse[step], when + 0.01, 0.05, {
-          type: "triangle",
-          gain: 0.006 + Math.min(0.006, danger * 0.004),
-          lp: 1800,
-          hp: 220,
-          sendRev: 0.015
+    nemesis: {
+      lastFrame: performance.now(),
+      phase: 0,
+      activeEvent: null,
+      eventTimer: 0,
+      crateCooldown: 18,
+      fogAlpha: 0,
+      moonIntensity: 0,
+      stormPulse: 0,
+      hud: {},
+      bossDecor: [],
+
+      init() {
+        this.injectStyles();
+        this.buildHud();
+      },
+
+      injectStyles() {
+        OH.dom.injectStyle("oh-nemesis-styles", `
+          #nemesisHud{
+            position:fixed;
+            left:16px;
+            top:16px;
+            z-index:24;
+            width:min(320px, calc(100vw - 32px));
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            pointer-events:none;
+          }
+          .nem-card{
+            pointer-events:auto;
+            padding:12px 14px;
+            border-radius:18px;
+            background:linear-gradient(180deg, rgba(12,12,22,.74), rgba(18,8,28,.60));
+            border:1px solid rgba(255,255,255,.12);
+            box-shadow:0 12px 36px rgba(0,0,0,.22), 0 0 22px rgba(255,110,161,.08);
+            color:#fff;
+            backdrop-filter: blur(12px) saturate(1.1);
+          }
+          .nem-title{
+            font-size:.8rem;
+            letter-spacing:.14em;
+            text-transform:uppercase;
+            opacity:.78;
+            font-weight:900;
+          }
+          .nem-main{
+            margin-top:6px;
+            display:flex;
+            justify-content:space-between;
+            gap:12px;
+            align-items:center;
+            font-weight:900;
+            font-size:1rem;
+          }
+          .nem-sub{
+            margin-top:8px;
+            color:rgba(255,255,255,.78);
+            font-size:.82rem;
+            font-weight:700;
+          }
+          .nem-bar{
+            margin-top:10px;
+            height:10px;
+            border-radius:999px;
+            overflow:hidden;
+            background:rgba(255,255,255,.08);
+            border:1px solid rgba(255,255,255,.10);
+          }
+          .nem-bar > i{
+            display:block;
+            height:100%;
+            width:0%;
+            background:linear-gradient(90deg, #ffe066, #ff6ea1, #8bf0ff, #ffe066);
+            background-size:200% 200%;
+            animation:nemflow 4s linear infinite;
+          }
+          #nemesisOverlayFog,
+          #nemesisOverlayMoon,
+          #nemesisOverlayStorm{
+            position:fixed;
+            inset:0;
+            pointer-events:none;
+            z-index:5;
+            opacity:0;
+            transition:opacity .35s ease;
+          }
+          #nemesisOverlayFog{
+            background:
+              radial-gradient(circle at 50% 60%, rgba(255,255,255,.08), transparent 28%),
+              radial-gradient(circle at 20% 30%, rgba(180,220,255,.08), transparent 30%),
+              radial-gradient(circle at 80% 70%, rgba(255,180,220,.08), transparent 34%),
+              linear-gradient(180deg, rgba(210,220,255,.08), rgba(110,120,150,.14));
+          }
+          #nemesisOverlayMoon{
+            background:
+              radial-gradient(circle at 50% 18%, rgba(255,70,110,.20), transparent 16%),
+              linear-gradient(180deg, rgba(80,0,18,.08), rgba(25,0,10,.18));
+            mix-blend-mode:screen;
+          }
+          #nemesisOverlayStorm{
+            background:
+              linear-gradient(115deg, transparent 20%, rgba(139,240,255,.16) 42%, transparent 60%),
+              linear-gradient(295deg, transparent 26%, rgba(255,255,255,.12) 46%, transparent 62%);
+            background-size:220% 220%;
+            animation:nemstorm 2.3s linear infinite;
+          }
+          @keyframes nemflow{
+            0%{ background-position:0% 50%; }
+            100%{ background-position:200% 50%; }
+          }
+          @keyframes nemstorm{
+            0%{ background-position:0% 0%, 100% 100%; }
+            100%{ background-position:200% 0%, -100% 100%; }
+          }
+          @media (max-width:780px){
+            #nemesisHud{
+              left:10px;
+              top:10px;
+              width:min(280px, calc(100vw - 20px));
+            }
+          }
+        `);
+      },
+
+      buildHud() {
+        this.hud.fog = OH.dom.createElement("div", { id: "nemesisOverlayFog" });
+        this.hud.moon = OH.dom.createElement("div", { id: "nemesisOverlayMoon" });
+        this.hud.storm = OH.dom.createElement("div", { id: "nemesisOverlayStorm" });
+        document.body.append(this.hud.fog, this.hud.moon, this.hud.storm);
+
+        const root = OH.dom.createElement("div", { id: "nemesisHud" }, `
+          <div class="nem-card">
+            <div class="nem-title">Arena Event</div>
+            <div class="nem-main">
+              <span id="nemEventName">Geen event</span>
+              <span id="nemEventTime">0.0s</span>
+            </div>
+            <div class="nem-sub" id="nemEventDesc">De arena is stabiel.</div>
+            <div class="nem-bar"><i id="nemEventFill"></i></div>
+          </div>
+          <div class="nem-card">
+            <div class="nem-title">Boss Phase</div>
+            <div class="nem-main">
+              <span id="nemBossState">Geen baas</span>
+              <span id="nemBossPhase">-</span>
+            </div>
+            <div class="nem-sub" id="nemBossDesc">Nog geen Nemesis actief.</div>
+            <div class="nem-bar"><i id="nemBossFill"></i></div>
+          </div>
+        `);
+
+        document.body.appendChild(root);
+
+        this.hud.root = root;
+        this.hud.eventName = root.querySelector("#nemEventName");
+        this.hud.eventTime = root.querySelector("#nemEventTime");
+        this.hud.eventDesc = root.querySelector("#nemEventDesc");
+        this.hud.eventFill = root.querySelector("#nemEventFill");
+        this.hud.bossState = root.querySelector("#nemBossState");
+        this.hud.bossPhase = root.querySelector("#nemBossPhase");
+        this.hud.bossDesc = root.querySelector("#nemBossDesc");
+        this.hud.bossFill = root.querySelector("#nemBossFill");
+
+        this.renderHud();
+      },
+
+      getBossPhaseText() {
+        if (!state.boss) return "Nog geen Nemesis actief.";
+        if (this.phase === 0) return "Zoekt je op en vuurt standaard salvo's.";
+        if (this.phase === 1) return "Wordt sneller en roept extra troepen op.";
+        return "Wordt gevaarlijk: arena pulses, extra salvo's en hogere druk.";
+      },
+
+      renderHud() {
+        if (!this.hud.root) return;
+
+        if (this.activeEvent) {
+          const maxTime = this.activeEvent.maxTime || 1;
+          const pct = OH.utils.clamp((this.eventTimer / maxTime) * 100, 0, 100);
+
+          this.hud.eventName.textContent = this.activeEvent.label;
+          this.hud.eventTime.textContent = `${this.eventTimer.toFixed(1)}s`;
+          this.hud.eventDesc.textContent = this.activeEvent.desc;
+          this.hud.eventFill.style.width = `${pct.toFixed(1)}%`;
+        } else {
+          this.hud.eventName.textContent = "Geen event";
+          this.hud.eventTime.textContent = "0.0s";
+          this.hud.eventDesc.textContent = "De arena is stabiel.";
+          this.hud.eventFill.style.width = "0%";
+        }
+
+        if (state.boss) {
+          const hpPct = OH.utils.clamp(state.boss.hp / state.boss.maxHp, 0, 1);
+          this.hud.bossState.textContent = "Nemesis actief";
+          this.hud.bossPhase.textContent = `Fase ${this.phase + 1}`;
+          this.hud.bossDesc.textContent = this.getBossPhaseText();
+          this.hud.bossFill.style.width = `${(hpPct * 100).toFixed(1)}%`;
+        } else {
+          this.hud.bossState.textContent = "Geen baas";
+          this.hud.bossPhase.textContent = "-";
+          this.hud.bossDesc.textContent = "Nog geen Nemesis actief.";
+          this.hud.bossFill.style.width = "0%";
+        }
+      },
+
+      chooseArenaEvent() {
+        const roll = Math.random();
+
+        if (roll < 0.25) {
+          return {
+            type: "fog",
+            label: "Ghost Mist",
+            desc: "Mist verlaagt zicht, vijanden komen dichterbij.",
+            maxTime: 18,
+            onStart: () => flashHint?.("ARENA EVENT: GHOST MIST"),
+            onUpdate: (dt) => {
+              this.fogAlpha = OH.utils.clamp(this.fogAlpha + dt * 0.18, 0, 0.92);
+              if (this.hud.fog) this.hud.fog.style.opacity = String(this.fogAlpha * 0.85);
+            },
+            onEnd: () => {
+              this.fogAlpha = 0;
+              if (this.hud.fog) this.hud.fog.style.opacity = "0";
+            }
+          };
+        }
+
+        if (roll < 0.5) {
+          return {
+            type: "moon",
+            label: "Blood Moon",
+            desc: "Meer drops, maar vijanden bewegen sneller.",
+            maxTime: 16,
+            onStart: () => flashHint?.("ARENA EVENT: BLOOD MOON"),
+            onUpdate: (dt) => {
+              this.moonIntensity = OH.utils.clamp(this.moonIntensity + dt * 0.22, 0, 1);
+              if (this.hud.moon) {
+                this.hud.moon.style.opacity = String(0.7 * this.moonIntensity);
+              }
+              for (const enemy of state.enemies) {
+                if (enemy && !enemy.isBoss) enemy.speed *= 1.0009;
+              }
+            },
+            onEnd: () => {
+              this.moonIntensity = 0;
+              if (this.hud.moon) this.hud.moon.style.opacity = "0";
+            }
+          };
+        }
+
+        if (roll < 0.75) {
+          return {
+            type: "storm",
+            label: "Neon Storm",
+            desc: "Bliksempulsen raken de arena en tikken vijanden weg.",
+            maxTime: 14,
+            onStart: () => flashHint?.("ARENA EVENT: NEON STORM"),
+            onUpdate: (dt) => {
+              this.stormPulse -= dt;
+              if (this.hud.storm) this.hud.storm.style.opacity = "0.56";
+              if (this.stormPulse <= 0) {
+                this.stormPulse = 1.1 + Math.random() * 0.55;
+                this.doStormStrike();
+              }
+            },
+            onEnd: () => {
+              if (this.hud.storm) this.hud.storm.style.opacity = "0";
+            }
+          };
+        }
+
+        return {
+          type: "rage",
+          label: "Rage Protocol",
+          desc: "Jij schiet sneller, maar Olde Hanter spawnt agressiever.",
+          maxTime: 15,
+          onStart: () => flashHint?.("ARENA EVENT: RAGE PROTOCOL"),
+          onUpdate: (dt) => {
+            player.fireCooldown *= 0.9;
+            if (
+              Math.random() < dt * 0.18 &&
+              state.enemies.length < 26 &&
+              state.running &&
+              player.alive
+            ) {
+              spawnEnemy(false);
+            }
+          },
+          onEnd: () => {}
+        };
+      },
+
+      startArenaEvent(force = false) {
+        if (!state.running || !player.alive) return;
+        if (this.activeEvent && !force) return;
+
+        this.activeEvent?.onEnd?.();
+        this.activeEvent = this.chooseArenaEvent();
+        this.eventTimer = this.activeEvent.maxTime;
+        this.activeEvent.onStart?.();
+        this.renderHud();
+      },
+
+      endArenaEvent() {
+        if (!this.activeEvent) return;
+        this.activeEvent.onEnd?.();
+        this.activeEvent = null;
+        this.eventTimer = 0;
+        this.renderHud();
+      },
+
+      doStormStrike() {
+        const targets = [];
+
+        if (state.boss?.mesh) targets.push(state.boss);
+        for (const enemy of state.enemies) {
+          if (enemy?.mesh) targets.push(enemy);
+        }
+
+        if (!targets.length) return;
+
+        const target = targets[(Math.random() * targets.length) | 0];
+        const pos = target.mesh.position.clone();
+
+        createShockwave?.(pos.clone(), 0x8bf0ff, 2.8);
+        createFlash?.(pos.clone().add(new THREE.Vector3(0, 2.5, 0)), 0xffffff, 1.4, 6.2, 0.07);
+        createBurst?.(pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 0xdafcff, 10, 5, {
+          minLife: 0.14,
+          maxLife: 0.36,
+          gravity: 0.5,
+          shrink: 0.95
+        });
+
+        target.hp -= 18;
+
+        if (target.hp <= 0) {
+          if (target === state.boss) {
+            killEnemy(target);
+          } else {
+            const idx = state.enemies.indexOf(target);
+            if (idx !== -1) {
+              killEnemy(target);
+              state.enemies.splice(idx, 1);
+            }
+          }
+        }
+      },
+
+      spawnSupplyCrate(pos) {
+        const group = new THREE.Group();
+
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(0.9, 0.9, 0.9),
+          new THREE.MeshStandardMaterial({
+            color: 0x1d2130,
+            emissive: 0x6d2a48,
+            emissiveIntensity: 0.85,
+            metalness: 0.34,
+            roughness: 0.32
+          })
+        );
+
+        const trim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.48, 0.06, 10, 24),
+          new THREE.MeshStandardMaterial({
+            color: 0xffd166,
+            emissive: 0xffd166,
+            emissiveIntensity: 0.85
+          })
+        );
+
+        trim.rotation.x = Math.PI / 2;
+        group.add(body, trim);
+        group.position.copy(pos);
+        group.position.y = 0.52;
+        scene.add(group);
+
+        const aura = new THREE.Mesh(
+          new THREE.RingGeometry(0.8, 1.25, 34),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd166,
+            transparent: true,
+            opacity: 0.55,
+            side: THREE.DoubleSide
+          })
+        );
+
+        aura.rotation.x = -Math.PI / 2;
+        aura.position.set(pos.x, 0.03, pos.z);
+        scene.add(aura);
+
+        state.pickups.push({
+          kind: "nemesisCrate",
+          mesh: group,
+          aura,
+          life: 18,
+          amount: 1,
+          pulse: 0
+        });
+      },
+
+      rewardFromCrate(pos) {
+        const roll = Math.random();
+
+        if (roll < 0.2) {
+          player.hp = Math.min(player.maxHp, player.hp + 35);
+          flashHint?.("Crate: HP boost");
+        } else if (roll < 0.4) {
+          player.ammo.bullet += 50;
+          player.ammo.rocket += 2;
+          player.ammo.grenade += 1;
+          flashHint?.("Crate: ammo cache");
+        } else if (roll < 0.6) {
+          player.abilities.plasma += 2;
+          player.abilities.mine += 1;
+          player.abilities.orbital += 1;
+          flashHint?.("Crate: skill refill");
+        } else if (roll < 0.8) {
+          registerKill?.(40);
+          flashHint?.("Crate: bonus score");
+        } else {
+          for (let i = 0; i < 3; i++) {
+            if (state.enemies.length < 28) spawnEnemy(false);
+          }
+          flashHint?.("Crate cursed: extra Olde Hanters!");
+        }
+
+        createShockwave?.(pos.clone(), 0xffd166, 3.2);
+        createBurst?.(pos.clone().add(new THREE.Vector3(0, 1, 0)), 0xffe7a6, 16, 6.2, {
+          minLife: 0.18,
+          maxLife: 0.44,
+          gravity: 0.5,
+          shrink: 0.95
+        });
+
+        setStat?.();
+      },
+
+      clearBossDecor() {
+        while (this.bossDecor.length) {
+          scene.remove(this.bossDecor.pop());
+        }
+      },
+
+      spawnBossDecor() {
+        this.clearBossDecor();
+        if (!state.boss?.mesh) return;
+
+        for (let i = 0; i < 3; i++) {
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(2.8 + i * 0.55, 0.04 + i * 0.01, 8, 48),
+            new THREE.MeshBasicMaterial({
+              color: i === 1 ? 0x8bf0ff : 0xff6ea1,
+              transparent: true,
+              opacity: 0.26 - i * 0.05
+            })
+          );
+          ring.rotation.x = Math.PI / 2;
+          scene.add(ring);
+          this.bossDecor.push(ring);
+        }
+      },
+
+      updateBossDecor(dt, now) {
+        if (!state.boss?.mesh) {
+          this.clearBossDecor();
+          return;
+        }
+
+        if (!this.bossDecor.length) {
+          this.spawnBossDecor();
+        }
+
+        this.bossDecor.forEach((ring, index) => {
+          ring.position.copy(state.boss.mesh.position);
+          ring.position.y = 0.15 + index * 0.28 + Math.sin(now * 0.002 + index) * 0.06;
+          ring.rotation.z += dt * (0.55 + index * 0.22);
+          ring.material.opacity = 0.16 + Math.sin(now * 0.003 + index) * 0.08;
+        });
+      },
+
+      updateBossPhases(dt) {
+        if (!state.boss?.mesh) {
+          this.phase = 0;
+          this.clearBossDecor();
+          this.renderHud();
+          return;
+        }
+
+        const hpPct = state.boss.hp / state.boss.maxHp;
+        const nextPhase = hpPct < 0.33 ? 2 : hpPct < 0.66 ? 1 : 0;
+
+        if (nextPhase !== this.phase) {
+          this.phase = nextPhase;
+          state.cameraShake = Math.min(2.0, state.cameraShake + 0.8);
+
+          flashHint?.(`BOSS PHASE ${this.phase + 1}`);
+          createShockwave?.(
+            state.boss.mesh.position.clone(),
+            this.phase === 2 ? 0xffd166 : 0xff6ea1,
+            4 + this.phase
+          );
+
+          if (this.phase >= 1) {
+            for (let i = 0; i < Math.min(2 + this.phase, 4); i++) {
+              if (state.enemies.length < 28) spawnEnemy(false);
+            }
+          }
+
+          if (this.phase === 2) {
+            this.spawnSupplyCrate(
+              player.pos.clone().add(new THREE.Vector3(
+                OH.utils.rand(-4, 4),
+                0,
+                OH.utils.rand(-4, 4)
+              ))
+            );
+          }
+        }
+
+        if (this.phase >= 1) {
+          state.boss.speed *= 1.0007;
+          state.boss.fireCooldown -= dt * 0.18;
+        }
+
+        if (this.phase >= 2) {
+          state.boss.fireCooldown -= dt * 0.22;
+
+          if (Math.random() < dt * 0.7) {
+            const pos = state.boss.mesh.position.clone().add(new THREE.Vector3(
+              OH.utils.rand(-2.8, 2.8),
+              0,
+              OH.utils.rand(-2.8, 2.8)
+            ));
+
+            createShockwave?.(pos.clone(), 0xff6ea1, 1.6);
+            createBurst?.(pos.clone().add(new THREE.Vector3(0, 1, 0)), 0xffb2c8, 6, 4.2, {
+              minLife: 0.16,
+              maxLife: 0.3,
+              gravity: 0.45,
+              shrink: 0.95
+            });
+
+            if (pos.distanceTo(player.pos) < 2.8) {
+              applyDamage?.(8);
+            }
+          }
+        }
+
+        this.renderHud();
+      },
+
+      updateArenaEvent(dt) {
+        if (!state.running || !player.alive) {
+          this.endArenaEvent();
+          return;
+        }
+
+        this.crateCooldown -= dt;
+        if (this.crateCooldown <= 0) {
+          this.crateCooldown = 20 + Math.random() * 10;
+          this.spawnSupplyCrate(new THREE.Vector3(
+            OH.utils.rand(-30, 30),
+            0,
+            OH.utils.rand(-30, 30)
+          ));
+          flashHint?.("Supply crate gedropt");
+        }
+
+        if (!this.activeEvent) {
+          if (player.wave >= 3 && Math.random() < dt * 0.04) {
+            this.startArenaEvent();
+          }
+          this.renderHud();
+          return;
+        }
+
+        this.eventTimer = Math.max(0, this.eventTimer - dt);
+        this.activeEvent.onUpdate?.(dt);
+
+        if (this.eventTimer <= 0) {
+          this.endArenaEvent();
+        }
+
+        this.renderHud();
+      },
+
+      updateCrates(dt, now) {
+        for (let i = state.pickups.length - 1; i >= 0; i--) {
+          const pickup = state.pickups[i];
+          if (pickup.kind !== "nemesisCrate") continue;
+
+          pickup.life -= dt;
+          pickup.pulse = (pickup.pulse || 0) + dt * 3.2;
+
+          if (pickup.mesh) {
+            pickup.mesh.rotation.y += dt * 1.25;
+            pickup.mesh.position.y = 0.56 + Math.sin(now * 0.003 + i) * 0.08;
+          }
+
+          if (pickup.aura) {
+            pickup.aura.material.opacity = 0.25 + Math.sin(pickup.pulse) * 0.18;
+          }
+
+          if (player.pos.distanceTo(pickup.mesh.position) < 1.6) {
+            this.rewardFromCrate(pickup.mesh.position.clone());
+
+            if (pickup.mesh) scene.remove(pickup.mesh);
+            if (pickup.aura) scene.remove(pickup.aura);
+            state.pickups.splice(i, 1);
+            continue;
+          }
+
+          if (pickup.life <= 0) {
+            if (pickup.mesh) scene.remove(pickup.mesh);
+            if (pickup.aura) scene.remove(pickup.aura);
+            state.pickups.splice(i, 1);
+          }
+        }
+      },
+
+      update(dt, now) {
+        this.updateArenaEvent(dt);
+        this.updateBossPhases(dt);
+        this.updateBossDecor(dt, now);
+        this.updateCrates(dt, now);
+      },
+
+      installHooks() {
+        OH.hooks.wrapFunction("spawnWave", (original) => function(...args) {
+          const result = original.apply(this, args);
+
+          if (player.wave >= 2) {
+            const bonus = Math.min(1 + Math.floor(player.wave / 5), 4);
+            for (let i = 0; i < bonus; i++) {
+              if (state.enemies.length < 30 && Math.random() < 0.55) {
+                spawnEnemy(false);
+              }
+            }
+          }
+
+          if (player.wave >= 4 && player.wave % 2 === 0) {
+            OH.nemesis.startArenaEvent(true);
+          }
+
+          if (player.wave % 4 === 0) {
+            flashHint?.("Nemesis voorwaarden bereikt");
+          }
+
+          OH.nemesis.renderHud();
+          return result;
+        });
+
+        OH.hooks.wrapFunction("killEnemy", (original) => function(enemy) {
+          const wasBoss = !!enemy?.isBoss;
+          const enemyPos = enemy?.mesh?.position?.clone?.() || null;
+
+          const result = original(enemy);
+
+          if (wasBoss && enemyPos) {
+            OH.nemesis.clearBossDecor();
+            OH.nemesis.endArenaEvent();
+
+            for (let i = 0; i < 2; i++) {
+              OH.nemesis.spawnSupplyCrate(
+                enemyPos.clone().add(new THREE.Vector3(i ? 2 : -2, 0, 0))
+              );
+            }
+
+            registerKill?.(60);
+            flashHint?.("Nemesis verslagen — loot gedropt");
+          } else if (!wasBoss && enemyPos && Math.random() < 0.08) {
+            OH.nemesis.spawnSupplyCrate(enemyPos);
+          }
+
+          OH.nemesis.renderHud();
+          return result;
+        });
+
+        OH.hooks.wrapFunction("restartGame", (original) => function(...args) {
+          OH.nemesis.clearBossDecor();
+          OH.nemesis.endArenaEvent();
+          OH.nemesis.phase = 0;
+          OH.nemesis.crateCooldown = 18;
+          OH.nemesis.renderHud();
+          return original.apply(this, args);
+        });
+
+        OH.hooks.wrapFunction("applyDamage", (original) => function(amount) {
+          let finalDamage = amount;
+          if (OH.nemesis.activeEvent?.type === "fog") finalDamage *= 1.08;
+          if (OH.nemesis.activeEvent?.type === "rage") finalDamage *= 1.04;
+          return original(finalDamage);
         });
       }
+    },
 
-      if(step % 4 === 0) musicKick(when, bossActive ? 0.042 : 0.031);
-      if(step % 4 === 2) musicSnare(when + 0.005, bossActive ? 0.012 : 0.009);
-      if(step % 2 === 1) musicHat(when + 0.03, 0.003 + danger * 0.0015);
+    hud: {
+      init() {
+        this.injectStyles();
+        this.enable();
+        this.normalizePanels();
+        this.tightenIfNeeded();
 
-      if(bossActive && step % 8 === 4){
-        playStepVoice(lead[step] / 2, when + 0.01, 0.12, {
-          type: "sawtooth",
-          gain: 0.012,
-          lp: 1300,
-          hp: 60,
-          pan: -0.15,
-          sendRev: 0.05
+        window.addEventListener("resize", () => this.tightenIfNeeded(), { passive: true });
+        window.addEventListener("orientationchange", () => this.tightenIfNeeded(), { passive: true });
+      },
+
+      injectStyles() {
+        OH.dom.injectStyle("ohHudRebuildStyles", `
+          :root{
+            --hud-gap: 12px;
+            --hud-radius: 18px;
+            --hud-panel: linear-gradient(180deg, rgba(10,12,24,.82), rgba(14,9,30,.68));
+            --hud-border: rgba(255,255,255,.12);
+            --hud-shadow: 0 16px 34px rgba(0,0,0,.30), 0 0 24px rgba(0,247,255,.06);
+            --hud-blur: blur(14px) saturate(1.08);
+            --hud-top: calc(12px + env(safe-area-inset-top));
+            --hud-side: max(12px, env(safe-area-inset-left));
+            --hud-side-right: max(12px, env(safe-area-inset-right));
+          }
+
+          #ui,
+          #nemesisHud,
+          #apocHud,
+          #bossBarWrap,
+          #minimapWrap,
+          #weaponBar,
+          #abilityDock,
+          #mobileControls,
+          #tapHint{
+            transition:
+              top .18s ease,
+              left .18s ease,
+              right .18s ease,
+              bottom .18s ease,
+              width .18s ease,
+              transform .18s ease,
+              opacity .18s ease;
+          }
+
+          body.oh-hud-rebuild #ui{
+            position: fixed !important;
+            top: var(--hud-top) !important;
+            left: 50% !important;
+            right: auto !important;
+            bottom: auto !important;
+            transform: translateX(-50%) !important;
+            width: min(720px, calc(100vw - 360px)) !important;
+            min-width: min(520px, calc(100vw - 40px)) !important;
+            max-width: calc(100vw - 40px) !important;
+            padding: 12px 14px !important;
+            border-radius: 20px !important;
+            background: var(--hud-panel) !important;
+            border: 1px solid var(--hud-border) !important;
+            box-shadow: var(--hud-shadow) !important;
+            backdrop-filter: var(--hud-blur) !important;
+            z-index: 30 !important;
+            pointer-events: none !important;
+          }
+
+          body.oh-hud-rebuild #nemesisHud{
+            position: fixed !important;
+            top: var(--hud-top) !important;
+            left: var(--hud-side) !important;
+            width: min(300px, calc(50vw - 28px)) !important;
+            z-index: 29 !important;
+          }
+
+          body.oh-hud-rebuild #apocHud{
+            position: fixed !important;
+            top: var(--hud-top) !important;
+            right: var(--hud-side-right) !important;
+            width: min(300px, calc(50vw - 28px)) !important;
+            z-index: 29 !important;
+          }
+
+          body.oh-hud-rebuild #bossBarWrap{
+            position: fixed !important;
+            top: calc(var(--hud-top) + 126px) !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            width: min(560px, calc(100vw - 60px)) !important;
+            z-index: 28 !important;
+          }
+
+          body.oh-hud-rebuild #minimapWrap{
+            position: fixed !important;
+            top: calc(var(--hud-top) + 150px) !important;
+            right: var(--hud-side-right) !important;
+            width: 118px !important;
+            height: 118px !important;
+            border-radius: 18px !important;
+            z-index: 28 !important;
+          }
+
+          body.oh-hud-rebuild #weaponBar{
+            position: fixed !important;
+            left: 50% !important;
+            bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+            transform: translateX(-50%) !important;
+            z-index: 28 !important;
+          }
+
+          body.oh-hud-rebuild #abilityDock{
+            position: fixed !important;
+            right: var(--hud-side-right) !important;
+            bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
+            z-index: 28 !important;
+          }
+
+          body.oh-hud-rebuild.oh-hud-tight #brandText span{
+            display:none !important;
+          }
+
+          body.oh-hud-rebuild.oh-hud-tight #hud{
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
+        `);
+      },
+
+      tightenIfNeeded() {
+        const ui = document.getElementById("ui");
+        if (!ui) return;
+
+        const tight = window.innerWidth < 980 || window.innerHeight < 620;
+        document.body.classList.toggle("oh-hud-tight", tight);
+      },
+
+      normalizePanels() {
+        ["ui", "nemesisHud", "apocHud", "bossBarWrap", "minimapWrap"]
+          .map((id) => document.getElementById(id))
+          .filter(Boolean)
+          .forEach((el) => {
+            el.style.pointerEvents = "none";
+          });
+      },
+
+      enable() {
+        document.body.classList.add("oh-hud-rebuild");
+      }
+    },
+
+    enemyFx: {
+      lastFrame: performance.now(),
+      tracked: new WeakSet(),
+
+      init() {},
+
+      makeOHTexture(enemy, side = "front") {
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+
+        const ctx = canvas.getContext("2d");
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+
+        const bundle = {
+          canvas,
+          ctx,
+          tex,
+          hueOffset: Math.random() * 360,
+          side
+        };
+
+        this.drawOHTexture(enemy, bundle, 0);
+        return bundle;
+      },
+
+      drawOHTexture(enemy, bundle, time) {
+        const { canvas, ctx, tex, hueOffset, side } = bundle;
+        const w = canvas.width;
+        const h = canvas.height;
+
+        const phase = time * (enemy.isBoss ? 1.8 : enemy.type === "runner" ? 2.6 : 2.1);
+        const pulse = 0.5 + 0.5 * Math.sin(phase + enemy.ohFx.seed * 6.0);
+
+        const hueA = (hueOffset + time * 70 + (enemy.isBoss ? 30 : 0)) % 360;
+        const hueB = (hueA + 80 + Math.sin(time * 0.9 + enemy.ohFx.seed * 8) * 25) % 360;
+        const hueC = (hueA + 160) % 360;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const bg = ctx.createLinearGradient(0, 0, w, h);
+        bg.addColorStop(0, `hsla(${hueA}, 75%, ${enemy.isBoss ? 24 : 20}%, 0.96)`);
+        bg.addColorStop(0.5, `hsla(${hueB}, 80%, ${enemy.type === "elite" ? 28 : 18}%, 0.96)`);
+        bg.addColorStop(1, `hsla(${hueC}, 70%, 12%, 0.96)`);
+
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        const glowX = w * (0.5 + Math.sin(phase * 0.8) * 0.12);
+        const glowY = h * (0.46 + Math.cos(phase * 1.1) * 0.08);
+
+        const radial = ctx.createRadialGradient(glowX, glowY, 10, glowX, glowY, w * 0.46);
+        radial.addColorStop(0, `hsla(${hueB},100%,72%,${0.32 + pulse * 0.22})`);
+        radial.addColorStop(0.5, `hsla(${hueA},100%,52%,0.14)`);
+        radial.addColorStop(1, `hsla(${hueC},100%,20%,0)`);
+
+        ctx.fillStyle = radial;
+        ctx.fillRect(0, 0, w, h);
+
+        for (let i = 0; i < 10; i++) {
+          const y = (i / 10) * h;
+          ctx.fillStyle = `hsla(${(hueA + i * 8) % 360}, 100%, 70%, ${0.03 + (i % 2) * 0.015})`;
+          ctx.fillRect(0, y + Math.sin(phase * 2 + i) * 3, w, 5);
+        }
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `900 ${side === "front" ? 132 : 118}px system-ui, Arial, sans-serif`;
+        ctx.shadowBlur = 34 + pulse * 16;
+        ctx.shadowColor = `hsla(${hueB},100%,68%,0.95)`;
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = `hsla(${hueA},100%,88%,0.98)`;
+        ctx.strokeText("OH", w * 0.5, h * 0.53);
+
+        const fill = ctx.createLinearGradient(w * 0.28, h * 0.2, w * 0.72, h * 0.8);
+        fill.addColorStop(0, `hsla(${hueB},100%,78%,1)`);
+        fill.addColorStop(0.48, `hsla(${hueA},100%,62%,1)`);
+        fill.addColorStop(1, `hsla(${hueC},100%,74%,1)`);
+        ctx.fillStyle = fill;
+        ctx.fillText("OH", w * 0.5, h * 0.53);
+
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(255,255,255,0.12)";
+        ctx.strokeRect(10, 10, w - 20, h - 20);
+
+        if (enemy.isBoss) {
+          ctx.font = "700 28px system-ui, Arial, sans-serif";
+          ctx.fillStyle = `hsla(${(hueA + 120) % 360},100%,85%,0.95)`;
+          ctx.fillText("NEMESIS", w * 0.5, h * 0.86);
+        } else if (enemy.type === "elite") {
+          ctx.font = "700 24px system-ui, Arial, sans-serif";
+          ctx.fillStyle = `hsla(${(hueA + 45) % 360},100%,84%,0.92)`;
+          ctx.fillText("ELITE", w * 0.5, h * 0.84);
+        }
+
+        tex.needsUpdate = true;
+      },
+
+      applyLogo(meshPart, enemy, side = "front") {
+        if (!meshPart) return null;
+
+        const bundle = this.makeOHTexture(enemy, side);
+        meshPart.material = new THREE.MeshStandardMaterial({
+          map: bundle.tex,
+          color: 0xffffff,
+          emissive: 0xffffff,
+          emissiveIntensity: enemy.isBoss ? 1.55 : enemy.type === "elite" ? 1.18 : 0.94,
+          metalness: 0.18,
+          roughness: 0.38
+        });
+
+        return bundle;
+      },
+
+      addAura(enemy) {
+        const radius = enemy.isBoss ? 1.46 : enemy.type === "tank" ? 0.98 : 0.86;
+
+        const aura = new THREE.Mesh(
+          new THREE.RingGeometry(radius * 0.92, radius * 1.22, 36),
+          new THREE.MeshBasicMaterial({
+            color: enemy.isBoss ? 0xff6ea1 : enemy.type === "elite" ? 0xffd166 : 0x7df6ff,
+            transparent: true,
+            opacity: enemy.isBoss ? 0.34 : 0.24,
+            side: THREE.DoubleSide
+          })
+        );
+        aura.rotation.x = -Math.PI / 2;
+        aura.position.y = 0.06;
+        enemy.mesh.add(aura);
+
+        const halo = new THREE.Mesh(
+          new THREE.TorusGeometry(radius * 0.92, enemy.isBoss ? 0.05 : 0.035, 10, 40),
+          new THREE.MeshBasicMaterial({
+            color: enemy.isBoss ? 0xff83b4 : 0x9cfbff,
+            transparent: true,
+            opacity: 0.32
+          })
+        );
+        halo.rotation.x = Math.PI / 2;
+        halo.position.y = enemy.isBoss ? 3.65 : 2.82;
+        enemy.mesh.add(halo);
+
+        enemy.ohFx.aura = aura;
+        enemy.ohFx.halo = halo;
+      },
+
+      ensure(enemy) {
+        if (!enemy?.mesh || this.tracked.has(enemy)) return;
+        this.tracked.add(enemy);
+
+        enemy.ohFx = {
+          seed: Math.random(),
+          life: 0,
+          frontLogo: null,
+          backLogo: null,
+          aura: null,
+          halo: null,
+          textureCooldown: 0
+        };
+
+        const parts = enemy.mesh.userData?.parts || {};
+        if (parts.logo) enemy.ohFx.frontLogo = this.applyLogo(parts.logo, enemy, "front");
+        if (parts.backLogo) enemy.ohFx.backLogo = this.applyLogo(parts.backLogo, enemy, "back");
+
+        this.addAura(enemy);
+      },
+
+      cleanup(enemy) {
+        if (!enemy?.ohFx) return;
+        if (enemy.ohFx.aura) enemy.mesh?.remove?.(enemy.ohFx.aura);
+        if (enemy.ohFx.halo) enemy.mesh?.remove?.(enemy.ohFx.halo);
+      },
+
+      updateEnemy(enemy, dt, now) {
+        if (!enemy?.mesh || !enemy.ohFx) return;
+
+        const parts = enemy.mesh.userData?.parts || {};
+        enemy.ohFx.life += dt;
+
+        const moveSpeed =
+          enemy.isBoss ? 0.9 :
+          enemy.type === "runner" ? 1.85 :
+          enemy.type === "elite" ? 1.35 :
+          enemy.type === "tank" ? 0.78 : 1.05;
+
+        const strideAmp =
+          enemy.isBoss ? 0.34 :
+          enemy.type === "runner" ? 0.42 :
+          enemy.type === "elite" ? 0.31 :
+          enemy.type === "tank" ? 0.20 : 0.26;
+
+        const upperAmp = enemy.isBoss ? 0.18 : enemy.type === "runner" ? 0.22 : 0.15;
+        const hover = enemy.isBoss ? 0.08 : 0.04;
+        const breathing = 0.04 + (enemy.isBoss ? 0.025 : 0);
+
+        const pace =
+          now * 0.001 * (2.2 * moveSpeed + Math.abs(enemy.strafe || 0) * 0.4) +
+          enemy.ohFx.seed * 10;
+
+        const pace2 = pace + Math.PI * 0.5;
+
+        enemy.mesh.position.y = Math.sin(pace * 2.0) * hover;
+
+        if (parts.legL) parts.legL.rotation.x = Math.sin(pace) * strideAmp;
+        if (parts.legR) parts.legR.rotation.x = Math.sin(pace + Math.PI) * strideAmp;
+        if (parts.shinL) parts.shinL.rotation.x = Math.max(-0.1, Math.sin(pace + 0.45) * strideAmp * 0.7);
+        if (parts.shinR) parts.shinR.rotation.x = Math.max(-0.1, Math.sin(pace + Math.PI + 0.45) * strideAmp * 0.7);
+
+        if (parts.armL) parts.armL.rotation.x = Math.sin(pace + Math.PI) * upperAmp - 0.08;
+        if (parts.armR) parts.armR.rotation.x = Math.sin(pace) * upperAmp + 0.12;
+        if (parts.foreArmL) parts.foreArmL.rotation.x = -0.18 + Math.sin(pace2) * 0.14;
+        if (parts.foreArmR) parts.foreArmR.rotation.x = 0.24 + Math.sin(pace2 + 0.8) * 0.10;
+
+        if (parts.torso) {
+          parts.torso.rotation.y = Math.sin(pace * 0.5) * 0.08 + (enemy.strafe || 0) * 0.04;
+          parts.torso.rotation.z = Math.sin(pace) * 0.04;
+          parts.torso.position.y = 1.62 + Math.sin(now * 0.0024 + enemy.ohFx.seed * 5.5) * breathing;
+        }
+
+        if (parts.pelvis) {
+          parts.pelvis.rotation.y = Math.sin(pace + Math.PI) * 0.05;
+          parts.pelvis.rotation.z = Math.sin(pace) * 0.02;
+        }
+
+        if (parts.head) {
+          const toPlayer = player.pos.clone().sub(enemy.mesh.position);
+          const lookYaw = Math.atan2(toPlayer.x, toPlayer.z) - enemy.mesh.rotation.y;
+          const dist = toPlayer.length();
+
+          parts.head.rotation.y = OH.utils.clamp(lookYaw * 0.55, -0.65, 0.65);
+          parts.head.rotation.x = OH.utils.clamp(
+            (1.4 - dist * 0.05) * 0.08 + Math.sin(now * 0.004 + enemy.ohFx.seed) * 0.04,
+            -0.2,
+            0.22
+          );
+          parts.head.rotation.z = Math.sin(now * 0.003 + enemy.ohFx.seed * 7) * 0.03;
+        }
+
+        if (parts.gun) {
+          parts.gun.rotation.z = Math.sin(now * 0.006 + enemy.ohFx.seed * 4.4) * 0.08;
+          parts.gun.rotation.x = -0.22 + Math.sin(now * 0.004 + enemy.ohFx.seed * 2) * 0.04;
+          parts.gun.position.y = 1.34 + Math.sin(pace2) * 0.05;
+        }
+
+        if (parts.cape) {
+          parts.cape.rotation.x =
+            0.12 +
+            Math.sin(now * 0.004 + enemy.ohFx.seed * 8) * 0.09 +
+            Math.abs(Math.sin(pace)) * 0.12;
+
+          parts.cape.rotation.z = Math.sin(now * 0.0032 + enemy.ohFx.seed * 5) * 0.05;
+        }
+
+        if (enemy.ohFx.aura) {
+          const pulse = 0.5 + 0.5 * Math.sin(now * 0.004 + enemy.ohFx.seed * 10);
+          enemy.ohFx.aura.material.opacity =
+            (enemy.isBoss ? 0.22 : 0.13) +
+            pulse * (enemy.isBoss ? 0.22 : 0.13);
+
+          enemy.ohFx.aura.rotation.z += dt * (enemy.isBoss ? 1.2 : 0.7);
+          enemy.ohFx.aura.scale.setScalar(1 + pulse * 0.06);
+        }
+
+        if (enemy.ohFx.halo) {
+          const pulse = 0.5 + 0.5 * Math.sin(now * 0.005 + enemy.ohFx.seed * 6);
+          enemy.ohFx.halo.material.opacity =
+            (enemy.isBoss ? 0.18 : 0.10) +
+            pulse * (enemy.isBoss ? 0.20 : 0.12);
+
+          enemy.ohFx.halo.rotation.z += dt * (enemy.isBoss ? -2.1 : -1.2);
+          enemy.ohFx.halo.position.y =
+            (enemy.isBoss ? 3.65 : 2.82) +
+            Math.sin(now * 0.003 + enemy.ohFx.seed * 4) * 0.08;
+        }
+
+        if (enemy.groundRing) {
+          enemy.groundRing.material.opacity =
+            enemy.isBoss
+              ? 0.26 + Math.sin(now * 0.004) * 0.12
+              : 0.14 + Math.sin(now * 0.005 + enemy.ohFx.seed * 4) * 0.08;
+
+          enemy.groundRing.rotation.z += dt * (enemy.isBoss ? 0.5 : 0.25);
+
+          const huePulse = 0.5 + 0.5 * Math.sin(now * 0.003 + enemy.ohFx.seed * 12);
+          enemy.groundRing.material.color.setHSL(
+            enemy.isBoss ? 0.92 - huePulse * 0.08 : 0.52 + huePulse * 0.12,
+            enemy.isBoss ? 0.85 : 0.75,
+            enemy.isBoss ? 0.66 : 0.64
+          );
+        }
+
+        enemy.ohFx.textureCooldown -= dt;
+        if (enemy.ohFx.textureCooldown <= 0) {
+          enemy.ohFx.textureCooldown = enemy.isBoss ? 0.03 : 0.05;
+          if (enemy.ohFx.frontLogo) {
+            this.drawOHTexture(enemy, enemy.ohFx.frontLogo, now * 0.001);
+          }
+          if (enemy.ohFx.backLogo) {
+            this.drawOHTexture(enemy, enemy.ohFx.backLogo, now * 0.001 + 0.35);
+          }
+        }
+      },
+
+      update(dt, now) {
+        for (const enemy of state.enemies) {
+          this.ensure(enemy);
+          this.updateEnemy(enemy, dt, now);
+        }
+
+        if (state.boss) {
+          this.ensure(state.boss);
+          this.updateEnemy(state.boss, dt, now);
+        }
+      },
+
+      installHooks() {
+        OH.hooks.wrapFunction("spawnEnemy", (original) => function(isBoss = false) {
+          const beforeEnemies = state.enemies.length;
+          const hadBoss = !!state.boss;
+
+          const result = original(isBoss);
+
+          if (isBoss && state.boss && !hadBoss) {
+            OH.enemyFx.ensure(state.boss);
+          } else if (state.enemies.length > beforeEnemies) {
+            OH.enemyFx.ensure(state.enemies[state.enemies.length - 1]);
+          }
+
+          return result;
+        });
+
+        OH.hooks.wrapFunction("killEnemy", (original) => function(enemy) {
+          OH.enemyFx.cleanup(enemy);
+          return original(enemy);
+        });
+
+        OH.hooks.wrapFunction("restartGame", (original) => function(...args) {
+          for (const enemy of state.enemies) {
+            OH.enemyFx.cleanup(enemy);
+          }
+          if (state.boss) {
+            OH.enemyFx.cleanup(state.boss);
+          }
+          return original.apply(this, args);
         });
       }
+    },
 
-      if(hpPct < 0.33 && step % 8 === 6){
-        playStepVoice(1175, when + 0.02, 0.06, {
-          type: "square",
-          gain: 0.008,
-          lp: 2600,
-          hp: 250,
-          sendDelay: 0.05
-        });
-      }
+    update(now) {
+      const dt = Math.min(0.033, (now - this.state.lastFrame) / 1000 || 0.016);
+      this.state.lastFrame = now;
 
-      if(danger > 0.8 && step % 4 === 3){
-        noiseVoice({
-          when: when + 0.01,
-          dur: 0.022,
-          gain: 0.0035 + danger * 0.0015,
-          hp: 1500,
-          lp: 6000,
-          band: 2500,
-          q: 1.2,
-          bus:"music"
-        });
-      }
+      this.apoc.update(dt, now);
+      this.nemesis.update(dt, now);
+      this.enemyFx.update(dt, now);
+    },
 
-      state.songClock += stepDur;
+    installGlobalAnimateWrapper() {
+      const originalAnimate = animate;
+      animate = (now) => {
+        OH.update(now);
+        originalAnimate(now);
+      };
+    },
+
+    init() {
+      this.apoc.init();
+      this.nemesis.init();
+      this.hud.init();
+      this.enemyFx.init();
+
+      this.apoc.installHooks();
+      this.nemesis.installHooks();
+      this.enemyFx.installHooks();
+
+      this.installGlobalAnimateWrapper();
     }
-
-    const targetMusicGain =
-      bossActive ? 0.40 :
-      hpPct < 0.35 ? 0.37 :
-      0.31 + Math.min(0.08, OH_AUDIO.danger * 0.05);
-
-    OH_AUDIO.music.gain.value = ohLerp(OH_AUDIO.music.gain.value, targetMusicGain, 0.08);
   };
 
-  /* ==== event-hooks voor extra muzikaliteit ==== */
-  if(typeof registerKill === "function"){
-    const _registerKill = registerKill;
-    registerKill = function(points){
-      const result = _registerKill.apply(this, arguments);
-      ensureAudio?.();
-      const combo = state?.combo || 1;
-      if(combo >= 3){
-        const now = audioCtx?.currentTime ?? 0;
-        chipVoice({ freq:660 + combo * 18, when:now, dur:0.04, type:"square", gain:0.006, slide:30, lp:3800, hp:320, bus:"music", sendDelay:0.03 });
-      }
-      return result;
-    };
-  }
-
-  if(typeof spawnWave === "function"){
-    const _spawnWave = spawnWave;
-    spawnWave = function(){
-      const r = _spawnWave.apply(this, arguments);
-      ensureAudio?.();
-      if(player?.wave !== OH_AUDIO.lastWave){
-        OH_AUDIO.lastWave = player?.wave;
-        const now = audioCtx?.currentTime ?? 0;
-        chipVoice({ freq:262, when:now, dur:0.10, type:"square", gain:0.014, slide:40, lp:1800, hp:60, bus:"music", sendRev:0.05 });
-        chipVoice({ freq:392, when:now+0.08, dur:0.11, type:"square", gain:0.012, slide:32, lp:2200, hp:80, bus:"music", sendRev:0.05 });
-        chipVoice({ freq:523, when:now+0.16, dur:0.12, type:"triangle", gain:0.011, slide:20, lp:2600, hp:100, bus:"music", sendRev:0.06 });
-      }
-      return r;
-    };
-  }
-
-  if(typeof applyDamage === "function"){
-    const _applyDamage = applyDamage;
-    applyDamage = function(amount){
-      ensureAudio?.();
-      return _applyDamage.apply(this, arguments);
-    };
-  }
-
-  if(typeof startGame === "function"){
-    const _startGame = startGame;
-    startGame = function(){
-      ensureAudio?.();
-      ohEnsureAudioChain();
-      if(audioCtx && state.songClock < audioCtx.currentTime){
-        state.songClock = audioCtx.currentTime + 0.05;
-        state.songStep = -1;
-      }
-      return _startGame.apply(this, arguments);
-    };
-  }
-
-  ohEnsureAudioChain();
+  OH.init();
 })();
 
   animate(performance.now());
