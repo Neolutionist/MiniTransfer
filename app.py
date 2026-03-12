@@ -152,6 +152,7 @@ def db():
 
 def init_db():
     c = db()
+
     c.execute("""
       CREATE TABLE IF NOT EXISTS packages (
         token TEXT PRIMARY KEY,
@@ -161,6 +162,7 @@ def init_db():
         title TEXT
       )
     """)
+
     c.execute("""
       CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,6 +173,7 @@ def init_db():
         size_bytes INTEGER NOT NULL
       )
     """)
+
     c.execute("""
       CREATE TABLE IF NOT EXISTS subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,7 +184,23 @@ def init_db():
         created_at TEXT NOT NULL
       )
     """)
-    c.commit(); c.close()
+
+    # ===== NIEUWE ONLINE LEADERBOARD =====
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS leaderboard_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_name TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        wave INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT
+      )
+    """)
+
+    c.commit()
+    c.close()
+
 init_db()
 
 def _col_exists(conn, table, col):
@@ -3021,48 +3040,71 @@ canvas{ display:block; }
 
   const LB_KEY = "olde_hanter_arcade_leaderboard_v3";
 
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-    })[m]);
-  }
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",
+    '"':"&quot;","'":"&#39;"
+  })[m]);
+}
 
-  function getPlayerName(){
-    return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
-  }
+function getPlayerName(){
+  return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
+}
 
-  function loadBoard(){
-    try{ return JSON.parse(localStorage.getItem(LB_KEY) || "[]"); }
-    catch(e){ return []; }
-  }
+async function renderBoard(){
 
-  function saveBoard(rows){
-    localStorage.setItem(LB_KEY, JSON.stringify(rows.slice(0,10)));
-  }
+  ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
-  function renderBoard(){
-    const rows = loadBoard();
+  try {
+
+    const res = await fetch("/api/leaderboard/top?limit=10");
+    const data = await res.json();
+
+    const rows = data.rows || [];
+
     ui.leaderboard.innerHTML = rows.length
-      ? rows.map(r => `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`).join("")
+      ? rows.map(r =>
+          `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
+        ).join("")
       : "<li>Nog geen scores</li>";
+
+  } catch(err) {
+
+    ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
+
   }
 
-  function submitScore(){
-    const score = Math.floor(player.score);
-    if(score <= 0) return;
-    const rows = loadBoard();
-    rows.push({
-      name:getPlayerName(),
-      score,
-      wave:player.wave,
-      ts:Date.now()
-    });
-    rows.sort((a,b) => b.score - a.score || b.wave - a.wave || a.ts - b.ts);
-    saveBoard(rows);
-    renderBoard();
-  }
+}
+
+
+async function submitScore(){
+
+  const score = Math.floor(player.score);
+
+  if(score <= 0) return;
+
+  await fetch("/api/leaderboard/submit", {
+
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+      name: getPlayerName(),
+      score: score,
+      wave: player.wave || 0
+    })
+
+  });
 
   renderBoard();
+
+}
+
+
+renderBoard();
 
   const minimapCtx = ui.minimapCanvas.getContext("2d");
 
@@ -6636,3 +6678,97 @@ def handle_500(err):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+    # =============================
+# ONLINE LEADERBOARD API
+# =============================
+
+def leaderboard_cutoff_iso(days=30):
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def cleanup_old_scores():
+    conn = db()
+    try:
+        cutoff = leaderboard_cutoff_iso(30)
+        conn.execute(
+            "DELETE FROM leaderboard_scores WHERE created_at < ?",
+            (cutoff,)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.route("/api/leaderboard/submit", methods=["POST"])
+def leaderboard_submit():
+
+    data = request.get_json(silent=True) or {}
+
+    name = (data.get("name") or "Speler").strip()[:18]
+    score = int(data.get("score") or 0)
+    wave = int(data.get("wave") or 0)
+
+    if score <= 0:
+        return jsonify({"ok": False})
+
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
+    user_agent = request.headers.get("User-Agent", "")[:200]
+
+    conn = db()
+
+    try:
+        conn.execute("""
+            INSERT INTO leaderboard_scores
+            (player_name, score, wave, created_at, ip, user_agent)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            name,
+            score,
+            wave,
+            datetime.now(timezone.utc).isoformat(),
+            ip,
+            user_agent
+        ))
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    cleanup_old_scores()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/leaderboard/top")
+def leaderboard_top():
+
+    limit = min(int(request.args.get("limit", 10)), 50)
+
+    cutoff = leaderboard_cutoff_iso(30)
+
+    conn = db()
+
+    try:
+        rows = conn.execute("""
+            SELECT player_name, score, wave
+            FROM leaderboard_scores
+            WHERE created_at >= ?
+            ORDER BY score DESC, wave DESC
+            LIMIT ?
+        """, (cutoff, limit)).fetchall()
+
+    finally:
+        conn.close()
+
+    return jsonify({
+        "rows": [
+            {
+                "name": r["player_name"],
+                "score": r["score"],
+                "wave": r["wave"]
+            }
+            for r in rows
+        ]
+    })
