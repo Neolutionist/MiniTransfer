@@ -7663,6 +7663,701 @@ function spawnWave(){
   window.addEventListener("orientationchange", tightenHudIfNeeded, { passive: true });
 })();
 
+/* =========================
+   OLDE HANTER AUDIO OVERHAUL PACK
+   plak boven: animate(performance.now());
+   ========================= */
+(() => {
+  const OH_AUDIO = {
+    inited: false,
+    master: null,
+    music: null,
+    sfx: null,
+    duck: null,
+    reverb: null,
+    delay: null,
+    delayFeedback: null,
+    delayFilter: null,
+    noiseBuffer: null,
+    lastNow: performance.now(),
+    musicClockPad: 0.30,
+    sidechainUntil: 0,
+    ambPulse: 0,
+    danger: 0,
+    nearThreat: 0,
+    lastBossState: false,
+    lastWave: -1,
+    bossRisePlayed: false,
+    stepDur: 0.145
+  };
+
+  function ohClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function ohLerp(a, b, t){ return a + (b - a) * t; }
+  function ohRnd(a, b){ return a + Math.random() * (b - a); }
+
+  function ohEnsureAudioChain(){
+    ensureAudio?.();
+    if(!audioCtx || OH_AUDIO.inited) return;
+    OH_AUDIO.inited = true;
+
+    const ctx = audioCtx;
+
+    OH_AUDIO.master = ctx.createGain();
+    OH_AUDIO.music = ctx.createGain();
+    OH_AUDIO.sfx = ctx.createGain();
+    OH_AUDIO.duck = ctx.createGain();
+
+    OH_AUDIO.master.gain.value = 0.92;
+    OH_AUDIO.music.gain.value = 0.34;
+    OH_AUDIO.sfx.gain.value = 0.92;
+    OH_AUDIO.duck.gain.value = 1.0;
+
+    const masterHP = ctx.createBiquadFilter();
+    masterHP.type = "highpass";
+    masterHP.frequency.value = 34;
+
+    const masterLP = ctx.createBiquadFilter();
+    masterLP.type = "lowpass";
+    masterLP.frequency.value = 11000;
+    masterLP.Q.value = 0.35;
+
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.knee.value = 18;
+    comp.ratio.value = 3.2;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.14;
+
+    OH_AUDIO.reverb = makeImpulseReverb(ctx, 1.2, 2.2);
+    const revGain = ctx.createGain();
+    revGain.gain.value = 0.12;
+
+    OH_AUDIO.delay = ctx.createDelay(0.45);
+    OH_AUDIO.delay.delayTime.value = 0.17;
+
+    OH_AUDIO.delayFeedback = ctx.createGain();
+    OH_AUDIO.delayFeedback.gain.value = 0.24;
+
+    OH_AUDIO.delayFilter = ctx.createBiquadFilter();
+    OH_AUDIO.delayFilter.type = "lowpass";
+    OH_AUDIO.delayFilter.frequency.value = 2800;
+
+    const delaySend = ctx.createGain();
+    delaySend.gain.value = 0.09;
+
+    OH_AUDIO.music.connect(OH_AUDIO.duck);
+    OH_AUDIO.duck.connect(masterHP);
+
+    OH_AUDIO.sfx.connect(masterHP);
+
+    masterHP.connect(masterLP);
+    masterLP.connect(comp);
+    comp.connect(OH_AUDIO.master);
+    OH_AUDIO.master.connect(ctx.destination);
+
+    OH_AUDIO.music.connect(revGain);
+    revGain.connect(OH_AUDIO.reverb);
+    OH_AUDIO.reverb.connect(OH_AUDIO.master);
+
+    OH_AUDIO.music.connect(delaySend);
+    delaySend.connect(OH_AUDIO.delay);
+    OH_AUDIO.delay.connect(OH_AUDIO.delayFilter);
+    OH_AUDIO.delayFilter.connect(OH_AUDIO.master);
+    OH_AUDIO.delay.connect(OH_AUDIO.delayFeedback);
+    OH_AUDIO.delayFeedback.connect(OH_AUDIO.delay);
+
+    OH_AUDIO.noiseBuffer = makeNoiseBuffer(ctx, 1.2);
+  }
+
+  function makeNoiseBuffer(ctx, dur=1){
+    const size = Math.max(1, (ctx.sampleRate * dur) | 0);
+    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for(let i=0;i<size;i++){
+      const white = Math.random() * 2 - 1;
+      last = (last * 0.82) + (white * 0.18);
+      data[i] = last * 0.8 + white * 0.2;
+    }
+    return buffer;
+  }
+
+  function makeImpulseReverb(ctx, dur=1.0, decay=2.0){
+    const len = Math.max(1, (ctx.sampleRate * dur) | 0);
+    const impulse = ctx.createBuffer(2, len, ctx.sampleRate);
+    for(let c=0;c<2;c++){
+      const data = impulse.getChannelData(c);
+      for(let i=0;i<len;i++){
+        const t = i / len;
+        data[i] = (Math.random()*2-1) * Math.pow(1 - t, decay);
+      }
+    }
+    const convolver = ctx.createConvolver();
+    convolver.buffer = impulse;
+    return convolver;
+  }
+
+  function duckMusic(amount=0.74, hold=0.09){
+    ohEnsureAudioChain();
+    if(!audioCtx || !OH_AUDIO.duck) return;
+    const now = audioCtx.currentTime;
+    const target = ohClamp(amount, 0.32, 1);
+    OH_AUDIO.duck.gain.cancelScheduledValues(now);
+    OH_AUDIO.duck.gain.setValueAtTime(OH_AUDIO.duck.gain.value || 1, now);
+    OH_AUDIO.duck.gain.exponentialRampToValueAtTime(target, now + 0.008);
+    OH_AUDIO.duck.gain.exponentialRampToValueAtTime(1.0, now + hold);
+    OH_AUDIO.sidechainUntil = now + hold;
+  }
+
+  function routeNode(node, bus="sfx", sendRev=0, sendDelay=0){
+    ohEnsureAudioChain();
+    if(!audioCtx || !node) return null;
+    const out = audioCtx.createGain();
+    out.gain.value = 1;
+    node.connect(out);
+    out.connect(bus === "music" ? OH_AUDIO.music : OH_AUDIO.sfx);
+
+    if(sendRev > 0){
+      const g = audioCtx.createGain();
+      g.gain.value = sendRev;
+      out.connect(g);
+      g.connect(OH_AUDIO.reverb);
+    }
+    if(sendDelay > 0){
+      const g = audioCtx.createGain();
+      g.gain.value = sendDelay;
+      out.connect(g);
+      g.connect(OH_AUDIO.delay);
+    }
+    return out;
+  }
+
+  function chipVoice({
+    freq=440, when=null, dur=0.12, type="square", gain=0.03,
+    detune=0, slide=0, vibrato=0, vibRate=7,
+    lp=2800, hp=40, pan=0, attack=0.003, release=0.05,
+    bus="sfx", sendRev=0.02, sendDelay=0
+  } = {}){
+    ohEnsureAudioChain();
+    if(!audioCtx) return;
+    const ctx = audioCtx;
+    const t = when ?? ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const amp = ctx.createGain();
+    const lpF = ctx.createBiquadFilter();
+    const hpF = ctx.createBiquadFilter();
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+    hpF.type = "highpass";
+    hpF.frequency.setValueAtTime(hp, t);
+    lpF.type = "lowpass";
+    lpF.frequency.setValueAtTime(lp, t);
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(Math.max(40, freq), t);
+    if(detune) osc.detune.setValueAtTime(detune, t);
+    if(slide) osc.frequency.linearRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+
+    if(vibrato > 0){
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.type = "sine";
+      lfo.frequency.setValueAtTime(vibRate, t);
+      lfoGain.gain.setValueAtTime(vibrato, t);
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      lfo.start(t);
+      lfo.stop(t + dur + 0.06);
+    }
+
+    amp.gain.setValueAtTime(0.0001, t);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + attack);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.00015, gain * 0.58), t + dur * 0.55);
+    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
+
+    osc.connect(hpF);
+    hpF.connect(lpF);
+    lpF.connect(amp);
+
+    if(panner){
+      panner.pan.setValueAtTime(ohClamp(pan, -1, 1), t);
+      amp.connect(panner);
+      routeNode(panner, bus, sendRev, sendDelay);
+    }else{
+      routeNode(amp, bus, sendRev, sendDelay);
+    }
+
+    osc.start(t);
+    osc.stop(t + dur + release + 0.03);
+  }
+
+  function noiseVoice({
+    when=null, dur=0.08, gain=0.02, hp=200, lp=6000, band=1200, q=0.7,
+    pan=0, bus="sfx", sendRev=0.01, sendDelay=0
+  } = {}){
+    ohEnsureAudioChain();
+    if(!audioCtx || !OH_AUDIO.noiseBuffer) return;
+    const ctx = audioCtx;
+    const t = when ?? ctx.currentTime;
+
+    const src = ctx.createBufferSource();
+    src.buffer = OH_AUDIO.noiseBuffer;
+
+    const hpF = ctx.createBiquadFilter();
+    hpF.type = "highpass";
+    hpF.frequency.setValueAtTime(hp, t);
+
+    const bpF = ctx.createBiquadFilter();
+    bpF.type = "bandpass";
+    bpF.frequency.setValueAtTime(band, t);
+    bpF.Q.setValueAtTime(q, t);
+
+    const lpF = ctx.createBiquadFilter();
+    lpF.type = "lowpass";
+    lpF.frequency.setValueAtTime(lp, t);
+
+    const amp = ctx.createGain();
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+    amp.gain.setValueAtTime(Math.max(0.0001, gain), t);
+    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    src.connect(hpF);
+    hpF.connect(bpF);
+    bpF.connect(lpF);
+    lpF.connect(amp);
+
+    if(panner){
+      panner.pan.setValueAtTime(ohClamp(pan, -1, 1), t);
+      amp.connect(panner);
+      routeNode(panner, bus, sendRev, sendDelay);
+    }else{
+      routeNode(amp, bus, sendRev, sendDelay);
+    }
+
+    src.start(t);
+    src.stop(t + dur + 0.02);
+  }
+
+  function subDrop(freq=90, to=38, dur=0.18, gain=0.04, when=null){
+    chipVoice({
+      freq, when, dur, type:"sine", gain, slide:to - freq,
+      lp:220, hp:20, bus:"sfx", sendRev:0.015
+    });
+  }
+
+  /* ==== vervang bestaande primitive helpers ==== */
+  tone = function(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
+    chipVoice({
+      freq, dur, type, gain: volume,
+      slide, lp: type === "square" ? 2600 : 3600,
+      hp: 40, sendRev:0.01, sendDelay:0.01
+    });
+  };
+
+  noiseBurst = function(dur=0.06, volume=0.02){
+    noiseVoice({
+      dur, gain: volume, hp: 240, lp: 5200, band: 1400,
+      q: 0.8, sendRev:0.008
+    });
+  };
+
+  /* ==== rijkere sound effects ==== */
+  function sfxShootNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.76, 0.08);
+    chipVoice({ freq:1240, when:now, dur:0.042, type:"square", gain:0.030, slide:-360, lp:3400, hp:260, pan:ohRnd(-0.08,0.08), sendDelay:0.012 });
+    chipVoice({ freq:910, when:now+0.004, dur:0.048, type:"triangle", gain:0.014, slide:-180, lp:2600, hp:120, sendRev:0.01 });
+    noiseVoice({ when:now, dur:0.028, gain:0.009, hp:1000, lp:7000, band:2200, q:1.1, pan:ohRnd(-0.15,0.15) });
+  }
+
+  function sfxRocketNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.68, 0.12);
+    subDrop(120, 46, 0.28, 0.05, now);
+    chipVoice({ freq:170, when:now, dur:0.18, type:"sawtooth", gain:0.034, slide:120, lp:1500, hp:30, vibrato:4, vibRate:11, sendRev:0.03 });
+    noiseVoice({ when:now+0.01, dur:0.11, gain:0.016, hp:120, lp:2200, band:620, q:0.8, sendRev:0.02 });
+  }
+
+  function sfxGrenadeNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.72, 0.10);
+    chipVoice({ freq:330, when:now, dur:0.08, type:"triangle", gain:0.030, slide:-160, lp:2400, hp:90, sendRev:0.012 });
+    chipVoice({ freq:180, when:now+0.014, dur:0.10, type:"square", gain:0.011, slide:-60, lp:1200, hp:60 });
+    noiseVoice({ when:now+0.008, dur:0.06, gain:0.012, hp:500, lp:3000, band:960, q:1.0 });
+  }
+
+  function sfxHitNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    chipVoice({ freq:240, when:now, dur:0.05, type:"sawtooth", gain:0.025, slide:-100, lp:1800, hp:160, sendRev:0.008 });
+    noiseVoice({ when:now, dur:0.018, gain:0.007, hp:1700, lp:6000, band:2800, q:1.2 });
+  }
+
+  function sfxEnemyDownNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.70, 0.12);
+    chipVoice({ freq:260, when:now, dur:0.07, type:"square", gain:0.024, slide:130, lp:1800, hp:120, sendRev:0.02 });
+    chipVoice({ freq:450, when:now+0.035, dur:0.08, type:"triangle", gain:0.018, slide:-60, lp:2800, hp:80, sendDelay:0.018 });
+    if((state?.combo || 1) > 3){
+      chipVoice({ freq:720, when:now+0.055, dur:0.05, type:"square", gain:0.010, slide:55, lp:3200, hp:180, sendDelay:0.025 });
+    }
+  }
+
+  function sfxDamageNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.56, 0.18);
+    noiseVoice({ when:now, dur:0.10, gain:0.020, hp:150, lp:3000, band:580, q:0.9, sendRev:0.02 });
+    chipVoice({ freq:138, when:now, dur:0.10, type:"sawtooth", gain:0.020, slide:-58, lp:900, hp:40 });
+    subDrop(78, 42, 0.16, 0.04, now);
+  }
+
+  function sfxPickupNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    chipVoice({ freq:540, when:now, dur:0.06, type:"triangle", gain:0.024, slide:120, lp:3600, hp:120, sendRev:0.04, sendDelay:0.02 });
+    chipVoice({ freq:770, when:now+0.045, dur:0.08, type:"triangle", gain:0.018, slide:90, lp:4200, hp:180, sendRev:0.05, sendDelay:0.03 });
+    chipVoice({ freq:1040, when:now+0.085, dur:0.05, type:"square", gain:0.010, slide:40, lp:4600, hp:240, sendDelay:0.04 });
+  }
+
+  function sfxBossNew(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.54, 0.28);
+    subDrop(68, 28, 0.45, 0.06, now);
+    chipVoice({ freq:86, when:now, dur:0.28, type:"sawtooth", gain:0.040, slide:18, lp:880, hp:20, vibrato:2.5, vibRate:7, sendRev:0.06 });
+    noiseVoice({ when:now+0.02, dur:0.14, gain:0.013, hp:90, lp:1200, band:260, q:0.6, sendRev:0.03 });
+    chipVoice({ freq:172, when:now+0.08, dur:0.12, type:"square", gain:0.011, slide:-22, lp:900, hp:50, sendDelay:0.025 });
+  }
+
+  sfxShoot = sfxShootNew;
+  sfxRocket = sfxRocketNew;
+  sfxGrenade = sfxGrenadeNew;
+  sfxHit = sfxHitNew;
+  sfxEnemyDown = sfxEnemyDownNew;
+  sfxDamage = sfxDamageNew;
+  sfxPickup = sfxPickupNew;
+  sfxBoss = sfxBossNew;
+
+  /* ==== extra skill-audio, gekoppeld via wrappers ==== */
+  function sfxPlasma(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.62, 0.16);
+    chipVoice({ freq:720, when:now, dur:0.12, type:"sawtooth", gain:0.028, slide:260, lp:4200, hp:160, vibrato:10, vibRate:13, sendDelay:0.04, sendRev:0.03 });
+    chipVoice({ freq:980, when:now+0.014, dur:0.10, type:"square", gain:0.020, slide:-120, lp:5000, hp:300, sendDelay:0.03 });
+    noiseVoice({ when:now, dur:0.06, gain:0.010, hp:2200, lp:8000, band:3400, q:1.5 });
+  }
+
+  function sfxMine(){
+    const now = audioCtx?.currentTime ?? 0;
+    chipVoice({ freq:180, when:now, dur:0.08, type:"square", gain:0.020, slide:-40, lp:1200, hp:40, sendRev:0.01 });
+    chipVoice({ freq:420, when:now+0.09, dur:0.05, type:"triangle", gain:0.010, slide:80, lp:2600, hp:100, sendDelay:0.02 });
+    noiseVoice({ when:now, dur:0.025, gain:0.006, hp:1000, lp:4800, band:1900, q:1.1 });
+  }
+
+  function sfxOrbital(){
+    const now = audioCtx?.currentTime ?? 0;
+    duckMusic(0.50, 0.26);
+    chipVoice({ freq:420, when:now, dur:0.18, type:"triangle", gain:0.018, slide:340, lp:2600, hp:70, vibrato:8, vibRate:9, sendRev:0.05, sendDelay:0.05 });
+    chipVoice({ freq:1260, when:now+0.12, dur:0.12, type:"square", gain:0.018, slide:-520, lp:5200, hp:320, sendDelay:0.04 });
+    subDrop(88, 32, 0.28, 0.045, now + 0.10);
+    noiseVoice({ when:now+0.10, dur:0.09, gain:0.016, hp:180, lp:3200, band:700, q:0.85, sendRev:0.03 });
+  }
+
+  if(typeof firePlasmaBurst === "function"){
+    const _firePlasmaBurst = firePlasmaBurst;
+    firePlasmaBurst = function(...args){
+      ensureAudio?.();
+      sfxPlasma();
+      return _firePlasmaBurst.apply(this, args);
+    };
+  }
+
+  if(typeof deployShockMine === "function"){
+    const _deployShockMine = deployShockMine;
+    deployShockMine = function(...args){
+      ensureAudio?.();
+      sfxMine();
+      return _deployShockMine.apply(this, args);
+    };
+  }
+
+  if(typeof deployOrbital === "function"){
+    const _deployOrbital = deployOrbital;
+    deployOrbital = function(...args){
+      ensureAudio?.();
+      sfxOrbital();
+      return _deployOrbital.apply(this, args);
+    };
+  }
+
+  /* ==== adaptieve muziek ==== */
+  const OH_MUSIC = {
+    leadA: [1568,1760,1976,1760, 1568,1760,2093,2349, 1319,1568,1760,1568, 1319,1568,1760,2093],
+    leadB: [1175,1319,1568,1319, 1175,1319,1760,1568, 1047,1175,1319,1175, 1047,1175,1568,1760],
+    bassA: [196,196,196,196, 165,165,165,165, 147,147,147,147, 131,131,131,131],
+    bassB: [196,196,220,196, 165,165,185,165, 147,147,165,147, 131,131,147,131],
+    arpA:  [3136,3520,3951,3520, 3136,3520,3951,4699, 2637,3136,3520,3136, 2637,3136,3520,4186],
+    arpB:  [2350,2637,3136,2637, 2350,2637,3520,3136, 2093,2350,2637,2350, 2093,2350,3136,3520],
+    pulse: [784,0,784,0, 988,0,784,0, 659,0,659,0, 784,0,988,0]
+  };
+
+  function computeThreat(){
+    let near = 0;
+    let boss = !!state?.boss;
+    const p = player?.pos;
+    if(p && Array.isArray(state?.enemies)){
+      for(const e of state.enemies){
+        if(!e?.mesh) continue;
+        const d = e.mesh.position.distanceTo(p);
+        if(d < 8) near += (8 - d) / 8;
+      }
+    }
+    if(boss && state.boss?.mesh && p){
+      const d = state.boss.mesh.position.distanceTo(p);
+      near += 1.2 + Math.max(0, (14 - d) / 14);
+    }
+    OH_AUDIO.nearThreat = near;
+    const hpDanger = player ? (1 - (player.hp / Math.max(1, player.maxHp))) : 0;
+    const comboBoost = Math.min(1, ((state?.combo || 1) - 1) / 8);
+    const furyBoost = (typeof apoc !== "undefined" && apoc?.furyActive) ? 0.9 : 0;
+    OH_AUDIO.danger = ohClamp(
+      near * 0.23 + hpDanger * 0.85 + comboBoost * 0.25 + furyBoost,
+      0, 1.45
+    );
+  }
+
+  function playStepVoice(freq, when, dur, opts={}){
+    if(!freq) return;
+    chipVoice({
+      freq,
+      when,
+      dur,
+      type: opts.type || "square",
+      gain: opts.gain ?? 0.02,
+      detune: opts.detune || 0,
+      slide: opts.slide || 0,
+      vibrato: opts.vibrato || 0,
+      vibRate: opts.vibRate || 6,
+      lp: opts.lp || 2800,
+      hp: opts.hp || 40,
+      pan: opts.pan || 0,
+      bus: "music",
+      sendRev: opts.sendRev ?? 0.025,
+      sendDelay: opts.sendDelay ?? 0.015
+    });
+  }
+
+  function musicKick(when, gain=0.032){
+    subDrop(94, 46, 0.12, gain, when);
+    noiseVoice({ when, dur:0.018, gain:0.004, hp:1100, lp:7000, band:2600, q:1.1, bus:"music" });
+  }
+
+  function musicSnare(when, gain=0.010){
+    noiseVoice({ when, dur:0.05, gain, hp:900, lp:5000, band:1700, q:1.0, bus:"music", sendRev:0.01 });
+    chipVoice({ freq:210, when, dur:0.035, type:"triangle", gain:0.006, slide:-30, lp:1200, hp:180, bus:"music" });
+  }
+
+  function musicHat(when, gain=0.004){
+    noiseVoice({ when, dur:0.014, gain, hp:2400, lp:9000, band:4200, q:1.6, bus:"music" });
+  }
+
+  updateMusic = function(){
+    ohEnsureAudioChain();
+    if(!audioCtx || !state?.running) return;
+
+    computeThreat();
+
+    const ctx = audioCtx;
+    const t = ctx.currentTime;
+    const bossActive = !!state?.boss;
+    const hpPct = player ? player.hp / Math.max(1, player.maxHp) : 1;
+    const pattern = (player?.wave || 1) % 2 === 0 ? "B" : "A";
+
+    const lead = pattern === "A" ? OH_MUSIC.leadA : OH_MUSIC.leadB;
+    const bass = pattern === "A" ? OH_MUSIC.bassA : OH_MUSIC.bassB;
+    const arp  = pattern === "A" ? OH_MUSIC.arpA  : OH_MUSIC.arpB;
+
+    const stepDur = OH_AUDIO.stepDur * ohLerp(1.0, 0.90, Math.min(1, OH_AUDIO.danger * 0.7));
+    OH_AUDIO.stepDur = stepDur;
+
+    if(state.songClock < t){
+      state.songClock = t + 0.04;
+    }
+
+    if(bossActive && !OH_AUDIO.lastBossState){
+      sfxBossNew();
+      OH_AUDIO.bossRisePlayed = true;
+    }
+    OH_AUDIO.lastBossState = bossActive;
+
+    while(state.songClock < t + OH_AUDIO.musicClockPad){
+      state.songStep = (state.songStep + 1) % lead.length;
+      const step = state.songStep;
+      const when = Math.max(t, state.songClock);
+
+      const accent = step % 8 === 0;
+      const offbeat = step % 2 === 1;
+      const danger = OH_AUDIO.danger;
+      const strong = accent || bossActive;
+
+      const leadGain =
+        bossActive ? 0.022 :
+        hpPct < 0.35 ? 0.019 :
+        0.016 + Math.min(0.008, danger * 0.006);
+
+      const bassGain = 0.014 + Math.min(0.01, danger * 0.005);
+      const arpGain = 0.006 + Math.min(0.006, danger * 0.004);
+
+      playStepVoice(lead[step], when, strong ? 0.20 : 0.15, {
+        type: strong ? "sawtooth" : "square",
+        gain: leadGain,
+        detune: accent ? -3 : 0,
+        slide: accent ? -6 : 0,
+        vibrato: bossActive ? 4 : 0,
+        vibRate: 7,
+        lp: bossActive ? 2200 : 3000,
+        hp: 120,
+        pan: Math.sin(step * 0.8) * 0.20,
+        sendRev: bossActive ? 0.045 : 0.025,
+        sendDelay: 0.02
+      });
+
+      playStepVoice(bass[step], when, 0.19, {
+        type: "square",
+        gain: bassGain,
+        detune: -8,
+        lp: 920,
+        hp: 30,
+        sendRev: 0.008,
+        sendDelay: 0
+      });
+
+      if(step % 2 === 0){
+        playStepVoice(arp[step], when + 0.085, 0.07, {
+          type: "square",
+          gain: arpGain,
+          detune: 5,
+          lp: 4200,
+          hp: 300,
+          pan: step % 4 === 0 ? -0.25 : 0.25,
+          sendRev: 0.03,
+          sendDelay: 0.03
+        });
+      }
+
+      if(!offbeat && OH_MUSIC.pulse[step]){
+        playStepVoice(OH_MUSIC.pulse[step], when + 0.01, 0.05, {
+          type: "triangle",
+          gain: 0.006 + Math.min(0.006, danger * 0.004),
+          lp: 1800,
+          hp: 220,
+          sendRev: 0.015
+        });
+      }
+
+      if(step % 4 === 0) musicKick(when, bossActive ? 0.042 : 0.031);
+      if(step % 4 === 2) musicSnare(when + 0.005, bossActive ? 0.012 : 0.009);
+      if(step % 2 === 1) musicHat(when + 0.03, 0.003 + danger * 0.0015);
+
+      if(bossActive && step % 8 === 4){
+        playStepVoice(lead[step] / 2, when + 0.01, 0.12, {
+          type: "sawtooth",
+          gain: 0.012,
+          lp: 1300,
+          hp: 60,
+          pan: -0.15,
+          sendRev: 0.05
+        });
+      }
+
+      if(hpPct < 0.33 && step % 8 === 6){
+        playStepVoice(1175, when + 0.02, 0.06, {
+          type: "square",
+          gain: 0.008,
+          lp: 2600,
+          hp: 250,
+          sendDelay: 0.05
+        });
+      }
+
+      if(danger > 0.8 && step % 4 === 3){
+        noiseVoice({
+          when: when + 0.01,
+          dur: 0.022,
+          gain: 0.0035 + danger * 0.0015,
+          hp: 1500,
+          lp: 6000,
+          band: 2500,
+          q: 1.2,
+          bus:"music"
+        });
+      }
+
+      state.songClock += stepDur;
+    }
+
+    const targetMusicGain =
+      bossActive ? 0.40 :
+      hpPct < 0.35 ? 0.37 :
+      0.31 + Math.min(0.08, OH_AUDIO.danger * 0.05);
+
+    OH_AUDIO.music.gain.value = ohLerp(OH_AUDIO.music.gain.value, targetMusicGain, 0.08);
+  };
+
+  /* ==== event-hooks voor extra muzikaliteit ==== */
+  if(typeof registerKill === "function"){
+    const _registerKill = registerKill;
+    registerKill = function(points){
+      const result = _registerKill.apply(this, arguments);
+      ensureAudio?.();
+      const combo = state?.combo || 1;
+      if(combo >= 3){
+        const now = audioCtx?.currentTime ?? 0;
+        chipVoice({ freq:660 + combo * 18, when:now, dur:0.04, type:"square", gain:0.006, slide:30, lp:3800, hp:320, bus:"music", sendDelay:0.03 });
+      }
+      return result;
+    };
+  }
+
+  if(typeof spawnWave === "function"){
+    const _spawnWave = spawnWave;
+    spawnWave = function(){
+      const r = _spawnWave.apply(this, arguments);
+      ensureAudio?.();
+      if(player?.wave !== OH_AUDIO.lastWave){
+        OH_AUDIO.lastWave = player?.wave;
+        const now = audioCtx?.currentTime ?? 0;
+        chipVoice({ freq:262, when:now, dur:0.10, type:"square", gain:0.014, slide:40, lp:1800, hp:60, bus:"music", sendRev:0.05 });
+        chipVoice({ freq:392, when:now+0.08, dur:0.11, type:"square", gain:0.012, slide:32, lp:2200, hp:80, bus:"music", sendRev:0.05 });
+        chipVoice({ freq:523, when:now+0.16, dur:0.12, type:"triangle", gain:0.011, slide:20, lp:2600, hp:100, bus:"music", sendRev:0.06 });
+      }
+      return r;
+    };
+  }
+
+  if(typeof applyDamage === "function"){
+    const _applyDamage = applyDamage;
+    applyDamage = function(amount){
+      ensureAudio?.();
+      return _applyDamage.apply(this, arguments);
+    };
+  }
+
+  if(typeof startGame === "function"){
+    const _startGame = startGame;
+    startGame = function(){
+      ensureAudio?.();
+      ohEnsureAudioChain();
+      if(audioCtx && state.songClock < audioCtx.currentTime){
+        state.songClock = audioCtx.currentTime + 0.05;
+        state.songStep = -1;
+      }
+      return _startGame.apply(this, arguments);
+    };
+  }
+
+  ohEnsureAudioChain();
+})();
+
   animate(performance.now());
 })();
 
