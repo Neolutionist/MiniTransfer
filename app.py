@@ -2963,7 +2963,7 @@ canvas{ display:block; }
   <div id="boardWrap">
     <div class="board-meta">
       <h3>Leaderboard</h3>
-      <span>Lokaal op dit apparaat</span>
+      <span>Online leaderboard</span>
     </div>
     <ol id="leaderboard"></ol>
   </div>
@@ -3038,7 +3038,6 @@ canvas{ display:block; }
     abilityOrbitalCount: document.getElementById("abilityOrbitalCount")
   };
 
-  const LB_KEY = "olde_hanter_arcade_leaderboard_v3";
 
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({
@@ -3052,30 +3051,26 @@ function getPlayerName(){
 }
 
 async function renderBoard(){
-
   ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
-  try {
-
+  try{
     const res = await fetch("/api/leaderboard/top?limit=10");
-    const data = await res.json();
+    if(!res.ok) throw new Error("HTTP error");
 
+    const data = await res.json();
     const rows = data.rows || [];
 
     ui.leaderboard.innerHTML = rows.length
       ? rows.map(r =>
-          `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
-        ).join("")
+        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
+      ).join("")
       : "<li>Nog geen scores</li>";
 
-  } catch(err) {
-
+  }catch(err){
+    console.error(err);
     ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
-
   }
-
 }
-
 
 async function submitScore(){
 
@@ -4310,31 +4305,53 @@ renderBoard();
     }
   }
 
-  function spawnWave(){
-    state.lastClearStamp = performance.now();
-    const count = Math.min(6 + player.wave * 2, 30);
-    showFloating(`WAVE ${player.wave} · ${count} vijanden`);
-    for(let i=0;i<count;i++) spawnEnemy(false);
-    if(player.wave % 4 === 0){
-      setTimeout(() => {
-        if(state.running && player.alive && !state.boss){
-          if(state.enemies.length > 16){
-            const overflow = state.enemies.splice(16);
-            for(const extra of overflow) scene.remove(extra.mesh);
+function spawnWave(){
+
+  state.lastClearStamp = performance.now();
+  const count = Math.min(6 + player.wave * 2, 30);
+
+  showFloating(`WAVE ${player.wave} · ${count} vijanden`);
+
+  for(let i=0;i<count;i++) spawnEnemy(false);
+
+  if(player.wave % 4 === 0){
+
+    setTimeout(()=>{
+
+      if(state.running && player.alive && !state.boss){
+
+        if(state.enemies.length > 16){
+
+          const overflow = state.enemies.splice(16);
+
+          for(const extra of overflow){
+            scene.remove(extra.mesh);
             if(extra.groundRing) scene.remove(extra.groundRing);
           }
-          spawnEnemy(true);
+
         }
-      }, 900);
-    }
-    if(player.wave >= 5 && player.wave % 3 === 0){
-      setTimeout(() => {
-        if(state.running && player.alive) spawnEnemy(false);
-      }, 1500);
-    }
-    setStat();
+
+        spawnEnemy(true);
+
+      }
+
+    },900);
+
   }
 
+  if(player.wave >= 5 && player.wave % 3 === 0){
+
+    setTimeout(()=>{
+
+      if(state.running && player.alive)
+        spawnEnemy(false);
+
+    },1500);
+
+  }
+
+  setStat();
+}
   function createProjectile(pos, dir, config){
     const material = new THREE.MeshBasicMaterial({ color: config.color });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(config.size, 10, 10), material);
@@ -5481,6 +5498,7 @@ renderBoard();
       updateMovement(dt);
       updateBullets(dt);
       updateEnemies(dt);
+      updateHazards(dt);
       updateParticles(dt);
       updateEffects(dt);
       updateRagdolls(dt);
