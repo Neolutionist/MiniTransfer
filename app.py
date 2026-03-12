@@ -3072,52 +3072,45 @@ async function renderBoard(){
   }
 }
 
-async function renderBoard(){
-  ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
-
-  try {
-    const res = await fetch("/api/leaderboard/top?limit=10");
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = await res.json();
-    const rows = Array.isArray(data.rows) ? data.rows : [];
-
-    ui.leaderboard.innerHTML = rows.length
-      ? rows.map(r =>
-          `<li><b>${escapeHtml(r.name)}</b> — ${Number(r.score) || 0} punten — wave ${Number(r.wave) || 0}</li>`
-        ).join("")
-      : "<li>Nog geen scores</li>";
-
-  } catch(err) {
-    console.error("Leaderboard load failed:", err);
-    ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
-  }
-}
-
 async function submitScore(){
+
   const score = Math.floor(player.score);
+
   if(score <= 0) return;
 
-  try {
-    const res = await fetch("/api/leaderboard/submit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name: getPlayerName(),
-        score,
-        wave: player.wave || 0
-      })
-    });
+  await fetch("/api/leaderboard/submit", {
 
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    await renderBoard();
+    method: "POST",
 
-  } catch(err) {
-    console.error("Score submit failed:", err);
-  }
+    headers: {
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+      name: getPlayerName(),
+      score: score,
+      wave: player.wave || 0
+    })
+
+  });
+
+  renderBoard();
+
 }
+
+
+renderBoard();
+
+  const minimapCtx = ui.minimapCanvas.getContext("2d");
+
+  let audioCtx = null;
+  function ensureAudio(){
+    if(!audioCtx){
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if(Ctx) audioCtx = new Ctx();
+    }
+    if(audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
 
   function tone(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
     if(!audioCtx) return;
@@ -5499,28 +5492,28 @@ function spawnWave(){
     neonB.position.z = Math.sin(now * 0.00047) * 10;
     moonGlow.intensity = 0.7 + Math.sin(now * 0.00035) * 0.1;
 
-if(state.running){
-  updateMusic();
-  updateTimers(dt);
-  updateMovement(dt);
-  updateBullets(dt);
-  updateEnemies(dt);
-  updateHazards(dt);
-  updateParticles(dt);
-  updateEffects(dt);
-  updateRagdolls(dt);
-  updatePickups(dt);
-  tryAdvanceWave();
+    if(state.running){
+      updateMusic();
+      updateTimers(dt);
+      updateMovement(dt);
+      updateBullets(dt);
+      updateEnemies(dt);
+      updateHazards(dt);
+      updateParticles(dt);
+      updateEffects(dt);
+      updateRagdolls(dt);
+      updatePickups(dt);
+      tryAdvanceWave();
 
-  if(state.fireHeld && !isTouch && player.weapon === "bullet"){
-    shootWithDirection();
-  }
-} else {
-  updateViewWeapon(dt);
-  updateEffects(dt);
-  updateParticles(dt);
-  updateRagdolls(dt);
-}
+      if(state.fireHeld && !isTouch && player.weapon === "bullet"){
+        shootWithDirection();
+      }
+    } else {
+      updateViewWeapon(dt);
+      updateEffects(dt);
+      updateParticles(dt);
+      updateRagdolls(dt);
+    }
 
     drawMinimap();
     renderer.render(scene, camera);
