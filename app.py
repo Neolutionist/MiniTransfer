@@ -5736,6 +5736,675 @@ function spawnWave(){
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   });
 
+/* =========================
+   OLDE HANTER APOCALYPSE PACK
+   plak dit direct boven: animate(performance.now());
+   ========================= */
+(() => {
+  const apoc = {
+    fury: 0,
+    furyMax: 100,
+    furyActive: false,
+    furyTime: 0,
+    dashCd: 0,
+    lastExtraShot: 0,
+    lastAuraPulse: 0,
+    drones: [],
+    overlay: null,
+    hud: {},
+    mobile: {},
+    extraLast: performance.now()
+  };
+
+  function ohClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function ohLerp(a,b,t){ return a + (b-a) * t; }
+
+  function addApocStyles(){
+    const style = document.createElement("style");
+    style.textContent = `
+      #apocHud{
+        position:fixed; right:16px; top:16px; z-index:25; width:min(320px,calc(100vw - 32px));
+        display:flex; flex-direction:column; gap:10px; pointer-events:none;
+      }
+      .apoc-card{
+        pointer-events:auto;
+        background:linear-gradient(180deg, rgba(8,8,18,.78), rgba(14,8,28,.64));
+        border:1px solid rgba(255,255,255,.14);
+        border-radius:16px;
+        padding:10px 12px;
+        box-shadow:0 10px 32px rgba(0,0,0,.28), 0 0 24px rgba(157,107,255,.12);
+        backdrop-filter: blur(12px) saturate(1.15);
+      }
+      .apoc-row{
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        color:#fff; font-weight:800; letter-spacing:.03em;
+      }
+      .apoc-sub{ font-size:.8rem; color:rgba(255,255,255,.72); font-weight:700; }
+      .apoc-meter{
+        height:12px; margin-top:8px; border-radius:999px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(255,255,255,.08);
+        box-shadow: inset 0 0 12px rgba(255,255,255,.04);
+      }
+      .apoc-meter > i{
+        display:block; height:100%; width:0%;
+        background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600,#00f7ff);
+        background-size:220% 220%;
+        animation:apocFlow 3.2s linear infinite;
+        box-shadow:0 0 18px rgba(255,0,168,.22);
+      }
+      .apoc-ready{
+        box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 26px rgba(255,230,0,.16), 0 0 40px rgba(255,0,168,.12);
+      }
+      .apoc-btn{
+        appearance:none; border:0; cursor:pointer;
+        border-radius:999px; padding:.72rem 1rem; font-weight:900; color:#fff;
+        background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
+        background-size:250% 250%;
+        animation:apocFlow 4.5s linear infinite;
+        box-shadow:0 0 18px rgba(255,0,168,.24), 0 0 30px rgba(0,247,255,.14);
+        text-transform:uppercase; letter-spacing:.06em;
+      }
+      .apoc-btn:disabled{
+        filter:grayscale(.6) brightness(.7);
+        box-shadow:none; cursor:not-allowed;
+      }
+      #apocOverlay{
+        position:fixed; inset:0; z-index:6; pointer-events:none; opacity:0;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 32%),
+          radial-gradient(circle at 20% 30%, rgba(0,247,255,.12), transparent 28%),
+          radial-gradient(circle at 80% 20%, rgba(255,0,168,.12), transparent 30%),
+          radial-gradient(circle at 50% 80%, rgba(255,230,0,.10), transparent 30%);
+        mix-blend-mode:screen;
+        transition:opacity .18s ease;
+      }
+      #apocOverlay.active{
+        opacity:1;
+        animation:apocPulse .9s linear infinite;
+      }
+      #apocToast{
+        position:fixed; left:50%; top:90px; transform:translateX(-50%);
+        z-index:26; pointer-events:none;
+        padding:.72rem 1rem; border-radius:999px;
+        background:rgba(12,10,30,.74);
+        border:1px solid rgba(255,255,255,.14);
+        color:#fff; font-weight:900; letter-spacing:.06em;
+        box-shadow:0 0 18px rgba(255,0,168,.16), 0 0 26px rgba(0,247,255,.10);
+        opacity:0; transition:opacity .16s ease, transform .16s ease;
+      }
+      #apocToast.show{ opacity:1; transform:translateX(-50%) translateY(-4px); }
+
+      #apocMobileDock{
+        position:fixed; right:14px; bottom:124px; z-index:22;
+        display:flex; flex-direction:column; gap:10px;
+      }
+      .apoc-mobile-btn{
+        min-width:86px; min-height:58px;
+        border-radius:18px; border:1px solid rgba(255,255,255,.16);
+        background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.08));
+        color:#fff; font-weight:900; letter-spacing:.04em;
+        box-shadow:0 0 18px rgba(0,0,0,.18), inset 0 0 18px rgba(255,255,255,.03);
+        backdrop-filter: blur(10px) saturate(1.08);
+      }
+      .apoc-mobile-btn small{
+        display:block; font-size:.72rem; font-weight:700; opacity:.8; margin-top:2px;
+      }
+      .apoc-mobile-btn.ready{
+        box-shadow:0 0 24px rgba(255,230,0,.22), 0 0 34px rgba(255,0,168,.14), inset 0 0 18px rgba(255,255,255,.04);
+      }
+
+      @keyframes apocFlow{
+        0%{ background-position:0% 50%; }
+        100%{ background-position:200% 50%; }
+      }
+      @keyframes apocPulse{
+        0%{ filter:hue-rotate(0deg) saturate(1.0); }
+        100%{ filter:hue-rotate(360deg) saturate(1.3); }
+      }
+      @media (max-width:780px){
+        #apocHud{ right:10px; top:10px; width:min(280px,calc(100vw - 20px)); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function makeHud(){
+    addApocStyles();
+
+    apoc.overlay = document.createElement("div");
+    apoc.overlay.id = "apocOverlay";
+    document.body.appendChild(apoc.overlay);
+
+    const toast = document.createElement("div");
+    toast.id = "apocToast";
+    document.body.appendChild(toast);
+    apoc.hud.toast = toast;
+
+    const hud = document.createElement("div");
+    hud.id = "apocHud";
+    hud.innerHTML = `
+      <div id="apocCard" class="apoc-card">
+        <div class="apoc-row">
+          <span>FURY MODE</span>
+          <span id="apocFuryPct">0%</span>
+        </div>
+        <div class="apoc-sub" id="apocFuryText">Maak kills om Fury op te laden</div>
+        <div class="apoc-meter"><i id="apocFuryFill"></i></div>
+        <div style="display:flex;gap:8px;margin-top:10px;pointer-events:auto">
+          <button id="apocFuryBtn" class="apoc-btn" type="button" disabled>Q / V Fury</button>
+          <button id="apocDashBtn" class="apoc-btn" type="button">Shift Dash</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(hud);
+
+    apoc.hud.root = hud;
+    apoc.hud.card = hud.querySelector("#apocCard");
+    apoc.hud.fill = hud.querySelector("#apocFuryFill");
+    apoc.hud.pct = hud.querySelector("#apocFuryPct");
+    apoc.hud.text = hud.querySelector("#apocFuryText");
+    apoc.hud.furyBtn = hud.querySelector("#apocFuryBtn");
+    apoc.hud.dashBtn = hud.querySelector("#apocDashBtn");
+
+    const mobileDock = document.createElement("div");
+    mobileDock.id = "apocMobileDock";
+    mobileDock.innerHTML = `
+      <button id="apocMobileFury" class="apoc-mobile-btn" type="button">V FURY<small>combo mode</small></button>
+      <button id="apocMobileDash" class="apoc-mobile-btn" type="button">SHIFT<small>dash</small></button>
+    `;
+    document.body.appendChild(mobileDock);
+
+    apoc.mobile.root = mobileDock;
+    apoc.mobile.fury = mobileDock.querySelector("#apocMobileFury");
+    apoc.mobile.dash = mobileDock.querySelector("#apocMobileDash");
+
+    if(!isTouch){
+      mobileDock.style.display = "none";
+    }
+
+    apoc.hud.furyBtn.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      activateFury();
+    });
+    apoc.hud.dashBtn.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      doDash();
+    });
+    apoc.mobile.fury.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      activateFury();
+    });
+    apoc.mobile.dash.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      doDash();
+    });
+
+    updateApocHud();
+  }
+
+  function apocToast(msg){
+    if(!apoc.hud.toast) return;
+    apoc.hud.toast.textContent = msg;
+    apoc.hud.toast.classList.add("show");
+    clearTimeout(apoc.hud.toastTimer);
+    apoc.hud.toastTimer = setTimeout(() => apoc.hud.toast.classList.remove("show"), 1200);
+  }
+
+  function updateApocHud(){
+    if(!apoc.hud.fill) return;
+    const pct = ohClamp((apoc.fury / apoc.furyMax) * 100, 0, 100);
+    apoc.hud.fill.style.width = pct.toFixed(1) + "%";
+    apoc.hud.pct.textContent = Math.round(pct) + "%";
+
+    const ready = apoc.fury >= apoc.furyMax && !apoc.furyActive;
+    apoc.hud.card.classList.toggle("apoc-ready", ready);
+    apoc.hud.furyBtn.disabled = !ready && !apoc.furyActive;
+    apoc.mobile.fury.classList.toggle("ready", ready);
+
+    if(apoc.furyActive){
+      apoc.hud.text.textContent = `FURY ACTIEF • ${apoc.furyTime.toFixed(1)}s • drones online`;
+      apoc.hud.furyBtn.textContent = "Fury actief";
+      apoc.mobile.fury.innerHTML = `FURY<small>${apoc.furyTime.toFixed(1)}s</small>`;
+    }else if(ready){
+      apoc.hud.text.textContent = "Vol! Druk op Q of V om los te gaan";
+      apoc.hud.furyBtn.textContent = "Q / V Fury";
+      apoc.mobile.fury.innerHTML = `V FURY<small>gereed</small>`;
+    }else{
+      apoc.hud.text.textContent = "Maak kills om Fury op te laden";
+      apoc.hud.furyBtn.textContent = "Q / V Fury";
+      apoc.mobile.fury.innerHTML = `V FURY<small>combo mode</small>`;
+    }
+
+    const dashReady = apoc.dashCd <= 0;
+    apoc.hud.dashBtn.disabled = !dashReady;
+    apoc.hud.dashBtn.textContent = dashReady ? "Shift Dash" : `Dash ${apoc.dashCd.toFixed(1)}s`;
+    apoc.mobile.dash.classList.toggle("ready", dashReady);
+    apoc.mobile.dash.innerHTML = dashReady ? `SHIFT<small>dash</small>` : `SHIFT<small>${apoc.dashCd.toFixed(1)}s</small>`;
+  }
+
+  function addFury(amount){
+    if(apoc.furyActive) return;
+    apoc.fury = ohClamp(apoc.fury + amount, 0, apoc.furyMax);
+    updateApocHud();
+    if(apoc.fury >= apoc.furyMax){
+      flashHint?.("FURY VOL — druk op Q of V");
+      apocToast("FURY READY");
+    }
+  }
+
+  function makeDrone(color = 0x8bf0ff){
+    const g = new THREE.Group();
+
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 14, 14),
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 1.25,
+        metalness: 0.32,
+        roughness: 0.18
+      })
+    );
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.34, 0.04, 10, 22),
+      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:.8 })
+    );
+    ring.rotation.x = Math.PI / 2;
+
+    const finA = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.05, 0.12),
+      new THREE.MeshStandardMaterial({ color:0xffffff, emissive:color, emissiveIntensity:.5 })
+    );
+    const finB = finA.clone();
+    finB.rotation.y = Math.PI / 2;
+
+    g.add(core, ring, finA, finB);
+    scene.add(g);
+
+    return {
+      mesh: g,
+      ring,
+      core,
+      angle: Math.random() * Math.PI * 2,
+      radius: 2.5 + Math.random() * 0.55,
+      y: 1.8 + Math.random() * 0.25,
+      fireCd: 0.1 + Math.random() * 0.2,
+      bob: Math.random() * Math.PI * 2,
+      spin: 1.2 + Math.random() * 0.8
+    };
+  }
+
+  function spawnDrones(){
+    clearDrones();
+    apoc.drones.push(makeDrone(0x8bf0ff));
+    apoc.drones.push(makeDrone(0xff7ce0));
+  }
+
+  function clearDrones(){
+    while(apoc.drones.length){
+      const d = apoc.drones.pop();
+      scene.remove(d.mesh);
+    }
+  }
+
+  function nearestEnemy(maxDist = 20){
+    let best = null;
+    let bestDist = maxDist;
+
+    if(state.boss?.mesh){
+      const dist = state.boss.mesh.position.distanceTo(player.pos);
+      if(dist < bestDist){
+        best = state.boss;
+        bestDist = dist;
+      }
+    }
+
+    for(const e of state.enemies){
+      if(!e?.mesh) continue;
+      const dist = e.mesh.position.distanceTo(player.pos);
+      if(dist < bestDist){
+        best = e;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  function damageEnemyDirect(enemy, damage){
+    if(!enemy || !enemy.mesh) return false;
+    enemy.hp -= damage;
+    const hitPos = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+    createBurst?.(hitPos, 0xfff7bf, 5, 1.6, { minLife:.10, maxLife:.22, gravity:0.2, shrink:0.92 });
+    createFlash?.(hitPos, 0xffffff, 1.2, 4.2, 0.07);
+
+    if(enemy.hp <= 0){
+      if(enemy === state.boss){
+        killEnemy(enemy);
+      }else{
+        const idx = state.enemies.indexOf(enemy);
+        if(idx !== -1){
+          killEnemy(enemy);
+          state.enemies.splice(idx, 1);
+        }
+      }
+    }
+    return true;
+  }
+
+  function droneShoot(drone, enemy){
+    if(!enemy?.mesh) return;
+    const from = drone.mesh.position.clone();
+    const to = enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.3, 0));
+    const dir = to.clone().sub(from).normalize();
+
+    state.bullets.push(createProjectile(from, dir, {
+      speed: 28,
+      friendly: true,
+      color: 0x9cfbff,
+      trailColor: 0xffffff,
+      size: 0.09,
+      life: 1.2,
+      damage: 9,
+      type: "drone"
+    }));
+    createFlash?.(from.clone(), 0x8bf0ff, 1.0, 2.5, 0.05);
+  }
+
+  function updateDrones(dt, now){
+    if(!apoc.drones.length) return;
+
+    apoc.drones.forEach((d, i) => {
+      d.angle += dt * (1.4 + i * 0.25);
+      d.bob += dt * 2.8;
+      d.fireCd -= dt;
+      const offX = Math.cos(d.angle) * d.radius;
+      const offZ = Math.sin(d.angle) * d.radius;
+      const y = d.y + Math.sin(d.bob) * 0.18;
+      d.mesh.position.set(player.pos.x + offX, y, player.pos.z + offZ);
+      d.mesh.rotation.y += dt * 4.8;
+      d.ring.rotation.z += dt * d.spin;
+
+      const enemy = nearestEnemy(19);
+      if(apoc.furyActive && enemy && d.fireCd <= 0){
+        d.fireCd = 0.22 + Math.random() * 0.08;
+        droneShoot(d, enemy);
+      }
+    });
+  }
+
+  function activateFury(){
+    if(apoc.furyActive || apoc.fury < apoc.furyMax) return;
+    apoc.furyActive = true;
+    apoc.fury = 0;
+    apoc.furyTime = 12;
+    apoc.lastExtraShot = 0;
+    apoc.lastAuraPulse = 0;
+    apoc.overlay.classList.add("active");
+
+    spawnDrones();
+    player.damageCooldown = Math.max(player.damageCooldown, 0.2);
+    state.cameraShake = Math.min(2.0, state.cameraShake + 0.9);
+    createShockwave?.(player.pos.clone(), 0xff00a8, 4.2);
+    createShockwave?.(player.pos.clone(), 0x00f7ff, 5.4);
+    flashHint?.("FURY MODE geactiveerd");
+    apocToast("FURY MODE");
+    updateApocHud();
+  }
+
+  function stopFury(silent=false){
+    apoc.furyActive = false;
+    apoc.furyTime = 0;
+    apoc.overlay.classList.remove("active");
+    clearDrones();
+    if(!silent){
+      flashHint?.("Fury voorbij");
+    }
+    updateApocHud();
+  }
+
+  function getMoveVector(){
+    const v = new THREE.Vector3();
+    if(input.forward || input.strafe){
+      const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
+      const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
+      v.addScaledVector(forward, input.forward);
+      v.addScaledVector(right, input.strafe);
+    }else{
+      camera.getWorldDirection(v);
+      v.y = 0;
+    }
+    if(v.lengthSq() < 0.0001){
+      v.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
+    }
+    return v.normalize();
+  }
+
+  function doDash(){
+    if(!state.running || !player.alive || apoc.dashCd > 0) return;
+
+    const dir = getMoveVector();
+    const old = player.pos.clone();
+    let moved = false;
+
+    for(let step = 1; step <= 10; step++){
+      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
+      const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
+      if(blocked) break;
+      player.pos.copy(test);
+      moved = true;
+    }
+
+    if(!moved) return;
+
+    apoc.dashCd = 3.5;
+    player.damageCooldown = Math.max(player.damageCooldown, 0.35);
+    state.cameraShake = Math.min(1.8, state.cameraShake + 0.42);
+
+    for(let i=0;i<5;i++){
+      const p = old.clone().lerp(player.pos, i / 4);
+      createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
+    }
+    createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
+    flashHint?.("Dash");
+    updateApocHud();
+  }
+
+  function furySideShots(dirOverride=null){
+    if(!apoc.furyActive || !state.running || !player.alive) return;
+    if(player.weapon !== "bullet") return;
+
+    const now = performance.now();
+    if(now - apoc.lastExtraShot < 95) return;
+    apoc.lastExtraShot = now;
+
+    const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
+    if(!dirOverride){
+      camera.getWorldDirection(dir);
+      dir.normalize();
+    }
+
+    const base = player.pos.clone();
+    base.y = 1.52;
+    const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+    const spreadA = dir.clone().addScaledVector(right, 0.12).normalize();
+    const spreadB = dir.clone().addScaledVector(right, -0.12).normalize();
+
+    [spreadA, spreadB].forEach((d, idx) => {
+      const start = base.clone().addScaledVector(right, idx === 0 ? 0.24 : -0.24).add(d.clone().multiplyScalar(.8));
+      state.bullets.push(createProjectile(start, d, {
+        speed: 34,
+        friendly: true,
+        color: idx === 0 ? 0x00f7ff : 0xff7ce0,
+        trailColor: 0xffffff,
+        size: 0.08,
+        life: 1.25,
+        damage: 7,
+        type: "fury"
+      }));
+    });
+
+    createFlash?.(base.clone(), 0xffffff, 0.8, 2.0, 0.04);
+  }
+
+  function updateFury(dt){
+    if(apoc.dashCd > 0){
+      apoc.dashCd = Math.max(0, apoc.dashCd - dt);
+    }
+
+    if(apoc.furyActive){
+      apoc.furyTime = Math.max(0, apoc.furyTime - dt);
+
+      if(player.weapon === "bullet"){
+        player.fireCooldown *= 0.82;
+      }else if(player.weapon === "rocket"){
+        player.fireCooldown *= 0.9;
+      }else if(player.weapon === "grenade"){
+        player.fireCooldown *= 0.92;
+      }
+
+      apoc.overlay.style.opacity = String(0.52 + Math.sin(performance.now() * 0.012) * 0.12);
+
+      apoc.lastAuraPulse -= dt;
+      if(apoc.lastAuraPulse <= 0){
+        apoc.lastAuraPulse = 0.48;
+        createShockwave?.(player.pos.clone(), Math.random() > 0.5 ? 0xff00a8 : 0x00f7ff, 1.8 + Math.random() * 1.4);
+
+        for(const e of state.enemies){
+          if(!e?.mesh) continue;
+          const dist = e.mesh.position.distanceTo(player.pos);
+          if(dist < 4.4){
+            damageEnemyDirect(e, 3);
+          }
+        }
+        if(state.boss?.mesh && state.boss.mesh.position.distanceTo(player.pos) < 4.8){
+          damageEnemyDirect(state.boss, 3);
+        }
+      }
+
+      if(apoc.furyTime <= 0){
+        stopFury();
+      }
+    }else{
+      apoc.overlay.style.opacity = "0";
+    }
+
+    updateApocHud();
+  }
+
+  /* wrappers rond bestaande gamefuncties */
+  const _registerKill = registerKill;
+  registerKill = function(points){
+    _registerKill(points);
+    addFury(10 + state.combo * 4);
+
+    if(apoc.furyActive){
+      player.hp = Math.min(player.maxHp, player.hp + 4);
+      setStat?.();
+      createFlash?.(player.pos.clone().add(new THREE.Vector3(0,1.3,0)), 0x9dff7c, 1.2, 3.0, 0.06);
+    }
+  };
+
+  const _restartGame = restartGame;
+  restartGame = function(){
+    stopFury(true);
+    apoc.fury = 0;
+    apoc.dashCd = 0;
+    updateApocHud();
+    return _restartGame();
+  };
+
+  const _shootWithDirection = shootWithDirection;
+  shootWithDirection = function(dirOverride=null){
+    const ok = _shootWithDirection(dirOverride);
+    if(ok && apoc.furyActive){
+      furySideShots(dirOverride);
+    }
+    return ok;
+  };
+
+  const _applyDamage = applyDamage;
+  applyDamage = function(amount){
+    if(apoc.furyActive){
+      amount *= 0.78;
+    }
+    return _applyDamage(amount);
+  };
+
+  /* extra inputlaag: lost 4/5/6 issues op + nieuwe controls */
+  function handleApocHotkeys(e){
+    const code = e.code || "";
+    const key = (e.key || "").toLowerCase();
+
+    const hit = (wantedCodes, wantedKeys=[]) =>
+      wantedCodes.includes(code) || wantedKeys.includes(key);
+
+    if(hit(["Digit4","Numpad4"],["4","z"])){
+      e.preventDefault();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      firePlasmaBurst?.();
+      return;
+    }
+    if(hit(["Digit5","Numpad5"],["5","x"])){
+      e.preventDefault();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      deployShockMine?.();
+      return;
+    }
+    if(hit(["Digit6","Numpad6"],["6","c"])){
+      e.preventDefault();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      deployOrbital?.();
+      return;
+    }
+    if(hit(["KeyQ","KeyV"],["q","v"])){
+      e.preventDefault();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      activateFury();
+      return;
+    }
+    if(hit(["ShiftLeft","ShiftRight"],["shift"])){
+      e.preventDefault();
+      ensureAudio?.();
+      if(!state.running) startGame?.();
+      doDash();
+    }
+  }
+
+  window.addEventListener("keydown", handleApocHotkeys, { capture:true, passive:false });
+
+  /* frame wrapper */
+  const _animate = animate;
+  animate = function(now){
+    const dt = Math.min(0.033, (now - apoc.extraLast) / 1000 || 0.016);
+    apoc.extraLast = now;
+
+    updateFury(dt);
+    updateDrones(dt, now);
+
+    _animate(now);
+  };
+
+  makeHud();
+})();
+
+
   animate(performance.now());
 })();
 
