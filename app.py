@@ -7054,6 +7054,615 @@ function spawnWave(){
   buildNemesisHud();
 })();
 
+/* =========================
+   OLDE HANTER HUD REBUILD PACK
+   plak boven: animate(performance.now());
+   ========================= */
+(() => {
+  function injectHudRebuildStyles(){
+    const style = document.createElement("style");
+    style.id = "ohHudRebuildStyles";
+    style.textContent = `
+      :root{
+        --hud-gap: 12px;
+        --hud-radius: 18px;
+        --hud-panel: linear-gradient(180deg, rgba(10,12,24,.82), rgba(14,9,30,.68));
+        --hud-border: rgba(255,255,255,.12);
+        --hud-shadow: 0 16px 34px rgba(0,0,0,.30), 0 0 24px rgba(0,247,255,.06);
+        --hud-blur: blur(14px) saturate(1.08);
+        --hud-top: calc(12px + env(safe-area-inset-top));
+        --hud-side: max(12px, env(safe-area-inset-left));
+        --hud-side-right: max(12px, env(safe-area-inset-right));
+      }
+
+      /* ===== BASISLAYOUT ===== */
+      #ui,
+      #nemesisHud,
+      #apocHud,
+      #bossBarWrap,
+      #minimapWrap,
+      #weaponBar,
+      #abilityDock,
+      #mobileControls,
+      #tapHint{
+        transition:
+          top .18s ease,
+          left .18s ease,
+          right .18s ease,
+          bottom .18s ease,
+          width .18s ease,
+          transform .18s ease,
+          opacity .18s ease;
+      }
+
+      body.oh-hud-rebuild #ui{
+        position: fixed !important;
+        top: var(--hud-top) !important;
+        left: 50% !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: translateX(-50%) !important;
+        width: min(720px, calc(100vw - 360px)) !important;
+        min-width: min(520px, calc(100vw - 40px)) !important;
+        max-width: calc(100vw - 40px) !important;
+        padding: 12px 14px !important;
+        border-radius: 20px !important;
+        background: var(--hud-panel) !important;
+        border: 1px solid var(--hud-border) !important;
+        box-shadow: var(--hud-shadow) !important;
+        backdrop-filter: var(--hud-blur) !important;
+        z-index: 30 !important;
+        pointer-events: none !important;
+      }
+
+      body.oh-hud-rebuild #brand{
+        margin-bottom: 10px !important;
+        display:flex !important;
+        align-items:center !important;
+        gap:10px !important;
+      }
+
+      body.oh-hud-rebuild #brandMark{
+        width: 40px !important;
+        height: 40px !important;
+        border-radius: 12px !important;
+        flex: 0 0 auto !important;
+      }
+
+      body.oh-hud-rebuild #brandText{
+        min-width: 0 !important;
+      }
+
+      body.oh-hud-rebuild #brandText b{
+        display:block !important;
+        font-size: 14px !important;
+        line-height: 1.1 !important;
+      }
+
+      body.oh-hud-rebuild #brandText span{
+        display:block !important;
+        font-size: 11px !important;
+        opacity:.82 !important;
+        line-height: 1.15 !important;
+      }
+
+      body.oh-hud-rebuild #hud{
+        display:grid !important;
+        grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+      }
+
+      body.oh-hud-rebuild .stat{
+        min-width: 0 !important;
+        padding: 9px 10px !important;
+        border-radius: 14px !important;
+        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035)) !important;
+        border: 1px solid rgba(255,255,255,.08) !important;
+        box-shadow: inset 0 0 14px rgba(255,255,255,.02) !important;
+      }
+
+      body.oh-hud-rebuild .stat .label{
+        display:block !important;
+        font-size: 10px !important;
+        line-height: 1.05 !important;
+        text-transform: uppercase !important;
+        letter-spacing: .06em !important;
+        color: rgba(255,255,255,.70) !important;
+        margin-bottom: 4px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+
+      body.oh-hud-rebuild .stat .value{
+        display:block !important;
+        font-size: 17px !important;
+        line-height: 1 !important;
+        font-weight: 900 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+
+      /* ===== NEMESIS LINKS ===== */
+      body.oh-hud-rebuild #nemesisHud{
+        position: fixed !important;
+        top: var(--hud-top) !important;
+        left: var(--hud-side) !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: min(300px, calc(50vw - 28px)) !important;
+        z-index: 29 !important;
+        display:flex !important;
+        flex-direction:column !important;
+        gap:10px !important;
+        pointer-events:none !important;
+      }
+
+      body.oh-hud-rebuild #nemesisHud .nem-card{
+        border-radius: 18px !important;
+        padding: 11px 12px !important;
+        background: var(--hud-panel) !important;
+        border: 1px solid var(--hud-border) !important;
+        box-shadow: var(--hud-shadow) !important;
+        backdrop-filter: var(--hud-blur) !important;
+      }
+
+      body.oh-hud-rebuild #nemesisHud .nem-title{
+        font-size: 10px !important;
+      }
+
+      body.oh-hud-rebuild #nemesisHud .nem-main{
+        font-size: 14px !important;
+        gap: 10px !important;
+      }
+
+      body.oh-hud-rebuild #nemesisHud .nem-sub{
+        font-size: 11px !important;
+        line-height: 1.25 !important;
+      }
+
+      /* ===== APOC RECHTS ===== */
+      body.oh-hud-rebuild #apocHud{
+        position: fixed !important;
+        top: var(--hud-top) !important;
+        right: var(--hud-side-right) !important;
+        left: auto !important;
+        bottom: auto !important;
+        width: min(300px, calc(50vw - 28px)) !important;
+        z-index: 29 !important;
+        display:flex !important;
+        flex-direction:column !important;
+        gap:10px !important;
+        pointer-events:none !important;
+      }
+
+      body.oh-hud-rebuild #apocHud .apoc-card{
+        border-radius: 18px !important;
+        padding: 11px 12px !important;
+        background: var(--hud-panel) !important;
+        border: 1px solid var(--hud-border) !important;
+        box-shadow: var(--hud-shadow) !important;
+        backdrop-filter: var(--hud-blur) !important;
+      }
+
+      body.oh-hud-rebuild #apocHud .apoc-row{
+        font-size: 13px !important;
+      }
+
+      body.oh-hud-rebuild #apocHud .apoc-sub{
+        font-size: 11px !important;
+        line-height: 1.25 !important;
+      }
+
+      body.oh-hud-rebuild #apocHud .apoc-btn{
+        font-size: 11px !important;
+        padding: .72rem .85rem !important;
+      }
+
+      /* ===== BOSS BAR LOS VAN ALLE PANELS ===== */
+      body.oh-hud-rebuild #bossBarWrap{
+        position: fixed !important;
+        top: calc(var(--hud-top) + 126px) !important;
+        left: 50% !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: translateX(-50%) !important;
+        width: min(560px, calc(100vw - 60px)) !important;
+        z-index: 28 !important;
+      }
+
+      /* ===== MINIMAP RECHTSONDER HOEK BOVEN ===== */
+      body.oh-hud-rebuild #minimapWrap{
+        position: fixed !important;
+        top: calc(var(--hud-top) + 150px) !important;
+        right: var(--hud-side-right) !important;
+        left: auto !important;
+        bottom: auto !important;
+        width: 118px !important;
+        height: 118px !important;
+        border-radius: 18px !important;
+        z-index: 28 !important;
+      }
+
+      body.oh-hud-rebuild #minimapLabel{
+        font-size: 10px !important;
+      }
+
+      /* ===== WEAPON EN ABILITIES ===== */
+      body.oh-hud-rebuild #weaponBar{
+        position: fixed !important;
+        left: 50% !important;
+        right: auto !important;
+        bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+        top: auto !important;
+        transform: translateX(-50%) !important;
+        z-index: 28 !important;
+      }
+
+      body.oh-hud-rebuild #abilityDock{
+        position: fixed !important;
+        right: var(--hud-side-right) !important;
+        left: auto !important;
+        bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
+        top: auto !important;
+        z-index: 28 !important;
+        gap: 10px !important;
+      }
+
+      body.oh-hud-rebuild .ability-btn{
+        min-width: 82px !important;
+        border-radius: 16px !important;
+      }
+
+      /* ===== TAPHINT / MOBILE ===== */
+      body.oh-hud-rebuild #tapHint{
+        right: var(--hud-side-right) !important;
+        bottom: calc(16px + env(safe-area-inset-bottom) + 206px) !important;
+        z-index: 28 !important;
+      }
+
+      body.oh-hud-rebuild #mobileControls{
+        z-index: 27 !important;
+      }
+
+      /* ===== DESKTOP / MID ===== */
+      @media (max-width: 1280px){
+        body.oh-hud-rebuild #ui{
+          width: min(620px, calc(100vw - 330px)) !important;
+          min-width: min(460px, calc(100vw - 40px)) !important;
+        }
+        body.oh-hud-rebuild #hud{
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        }
+      }
+
+      @media (max-width: 1080px){
+        body.oh-hud-rebuild #ui{
+          width: min(560px, calc(100vw - 40px)) !important;
+          min-width: 0 !important;
+        }
+        body.oh-hud-rebuild #nemesisHud,
+        body.oh-hud-rebuild #apocHud{
+          width: min(260px, calc(50vw - 22px)) !important;
+        }
+        body.oh-hud-rebuild #bossBarWrap{
+          top: calc(var(--hud-top) + 144px) !important;
+        }
+        body.oh-hud-rebuild #minimapWrap{
+          top: calc(var(--hud-top) + 320px) !important;
+          width: 104px !important;
+          height: 104px !important;
+        }
+      }
+
+      /* ===== TABLET / SMAL ===== */
+      @media (max-width: 860px){
+        body.oh-hud-rebuild #ui{
+          top: calc(var(--hud-top) + 170px) !important;
+          width: calc(100vw - 20px) !important;
+          transform: translateX(-50%) !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud{
+          left: 10px !important;
+          top: var(--hud-top) !important;
+          width: calc(50vw - 15px) !important;
+        }
+
+        body.oh-hud-rebuild #apocHud{
+          right: 10px !important;
+          top: var(--hud-top) !important;
+          width: calc(50vw - 15px) !important;
+        }
+
+        body.oh-hud-rebuild #bossBarWrap{
+          top: calc(var(--hud-top) + 124px) !important;
+          width: calc(100vw - 20px) !important;
+        }
+
+        body.oh-hud-rebuild #minimapWrap{
+          top: auto !important;
+          bottom: calc(16px + env(safe-area-inset-bottom) + 164px) !important;
+          right: 10px !important;
+          width: 96px !important;
+          height: 96px !important;
+        }
+
+        body.oh-hud-rebuild #abilityDock{
+          right: 10px !important;
+          bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
+        }
+      }
+
+      /* ===== MOBIEL ===== */
+      @media (max-width: 640px){
+        body.oh-hud-rebuild #nemesisHud{
+          top: var(--hud-top) !important;
+          left: 8px !important;
+          width: calc(50vw - 12px) !important;
+          gap: 8px !important;
+        }
+
+        body.oh-hud-rebuild #apocHud{
+          top: var(--hud-top) !important;
+          right: 8px !important;
+          width: calc(50vw - 12px) !important;
+          gap: 8px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-card,
+        body.oh-hud-rebuild #apocHud .apoc-card{
+          padding: 9px 10px !important;
+          border-radius: 16px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-title,
+        body.oh-hud-rebuild #apocHud .apoc-sub,
+        body.oh-hud-rebuild #nemesisHud .nem-sub{
+          font-size: 10px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-main,
+        body.oh-hud-rebuild #apocHud .apoc-row{
+          font-size: 12px !important;
+        }
+
+        body.oh-hud-rebuild #apocHud .apoc-btn{
+          font-size: 10px !important;
+          padding: .62rem .72rem !important;
+        }
+
+        body.oh-hud-rebuild #ui{
+          top: calc(var(--hud-top) + 160px) !important;
+          width: calc(100vw - 16px) !important;
+          padding: 10px !important;
+          border-radius: 16px !important;
+        }
+
+        body.oh-hud-rebuild #brand{
+          margin-bottom: 8px !important;
+        }
+
+        body.oh-hud-rebuild #brandMark{
+          width: 34px !important;
+          height: 34px !important;
+          border-radius: 10px !important;
+        }
+
+        body.oh-hud-rebuild #brandText b{
+          font-size: 12px !important;
+        }
+
+        body.oh-hud-rebuild #brandText span{
+          font-size: 10px !important;
+        }
+
+        body.oh-hud-rebuild #hud{
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          gap: 6px !important;
+        }
+
+        body.oh-hud-rebuild .stat{
+          padding: 8px 8px !important;
+          border-radius: 12px !important;
+        }
+
+        body.oh-hud-rebuild .stat .label{
+          font-size: 9px !important;
+          margin-bottom: 3px !important;
+        }
+
+        body.oh-hud-rebuild .stat .value{
+          font-size: 14px !important;
+        }
+
+        body.oh-hud-rebuild #bossBarWrap{
+          top: calc(var(--hud-top) + 114px) !important;
+          width: calc(100vw - 16px) !important;
+        }
+
+        body.oh-hud-rebuild #minimapWrap{
+          width: 84px !important;
+          height: 84px !important;
+          bottom: calc(14px + env(safe-area-inset-bottom) + 176px) !important;
+          border-radius: 14px !important;
+        }
+
+        body.oh-hud-rebuild #weaponBar{
+          bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+          transform: translateX(-50%) scale(.94) !important;
+          transform-origin: center bottom !important;
+        }
+
+        body.oh-hud-rebuild #abilityDock{
+          right: 8px !important;
+          bottom: calc(8px + env(safe-area-inset-bottom) + 76px) !important;
+          gap: 8px !important;
+        }
+
+        body.oh-hud-rebuild .ability-btn{
+          min-width: 68px !important;
+          padding: 8px 10px !important;
+          border-radius: 14px !important;
+          font-size: 11px !important;
+        }
+      }
+
+      /* ===== LANDSCAPE PHONE / COMPACT ===== */
+      @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px){
+        body.oh-hud-rebuild #nemesisHud{
+          top: calc(8px + env(safe-area-inset-top)) !important;
+          left: 8px !important;
+          width: min(220px, 28vw) !important;
+        }
+
+        body.oh-hud-rebuild #apocHud{
+          top: calc(8px + env(safe-area-inset-top)) !important;
+          right: 8px !important;
+          width: min(220px, 28vw) !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-card,
+        body.oh-hud-rebuild #apocHud .apoc-card{
+          padding: 8px 9px !important;
+          border-radius: 14px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-title,
+        body.oh-hud-rebuild #nemesisHud .nem-sub,
+        body.oh-hud-rebuild #apocHud .apoc-sub{
+          font-size: 9px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-main,
+        body.oh-hud-rebuild #apocHud .apoc-row{
+          font-size: 11px !important;
+        }
+
+        body.oh-hud-rebuild #apocHud .apoc-btn{
+          font-size: 9px !important;
+          padding: .55rem .6rem !important;
+        }
+
+        body.oh-hud-rebuild #ui{
+          top: calc(8px + env(safe-area-inset-top)) !important;
+          width: min(46vw, 360px) !important;
+          left: 50% !important;
+          transform: translateX(-50%) !important;
+          padding: 8px !important;
+          border-radius: 14px !important;
+        }
+
+        body.oh-hud-rebuild #brandText span{
+          display: none !important;
+        }
+
+        body.oh-hud-rebuild #hud{
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          gap: 4px !important;
+        }
+
+        body.oh-hud-rebuild .stat{
+          padding: 6px !important;
+          border-radius: 10px !important;
+        }
+
+        body.oh-hud-rebuild .stat .label{
+          font-size: 8px !important;
+          margin-bottom: 2px !important;
+        }
+
+        body.oh-hud-rebuild .stat .value{
+          font-size: 11px !important;
+        }
+
+        body.oh-hud-rebuild #bossBarWrap{
+          top: calc(8px + env(safe-area-inset-top) + 88px) !important;
+          width: min(40vw, 320px) !important;
+        }
+
+        body.oh-hud-rebuild #minimapWrap{
+          top: calc(8px + env(safe-area-inset-top) + 94px) !important;
+          right: 8px !important;
+          bottom: auto !important;
+          width: 88px !important;
+          height: 88px !important;
+        }
+
+        body.oh-hud-rebuild #weaponBar{
+          bottom: 6px !important;
+          transform: translateX(-50%) scale(.9) !important;
+        }
+
+        body.oh-hud-rebuild #abilityDock{
+          right: 8px !important;
+          bottom: 112px !important;
+          gap: 6px !important;
+        }
+
+        body.oh-hud-rebuild .ability-btn{
+          min-width: 60px !important;
+          padding: 7px 8px !important;
+          font-size: 10px !important;
+        }
+
+        body.oh-hud-rebuild #tapHint{
+          right: 8px !important;
+          bottom: 78px !important;
+          font-size: 10px !important;
+        }
+      }
+
+      /* ===== VEILIGHEID: compact labels als panelen toch te klein zijn ===== */
+      body.oh-hud-rebuild.oh-hud-tight #brandText span{
+        display:none !important;
+      }
+
+      body.oh-hud-rebuild.oh-hud-tight #hud{
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function tightenHudIfNeeded(){
+    const ui = document.getElementById("ui");
+    if(!ui) return;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const tight = vw < 980 || vh < 620;
+    document.body.classList.toggle("oh-hud-tight", tight);
+  }
+
+  function normalizeHudPanels(){
+    const ui = document.getElementById("ui");
+    const nem = document.getElementById("nemesisHud");
+    const apoc = document.getElementById("apocHud");
+    const boss = document.getElementById("bossBarWrap");
+    const map = document.getElementById("minimapWrap");
+
+    if(ui) ui.style.pointerEvents = "none";
+    if(nem) nem.style.pointerEvents = "none";
+    if(apoc) apoc.style.pointerEvents = "none";
+    if(boss) boss.style.pointerEvents = "none";
+    if(map) map.style.pointerEvents = "none";
+  }
+
+  function rebuildHud(){
+    if(document.getElementById("ohHudRebuildStyles")) return;
+    injectHudRebuildStyles();
+    document.body.classList.add("oh-hud-rebuild");
+    normalizeHudPanels();
+    tightenHudIfNeeded();
+  }
+
+  rebuildHud();
+  window.addEventListener("resize", tightenHudIfNeeded, { passive: true });
+  window.addEventListener("orientationchange", tightenHudIfNeeded, { passive: true });
+})();
+
   animate(performance.now());
 })();
 
