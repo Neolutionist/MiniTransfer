@@ -6404,6 +6404,655 @@ function spawnWave(){
   makeHud();
 })();
 
+/* =========================
+   OLDE HANTER NEMESIS PACK
+   plak dit boven: animate(performance.now());
+   werkt samen met de vorige expansion pack
+   ========================= */
+(() => {
+  const nemesis = {
+    lastNow: performance.now(),
+    phase: 0,
+    activeBossId: 0,
+    activeEvent: null,
+    eventTimer: 0,
+    crateCooldown: 18,
+    fogAlpha: 0,
+    moonIntensity: 0,
+    stormPulse: 0,
+    bossMark: null,
+    hud: {},
+    bossDecor: [],
+    pendingEventToast: 0
+  };
+
+  function nClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function nRand(a, b){ return a + Math.random() * (b - a); }
+
+  function addNemesisStyles(){
+    const style = document.createElement("style");
+    style.textContent = `
+      #nemesisHud{
+        position:fixed; left:16px; top:16px; z-index:24;
+        width:min(320px, calc(100vw - 32px));
+        display:flex; flex-direction:column; gap:10px; pointer-events:none;
+      }
+      .nem-card{
+        pointer-events:auto;
+        padding:12px 14px;
+        border-radius:18px;
+        background:linear-gradient(180deg, rgba(12,12,22,.74), rgba(18,8,28,.60));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 12px 36px rgba(0,0,0,.22), 0 0 22px rgba(255,110,161,.08);
+        color:#fff;
+        backdrop-filter: blur(12px) saturate(1.1);
+      }
+      .nem-title{
+        font-size:.8rem; letter-spacing:.14em; text-transform:uppercase;
+        opacity:.78; font-weight:900;
+      }
+      .nem-main{
+        margin-top:6px;
+        display:flex; justify-content:space-between; gap:12px; align-items:center;
+        font-weight:900; font-size:1rem;
+      }
+      .nem-sub{
+        margin-top:8px; color:rgba(255,255,255,.78); font-size:.82rem; font-weight:700;
+      }
+      .nem-bar{
+        margin-top:10px; height:10px; border-radius:999px; overflow:hidden;
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.10);
+      }
+      .nem-bar > i{
+        display:block; height:100%; width:0%;
+        background:linear-gradient(90deg, #ffe066, #ff6ea1, #8bf0ff, #ffe066);
+        background-size:200% 200%;
+        animation:nemflow 4s linear infinite;
+      }
+      #nemesisOverlayFog,
+      #nemesisOverlayMoon,
+      #nemesisOverlayStorm{
+        position:fixed; inset:0; pointer-events:none; z-index:5;
+        opacity:0; transition:opacity .35s ease;
+      }
+      #nemesisOverlayFog{
+        background:
+          radial-gradient(circle at 50% 60%, rgba(255,255,255,.08), transparent 28%),
+          radial-gradient(circle at 20% 30%, rgba(180,220,255,.08), transparent 30%),
+          radial-gradient(circle at 80% 70%, rgba(255,180,220,.08), transparent 34%),
+          linear-gradient(180deg, rgba(210,220,255,.08), rgba(110,120,150,.14));
+      }
+      #nemesisOverlayMoon{
+        background:
+          radial-gradient(circle at 50% 18%, rgba(255,70,110,.20), transparent 16%),
+          linear-gradient(180deg, rgba(80,0,18,.08), rgba(25,0,10,.18));
+        mix-blend-mode:screen;
+      }
+      #nemesisOverlayStorm{
+        background:
+          linear-gradient(115deg, transparent 20%, rgba(139,240,255,.16) 42%, transparent 60%),
+          linear-gradient(295deg, transparent 26%, rgba(255,255,255,.12) 46%, transparent 62%);
+        background-size:220% 220%;
+        animation:nemstorm 2.3s linear infinite;
+      }
+      @keyframes nemflow{
+        0%{ background-position:0% 50%; }
+        100%{ background-position:200% 50%; }
+      }
+      @keyframes nemstorm{
+        0%{ background-position:0% 0%, 100% 100%; }
+        100%{ background-position:200% 0%, -100% 100%; }
+      }
+      @media (max-width:780px){
+        #nemesisHud{ left:10px; top:10px; width:min(280px, calc(100vw - 20px)); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildNemesisHud(){
+    addNemesisStyles();
+
+    const fog = document.createElement("div");
+    fog.id = "nemesisOverlayFog";
+    document.body.appendChild(fog);
+
+    const moon = document.createElement("div");
+    moon.id = "nemesisOverlayMoon";
+    document.body.appendChild(moon);
+
+    const storm = document.createElement("div");
+    storm.id = "nemesisOverlayStorm";
+    document.body.appendChild(storm);
+
+    const hud = document.createElement("div");
+    hud.id = "nemesisHud";
+    hud.innerHTML = `
+      <div class="nem-card">
+        <div class="nem-title">Arena Event</div>
+        <div class="nem-main">
+          <span id="nemEventName">Geen event</span>
+          <span id="nemEventTime">0.0s</span>
+        </div>
+        <div class="nem-sub" id="nemEventDesc">De arena is stabiel.</div>
+        <div class="nem-bar"><i id="nemEventFill"></i></div>
+      </div>
+      <div class="nem-card">
+        <div class="nem-title">Boss Phase</div>
+        <div class="nem-main">
+          <span id="nemBossState">Geen baas</span>
+          <span id="nemBossPhase">-</span>
+        </div>
+        <div class="nem-sub" id="nemBossDesc">Nog geen Nemesis actief.</div>
+        <div class="nem-bar"><i id="nemBossFill"></i></div>
+      </div>
+    `;
+    document.body.appendChild(hud);
+
+    nemesis.hud.root = hud;
+    nemesis.hud.fog = fog;
+    nemesis.hud.moon = moon;
+    nemesis.hud.storm = storm;
+    nemesis.hud.eventName = hud.querySelector("#nemEventName");
+    nemesis.hud.eventTime = hud.querySelector("#nemEventTime");
+    nemesis.hud.eventDesc = hud.querySelector("#nemEventDesc");
+    nemesis.hud.eventFill = hud.querySelector("#nemEventFill");
+    nemesis.hud.bossState = hud.querySelector("#nemBossState");
+    nemesis.hud.bossPhase = hud.querySelector("#nemBossPhase");
+    nemesis.hud.bossDesc = hud.querySelector("#nemBossDesc");
+    nemesis.hud.bossFill = hud.querySelector("#nemBossFill");
+
+    refreshNemesisHud();
+  }
+
+  function refreshNemesisHud(){
+    if(!nemesis.hud.root) return;
+
+    if(nemesis.activeEvent){
+      const max = nemesis.activeEvent.maxTime || 1;
+      const pct = nClamp((nemesis.eventTimer / max) * 100, 0, 100);
+      nemesis.hud.eventName.textContent = nemesis.activeEvent.label;
+      nemesis.hud.eventTime.textContent = nemesis.eventTimer.toFixed(1) + "s";
+      nemesis.hud.eventDesc.textContent = nemesis.activeEvent.desc;
+      nemesis.hud.eventFill.style.width = pct.toFixed(1) + "%";
+    }else{
+      nemesis.hud.eventName.textContent = "Geen event";
+      nemesis.hud.eventTime.textContent = "0.0s";
+      nemesis.hud.eventDesc.textContent = "De arena is stabiel.";
+      nemesis.hud.eventFill.style.width = "0%";
+    }
+
+    if(state.boss){
+      const hpPct = nClamp(state.boss.hp / state.boss.maxHp, 0, 1);
+      nemesis.hud.bossState.textContent = "Nemesis actief";
+      nemesis.hud.bossPhase.textContent = "Fase " + (nemesis.phase + 1);
+      nemesis.hud.bossDesc.textContent = bossPhaseText();
+      nemesis.hud.bossFill.style.width = (hpPct * 100).toFixed(1) + "%";
+    }else{
+      nemesis.hud.bossState.textContent = "Geen baas";
+      nemesis.hud.bossPhase.textContent = "-";
+      nemesis.hud.bossDesc.textContent = "Nog geen Nemesis actief.";
+      nemesis.hud.bossFill.style.width = "0%";
+    }
+  }
+
+  function bossPhaseText(){
+    if(!state.boss) return "Nog geen Nemesis actief.";
+    if(nemesis.phase === 0) return "Zoekt je op en vuurt standaard salvo's.";
+    if(nemesis.phase === 1) return "Wordt sneller en roept extra troepen op.";
+    return "Wordt gevaarlijk: arena pulses, extra salvo's en hogere druk.";
+  }
+
+  function chooseArenaEvent(){
+    const roll = Math.random();
+    if(roll < 0.25){
+      return {
+        type: "fog",
+        label: "Ghost Mist",
+        desc: "Mist verlaagt zicht, vijanden komen dichterbij.",
+        maxTime: 18,
+        onStart(){
+          flashHint?.("ARENA EVENT: GHOST MIST");
+        },
+        onUpdate(dt){
+          nemesis.fogAlpha = nClamp(nemesis.fogAlpha + dt * 0.18, 0, 0.92);
+          if(nemesis.hud.fog) nemesis.hud.fog.style.opacity = String(nemesis.fogAlpha * 0.85);
+        },
+        onEnd(){
+          nemesis.fogAlpha = 0;
+          if(nemesis.hud.fog) nemesis.hud.fog.style.opacity = "0";
+        }
+      };
+    }
+    if(roll < 0.5){
+      return {
+        type: "moon",
+        label: "Blood Moon",
+        desc: "Meer drops, maar vijanden bewegen sneller.",
+        maxTime: 16,
+        onStart(){
+          flashHint?.("ARENA EVENT: BLOOD MOON");
+        },
+        onUpdate(dt){
+          nemesis.moonIntensity = nClamp(nemesis.moonIntensity + dt * 0.22, 0, 1);
+          if(nemesis.hud.moon) nemesis.hud.moon.style.opacity = String(0.7 * nemesis.moonIntensity);
+          for(const e of state.enemies){
+            if(e && !e.isBoss) e.speed *= 1.0009;
+          }
+        },
+        onEnd(){
+          nemesis.moonIntensity = 0;
+          if(nemesis.hud.moon) nemesis.hud.moon.style.opacity = "0";
+        }
+      };
+    }
+    if(roll < 0.75){
+      return {
+        type: "storm",
+        label: "Neon Storm",
+        desc: "Bliksempulsen raken de arena en tikken vijanden weg.",
+        maxTime: 14,
+        pulse: 1.1,
+        onStart(){
+          flashHint?.("ARENA EVENT: NEON STORM");
+        },
+        onUpdate(dt){
+          nemesis.stormPulse -= dt;
+          if(nemesis.hud.storm) nemesis.hud.storm.style.opacity = "0.56";
+          if(nemesis.stormPulse <= 0){
+            nemesis.stormPulse = 1.1 + Math.random() * 0.55;
+            doStormStrike();
+          }
+        },
+        onEnd(){
+          if(nemesis.hud.storm) nemesis.hud.storm.style.opacity = "0";
+        }
+      };
+    }
+    return {
+      type: "rage",
+      label: "Rage Protocol",
+      desc: "Jij schiet sneller, maar Olde Hanter spawnt agressiever.",
+      maxTime: 15,
+      onStart(){
+        flashHint?.("ARENA EVENT: RAGE PROTOCOL");
+      },
+      onUpdate(dt){
+        player.fireCooldown *= 0.9;
+        if(Math.random() < dt * 0.18 && state.enemies.length < 26 && state.running && player.alive){
+          spawnEnemy(false);
+        }
+      },
+      onEnd(){}
+    };
+  }
+
+  function startArenaEvent(force=false){
+    if(!state.running || !player.alive) return;
+    if(nemesis.activeEvent && !force) return;
+
+    if(nemesis.activeEvent?.onEnd) nemesis.activeEvent.onEnd();
+
+    nemesis.activeEvent = chooseArenaEvent();
+    nemesis.eventTimer = nemesis.activeEvent.maxTime;
+    nemesis.pendingEventToast = 1.6;
+    nemesis.activeEvent.onStart?.();
+    refreshNemesisHud();
+  }
+
+  function endArenaEvent(){
+    if(!nemesis.activeEvent) return;
+    nemesis.activeEvent.onEnd?.();
+    nemesis.activeEvent = null;
+    nemesis.eventTimer = 0;
+    refreshNemesisHud();
+  }
+
+  function doStormStrike(){
+    const targets = [];
+    if(state.boss?.mesh) targets.push(state.boss);
+    for(const e of state.enemies){
+      if(e?.mesh) targets.push(e);
+    }
+    if(!targets.length) return;
+    const target = targets[(Math.random() * targets.length) | 0];
+    const p = target.mesh.position.clone();
+    createShockwave?.(p.clone(), 0x8bf0ff, 2.8);
+    createFlash?.(p.clone().add(new THREE.Vector3(0, 2.5, 0)), 0xffffff, 1.4, 6.2, 0.07);
+    createBurst?.(p.clone().add(new THREE.Vector3(0, 1.2, 0)), 0xdafcff, 10, 5, {
+      minLife: .14, maxLife: .36, gravity: 0.5, shrink: 0.95
+    });
+    target.hp -= 18;
+    if(target.hp <= 0){
+      if(target === state.boss){
+        killEnemy(target);
+      }else{
+        const idx = state.enemies.indexOf(target);
+        if(idx !== -1){
+          killEnemy(target);
+          state.enemies.splice(idx, 1);
+        }
+      }
+    }
+  }
+
+  function spawnSupplyCrate(pos){
+    const group = new THREE.Group();
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      new THREE.MeshStandardMaterial({
+        color: 0x1d2130,
+        emissive: 0x6d2a48,
+        emissiveIntensity: 0.85,
+        metalness: 0.34,
+        roughness: 0.32
+      })
+    );
+    const trim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.48, 0.06, 10, 24),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd166,
+        emissive: 0xffd166,
+        emissiveIntensity: 0.85
+      })
+    );
+    trim.rotation.x = Math.PI / 2;
+    group.add(body, trim);
+
+    group.position.copy(pos);
+    group.position.y = 0.52;
+    scene.add(group);
+
+    const aura = new THREE.Mesh(
+      new THREE.RingGeometry(0.8, 1.25, 34),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd166,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide
+      })
+    );
+    aura.rotation.x = -Math.PI / 2;
+    aura.position.set(pos.x, 0.03, pos.z);
+    scene.add(aura);
+
+    state.pickups.push({
+      kind: "nemesisCrate",
+      mesh: group,
+      aura,
+      life: 18,
+      amount: 1,
+      pulse: 0
+    });
+  }
+
+  function spawnBossDecor(){
+    clearBossDecor();
+    if(!state.boss?.mesh) return;
+
+    for(let i=0;i<3;i++){
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(2.8 + i * 0.55, 0.04 + i * 0.01, 8, 48),
+        new THREE.MeshBasicMaterial({
+          color: i === 1 ? 0x8bf0ff : 0xff6ea1,
+          transparent: true,
+          opacity: 0.26 - i * 0.05
+        })
+      );
+      ring.rotation.x = Math.PI / 2;
+      scene.add(ring);
+      nemesis.bossDecor.push(ring);
+    }
+  }
+
+  function clearBossDecor(){
+    while(nemesis.bossDecor.length){
+      scene.remove(nemesis.bossDecor.pop());
+    }
+  }
+
+  function updateBossDecor(dt, now){
+    if(!state.boss?.mesh){
+      clearBossDecor();
+      return;
+    }
+    if(!nemesis.bossDecor.length) spawnBossDecor();
+
+    nemesis.bossDecor.forEach((ring, i) => {
+      ring.position.copy(state.boss.mesh.position);
+      ring.position.y = 0.15 + i * 0.28 + Math.sin(now * 0.002 + i) * 0.06;
+      ring.rotation.z += dt * (0.55 + i * 0.22);
+      ring.material.opacity = 0.16 + Math.sin(now * 0.003 + i) * 0.08;
+    });
+  }
+
+  function updateBossPhases(dt){
+    if(!state.boss?.mesh){
+      nemesis.phase = 0;
+      clearBossDecor();
+      refreshNemesisHud();
+      return;
+    }
+
+    const hpPct = state.boss.hp / state.boss.maxHp;
+    const newPhase = hpPct < 0.33 ? 2 : hpPct < 0.66 ? 1 : 0;
+
+    if(newPhase !== nemesis.phase){
+      nemesis.phase = newPhase;
+      state.cameraShake = Math.min(2.0, state.cameraShake + 0.8);
+      flashHint?.(`BOSS PHASE ${nemesis.phase + 1}`);
+      createShockwave?.(state.boss.mesh.position.clone(), nemesis.phase === 2 ? 0xffd166 : 0xff6ea1, 4 + nemesis.phase);
+      if(nemesis.phase >= 1){
+        for(let i=0;i<Math.min(2 + nemesis.phase, 4); i++){
+          if(state.enemies.length < 28) spawnEnemy(false);
+        }
+      }
+      if(nemesis.phase === 2){
+        spawnSupplyCrate(player.pos.clone().add(new THREE.Vector3(nRand(-4,4),0,nRand(-4,4))));
+      }
+    }
+
+    if(nemesis.phase >= 1){
+      state.boss.speed *= 1.0007;
+      state.boss.fireCooldown -= dt * 0.18;
+    }
+    if(nemesis.phase >= 2){
+      state.boss.fireCooldown -= dt * 0.22;
+
+      if(Math.random() < dt * 0.7){
+        const pos = state.boss.mesh.position.clone().add(new THREE.Vector3(nRand(-2.8,2.8), 0, nRand(-2.8,2.8)));
+        createShockwave?.(pos.clone(), 0xff6ea1, 1.6);
+        createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffb2c8, 6, 4.2, {
+          minLife:.16, maxLife:.3, gravity:0.45, shrink:0.95
+        });
+        if(pos.distanceTo(player.pos) < 2.8){
+          applyDamage?.(8);
+        }
+      }
+    }
+
+    refreshNemesisHud();
+  }
+
+  function updateArenaEvent(dt){
+    if(!state.running || !player.alive){
+      endArenaEvent();
+      return;
+    }
+
+    nemesis.crateCooldown -= dt;
+    if(nemesis.crateCooldown <= 0){
+      nemesis.crateCooldown = 20 + Math.random() * 10;
+      spawnSupplyCrate(new THREE.Vector3(nRand(-30,30), 0, nRand(-30,30)));
+      flashHint?.("Supply crate gedropt");
+    }
+
+    if(!nemesis.activeEvent){
+      if(player.wave >= 3 && Math.random() < dt * 0.04){
+        startArenaEvent();
+      }
+      refreshNemesisHud();
+      return;
+    }
+
+    nemesis.eventTimer = Math.max(0, nemesis.eventTimer - dt);
+    nemesis.activeEvent.onUpdate?.(dt);
+
+    if(nemesis.eventTimer <= 0){
+      endArenaEvent();
+    }
+
+    refreshNemesisHud();
+  }
+
+  function updateCrates(dt, now){
+    for(let i = state.pickups.length - 1; i >= 0; i--){
+      const p = state.pickups[i];
+      if(p.kind !== "nemesisCrate") continue;
+
+      p.life -= dt;
+      p.pulse = (p.pulse || 0) + dt * 3.2;
+
+      if(p.mesh){
+        p.mesh.rotation.y += dt * 1.25;
+        p.mesh.position.y = 0.56 + Math.sin(now * 0.003 + i) * 0.08;
+      }
+      if(p.aura){
+        p.aura.material.opacity = 0.25 + Math.sin(p.pulse) * 0.18;
+      }
+
+      if(player.pos.distanceTo(p.mesh.position) < 1.6){
+        rewardFromCrate(p.mesh.position.clone());
+        if(p.mesh) scene.remove(p.mesh);
+        if(p.aura) scene.remove(p.aura);
+        state.pickups.splice(i, 1);
+        continue;
+      }
+
+      if(p.life <= 0){
+        if(p.mesh) scene.remove(p.mesh);
+        if(p.aura) scene.remove(p.aura);
+        state.pickups.splice(i, 1);
+      }
+    }
+  }
+
+  function rewardFromCrate(pos){
+    const roll = Math.random();
+    if(roll < 0.2){
+      player.hp = Math.min(player.maxHp, player.hp + 35);
+      flashHint?.("Crate: HP boost");
+    }else if(roll < 0.4){
+      player.ammo.bullet += 50;
+      player.ammo.rocket += 2;
+      player.ammo.grenade += 1;
+      flashHint?.("Crate: ammo cache");
+    }else if(roll < 0.6){
+      player.abilities.plasma += 2;
+      player.abilities.mine += 1;
+      player.abilities.orbital += 1;
+      flashHint?.("Crate: skill refill");
+    }else if(roll < 0.8){
+      registerKill?.(40);
+      flashHint?.("Crate: bonus score");
+    }else{
+      for(let i=0;i<3;i++){
+        if(state.enemies.length < 28) spawnEnemy(false);
+      }
+      flashHint?.("Crate cursed: extra Olde Hanters!");
+    }
+
+    createShockwave?.(pos.clone(), 0xffd166, 3.2);
+    createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffe7a6, 16, 6.2, {
+      minLife:.18, maxLife:.44, gravity:0.5, shrink:0.95
+    });
+    setStat?.();
+  }
+
+  const _spawnWave = spawnWave;
+  spawnWave = function(){
+    _spawnWave();
+
+    if(player.wave >= 2){
+      const bonus = Math.min(1 + Math.floor(player.wave / 5), 4);
+      for(let i=0;i<bonus;i++){
+        if(state.enemies.length < 30 && Math.random() < 0.55){
+          spawnEnemy(false);
+        }
+      }
+    }
+
+    if(player.wave >= 4 && player.wave % 2 === 0){
+      startArenaEvent(true);
+    }
+
+    if(player.wave % 4 === 0){
+      flashHint?.("Nemesis voorwaarden bereikt");
+    }
+
+    refreshNemesisHud();
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    const wasBoss = !!enemy?.isBoss;
+    const bossPos = enemy?.mesh?.position?.clone?.() || null;
+
+    _killEnemy(enemy);
+
+    if(wasBoss && bossPos){
+      clearBossDecor();
+      endArenaEvent();
+      for(let i=0;i<2;i++){
+        spawnSupplyCrate(bossPos.clone().add(new THREE.Vector3(i ? 2 : -2, 0, 0)));
+      }
+      registerKill?.(60);
+      flashHint?.("Nemesis verslagen — loot gedropt");
+    }else if(!wasBoss && Math.random() < 0.08){
+      spawnSupplyCrate(enemy.mesh.position.clone());
+    }
+
+    refreshNemesisHud();
+  };
+
+  const _restartGame = restartGame;
+  restartGame = function(){
+    clearBossDecor();
+    endArenaEvent();
+    nemesis.phase = 0;
+    nemesis.crateCooldown = 18;
+    refreshNemesisHud();
+    return _restartGame();
+  };
+
+  const _applyDamage = applyDamage;
+  applyDamage = function(amount){
+    if(nemesis.activeEvent?.type === "fog"){
+      amount *= 1.08;
+    }
+    if(nemesis.activeEvent?.type === "rage"){
+      amount *= 1.04;
+    }
+    return _applyDamage(amount);
+  };
+
+  const _animate = animate;
+  animate = function(now){
+    const dt = Math.min(0.033, (now - nemesis.lastNow) / 1000 || 0.016);
+    nemesis.lastNow = now;
+
+    updateArenaEvent(dt);
+    updateBossPhases(dt);
+    updateBossDecor(dt, now);
+    updateCrates(dt, now);
+
+    _animate(now);
+  };
+
+  buildNemesisHud();
+})();
 
   animate(performance.now());
 })();
