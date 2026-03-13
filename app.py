@@ -10950,6 +10950,214 @@ onHit(enemy, damage){
   showFloating?.("Joost smoke online");
 })();
 
+/* ==========================================
+   OH NAME TWEAKS PATCH
+   Lisa = altijd +300
+   Joost death = rookbom
+   Jos = groter monster
+   Plak dit HELE blok onderaan je code
+   ========================================== */
+(() => {
+  function ohNameOf(enemy){
+    return enemy?.enemyName || enemy?.mesh?.userData?.enemyName || "";
+  }
+
+  function ohSpawnSmokeBomb(pos){
+    if(!pos) return;
+
+    for(let i = 0; i < 26; i++){
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(rand(0.14, 0.28), 8, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xd9e2ea,
+          transparent: true,
+          opacity: rand(0.16, 0.28)
+        })
+      );
+
+      puff.position.copy(pos);
+      puff.position.x += rand(-0.35, 0.35);
+      puff.position.y += rand(0.2, 1.0);
+      puff.position.z += rand(-0.35, 0.35);
+
+      scene.add(puff);
+
+      state.particles.push({
+        mesh: puff,
+        vel: new THREE.Vector3(
+          rand(-1.8, 1.8),
+          rand(1.4, 3.2),
+          rand(-1.8, 1.8)
+        ),
+        life: rand(0.7, 1.4),
+        drag: 0.93,
+        gravity: -0.18,
+        rotate: rand(-4, 4),
+        shrink: 1.01,
+        smoke: true
+      });
+    }
+
+    createShockwave?.(pos.clone(), 0xcfd8df, 1.8);
+    createFlash?.(pos.clone().add(new THREE.Vector3(0, 0.8, 0)), 0xdfe7ee, 0.9, 2.2, 0.04);
+  }
+
+  function ohApplyJosScale(enemy){
+    if(!enemy?.mesh || enemy.isBoss) return;
+    if(ohNameOf(enemy) !== "Jos") return;
+    if(enemy.__ohJosScaled) return;
+
+    enemy.mesh.scale.multiplyScalar(1.18);
+    enemy.radius = (enemy.radius || 1) * 1.12;
+    enemy.maxHp = Math.round(enemy.maxHp * 1.08);
+    enemy.hp = Math.min(enemy.maxHp, Math.round(enemy.hp * 1.08));
+
+    if(enemy.groundRing){
+      enemy.groundRing.scale.multiplyScalar(1.14);
+    }
+
+    enemy.__ohJosScaled = true;
+  }
+
+  function ohLisaMoneyBurst(enemy){
+    if(!enemy?.mesh) return;
+
+    const origin = enemy.mesh.position.clone();
+    origin.y += 1.35;
+
+    for(let i = 0; i < 12; i++){
+      const bill = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.22, 0.12),
+        new THREE.MeshBasicMaterial({
+          color: 0x4cff7a,
+          transparent: true,
+          opacity: 0.92,
+          side: THREE.DoubleSide
+        })
+      );
+
+      bill.position.copy(origin);
+      bill.rotation.set(rand(-0.5, 0.5), rand(0, Math.PI), rand(-0.5, 0.5));
+      scene.add(bill);
+
+      state.particles.push({
+        mesh: bill,
+        vel: new THREE.Vector3(
+          rand(-2.3, 2.3),
+          rand(2.0, 4.0),
+          rand(-2.3, 2.3)
+        ),
+        life: rand(0.55, 1.05),
+        drag: 0.92,
+        gravity: -3.4,
+        rotate: rand(-7, 7),
+        shrink: 0.985
+      });
+    }
+
+    createFlash?.(
+      enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.35, 0)),
+      0x4cff7a,
+      1.2,
+      3.2,
+      0.05
+    );
+  }
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss = false){
+    const beforeCount = state.enemies.length;
+    const hadBoss = !!state.boss;
+
+    const result = _spawnEnemy(isBoss);
+
+    let enemy = null;
+    if(isBoss){
+      enemy = state.boss;
+    } else if(state.enemies.length > beforeCount){
+      enemy = state.enemies[state.enemies.length - 1];
+    } else if(!hadBoss && isBoss && state.boss){
+      enemy = state.boss;
+    }
+
+    if(enemy){
+      ohApplyJosScale(enemy);
+    }
+
+    return result;
+  };
+
+  const _updateBullets = updateBullets;
+  updateBullets = function(dt){
+    const hpBefore = new Map();
+    for(const enemy of state.enemies){
+      hpBefore.set(enemy, enemy.hp);
+    }
+
+    const bossRef = state.boss;
+    const bossHpBefore = bossRef ? bossRef.hp : null;
+
+    _updateBullets(dt);
+
+    for(const [enemy, before] of hpBefore.entries()){
+      if(enemy && typeof before === "number" && enemy.hp < before){
+        if(ohNameOf(enemy) === "Lisa"){
+          player.score += 300;
+          showFloating("LISA +300");
+          ohLisaMoneyBurst(enemy);
+          setStat?.();
+        }
+      }
+    }
+
+    if(bossRef && typeof bossHpBefore === "number" && bossRef.hp < bossHpBefore){
+      if(ohNameOf(bossRef) === "Lisa"){
+        player.score += 300;
+        showFloating("LISA +300");
+        ohLisaMoneyBurst(bossRef);
+        setStat?.();
+      }
+    }
+  };
+
+  const _damageEnemyDirect = typeof damageEnemyDirect === "function" ? damageEnemyDirect : null;
+  if(_damageEnemyDirect){
+    damageEnemyDirect = function(enemy, damage){
+      const before = enemy?.hp;
+      const result = _damageEnemyDirect(enemy, damage);
+
+      if(result && enemy && typeof before === "number" && enemy.hp < before){
+        if(ohNameOf(enemy) === "Lisa"){
+          player.score += 300;
+          showFloating("LISA +300");
+          ohLisaMoneyBurst(enemy);
+          setStat?.();
+        }
+      }
+
+      return result;
+    };
+  }
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    if(ohNameOf(enemy) === "Joost" && enemy?.mesh?.position){
+      ohSpawnSmokeBomb(enemy.mesh.position.clone());
+      showFloating("JOOST SMOKEBOMB");
+    }
+
+    return _killEnemy(enemy);
+  };
+
+  for(const enemy of state.enemies){
+    ohApplyJosScale(enemy);
+  }
+  if(state.boss){
+    ohApplyJosScale(state.boss);
+  }
+
+  showFloating?.("Lisa / Joost / Jos patch online");
+})();
 
 
   animate(performance.now());
