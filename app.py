@@ -4746,162 +4746,146 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
 }
 
 function spawnEnemy(isBoss=false){
-  const enemyNames = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
+  function findSafeEnemySpawn(radius){
+    const minPlayerDist = isBoss ? 18 : 14;
+    const spawnMin = -48;
+    const spawnMax = 48;
 
-  const variantPool = {
-    basic:   ["standard","hunter","sentinel","vanguard"],
-    runner:  ["striker","phantom","hunter"],
-    tank:    ["brute","warden","vanguard"],
-    elite:   ["commander","phantom","sentinel"]
-  };
+    function isSafeSpawn(x, z, r){
+      // niet te dicht bij speler
+      const dx = x - player.pos.x;
+      const dz = z - player.pos.z;
+      if(Math.hypot(dx, dz) < minPlayerDist) return false;
 
-  const namedProfiles = {
-    Pieter:  { pref:["tank","elite"],   variant:"warden",   hpMul:1.20, speedMul:0.94, fireMul:1.12, glow:0xffb14d },
-    Jos:     { pref:["basic","runner"], variant:"hunter",   hpMul:0.98, speedMul:1.12, fireMul:0.90, glow:0x7be7ff },
-    Lisa:    { pref:["elite","runner"], variant:"phantom",  hpMul:0.96, speedMul:1.18, fireMul:0.82, glow:0xff8dc9 },
-    Joost:   { pref:["runner","basic"], variant:"striker",  hpMul:0.90, speedMul:1.24, fireMul:0.86, glow:0x8ef0ff },
-    Jan:     { pref:["tank","basic"],   variant:"brute",    hpMul:1.28, speedMul:0.88, fireMul:1.08, glow:0xff8d57 },
-    Patrick: { pref:["elite","tank"],   variant:"commander",hpMul:1.18, speedMul:1.02, fireMul:0.78, glow:0xffd166 },
-    Miranda: { pref:["elite","basic"],  variant:"sentinel", hpMul:1.08, speedMul:1.00, fireMul:0.84, glow:0xff88d4 },
-    Jad:     { pref:["runner","elite"], variant:"phantom",  hpMul:0.94, speedMul:1.20, fireMul:0.80, glow:0x7affdf },
-    Kevin:   { pref:["basic","tank"],   variant:"vanguard", hpMul:1.10, speedMul:1.04, fireMul:0.92, glow:0x9fd8ef }
-  };
+      // extra veiligheidsmarge t.o.v. map blocks
+      if(collidesAt(x, z, r)) return false;
+      if(collidesAt(x + r * 0.75, z, r * 0.65)) return false;
+      if(collidesAt(x - r * 0.75, z, r * 0.65)) return false;
+      if(collidesAt(x, z + r * 0.75, r * 0.65)) return false;
+      if(collidesAt(x, z - r * 0.75, r * 0.65)) return false;
 
-  let x = 0, z = 0, tries = 0;
-  while(tries < 50){
-    x = rand(-48,48);
-    z = rand(-48,48);
-    const dx = x - player.pos.x;
-    const dz = z - player.pos.z;
-    if(Math.sqrt(dx*dx + dz*dz) > 14 && !collidesAt(x,z,1.2)) break;
-    tries++;
+      // ook niet te dicht op andere enemies
+      for(const other of state.enemies){
+        if(!other?.mesh) continue;
+        const ddx = x - other.mesh.position.x;
+        const ddz = z - other.mesh.position.z;
+        const minDist = r + (other.radius || 1) + 1.1;
+        if(Math.hypot(ddx, ddz) < minDist) return false;
+      }
+
+      // ook niet op boss
+      if(state.boss?.mesh){
+        const bdx = x - state.boss.mesh.position.x;
+        const bdz = z - state.boss.mesh.position.z;
+        const minBossDist = r + (state.boss.radius || 1.8) + 1.4;
+        if(Math.hypot(bdx, bdz) < minBossDist) return false;
+      }
+
+      return true;
+    }
+
+    // 1. random pogingen
+    for(let tries = 0; tries < 120; tries++){
+      const x = rand(spawnMin, spawnMax);
+      const z = rand(spawnMin, spawnMax);
+      if(isSafeSpawn(x, z, radius)) return { x, z };
+    }
+
+    // 2. fallback: systematisch in ringen zoeken rond speler
+    for(let ring = 16; ring <= 52; ring += 3){
+      for(let i = 0; i < 40; i++){
+        const a = (i / 40) * Math.PI * 2;
+        const x = player.pos.x + Math.cos(a) * ring;
+        const z = player.pos.z + Math.sin(a) * ring;
+
+        if(x < spawnMin || x > spawnMax || z < spawnMin || z > spawnMax) continue;
+        if(isSafeSpawn(x, z, radius)) return { x, z };
+      }
+    }
+
+    return null;
   }
 
   let type = "basic";
-
   if(!isBoss){
     const roll = Math.random();
-
-    if(player.wave >= 10 && roll < 0.12) type = "elite";
-    else if(player.wave >= 7 && roll < 0.30) type = "tank";
-    else if(player.wave >= 3 && roll < 0.62) type = "runner";
+    if(player.wave >= 7 && roll < 0.16) type = "elite";
+    else if(player.wave >= 4 && roll < 0.38) type = "tank";
+    else if(player.wave >= 2 && roll < 0.68) type = "runner";
   }
 
-  const useNamed = !isBoss && player.wave >= 2 && Math.random() < Math.min(0.18 + player.wave * 0.012, 0.52);
-  const chosenName = isBoss
-    ? "OH Nemesis"
-    : useNamed
-      ? enemyNames[Math.floor(Math.random() * enemyNames.length)]
-      : `OH ${type === "runner" ? "Runner" : type === "tank" ? "Heavy" : type === "elite" ? "Elite" : "Trooper"}`;
+  const radius =
+    isBoss ? 1.8 :
+    type === "tank" ? 1.2 :
+    type === "elite" ? 1.08 :
+    1.0;
 
-  const profileBase = chosenName && namedProfiles[chosenName] ? namedProfiles[chosenName] : null;
-
-  if(profileBase && !isBoss){
-    const prefList = profileBase.pref || [];
-    if(prefList.length){
-      const gated = prefList.filter(t =>
-        t === "basic" ||
-        (t === "runner" && player.wave >= 2) ||
-        (t === "tank" && player.wave >= 4) ||
-        (t === "elite" && player.wave >= 7)
-      );
-      if(gated.length){
-        type = gated[Math.floor(Math.random() * gated.length)];
-      }
-    }
+  const spawn = findSafeEnemySpawn(radius + 0.35);
+  if(!spawn){
+    console.warn("Geen veilige enemy spawn gevonden");
+    return null;
   }
 
-  const profile = {
-    name: chosenName,
-    variant: profileBase?.variant || variantPool[type][Math.floor(Math.random() * variantPool[type].length)],
-    hpMul: profileBase?.hpMul || 1,
-    speedMul: profileBase?.speedMul || 1,
-    fireMul: profileBase?.fireMul || 1,
-    glow: profileBase?.glow || (type === "elite" ? 0xffd166 : type === "tank" ? 0xff8d57 : type === "runner" ? 0x7be7ff : 0x9fd8ef)
-  };
-
-  const mesh = makeEnemyMesh(type, isBoss, profile);
-  mesh.position.set(x,0,z);
+  const mesh = makeEnemyMesh(type, isBoss);
+  mesh.position.set(spawn.x, 0, spawn.z);
   scene.add(mesh);
 
-  const baseHp = isBoss ? 260 + player.wave * 30 :
-    type === "runner" ? 18 + player.wave * 3 :
-    type === "tank" ? 50 + player.wave * 6 :
-    type === "elite" ? 58 + player.wave * 7 :
-    24 + player.wave * 4;
+  const baseHp = isBoss ? 230 + player.wave * 28 :
+    type === "runner" ? 16 + player.wave * 3 :
+    type === "tank" ? 42 + player.wave * 6 :
+    type === "elite" ? 52 + player.wave * 7 :
+    type === "logo" ? 32 + player.wave * 5 :
+    22 + player.wave * 4;
 
-  const ringColor = isBoss
-    ? 0xff5ea8
-    : type === "elite"
-      ? 0xffd166
-      : type === "tank"
-        ? 0xff8d57
-        : type === "runner"
-          ? 0x7be7ff
-          : 0x8fdcff;
-
-  const ringGeo = new THREE.RingGeometry(isBoss ? 1.9 : (type === "tank" ? 0.92 : 0.78), isBoss ? 2.16 : (type === "tank" ? 1.10 : 0.94), 42);
+  const ringGeo = new THREE.RingGeometry(
+    isBoss ? 1.8 : 0.78,
+    isBoss ? 2.02 : 0.92,
+    40
+  );
   const ringMat = new THREE.MeshBasicMaterial({
-    color: ringColor,
+    color: isBoss ? 0xff8aa7 : (type === "elite" ? 0xffd166 : 0x7dd8ff),
     transparent: true,
-    opacity: isBoss ? 0.36 : 0.22,
+    opacity: isBoss ? 0.34 : 0.20,
     side: THREE.DoubleSide
   });
+
   const groundRing = new THREE.Mesh(ringGeo, ringMat);
   groundRing.rotation.x = -Math.PI / 2;
-  groundRing.position.set(x, 0.03, z);
+  groundRing.position.set(spawn.x, 0.03, spawn.z);
   scene.add(groundRing);
-
-  const speedBase =
-    isBoss ? 3.0 :
-    type === "runner" ? 5.6 + player.wave * 0.16 :
-    type === "tank" ? 2.3 + player.wave * 0.07 :
-    type === "elite" ? 4.1 + player.wave * 0.11 :
-    3.35 + player.wave * 0.10;
 
   const enemy = {
     type,
     isBoss,
     mesh,
     groundRing,
-    hp: Math.round(baseHp * profile.hpMul),
-    maxHp: Math.round(baseHp * profile.hpMul),
-    speed: speedBase * profile.speedMul,
-    radius: isBoss ? 1.9 : (type === "tank" ? 1.26 : type === "elite" ? 1.08 : type === "runner" ? 0.94 : 1.0),
-    fireCooldown: (isBoss ? 0.90 : rand(0.8, 2.0)) * profile.fireMul,
-    strafe: rand(-1,1),
-    bob: rand(0,Math.PI*2),
-    enemyName: chosenName,
-    variant: profile.variant,
-    personality: profileBase ? "named" : "standard",
-    aimBias: profile.variant === "commander" ? 1.18 : profile.variant === "phantom" ? 0.92 : 1,
-    aggression: profile.variant === "striker" ? 1.22 : profile.variant === "warden" ? 0.92 : 1,
-    preferredDistance:
-      type === "runner" ? rand(4.0, 5.6) :
-      type === "tank" ? rand(7.2, 9.6) :
-      type === "elite" ? rand(9.0, 12.0) :
-      rand(6.4, 8.4)
+    hp: baseHp,
+    maxHp: baseHp,
+    speed: isBoss ? 2.9 :
+      type === "runner" ? 5.3 + player.wave * 0.14 :
+      type === "tank" ? 2.2 + player.wave * 0.06 :
+      type === "elite" ? 3.9 + player.wave * 0.1 :
+      3.25 + player.wave * 0.1,
+    radius,
+    fireCooldown: isBoss ? 0.95 : rand(0.9, 2.2),
+    strafe: rand(-1, 1),
+    bob: rand(0, Math.PI * 2)
   };
 
   if(isBoss){
-    enemy.enemyName = "OH Nemesis";
-    enemy.variant = "commander";
     state.boss = enemy;
     ui.bossBarWrap.classList.add("show");
     showFloating("BOSS INBOUND", "boss");
-    createShockwave(mesh.position.clone(), 0xff6ea1, 5.0);
+    createShockwave(mesh.position.clone(), 0xff6ea1, 4.8);
     sfxBoss();
   } else {
-    if(profileBase){
-      showFloating(`${chosenName} enters the arena`);
-    } else if(type === "elite"){
-      showFloating("Elite trooper incoming");
-    } else if(type === "tank"){
-      showFloating("Heavy OH unit detected");
-    }
+    if(type === "elite") showFloating("Elite trooper incoming");
     state.enemies.push(enemy);
   }
+
+  return enemy;
 }
+
 
 function spawnWave(){
   state.lastClearStamp = performance.now();
