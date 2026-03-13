@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -3050,38 +3051,52 @@ function getPlayerName(){
   return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
 }
 
-async function submitScore(){
-  const score = Math.floor(player.score);
-  const wave = player.wave || 0;
-  const name = getPlayerName();
-
-  if(score <= 0) return false;
-  if(scoreSubmittedThisRun || scoreSubmitInFlight) return false;
-
-  scoreSubmitInFlight = true;
+async function renderBoard(){
+  ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
   try{
-    const submitKey = `${name}_${score}_${wave}`;
+    const res = await fetch("/api/leaderboard/top?limit=10");
+    if(!res.ok) throw new Error("HTTP error");
 
-    const res = await fetch("/api/leaderboard/submit", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ name, score, wave, submitKey })
-    });
+    const data = await res.json();
+    const rows = data.rows || [];
 
-    if(!res.ok) throw new Error("Leaderboard submit mislukt");
-
-    scoreSubmittedThisRun = true;
-    await renderBoard();
-    return true;
+    ui.leaderboard.innerHTML = rows.length
+      ? rows.map(r =>
+        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
+      ).join("")
+      : "<li>Nog geen scores</li>";
 
   }catch(err){
     console.error(err);
-    return false;
-
-  }finally{
-    scoreSubmitInFlight = false;
+    ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
   }
+}
+
+async function submitScore(){
+
+  const score = Math.floor(player.score);
+
+  if(score <= 0) return;
+
+  await fetch("/api/leaderboard/submit", {
+
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+      name: getPlayerName(),
+      score: score,
+      wave: player.wave || 0
+    })
+
+  });
+
+  renderBoard();
+
 }
 
 
