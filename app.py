@@ -4525,91 +4525,262 @@ function spawnWave(){
     shootWithDirection(dir);
   }
 
-  function shootWithDirection(dirOverride=null){
-    if(!state.running || !player.alive) return false;
-    if(player.fireCooldown > 0) return false;
+function shootWithDirection(dirOverride=null){
+  if(!state.running || !player.alive) return false;
+  if(player.fireCooldown > 0) return false;
 
-    let weapon = player.weapon;
+  let weapon = player.weapon;
 
-    if(weapon === "bullet" && player.ammo.bullet <= 0) ensureUsableWeapon();
-    if(weapon === "rocket" && player.ammo.rocket <= 0) ensureUsableWeapon();
-    if(weapon === "grenade" && player.ammo.grenade <= 0) ensureUsableWeapon();
-    weapon = player.weapon;
+  if(weapon === "bullet" && player.ammo.bullet <= 0) ensureUsableWeapon();
+  if(weapon === "rocket" && player.ammo.rocket <= 0) ensureUsableWeapon();
+  if(weapon === "grenade" && player.ammo.grenade <= 0) ensureUsableWeapon();
+  weapon = player.weapon;
 
-    if(player.weapon === "bullet" && player.ammo.bullet <= 0) return false;
-    if(player.weapon === "rocket" && player.ammo.rocket <= 0) return false;
-    if(player.weapon === "grenade" && player.ammo.grenade <= 0) return false;
+  if(player.weapon === "bullet" && player.ammo.bullet <= 0) return false;
+  if(player.weapon === "rocket" && player.ammo.rocket <= 0) return false;
+  if(player.weapon === "grenade" && player.ammo.grenade <= 0) return false;
 
-    ensureAudio();
+  ensureAudio();
 
-    const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
-    if(!dirOverride){
-      camera.getWorldDirection(dir);
-      dir.normalize();
-    }
+  const combo = state.combo || 1;
 
-    const start = player.pos.clone();
-    start.y = 1.52;
-    start.add(dir.clone().multiplyScalar(.9));
-
-    state.viewKick = Math.min(1.2, state.viewKick + (weapon === 'bullet' ? 0.34 : weapon === 'rocket' ? 0.85 : 0.62));
-    state.cameraShake = Math.min(1.5, state.cameraShake + (weapon === 'bullet' ? 0.12 : weapon === 'rocket' ? 0.45 : 0.26));
-    if(weaponRig.userData.flash) weaponRig.userData.flash.intensity = weapon === 'bullet' ? 2.8 : 4.0;
-
-    if(weapon === "bullet"){
-      player.ammo.bullet -= 1;
-      state.bullets.push(createProjectile(start, dir, {
-        speed: 31,
-        friendly: true,
-        color: 0xffec7d,
-        trailColor: 0xfff7bf,
-        size: 0.12,
-        life: 2.2,
-        damage: 10,
-        type: "bullet"
-      }));
-      player.fireCooldown = 0.18;
-      sfxShoot();
-    } else if(weapon === "rocket"){
-      player.ammo.rocket -= 1;
-      state.bullets.push(createProjectile(start, dir, {
-        speed: 18,
-        friendly: true,
-        color: 0xff7b7b,
-        trailColor: 0xffb0a3,
-        smoke: true,
-        size: 0.18,
-        life: 2.6,
-        damage: 28,
-        radius: 4.2,
-        type: "rocket",
-        explosionColor: 0xff7b7b
-      }));
-      player.fireCooldown = 0.55;
-      sfxRocket();
-    } else if(weapon === "grenade"){
-      player.ammo.grenade -= 1;
-      state.bullets.push(createProjectile(start, dir, {
-        speed: 14,
-        friendly: true,
-        color: 0x9dff7c,
-        trailColor: 0xd8ffca,
-        smoke: true,
-        size: 0.16,
-        life: 1.6,
-        damage: 22,
-        radius: 3.6,
-        type: "grenade",
-        gravity: 10,
-        explosionColor: 0x9dff7c
-      }));
-      player.fireCooldown = 0.65;
-      sfxGrenade();
-    }
-
-    setStat();
-    return true;
+  const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
+  if(!dirOverride){
+    camera.getWorldDirection(dir);
+    dir.normalize();
   }
+
+  // lichte aim assist richting dichtbijzijnde vijand in de kijkrichting
+  const aimAssist = (() => {
+    let best = null;
+    let bestScore = 0.965; // hoe hoger, hoe strakker op de crosshair
+    const from = player.pos.clone();
+    from.y = 1.52;
+
+    const candidates = [];
+    if(state.boss?.mesh) candidates.push(state.boss);
+    for(const e of state.enemies) candidates.push(e);
+
+    for(const enemy of candidates){
+      if(!enemy?.mesh) continue;
+      const target = enemy.mesh.position.clone();
+      target.y += enemy.isBoss ? 2.0 : 1.2;
+
+      const toEnemy = target.clone().sub(from);
+      const dist = toEnemy.length();
+      if(dist < 1 || dist > 28) continue;
+
+      const nd = toEnemy.normalize();
+      const dot = dir.dot(nd);
+      if(dot > bestScore){
+        bestScore = dot;
+        best = { dir: nd, dist, dot, enemy };
+      }
+    }
+
+    if(!best) return dir;
+
+    const strengthBase =
+      weapon === "bullet" ? 0.10 :
+      weapon === "rocket" ? 0.16 : 0.13;
+
+    const nearBoost = best.dist < 12 ? 1.0 : 0.65;
+    return dir.clone().lerp(best.dir, strengthBase * nearBoost).normalize();
+  })();
+
+  const finalDir = aimAssist.clone();
+
+  const start = player.pos.clone();
+  start.y = 1.52;
+  start.add(finalDir.clone().multiplyScalar(.9));
+
+  const right = new THREE.Vector3(finalDir.z, 0, -finalDir.x).normalize();
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const makeDir = (yawOffset=0, pitchOffset=0) => {
+    return finalDir.clone()
+      .addScaledVector(right, yawOffset)
+      .addScaledVector(up, pitchOffset)
+      .normalize();
+  };
+
+  const spawnFriendly = (spawnPos, shotDir, opts) => {
+    state.bullets.push(createProjectile(spawnPos, shotDir, {
+      friendly: true,
+      ...opts
+    }));
+  };
+
+  const recoilBase =
+    weapon === "bullet" ? 0.34 :
+    weapon === "rocket" ? 0.85 : 0.62;
+
+  const shakeBase =
+    weapon === "bullet" ? 0.12 :
+    weapon === "rocket" ? 0.45 : 0.26;
+
+  state.viewKick = Math.min(
+    1.5,
+    state.viewKick + recoilBase * (weapon === "bullet" ? (1 + Math.min(.22, combo * .04)) : 1)
+  );
+
+  state.cameraShake = Math.min(
+    1.8,
+    state.cameraShake + shakeBase * (weapon === "bullet" ? 1 : 1 + Math.min(.14, combo * .03))
+  );
+
+  if(weaponRig.userData.flash){
+    weaponRig.userData.flash.intensity =
+      weapon === "bullet"
+        ? 2.8 + Math.min(1.4, combo * 0.22)
+        : weapon === "rocket"
+        ? 4.8
+        : 4.2;
+  }
+
+  if(weapon === "bullet"){
+    player.ammo.bullet -= 1;
+
+    const spread = Math.max(0.004, 0.018 - combo * 0.0025);
+    const damageMain = 10 + Math.min(6, Math.floor(combo * 1.4));
+    const lifeMain = 2.2 + Math.min(0.4, combo * 0.06);
+
+    spawnFriendly(start.clone(), makeDir(
+      (Math.random() - 0.5) * spread,
+      (Math.random() - 0.5) * spread * 0.6
+    ), {
+      speed: 31 + Math.min(4, combo * 0.7),
+      color: 0xffec7d,
+      trailColor: 0xfff7bf,
+      size: 0.12,
+      life: lifeMain,
+      damage: damageMain,
+      type: "bullet"
+    });
+
+    // bij hogere combo: twin side shots
+    if(combo >= 1.8){
+      const sideDamage = Math.max(6, Math.round(damageMain * 0.58));
+      const sideSpread = 0.085;
+
+      [0.18, -0.18].forEach((offset, idx) => {
+        const sideStart = start.clone().addScaledVector(right, offset);
+        const sideDir = makeDir(
+          idx === 0 ? sideSpread : -sideSpread,
+          (Math.random() - 0.5) * 0.01
+        );
+
+        spawnFriendly(sideStart, sideDir, {
+          speed: 29,
+          color: 0x8bf0ff,
+          trailColor: 0xdffcff,
+          size: 0.09,
+          life: 1.35,
+          damage: sideDamage,
+          type: "bullet"
+        });
+      });
+    }
+
+    // power tracer op echt hoge combo
+    if(combo >= 3.0){
+      const heavyDir = makeDir(0, 0);
+      spawnFriendly(start.clone(), heavyDir, {
+        speed: 34,
+        color: 0xffffff,
+        trailColor: 0xff9af2,
+        size: 0.14,
+        life: 1.9,
+        damage: damageMain + 5,
+        type: "bullet"
+      });
+      state.cameraShake = Math.min(2.0, state.cameraShake + 0.08);
+    }
+
+    player.fireCooldown = Math.max(0.115, 0.18 - Math.min(0.05, combo * 0.012));
+    sfxShoot();
+
+  } else if(weapon === "rocket"){
+    player.ammo.rocket -= 1;
+
+    spawnFriendly(start.clone(), makeDir(0, 0), {
+      speed: 18 + Math.min(2.5, combo * 0.35),
+      color: 0xff7b7b,
+      trailColor: 0xffb0a3,
+      smoke: true,
+      size: 0.18,
+      life: 2.6,
+      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
+      radius: 4.2 + Math.min(1.2, combo * 0.22),
+      type: "rocket",
+      explosionColor: 0xff7b7b
+    });
+
+    // bonus micro-rocket bij sterke combo
+    if(combo >= 2.4){
+      const microDir = makeDir((Math.random() > 0.5 ? 0.07 : -0.07), 0.01);
+      const microStart = start.clone().addScaledVector(right, Math.random() > 0.5 ? 0.22 : -0.22);
+
+      spawnFriendly(microStart, microDir, {
+        speed: 19,
+        color: 0xffd166,
+        trailColor: 0xffefb0,
+        smoke: true,
+        size: 0.12,
+        life: 1.8,
+        damage: 12 + Math.min(5, Math.floor(combo)),
+        radius: 2.2,
+        type: "rocket",
+        explosionColor: 0xffd166
+      });
+    }
+
+    player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
+    sfxRocket();
+
+  } else if(weapon === "grenade"){
+    player.ammo.grenade -= 1;
+
+    spawnFriendly(start.clone(), makeDir(0, 0.04), {
+      speed: 14 + Math.min(1.6, combo * 0.25),
+      color: 0x9dff7c,
+      trailColor: 0xd8ffca,
+      smoke: true,
+      size: 0.16,
+      life: 1.6,
+      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
+      radius: 3.6 + Math.min(1.2, combo * 0.24),
+      type: "grenade",
+      gravity: 10,
+      explosionColor: 0x9dff7c
+    });
+
+    // grenade krijgt shrapnel-support op combo
+    if(combo >= 2.0){
+      const shardDamage = 5 + Math.min(4, Math.floor(combo));
+      [-0.12, 0.12].forEach(offset => {
+        const shardDir = makeDir(offset, 0.02);
+        const shardStart = start.clone().addScaledVector(right, offset * 1.3);
+
+        spawnFriendly(shardStart, shardDir, {
+          speed: 24,
+          color: 0xcaff9d,
+          trailColor: 0xf0ffd8,
+          size: 0.08,
+          life: 1.0,
+          damage: shardDamage,
+          type: "bullet"
+        });
+      });
+    }
+
+    player.fireCooldown = Math.max(0.5, 0.65 - Math.min(0.1, combo * 0.02));
+    sfxGrenade();
+  }
+
+  setStat();
+  return true;
+}
 
   function enemyShoot(enemy){
     const start = enemy.mesh.position.clone();
