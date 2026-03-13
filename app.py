@@ -3039,6 +3039,9 @@ canvas{ display:block; }
   };
 
 
+const LOCAL_BOARD_KEY = "expired_html_leaderboard_v2";
+const PLAYER_NAME_KEY = "expired_html_player_name_v1";
+
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",
@@ -3050,51 +3053,139 @@ function getPlayerName(){
   return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
 }
 
+function savePlayerName(){
+  try{
+    localStorage.setItem(PLAYER_NAME_KEY, getPlayerName());
+  }catch(_){}
+}
+
+function loadPlayerName(){
+  try{
+    const saved = localStorage.getItem(PLAYER_NAME_KEY);
+    if(saved && ui.playerName) ui.playerName.value = saved.slice(0,18);
+  }catch(_){}
+}
+
+function getLocalBoard(){
+  try{
+    const raw = localStorage.getItem(LOCAL_BOARD_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? rows : [];
+  }catch(_){
+    return [];
+  }
+}
+
+function setLocalBoard(rows){
+  try{
+    localStorage.setItem(LOCAL_BOARD_KEY, JSON.stringify(rows.slice(0,10)));
+  }catch(_){}
+}
+
+function addLocalScore(entry){
+  const rows = getLocalBoard();
+  rows.push({
+    name: String(entry.name || "Speler").slice(0,18),
+    score: Math.max(0, entry.score|0),
+    wave: Math.max(0, entry.wave|0),
+    ts: Date.now()
+  });
+
+  rows.sort((a,b) => {
+    if((b.score|0) !== (a.score|0)) return (b.score|0) - (a.score|0);
+    if((b.wave|0) !== (a.wave|0)) return (b.wave|0) - (a.wave|0);
+    return (a.ts|0) - (b.ts|0);
+  });
+
+  setLocalBoard(rows);
+}
+
+function mergeBoards(remoteRows, localRows){
+  const merged = [...(remoteRows || []), ...(localRows || [])]
+    .map(r => ({
+      name: String(r.name || "Speler").slice(0,18),
+      score: Math.max(0, r.score|0),
+      wave: Math.max(0, r.wave|0),
+      ts: r.ts || 0
+    }))
+    .sort((a,b) => {
+      if(b.score !== a.score) return b.score - a.score;
+      if(b.wave !== a.wave) return b.wave - a.wave;
+      return a.ts - b.ts;
+    })
+    .slice(0,10);
+
+  return merged;
+}
+
+function renderBoardRows(rows, sourceLabel="Leaderboard"){
+  ui.leaderboard.innerHTML = rows.length
+    ? rows.map(r =>
+        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
+      ).join("")
+    : "<li>Nog geen scores</li>";
+
+  const meta = document.querySelector("#boardWrap .board-meta span");
+  if(meta) meta.textContent = sourceLabel;
+}
+
 async function renderBoard(){
   ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
+  const localRows = getLocalBoard();
+
   try{
-    const res = await fetch("/api/leaderboard/top?limit=10");
+    const res = await fetch("/api/leaderboard/top?limit=10", { cache: "no-store" });
     if(!res.ok) throw new Error("HTTP error");
 
     const data = await res.json();
-    const rows = data.rows || [];
+    const remoteRows = Array.isArray(data.rows) ? data.rows : [];
+    const merged = mergeBoards(remoteRows, localRows);
 
-    ui.leaderboard.innerHTML = rows.length
-      ? rows.map(r =>
-        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
-      ).join("")
-      : "<li>Nog geen scores</li>";
-
+    renderBoardRows(merged, "Online + lokaal");
   }catch(err){
     console.error(err);
-    ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
+    renderBoardRows(localRows, "Lokale fallback");
   }
 }
 
 async function submitScore(){
-
   const score = Math.floor(player.score);
-
   if(score <= 0) return;
 
-  await fetch("/api/leaderboard/submit", {
+  const payload = {
+    name: getPlayerName(),
+    score,
+    wave: player.wave || 0
+  };
 
-    method: "POST",
+  savePlayerName();
+  addLocalScore(payload);
 
-    headers: {
-      "Content-Type": "application/json"
-    },
-
-    body: JSON.stringify({
-      name: getPlayerName(),
-      score: score,
-      wave: player.wave || 0
-    })
-
-  });
+  try{
+    await fetch("/api/leaderboard/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  }catch(err){
+    console.warn("Online submit mislukt, lokaal bewaard.", err);
+  }
 
   renderBoard();
+}
+
+if(ui.playerName){
+  loadPlayerName();
+  ui.playerName.addEventListener("change", savePlayerName);
+  ui.playerName.addEventListener("input", () => {
+    if(ui.playerName.value.length > 18){
+      ui.playerName.value = ui.playerName.value.slice(0,18);
+    }
+  });
+}
+
+renderBoard();
 
 }
 
