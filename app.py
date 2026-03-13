@@ -4329,111 +4329,339 @@ function updateMusic(){
     return group;
   }
 
-  function makeEnemyMesh(type="basic", isBoss=false){
-    const palette = isBoss
-      ? { suit:0x143461, bodysuit:0x0c1b30, cape:0xa30f33, trim:0xd5f3ff, glow:0x8deaff }
-      : type === "elite"
-        ? { suit:0x244f84, bodysuit:0x12243d, cape:0x7d0f2a, trim:0xffe1a0, glow:0xffd166 }
-        : type === "runner"
-          ? { suit:0x3f75ba, bodysuit:0x1a3154, cape:0x8a1838, trim:0xd9f4ff, glow:0xa7f1ff }
-          : type === "tank"
-            ? { suit:0x284668, bodysuit:0x1a2332, cape:0x631323, trim:0xffd98b, glow:0xffd166 }
-            : { suit:0x315c96, bodysuit:0x1d304f, cape:0x7a1631, trim:0xe8f7ff, glow:0x9fd8ef };
+function makeNameTagSprite(text, glow="#00f7ff"){
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
 
-    const scale = isBoss ? 1.94 : type === "tank" ? 1.16 : type === "elite" ? 1.08 : 1.02;
-    const group = new THREE.Group();
-    const suitMat = new THREE.MeshStandardMaterial({ color:palette.suit, emissive:palette.bodysuit, emissiveIntensity:isBoss?0.36:0.16, roughness:.56, metalness:.16 });
-    const bodysuitMat = new THREE.MeshStandardMaterial({ color:palette.bodysuit, roughness:.84, metalness:.08 });
-    const trimMat = new THREE.MeshStandardMaterial({ color:palette.trim, emissive:palette.trim, emissiveIntensity:.20, roughness:.34, metalness:.28 });
-    const glowMat = new THREE.MeshStandardMaterial({ color:palette.glow, emissive:palette.glow, emissiveIntensity:.42, roughness:.24, metalness:.34 });
-    const capeMat = new THREE.MeshStandardMaterial({ color:palette.cape, emissive:0x230811, emissiveIntensity:.16, roughness:.74, metalness:.04, side:THREE.DoubleSide });
-    const skinMat = new THREE.MeshStandardMaterial({ color:0xddb08b, roughness:.88, metalness:.03 });
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.02:0.78,0.38,0.34), bodysuitMat);
-    pelvis.position.y = 0.96;
+  ctx.fillStyle = "rgba(6,10,22,.82)";
+  ctx.strokeStyle = "rgba(255,255,255,.16)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.roundRect(10, 14, 300, 54, 18);
+  ctx.fill();
+  ctx.stroke();
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.16:0.88,1.10,0.46), suitMat);
-    torso.position.y = 1.76;
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = "#f7fbff";
+  ctx.font = "900 28px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 160, 42);
 
-    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?0.98:0.72,0.78,0.18), trimMat);
-    chestPlate.position.set(0,1.84,0.24);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
 
-    const waistBelt = new THREE.Mesh(new THREE.BoxGeometry(type==="tank"?1.02:0.84,0.12,0.20), glowMat);
-    waistBelt.position.set(0,1.24,0.24);
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false
+  });
 
-    const chestLogo = makeLogoGlyph(type === "tank" ? 0.78 : 0.66);
-    chestLogo.position.set(0,1.84,0.35);
-    const backLogo = makeLogoGlyph(type === "tank" ? 0.66 : 0.56);
-    backLogo.position.set(0,1.78,-0.30);
-    backLogo.rotation.y = Math.PI;
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(2.6, 0.78, 1);
+  return sprite;
+}
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
-    neck.position.y = 2.36;
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.54,0.64,0.54), skinMat);
-    head.position.y = 2.80;
+function makeEnemyMesh(type="basic", isBoss=false, profile=null){
+  const variant = profile?.variant || "standard";
+  const enemyName = profile?.name || "OH Unit";
 
-    const hair = new THREE.Mesh(new THREE.BoxGeometry(0.56,0.18,0.56), bodysuitMat);
-    hair.position.set(0,3.05,0.01);
-    const mask = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.18,0.08), glowMat);
-    mask.position.set(0,2.84,0.28);
-    const jawGuard = new THREE.Mesh(new THREE.BoxGeometry(0.44,0.14,0.08), trimMat);
-    jawGuard.position.set(0,2.62,0.27);
+  const palette = isBoss
+    ? { suit:0x12335e, bodysuit:0x0a172b, cape:0x8d1230, trim:0xe6f8ff, glow:0xff5ea8 }
+    : type === "elite"
+      ? { suit:0x3e4fa3, bodysuit:0x141d42, cape:0x7d1230, trim:0xffdb92, glow:0xffb14d }
+      : type === "runner"
+        ? { suit:0x1e7cb7, bodysuit:0x10334f, cape:0x8b1937, trim:0xdff9ff, glow:0x7be7ff }
+        : type === "tank"
+          ? { suit:0x46515e, bodysuit:0x242b34, cape:0x5f1626, trim:0xffd37a, glow:0xff8d57 }
+          : { suit:0x315c96, bodysuit:0x1d304f, cape:0x7a1631, trim:0xe8f7ff, glow:0x9fd8ef };
 
-    const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.24,0.30), suitMat);
-    const shoulderR = shoulderL.clone();
-    shoulderL.position.set(-0.60,2.06,0.02);
-    shoulderR.position.set(0.60,2.06,0.02);
+  const variantTint = {
+    standard: 1,
+    commander: 1.08,
+    brute: 0.92,
+    hunter: 1.04,
+    phantom: 1.12,
+    sentinel: 0.96,
+    striker: 1.1,
+    warden: 0.9,
+    vanguard: 1.05
+  }[variant] || 1;
 
-    const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.74,0.24), suitMat);
-    const upperArmR = upperArmL.clone();
-    upperArmL.position.set(-0.62,1.62,0.02);
-    upperArmR.position.set(0.62,1.62,0.02);
+  const scale =
+    isBoss ? 2.02 :
+    type === "tank" ? 1.22 :
+    type === "elite" ? 1.12 :
+    type === "runner" ? 0.98 : 1.04;
 
-    const foreArmL = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.74,0.22), bodysuitMat);
-    const foreArmR = foreArmL.clone();
-    foreArmL.position.set(-0.62,0.90,0.05);
-    foreArmR.position.set(0.62,0.90,0.05);
+  const heightMul =
+    isBoss ? 1.18 :
+    variant === "brute" ? 0.94 :
+    variant === "phantom" ? 1.06 :
+    variant === "warden" ? 1.03 :
+    1;
 
-    const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.20,0.24), glowMat);
-    const gauntletR = gauntletL.clone();
-    gauntletL.position.set(-0.62,0.56,0.06);
-    gauntletR.position.set(0.62,0.56,0.06);
+  const shoulderMul =
+    isBoss ? 1.18 :
+    type === "tank" ? 1.2 :
+    variant === "brute" ? 1.12 :
+    variant === "hunter" ? 0.96 :
+    1;
 
-    const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
-    const handR = handL.clone();
-    handL.position.set(-0.62,0.42,0.06);
-    handR.position.set(0.62,0.42,0.06);
+  const legMul =
+    type === "runner" ? 1.06 :
+    variant === "phantom" ? 1.04 :
+    variant === "brute" ? 0.95 :
+    1;
 
-    const thighL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.84,0.26), bodysuitMat);
-    const thighR = thighL.clone();
-    thighL.position.set(-0.23,0.46,0.03);
-    thighR.position.set(0.23,0.46,0.03);
+  const headMul =
+    variant === "commander" ? 1.05 :
+    variant === "phantom" ? 0.96 :
+    1;
 
-    const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.14,0.28), glowMat);
-    const kneeR = kneeL.clone();
-    kneeL.position.set(-0.23,0.08,0.08);
-    kneeR.position.set(0.23,0.08,0.08);
+  function matColor(hex, mul=1){
+    const c = new THREE.Color(hex);
+    c.multiplyScalar(mul);
+    return c;
+  }
 
-    const shinL = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.76,0.24), suitMat);
-    const shinR = shinL.clone();
-    shinL.position.set(-0.23,-0.24,0.03);
-    shinR.position.set(0.23,-0.24,0.03);
+  const group = new THREE.Group();
 
-    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.30,0.20,0.46), bodysuitMat);
-    const bootR = bootL.clone();
-    bootL.position.set(-0.23,-0.72,0.10);
-    bootR.position.set(0.23,-0.72,0.10);
+  const suitMat = new THREE.MeshStandardMaterial({
+    color: matColor(palette.suit, variantTint),
+    emissive: matColor(palette.bodysuit, isBoss ? 0.55 : 0.18),
+    emissiveIntensity: isBoss ? 0.40 : 0.18,
+    roughness: 0.56,
+    metalness: 0.18
+  });
 
-    const cape = new THREE.Mesh(new THREE.PlaneGeometry(type==="tank"?1.18:0.92, type==="tank"?1.52:1.24, 1, 6), capeMat);
-    cape.position.set(0,1.68,-0.28);
-    cape.rotation.x = 0.08;
+  const bodysuitMat = new THREE.MeshStandardMaterial({
+    color: matColor(palette.bodysuit, variantTint),
+    roughness: 0.82,
+    metalness: 0.08
+  });
 
-    const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.34,0.08), trimMat);
-    shoulderHolster.position.set(-0.28,1.72,0.28);
-    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.22,0.1), bodysuitMat);
-    radio.position.set(0.28,1.58,0.28);
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: matColor(palette.trim, 1.0),
+    emissive: matColor(palette.trim, 0.35),
+    emissiveIntensity: 0.18,
+    roughness: 0.30,
+    metalness: 0.32
+  });
 
-    const gun = new THREE.Group();
+  const glowMat = new THREE.MeshStandardMaterial({
+    color: matColor(palette.glow, 1.0),
+    emissive: matColor(palette.glow, 0.9),
+    emissiveIntensity: isBoss ? 0.72 : 0.46,
+    roughness: 0.22,
+    metalness: 0.38
+  });
+
+  const capeMat = new THREE.MeshStandardMaterial({
+    color: matColor(palette.cape, 1.0),
+    emissive: 0x230811,
+    emissiveIntensity: 0.16,
+    roughness: 0.76,
+    metalness: 0.04,
+    side: THREE.DoubleSide
+  });
+
+  const skinMat = new THREE.MeshStandardMaterial({
+    color: 0xd9ab88,
+    roughness: 0.9,
+    metalness: 0.02
+  });
+
+  const pelvis = new THREE.Mesh(
+    new THREE.BoxGeometry((type==="tank"?1.04:0.80)*shoulderMul, 0.40*heightMul, 0.36),
+    bodysuitMat
+  );
+  pelvis.position.y = 0.98;
+
+  const torso = new THREE.Mesh(
+    new THREE.BoxGeometry((type==="tank"?1.18:0.90)*shoulderMul, 1.16*heightMul, 0.48),
+    suitMat
+  );
+  torso.position.y = 1.80;
+
+  const chestPlate = new THREE.Mesh(
+    new THREE.BoxGeometry((type==="tank"?1.00:0.74)*shoulderMul, 0.82*heightMul, 0.18),
+    trimMat
+  );
+  chestPlate.position.set(0, 1.88, 0.24);
+
+  const waistBelt = new THREE.Mesh(
+    new THREE.BoxGeometry((type==="tank"?1.04:0.86)*shoulderMul, 0.13, 0.22),
+    glowMat
+  );
+  waistBelt.position.set(0, 1.26, 0.24);
+
+  const chestLogo = makeLogoGlyph(type === "tank" ? 0.84 : 0.70);
+  chestLogo.position.set(0, 1.88, 0.35);
+
+  const backLogo = makeLogoGlyph(type === "tank" ? 0.72 : 0.60);
+  backLogo.position.set(0, 1.80, -0.30);
+  backLogo.rotation.y = Math.PI;
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
+  neck.position.y = 2.40 * heightMul;
+
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.56*headMul, 0.66*headMul, 0.56*headMul),
+    skinMat
+  );
+  head.position.y = 2.84 * heightMul;
+
+  const hair = new THREE.Mesh(
+    new THREE.BoxGeometry(0.58*headMul, 0.18, 0.58*headMul),
+    bodysuitMat
+  );
+  hair.position.set(0, 3.10 * heightMul, 0.01);
+
+  const visorGeo = variant === "phantom"
+    ? new THREE.BoxGeometry(0.56, 0.16, 0.10)
+    : new THREE.BoxGeometry(0.52, 0.18, 0.09);
+
+  const mask = new THREE.Mesh(visorGeo, glowMat);
+  mask.position.set(0, 2.86 * heightMul, 0.29);
+
+  const jawGuard = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 0.09), trimMat);
+  jawGuard.position.set(0, 2.64 * heightMul, 0.28);
+
+  const shoulderL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.36*shoulderMul, 0.24, 0.32),
+    suitMat
+  );
+  const shoulderR = shoulderL.clone();
+  shoulderL.position.set(-0.62*shoulderMul, 2.08*heightMul, 0.02);
+  shoulderR.position.set( 0.62*shoulderMul, 2.08*heightMul, 0.02);
+
+  const upperArmL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.24, 0.78*heightMul, 0.24),
+    suitMat
+  );
+  const upperArmR = upperArmL.clone();
+  upperArmL.position.set(-0.64*shoulderMul, 1.62*heightMul, 0.02);
+  upperArmR.position.set( 0.64*shoulderMul, 1.62*heightMul, 0.02);
+
+  const foreArmL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.78*heightMul, 0.22),
+    bodysuitMat
+  );
+  const foreArmR = foreArmL.clone();
+  foreArmL.position.set(-0.64*shoulderMul, 0.88*heightMul, 0.05);
+  foreArmR.position.set( 0.64*shoulderMul, 0.88*heightMul, 0.05);
+
+  const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.22,0.26), glowMat);
+  const gauntletR = gauntletL.clone();
+  gauntletL.position.set(-0.64*shoulderMul, 0.52*heightMul, 0.06);
+  gauntletR.position.set( 0.64*shoulderMul, 0.52*heightMul, 0.06);
+
+  const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
+  const handR = handL.clone();
+  handL.position.set(-0.64*shoulderMul, 0.38*heightMul, 0.06);
+  handR.position.set( 0.64*shoulderMul, 0.38*heightMul, 0.06);
+
+  const thighL = new THREE.Mesh(
+    new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.86*legMul, 0.28),
+    bodysuitMat
+  );
+  const thighR = thighL.clone();
+  thighL.position.set(-0.24, 0.46, 0.03);
+  thighR.position.set( 0.24, 0.46, 0.03);
+
+  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.15,0.30), glowMat);
+  const kneeR = kneeL.clone();
+  kneeL.position.set(-0.24, 0.06, 0.08);
+  kneeR.position.set( 0.24, 0.06, 0.08);
+
+  const shinL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.23, 0.78*legMul, 0.26),
+    suitMat
+  );
+  const shinR = shinL.clone();
+  shinL.position.set(-0.24, -0.28, 0.03);
+  shinR.position.set( 0.24, -0.28, 0.03);
+
+  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.20,0.50), bodysuitMat);
+  const bootR = bootL.clone();
+  bootL.position.set(-0.24,-0.76,0.10);
+  bootR.position.set( 0.24,-0.76,0.10);
+
+  const capeWidth =
+    isBoss ? 1.24 :
+    type === "tank" ? 1.18 :
+    variant === "phantom" ? 0.82 :
+    0.96;
+
+  const capeHeight =
+    isBoss ? 1.82 :
+    type === "tank" ? 1.56 :
+    variant === "hunter" ? 1.02 :
+    1.30;
+
+  const cape = new THREE.Mesh(
+    new THREE.PlaneGeometry(capeWidth, capeHeight, 1, 7),
+    capeMat
+  );
+  cape.position.set(0, 1.72, -0.30);
+  cape.rotation.x = 0.08;
+
+  const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.36,0.09), trimMat);
+  shoulderHolster.position.set(-0.30, 1.74, 0.28);
+
+  const radio = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.22,0.10), bodysuitMat);
+  radio.position.set(0.30,1.60,0.28);
+
+  const gun = new THREE.Group();
+
+  if(type === "runner"){
+    const smgBody = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.12,0.56), bodysuitMat);
+    const smgBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,0.54,12), trimMat);
+    smgBarrel.rotation.x = Math.PI/2;
+    smgBarrel.position.set(0,0,-0.38);
+    const smgStock = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.16), suitMat);
+    smgStock.position.set(0,-0.02,0.24);
+    const smgCore = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.10), glowMat);
+    smgCore.position.set(0.03,0.03,-0.05);
+    gun.add(smgBody, smgBarrel, smgStock, smgCore);
+    gun.position.set(0.20,1.30,0.30);
+    gun.rotation.x = -0.18;
+    gun.rotation.y = Math.PI/2;
+  }else if(type === "tank"){
+    const cannonBody = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.20,0.92), bodysuitMat);
+    const cannonBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.96,14), trimMat);
+    cannonBarrel.rotation.x = Math.PI/2;
+    cannonBarrel.position.set(0,0,-0.62);
+    const cannonStock = new THREE.Mesh(new THREE.BoxGeometry(0.20,0.20,0.24), suitMat);
+    cannonStock.position.set(0,-0.02,0.38);
+    const cannonCore = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.18), glowMat);
+    cannonCore.position.set(0.05,0.05,-0.10);
+    gun.add(cannonBody, cannonBarrel, cannonStock, cannonCore);
+    gun.position.set(0.24,1.38,0.36);
+    gun.rotation.x = -0.24;
+    gun.rotation.y = Math.PI/2;
+  }else if(type === "elite" || isBoss){
+    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.15,0.84), bodysuitMat);
+    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.90,14), trimMat);
+    rifleBarrel.rotation.x = Math.PI/2;
+    rifleBarrel.position.set(0,0,-0.58);
+    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.15,0.24), suitMat);
+    rifleStock.position.set(0,-0.02,0.36);
+    const rifleCore = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.14), glowMat);
+    rifleCore.position.set(0.04,0.04,-0.08);
+    const scope = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.08,0.18), glowMat);
+    scope.position.set(0,0.12,-0.02);
+    gun.add(rifleBody, rifleBarrel, rifleStock, rifleCore, scope);
+    gun.position.set(0.22,1.36,0.34);
+    gun.rotation.x = -0.22;
+    gun.rotation.y = Math.PI/2;
+  }else{
     const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.14,0.78), bodysuitMat);
     const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.86,12), trimMat);
     rifleBarrel.rotation.x = Math.PI/2;
@@ -4446,90 +4674,234 @@ function updateMusic(){
     gun.position.set(0.20,1.34,0.34);
     gun.rotation.x = -0.22;
     gun.rotation.y = Math.PI/2;
-
-    [pelvis, torso, chestPlate, waistBelt, chestLogo, backLogo, neck, head, hair, mask, jawGuard, shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR, handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape, shoulderHolster, radio, gun].forEach(m => {
-      m.castShadow = true;
-      m.receiveShadow = true;
-      group.add(m);
-    });
-
-    if(isBoss){
-      const crest = new THREE.Mesh(new THREE.TorusGeometry(1.08,.08,12,40), glowMat);
-      crest.rotation.x = Math.PI/2;
-      crest.position.y = 3.56;
-      group.add(crest);
-    }
-
-    group.userData.parts = { armL: upperArmL, armR: upperArmR, foreArmL, foreArmR, legL: thighL, legR: thighR, shinL, shinR, gun, logo: chestLogo, backLogo, hatBadge: mask, head, torso, pelvis, bootL, bootR, chest: chestPlate, cape, gauntletL, gauntletR };
-    group.scale.setScalar(scale);
-    return group;
   }
 
-  function spawnEnemy(isBoss=false){
-    let x=0,z=0,tries=0;
-    while(tries < 50){
-      x = rand(-48,48);
-      z = rand(-48,48);
-      const dx = x-player.pos.x, dz = z-player.pos.z;
-      if(Math.sqrt(dx*dx + dz*dz) > 14 && !collidesAt(x,z,1.2)) break;
-      tries++;
-    }
+  const antenna = new THREE.Mesh(new THREE.BoxGeometry(0.02,0.24,0.02), trimMat);
+  antenna.position.set(0.18, 3.06 * heightMul, -0.08);
+  const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), glowMat);
+  antennaTip.position.set(0.18, 3.20 * heightMul, -0.08);
 
-    let type = "basic";
-    if(!isBoss){
-      const roll = Math.random();
-      if(player.wave >= 7 && roll < .16) type = "elite";
-      else if(player.wave >= 4 && roll < .38) type = "tank";
-      else if(player.wave >= 2 && roll < .68) type = "runner";
-    }
+  const shoulderBadgeL = makeLogoGlyph(0.24);
+  const shoulderBadgeR = makeLogoGlyph(0.24);
+  shoulderBadgeL.position.set(-0.64*shoulderMul, 2.08*heightMul, 0.18);
+  shoulderBadgeL.rotation.y = -0.35;
+  shoulderBadgeR.position.set(0.64*shoulderMul, 2.08*heightMul, 0.18);
+  shoulderBadgeR.rotation.y = 0.35;
 
-    const mesh = makeEnemyMesh(type, isBoss);
-    mesh.position.set(x,0,z);
-    scene.add(mesh);
+  const spineLight = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.74,0.08), glowMat);
+  spineLight.position.set(0,1.64,-0.18);
 
-    const baseHp = isBoss ? 230 + player.wave*28 :
-      type === "runner" ? 16 + player.wave*3 :
-      type === "tank" ? 42 + player.wave*6 :
-      type === "elite" ? 52 + player.wave*7 :
-      type === "logo" ? 32 + player.wave*5 :
-      22 + player.wave*4;
+  [
+    pelvis, torso, chestPlate, waistBelt, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
+    shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
+    handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
+    shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
+  ].forEach(m => {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  });
 
-    const ringGeo = new THREE.RingGeometry(isBoss ? 1.8 : 0.78, isBoss ? 2.02 : 0.92, 40);
-    const ringMat = new THREE.MeshBasicMaterial({ color:isBoss ? 0xff8aa7 : (type === "elite" ? 0xffd166 : 0x7dd8ff), transparent:true, opacity:isBoss ? 0.34 : 0.20, side:THREE.DoubleSide });
-    const groundRing = new THREE.Mesh(ringGeo, ringMat);
-    groundRing.rotation.x = -Math.PI/2;
-    groundRing.position.set(x, 0.03, z);
-    scene.add(groundRing);
+  if(isBoss){
+    const crest = new THREE.Mesh(new THREE.TorusGeometry(1.12,.09,14,42), glowMat);
+    crest.rotation.x = Math.PI/2;
+    crest.position.y = 3.62;
+    group.add(crest);
+  }
 
-    const enemy = {
-      type,
-      isBoss,
-      mesh,
-      groundRing,
-      hp: baseHp,
-      maxHp: baseHp,
-      speed: isBoss ? 2.9 :
-        type === "runner" ? 5.3 + player.wave*.14 :
-        type === "tank" ? 2.2 + player.wave*.06 :
-        type === "elite" ? 3.9 + player.wave*.1 :
-        3.25 + player.wave*.1,
-      radius: isBoss ? 1.8 : (type === "tank" ? 1.2 : type === "elite" ? 1.08 : 1.0),
-      fireCooldown: isBoss ? .95 : rand(.9,2.2),
-      strafe: rand(-1,1),
-      bob: rand(0,Math.PI*2)
-    };
+  const tag = makeNameTagSprite(enemyName, isBoss ? "#ff5ea8" : type === "elite" ? "#ffb14d" : "#00f7ff");
+  tag.position.set(0, isBoss ? 4.8 : 4.0, 0);
+  group.add(tag);
 
-    if(isBoss){
-      state.boss = enemy;
-      ui.bossBarWrap.classList.add("show");
-      showFloating("BOSS INBOUND", "boss");
-      createShockwave(mesh.position.clone(), 0xff6ea1, 4.8);
-      sfxBoss();
-    } else {
-      if(type === "elite") showFloating("Elite trooper incoming");
-      state.enemies.push(enemy);
+  group.userData.parts = {
+    armL: upperArmL,
+    armR: upperArmR,
+    foreArmL,
+    foreArmR,
+    legL: thighL,
+    legR: thighR,
+    shinL,
+    shinR,
+    gun,
+    logo: chestLogo,
+    backLogo,
+    hatBadge: mask,
+    head,
+    torso,
+    pelvis,
+    bootL,
+    bootR,
+    chest: chestPlate,
+    cape,
+    gauntletL,
+    gauntletR,
+    nameTag: tag
+  };
+
+  group.userData.enemyName = enemyName;
+  group.userData.variant = variant;
+  group.userData.ohStamped = true;
+  group.scale.setScalar(scale);
+  return group;
+}
+
+function spawnEnemy(isBoss=false){
+  const enemyNames = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
+
+  const variantPool = {
+    basic:   ["standard","hunter","sentinel","vanguard"],
+    runner:  ["striker","phantom","hunter"],
+    tank:    ["brute","warden","vanguard"],
+    elite:   ["commander","phantom","sentinel"]
+  };
+
+  const namedProfiles = {
+    Pieter:  { pref:["tank","elite"],   variant:"warden",   hpMul:1.20, speedMul:0.94, fireMul:1.12, glow:0xffb14d },
+    Jos:     { pref:["basic","runner"], variant:"hunter",   hpMul:0.98, speedMul:1.12, fireMul:0.90, glow:0x7be7ff },
+    Lisa:    { pref:["elite","runner"], variant:"phantom",  hpMul:0.96, speedMul:1.18, fireMul:0.82, glow:0xff8dc9 },
+    Joost:   { pref:["runner","basic"], variant:"striker",  hpMul:0.90, speedMul:1.24, fireMul:0.86, glow:0x8ef0ff },
+    Jan:     { pref:["tank","basic"],   variant:"brute",    hpMul:1.28, speedMul:0.88, fireMul:1.08, glow:0xff8d57 },
+    Patrick: { pref:["elite","tank"],   variant:"commander",hpMul:1.18, speedMul:1.02, fireMul:0.78, glow:0xffd166 },
+    Miranda: { pref:["elite","basic"],  variant:"sentinel", hpMul:1.08, speedMul:1.00, fireMul:0.84, glow:0xff88d4 },
+    Jad:     { pref:["runner","elite"], variant:"phantom",  hpMul:0.94, speedMul:1.20, fireMul:0.80, glow:0x7affdf },
+    Kevin:   { pref:["basic","tank"],   variant:"vanguard", hpMul:1.10, speedMul:1.04, fireMul:0.92, glow:0x9fd8ef }
+  };
+
+  let x = 0, z = 0, tries = 0;
+  while(tries < 50){
+    x = rand(-48,48);
+    z = rand(-48,48);
+    const dx = x - player.pos.x;
+    const dz = z - player.pos.z;
+    if(Math.sqrt(dx*dx + dz*dz) > 14 && !collidesAt(x,z,1.2)) break;
+    tries++;
+  }
+
+  let type = "basic";
+
+  if(!isBoss){
+    const roll = Math.random();
+
+    if(player.wave >= 10 && roll < 0.12) type = "elite";
+    else if(player.wave >= 7 && roll < 0.30) type = "tank";
+    else if(player.wave >= 3 && roll < 0.62) type = "runner";
+  }
+
+  const useNamed = !isBoss && player.wave >= 2 && Math.random() < Math.min(0.18 + player.wave * 0.012, 0.52);
+  const chosenName = isBoss
+    ? "OH Nemesis"
+    : useNamed
+      ? enemyNames[Math.floor(Math.random() * enemyNames.length)]
+      : `OH ${type === "runner" ? "Runner" : type === "tank" ? "Heavy" : type === "elite" ? "Elite" : "Trooper"}`;
+
+  const profileBase = chosenName && namedProfiles[chosenName] ? namedProfiles[chosenName] : null;
+
+  if(profileBase && !isBoss){
+    const prefList = profileBase.pref || [];
+    if(prefList.length){
+      const gated = prefList.filter(t =>
+        t === "basic" ||
+        (t === "runner" && player.wave >= 2) ||
+        (t === "tank" && player.wave >= 4) ||
+        (t === "elite" && player.wave >= 7)
+      );
+      if(gated.length){
+        type = gated[Math.floor(Math.random() * gated.length)];
+      }
     }
   }
+
+  const profile = {
+    name: chosenName,
+    variant: profileBase?.variant || variantPool[type][Math.floor(Math.random() * variantPool[type].length)],
+    hpMul: profileBase?.hpMul || 1,
+    speedMul: profileBase?.speedMul || 1,
+    fireMul: profileBase?.fireMul || 1,
+    glow: profileBase?.glow || (type === "elite" ? 0xffd166 : type === "tank" ? 0xff8d57 : type === "runner" ? 0x7be7ff : 0x9fd8ef)
+  };
+
+  const mesh = makeEnemyMesh(type, isBoss, profile);
+  mesh.position.set(x,0,z);
+  scene.add(mesh);
+
+  const baseHp = isBoss ? 260 + player.wave * 30 :
+    type === "runner" ? 18 + player.wave * 3 :
+    type === "tank" ? 50 + player.wave * 6 :
+    type === "elite" ? 58 + player.wave * 7 :
+    24 + player.wave * 4;
+
+  const ringColor = isBoss
+    ? 0xff5ea8
+    : type === "elite"
+      ? 0xffd166
+      : type === "tank"
+        ? 0xff8d57
+        : type === "runner"
+          ? 0x7be7ff
+          : 0x8fdcff;
+
+  const ringGeo = new THREE.RingGeometry(isBoss ? 1.9 : (type === "tank" ? 0.92 : 0.78), isBoss ? 2.16 : (type === "tank" ? 1.10 : 0.94), 42);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: ringColor,
+    transparent: true,
+    opacity: isBoss ? 0.36 : 0.22,
+    side: THREE.DoubleSide
+  });
+  const groundRing = new THREE.Mesh(ringGeo, ringMat);
+  groundRing.rotation.x = -Math.PI / 2;
+  groundRing.position.set(x, 0.03, z);
+  scene.add(groundRing);
+
+  const speedBase =
+    isBoss ? 3.0 :
+    type === "runner" ? 5.6 + player.wave * 0.16 :
+    type === "tank" ? 2.3 + player.wave * 0.07 :
+    type === "elite" ? 4.1 + player.wave * 0.11 :
+    3.35 + player.wave * 0.10;
+
+  const enemy = {
+    type,
+    isBoss,
+    mesh,
+    groundRing,
+    hp: Math.round(baseHp * profile.hpMul),
+    maxHp: Math.round(baseHp * profile.hpMul),
+    speed: speedBase * profile.speedMul,
+    radius: isBoss ? 1.9 : (type === "tank" ? 1.26 : type === "elite" ? 1.08 : type === "runner" ? 0.94 : 1.0),
+    fireCooldown: (isBoss ? 0.90 : rand(0.8, 2.0)) * profile.fireMul,
+    strafe: rand(-1,1),
+    bob: rand(0,Math.PI*2),
+    enemyName: chosenName,
+    variant: profile.variant,
+    personality: profileBase ? "named" : "standard",
+    aimBias: profile.variant === "commander" ? 1.18 : profile.variant === "phantom" ? 0.92 : 1,
+    aggression: profile.variant === "striker" ? 1.22 : profile.variant === "warden" ? 0.92 : 1,
+    preferredDistance:
+      type === "runner" ? rand(4.0, 5.6) :
+      type === "tank" ? rand(7.2, 9.6) :
+      type === "elite" ? rand(9.0, 12.0) :
+      rand(6.4, 8.4)
+  };
+
+  if(isBoss){
+    enemy.enemyName = "OH Nemesis";
+    enemy.variant = "commander";
+    state.boss = enemy;
+    ui.bossBarWrap.classList.add("show");
+    showFloating("BOSS INBOUND", "boss");
+    createShockwave(mesh.position.clone(), 0xff6ea1, 5.0);
+    sfxBoss();
+  } else {
+    if(profileBase){
+      showFloating(`${chosenName} enters the arena`);
+    } else if(type === "elite"){
+      showFloating("Elite trooper incoming");
+    } else if(type === "tank"){
+      showFloating("Heavy OH unit detected");
+    }
+    state.enemies.push(enemy);
+  }
+}
 
 function spawnWave(){
   state.lastClearStamp = performance.now();
