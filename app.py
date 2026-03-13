@@ -199,6 +199,8 @@ def init_db():
         user_agent TEXT
       )
     """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_created_at ON leaderboard_scores(created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_score_wave ON leaderboard_scores(score DESC, wave DESC)")
 
     c.commit()
     c.close()
@@ -5568,7 +5570,7 @@ function shootWithDirection(dirOverride=null){
       submitScore();
       ui.center.classList.remove("hidden");
       ui.center.querySelector("h1").textContent = "Game over";
-      ui.center.querySelector("p").textContent = "Je score is opgeslagen in de lokale leaderboard.";
+      ui.center.querySelector("p").textContent = "Je score is opgeslagen in de online leaderboard.";
       ui.startBtn.style.display = "none";
       ui.restartBtn.style.display = "";
       if(document.pointerLockElement === renderer.domElement) document.exitPointerLock();
@@ -12118,100 +12120,146 @@ def handle_500(err):
         return jsonify(ok=False, error="server_error", request_id=getattr(g, "request_id", None)), 500
     return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>500</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>500</h1><p>Er ging iets mis op de server.</p><p>Referentie: <code>{{ request_id }}</code></p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, request_id=getattr(g, "request_id", "-")), 500
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
-    # =============================
+# =============================
 # ONLINE LEADERBOARD API
 # =============================
+LEADERBOARD_WINDOW_DAYS = 30
+LEADERBOARD_MAX_LIMIT = 50
+LEADERBOARD_SUBMITS_PER_MINUTE = 12
+LEADERBOARD_SCORE_CAP = 10_000_000
+LEADERBOARD_WAVE_CAP = 10_000
+_leaderboard_submit_log = {}
 
-def leaderboard_cutoff_iso(days=30):
+
+def get_client_ip() -> str:
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    return forwarded or (request.remote_addr or "")
+
+
+def leaderboard_cutoff_iso(days: int = LEADERBOARD_WINDOW_DAYS) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def cleanup_old_scores():
+def cleanup_old_scores(days: int = LEADERBOARD_WINDOW_DAYS):
+    cutoff = leaderboard_cutoff_iso(days)
     conn = db()
     try:
-        cutoff = leaderboard_cutoff_iso(30)
+        conn.execute("DELETE FROM leaderboard_scores WHERE created_at < ?", (cutoff,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def leaderboard_rate_limited(ip: str, limit: int = LEADERBOARD_SUBMITS_PER_MINUTE, window_seconds: int = 60) -> bool:
+    now = datetime.now(timezone.utc).timestamp()
+    bucket = _leaderboard_submit_log.setdefault(ip or "unknown", [])
+    cutoff = now - window_seconds
+    bucket[:] = [stamp for stamp in bucket if stamp >= cutoff]
+    if len(bucket) >= limit:
+        return True
+    bucket.append(now)
+    if len(_leaderboard_submit_log) > 5000:
+        stale_before = now - (window_seconds * 2)
+        for key in list(_leaderboard_submit_log.keys()):
+            recent = [stamp for stamp in _leaderboard_submit_log[key] if stamp >= stale_before]
+            if recent:
+                _leaderboard_submit_log[key] = recent
+            else:
+                _leaderboard_submit_log.pop(key, None)
+    return False
+
+
+def normalize_player_name(raw: str) -> str:
+    name = re.sub(r"\s+", " ", (raw or "Speler").strip())[:18]
+    return name or "Speler"
+
+
+def safe_int(value, default=0, minimum=0, maximum=None):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+@app.route("/api/leaderboard/submit", methods=["POST"])
+def leaderboard_submit():
+    data = request.get_json(silent=True) or {}
+    score = safe_int(data.get("score"), default=0, minimum=0, maximum=LEADERBOARD_SCORE_CAP)
+    wave = safe_int(data.get("wave"), default=0, minimum=0, maximum=LEADERBOARD_WAVE_CAP)
+    name = normalize_player_name(data.get("name"))
+
+    if score <= 0:
+        return jsonify({"ok": False, "error": "invalid_score"}), 400
+
+    ip = get_client_ip()
+    if leaderboard_rate_limited(ip):
+        return jsonify({"ok": False, "error": "rate_limited"}), 429
+
+    conn = db()
+    try:
         conn.execute(
-            "DELETE FROM leaderboard_scores WHERE created_at < ?",
-            (cutoff,)
+            """
+            INSERT INTO leaderboard_scores
+            (player_name, score, wave, created_at, ip, user_agent)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                name,
+                score,
+                wave,
+                datetime.now(timezone.utc).isoformat(),
+                ip,
+                (request.headers.get("User-Agent") or "")[:200],
+            ),
         )
         conn.commit()
     finally:
         conn.close()
 
-
-@app.route("/api/leaderboard/submit", methods=["POST"])
-def leaderboard_submit():
-
-    data = request.get_json(silent=True) or {}
-
-    name = (data.get("name") or "Speler").strip()[:18]
-    score = int(data.get("score") or 0)
-    wave = int(data.get("wave") or 0)
-
-    if score <= 0:
-        return jsonify({"ok": False})
-
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "")
-    user_agent = request.headers.get("User-Agent", "")[:200]
-
-    conn = db()
-
-    try:
-        conn.execute("""
-            INSERT INTO leaderboard_scores
-            (player_name, score, wave, created_at, ip, user_agent)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            name,
-            score,
-            wave,
-            datetime.now(timezone.utc).isoformat(),
-            ip,
-            user_agent
-        ))
-
-        conn.commit()
-
-    finally:
-        conn.close()
-
     cleanup_old_scores()
-
     return jsonify({"ok": True})
 
 
 @app.route("/api/leaderboard/top")
 def leaderboard_top():
-
-    limit = min(int(request.args.get("limit", 10)), 50)
-
-    cutoff = leaderboard_cutoff_iso(30)
+    limit = safe_int(request.args.get("limit", 10), default=10, minimum=1, maximum=LEADERBOARD_MAX_LIMIT)
+    cutoff = leaderboard_cutoff_iso()
 
     conn = db()
-
     try:
-        rows = conn.execute("""
-            SELECT player_name, score, wave
+        rows = conn.execute(
+            """
+            SELECT player_name, score, wave, MIN(created_at) AS created_at
             FROM leaderboard_scores
             WHERE created_at >= ?
-            ORDER BY score DESC, wave DESC
+            GROUP BY player_name, score, wave
+            ORDER BY score DESC, wave DESC, created_at ASC
             LIMIT ?
-        """, (cutoff, limit)).fetchall()
-
+            """,
+            (cutoff, limit),
+        ).fetchall()
     finally:
         conn.close()
 
-    return jsonify({
-        "rows": [
-            {
-                "name": r["player_name"],
-                "score": r["score"],
-                "wave": r["wave"]
-            }
-            for r in rows
-        ]
-    })
+    return jsonify(
+        {
+            "rows": [
+                {
+                    "name": r["player_name"],
+                    "score": r["score"],
+                    "wave": r["wave"],
+                }
+                for r in rows
+            ]
+        }
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
