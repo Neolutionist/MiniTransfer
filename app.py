@@ -2949,7 +2949,7 @@ canvas{ display:block; }
 
 <div id="centerMessage">
   <h1>Downloadlink verlopen</h1>
-  <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten en een lokale leaderboard op dit apparaat.</p>
+  <p>Speel ondertussen de nieuwe arcade challenge om woede en frustratie te verminderen!</p>
 
   <div id="nameRow">
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
