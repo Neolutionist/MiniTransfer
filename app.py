@@ -7638,18 +7638,29 @@ function shootWithDirection(dirOverride=null){
     style.id = "ohHudRebuildStyles";
     style.textContent = `
       :root{
-        --hud-gap: 12px;
-        --hud-radius: 18px;
-        --hud-panel: linear-gradient(180deg, rgba(10,12,24,.82), rgba(14,9,30,.68));
-        --hud-border: rgba(255,255,255,.12);
-        --hud-shadow: 0 16px 34px rgba(0,0,0,.30), 0 0 24px rgba(0,247,255,.06);
-        --hud-blur: blur(14px) saturate(1.08);
         --hud-top: calc(12px + env(safe-area-inset-top));
-        --hud-side: max(12px, env(safe-area-inset-left));
-        --hud-side-right: max(12px, env(safe-area-inset-right));
+        --hud-bottom: calc(12px + env(safe-area-inset-bottom));
+        --hud-left: max(12px, env(safe-area-inset-left));
+        --hud-right: max(12px, env(safe-area-inset-right));
+
+        --panel-bg: linear-gradient(180deg, rgba(8,12,24,.92), rgba(10,14,30,.84));
+        --panel-border: rgba(255,255,255,.12);
+        --panel-border-strong: rgba(255,255,255,.20);
+        --panel-glow: 0 18px 40px rgba(0,0,0,.34), 0 0 24px rgba(0,247,255,.06);
+        --panel-blur: blur(14px) saturate(1.08);
+
+        --text-soft: rgba(255,255,255,.72);
+        --text-mid: rgba(255,255,255,.86);
+        --accent: #00f7ff;
+        --accent-2: #ff4fd8;
+        --good: #62ffb0;
+        --danger: #ff6b88;
       }
 
-      /* ===== BASISLAYOUT ===== */
+      body.oh-hud-rebuild{
+        --mobile-bottom-stack: 188px;
+      }
+
       #ui,
       #nemesisHud,
       #apocHud,
@@ -7657,18 +7668,20 @@ function shootWithDirection(dirOverride=null){
       #minimapWrap,
       #weaponBar,
       #abilityDock,
-      #mobileControls,
-      #tapHint{
+      #tapHint,
+      #mobileControls{
         transition:
           top .18s ease,
-          left .18s ease,
           right .18s ease,
+          left .18s ease,
           bottom .18s ease,
           width .18s ease,
+          height .18s ease,
           transform .18s ease,
           opacity .18s ease;
       }
 
+      /* ===== TOP CENTER COMMAND PANEL ===== */
       body.oh-hud-rebuild #ui{
         position: fixed !important;
         top: var(--hud-top) !important;
@@ -7676,51 +7689,65 @@ function shootWithDirection(dirOverride=null){
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(720px, calc(100vw - 360px)) !important;
-        min-width: min(520px, calc(100vw - 40px)) !important;
-        max-width: calc(100vw - 40px) !important;
-        padding: 12px 14px !important;
-        border-radius: 20px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
+        width: min(920px, calc(100vw - 380px)) !important;
+        min-width: min(760px, calc(100vw - 32px)) !important;
+        max-width: calc(100vw - 32px) !important;
+        padding: 14px 16px !important;
+        border-radius: 22px !important;
+        background: var(--panel-bg) !important;
+        border: 1px solid var(--panel-border) !important;
+        box-shadow: var(--panel-glow) !important;
+        backdrop-filter: var(--panel-blur) !important;
         z-index: 30 !important;
         pointer-events: none !important;
+        overflow: hidden !important;
+      }
+
+      body.oh-hud-rebuild #ui::before{
+        content:"" !important;
+        position:absolute !important;
+        inset:0 !important;
+        border-radius:inherit !important;
+        pointer-events:none !important;
+        background:
+          radial-gradient(circle at 10% 0%, rgba(0,247,255,.12), transparent 30%),
+          radial-gradient(circle at 100% 0%, rgba(255,79,216,.10), transparent 28%),
+          linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)) !important;
       }
 
       body.oh-hud-rebuild #brand{
-        margin-bottom: 10px !important;
+        position: relative !important;
+        z-index: 1 !important;
         display:flex !important;
         align-items:center !important;
-        gap:10px !important;
+        gap:12px !important;
+        margin-bottom: 12px !important;
       }
 
       body.oh-hud-rebuild #brandMark{
-        width: 40px !important;
-        height: 40px !important;
-        border-radius: 12px !important;
+        width: 46px !important;
+        height: 46px !important;
+        border-radius: 14px !important;
         flex: 0 0 auto !important;
-      }
-
-      body.oh-hud-rebuild #brandText{
-        min-width: 0 !important;
+        box-shadow: 0 0 18px rgba(0,247,255,.10) !important;
       }
 
       body.oh-hud-rebuild #brandText b{
         display:block !important;
-        font-size: 14px !important;
-        line-height: 1.1 !important;
+        font-size: 16px !important;
+        line-height: 1.05 !important;
+        letter-spacing: .04em !important;
       }
 
       body.oh-hud-rebuild #brandText span{
         display:block !important;
         font-size: 11px !important;
-        opacity:.82 !important;
-        line-height: 1.15 !important;
+        color: var(--text-soft) !important;
       }
 
       body.oh-hud-rebuild #hud{
+        position: relative !important;
+        z-index: 1 !important;
         display:grid !important;
         grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
         gap: 8px !important;
@@ -7728,21 +7755,24 @@ function shootWithDirection(dirOverride=null){
 
       body.oh-hud-rebuild .stat{
         min-width: 0 !important;
-        padding: 9px 10px !important;
+        padding: 10px 10px !important;
         border-radius: 14px !important;
-        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035)) !important;
-        border: 1px solid rgba(255,255,255,.08) !important;
-        box-shadow: inset 0 0 14px rgba(255,255,255,.02) !important;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04)) !important;
+        border: 1px solid rgba(255,255,255,.09) !important;
+        box-shadow:
+          inset 0 0 14px rgba(255,255,255,.02),
+          0 8px 16px rgba(0,0,0,.12) !important;
       }
 
       body.oh-hud-rebuild .stat .label{
         display:block !important;
+        margin-bottom: 5px !important;
         font-size: 10px !important;
-        line-height: 1.05 !important;
+        line-height: 1 !important;
+        letter-spacing: .08em !important;
         text-transform: uppercase !important;
-        letter-spacing: .06em !important;
-        color: rgba(255,255,255,.70) !important;
-        margin-bottom: 4px !important;
+        color: var(--text-soft) !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
@@ -7750,74 +7780,87 @@ function shootWithDirection(dirOverride=null){
 
       body.oh-hud-rebuild .stat .value{
         display:block !important;
-        font-size: 17px !important;
+        font-size: 18px !important;
         line-height: 1 !important;
         font-weight: 900 !important;
+        color: #fff !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
       }
 
-      /* ===== NEMESIS LINKS ===== */
+      body.oh-hud-rebuild .stat:nth-child(1),
+      body.oh-hud-rebuild .stat:nth-child(2),
+      body.oh-hud-rebuild .stat:nth-child(3){
+        border-color: rgba(0,247,255,.16) !important;
+        background:
+          linear-gradient(180deg, rgba(0,247,255,.10), rgba(255,255,255,.04)) !important;
+      }
+
+      /* ===== LEFT INTEL PANEL ===== */
       body.oh-hud-rebuild #nemesisHud{
         position: fixed !important;
         top: var(--hud-top) !important;
-        left: var(--hud-side) !important;
+        left: var(--hud-left) !important;
         right: auto !important;
         bottom: auto !important;
-        width: min(300px, calc(50vw - 28px)) !important;
-        z-index: 29 !important;
+        width: min(300px, calc(50vw - 36px)) !important;
         display:flex !important;
         flex-direction:column !important;
         gap:10px !important;
-        pointer-events:none !important;
+        z-index: 29 !important;
+        pointer-events: none !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-card{
+        padding: 12px 13px !important;
         border-radius: 18px !important;
-        padding: 11px 12px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
+        background: var(--panel-bg) !important;
+        border: 1px solid var(--panel-border) !important;
+        box-shadow: var(--panel-glow) !important;
+        backdrop-filter: var(--panel-blur) !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-title{
         font-size: 10px !important;
+        letter-spacing: .08em !important;
+        text-transform: uppercase !important;
+        color: var(--text-soft) !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-main{
-        font-size: 14px !important;
+        font-size: 15px !important;
         gap: 10px !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-sub{
         font-size: 11px !important;
-        line-height: 1.25 !important;
+        line-height: 1.3 !important;
+        color: var(--text-mid) !important;
       }
 
-      /* ===== APOC RECHTS ===== */
+      /* ===== RIGHT SIDE PANEL ===== */
       body.oh-hud-rebuild #apocHud{
         position: fixed !important;
         top: var(--hud-top) !important;
-        right: var(--hud-side-right) !important;
+        right: var(--hud-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: min(300px, calc(50vw - 28px)) !important;
-        z-index: 29 !important;
+        width: min(300px, calc(50vw - 36px)) !important;
         display:flex !important;
         flex-direction:column !important;
         gap:10px !important;
-        pointer-events:none !important;
+        z-index: 29 !important;
+        pointer-events: none !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-card{
+        padding: 12px 13px !important;
         border-radius: 18px !important;
-        padding: 11px 12px !important;
-        background: var(--hud-panel) !important;
-        border: 1px solid var(--hud-border) !important;
-        box-shadow: var(--hud-shadow) !important;
-        backdrop-filter: var(--hud-blur) !important;
+        background: var(--panel-bg) !important;
+        border: 1px solid var(--panel-border) !important;
+        box-shadow: var(--panel-glow) !important;
+        backdrop-filter: var(--panel-blur) !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-row{
@@ -7826,168 +7869,133 @@ function shootWithDirection(dirOverride=null){
 
       body.oh-hud-rebuild #apocHud .apoc-sub{
         font-size: 11px !important;
-        line-height: 1.25 !important;
+        line-height: 1.3 !important;
+        color: var(--text-mid) !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-btn{
         font-size: 11px !important;
-        padding: .72rem .85rem !important;
+        padding: .72rem .86rem !important;
+        border-radius: 14px !important;
       }
 
-      /* ===== BOSS BAR LOS VAN ALLE PANELS ===== */
+      /* ===== CENTER BOSS BAR ===== */
       body.oh-hud-rebuild #bossBarWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 126px) !important;
+        top: calc(var(--hud-top) + 132px) !important;
         left: 50% !important;
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(560px, calc(100vw - 60px)) !important;
+        width: min(640px, calc(100vw - 80px)) !important;
         z-index: 28 !important;
       }
 
-      /* ===== MINIMAP RECHTSONDER HOEK BOVEN ===== */
+      /* ===== RIGHT MID MINIMAP ===== */
       body.oh-hud-rebuild #minimapWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 150px) !important;
-        right: var(--hud-side-right) !important;
+        top: calc(var(--hud-top) + 148px) !important;
+        right: var(--hud-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: 118px !important;
-        height: 118px !important;
-        border-radius: 18px !important;
+        width: 220px !important;
+        height: 260px !important;
+        border-radius: 22px !important;
         z-index: 28 !important;
       }
 
-      body.oh-hud-rebuild #minimapLabel{
-        font-size: 10px !important;
-      }
-
-      /* ===== WEAPON EN ABILITIES ===== */
+      /* ===== BOTTOM CENTER WEAPON BAR ===== */
       body.oh-hud-rebuild #weaponBar{
         position: fixed !important;
         left: 50% !important;
         right: auto !important;
-        bottom: calc(16px + env(safe-area-inset-bottom)) !important;
         top: auto !important;
+        bottom: var(--hud-bottom) !important;
         transform: translateX(-50%) !important;
         z-index: 28 !important;
       }
 
+      /* ===== BOTTOM RIGHT ABILITIES ===== */
       body.oh-hud-rebuild #abilityDock{
         position: fixed !important;
-        right: var(--hud-side-right) !important;
+        right: var(--hud-right) !important;
         left: auto !important;
-        bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
         top: auto !important;
+        bottom: calc(var(--hud-bottom) + 86px) !important;
         z-index: 28 !important;
         gap: 10px !important;
       }
 
       body.oh-hud-rebuild .ability-btn{
-        min-width: 82px !important;
+        min-width: 84px !important;
+        min-height: 52px !important;
         border-radius: 16px !important;
+        padding: 10px 12px !important;
+        font-size: 12px !important;
+        font-weight: 800 !important;
       }
 
-      /* ===== TAPHINT / MOBILE ===== */
       body.oh-hud-rebuild #tapHint{
-        right: var(--hud-side-right) !important;
-        bottom: calc(16px + env(safe-area-inset-bottom) + 206px) !important;
+        right: var(--hud-right) !important;
+        left: auto !important;
+        bottom: calc(var(--hud-bottom) + 208px) !important;
         z-index: 28 !important;
+        font-size: 12px !important;
       }
 
       body.oh-hud-rebuild #mobileControls{
         z-index: 27 !important;
       }
 
-      /* ===== DESKTOP / MID ===== */
+      /* ===== LAPTOP / SMALL DESKTOP ===== */
       @media (max-width: 1280px){
         body.oh-hud-rebuild #ui{
-          width: min(620px, calc(100vw - 330px)) !important;
-          min-width: min(460px, calc(100vw - 40px)) !important;
+          width: min(780px, calc(100vw - 340px)) !important;
+          min-width: min(620px, calc(100vw - 24px)) !important;
         }
+
         body.oh-hud-rebuild #hud{
           grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
         }
-      }
 
-      @media (max-width: 1080px){
-        body.oh-hud-rebuild #ui{
-          width: min(560px, calc(100vw - 40px)) !important;
-          min-width: 0 !important;
-        }
         body.oh-hud-rebuild #nemesisHud,
         body.oh-hud-rebuild #apocHud{
-          width: min(260px, calc(50vw - 22px)) !important;
-        }
-        body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 144px) !important;
-        }
-        body.oh-hud-rebuild #minimapWrap{
-          top: calc(var(--hud-top) + 320px) !important;
-          width: 104px !important;
-          height: 104px !important;
-        }
-      }
-
-      /* ===== TABLET / SMAL ===== */
-      @media (max-width: 860px){
-        body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 170px) !important;
-          width: calc(100vw - 20px) !important;
-          transform: translateX(-50%) !important;
-        }
-
-        body.oh-hud-rebuild #nemesisHud{
-          left: 10px !important;
-          top: var(--hud-top) !important;
-          width: calc(50vw - 15px) !important;
-        }
-
-        body.oh-hud-rebuild #apocHud{
-          right: 10px !important;
-          top: var(--hud-top) !important;
-          width: calc(50vw - 15px) !important;
+          width: min(260px, calc(50vw - 24px)) !important;
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 124px) !important;
-          width: calc(100vw - 20px) !important;
+          width: min(580px, calc(100vw - 60px)) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
-          top: auto !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 164px) !important;
-          right: 10px !important;
-          width: 96px !important;
-          height: 96px !important;
-        }
-
-        body.oh-hud-rebuild #abilityDock{
-          right: 10px !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
+          width: 188px !important;
+          height: 226px !important;
         }
       }
 
-      /* ===== MOBIEL ===== */
-      @media (max-width: 640px){
+      /* ===== TABLET PORTRAIT / SMALL LANDSCAPE ===== */
+      @media (max-width: 980px){
+        body.oh-hud-rebuild{
+          --mobile-bottom-stack: 174px;
+        }
+
         body.oh-hud-rebuild #nemesisHud{
           top: var(--hud-top) !important;
-          left: 8px !important;
-          width: calc(50vw - 12px) !important;
-          gap: 8px !important;
+          left: var(--hud-left) !important;
+          width: calc(50vw - 18px) !important;
+          gap:8px !important;
         }
 
         body.oh-hud-rebuild #apocHud{
           top: var(--hud-top) !important;
-          right: 8px !important;
-          width: calc(50vw - 12px) !important;
-          gap: 8px !important;
+          right: var(--hud-right) !important;
+          width: calc(50vw - 18px) !important;
+          gap:8px !important;
         }
 
         body.oh-hud-rebuild #nemesisHud .nem-card,
         body.oh-hud-rebuild #apocHud .apoc-card{
-          padding: 9px 10px !important;
+          padding: 10px 10px !important;
           border-radius: 16px !important;
         }
 
@@ -8002,34 +8010,13 @@ function shootWithDirection(dirOverride=null){
           font-size: 12px !important;
         }
 
-        body.oh-hud-rebuild #apocHud .apoc-btn{
-          font-size: 10px !important;
-          padding: .62rem .72rem !important;
-        }
-
         body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 160px) !important;
-          width: calc(100vw - 16px) !important;
-          padding: 10px !important;
-          border-radius: 16px !important;
-        }
-
-        body.oh-hud-rebuild #brand{
-          margin-bottom: 8px !important;
-        }
-
-        body.oh-hud-rebuild #brandMark{
-          width: 34px !important;
-          height: 34px !important;
-          border-radius: 10px !important;
-        }
-
-        body.oh-hud-rebuild #brandText b{
-          font-size: 12px !important;
-        }
-
-        body.oh-hud-rebuild #brandText span{
-          font-size: 10px !important;
+          top: calc(var(--hud-top) + 132px) !important;
+          width: calc(100vw - 20px) !important;
+          min-width: 0 !important;
+          max-width: calc(100vw - 20px) !important;
+          padding: 12px !important;
+          border-radius: 18px !important;
         }
 
         body.oh-hud-rebuild #hud{
@@ -8038,68 +8025,79 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild .stat{
-          padding: 8px 8px !important;
+          padding: 9px 8px !important;
           border-radius: 12px !important;
         }
 
         body.oh-hud-rebuild .stat .label{
           font-size: 9px !important;
-          margin-bottom: 3px !important;
+          margin-bottom: 4px !important;
         }
 
         body.oh-hud-rebuild .stat .value{
-          font-size: 14px !important;
+          font-size: 15px !important;
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 114px) !important;
-          width: calc(100vw - 16px) !important;
+          top: calc(var(--hud-top) + 102px) !important;
+          width: calc(100vw - 20px) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
-          width: 84px !important;
-          height: 84px !important;
-          bottom: calc(14px + env(safe-area-inset-bottom) + 176px) !important;
-          border-radius: 14px !important;
+          top: auto !important;
+          right: var(--hud-right) !important;
+          bottom: calc(var(--hud-bottom) + var(--mobile-bottom-stack)) !important;
+          width: 158px !important;
+          height: 192px !important;
+          border-radius: 18px !important;
         }
 
         body.oh-hud-rebuild #weaponBar{
-          bottom: calc(8px + env(safe-area-inset-bottom)) !important;
-          transform: translateX(-50%) scale(.94) !important;
-          transform-origin: center bottom !important;
+          bottom: calc(var(--hud-bottom) + 2px) !important;
+          transform: translateX(-50%) scale(1) !important;
         }
 
         body.oh-hud-rebuild #abilityDock{
-          right: 8px !important;
-          bottom: calc(8px + env(safe-area-inset-bottom) + 76px) !important;
+          right: var(--hud-right) !important;
+          bottom: calc(var(--hud-bottom) + 76px) !important;
           gap: 8px !important;
         }
 
         body.oh-hud-rebuild .ability-btn{
-          min-width: 68px !important;
-          padding: 8px 10px !important;
+          min-width: 72px !important;
+          min-height: 48px !important;
           border-radius: 14px !important;
+          font-size: 11px !important;
+        }
+
+        body.oh-hud-rebuild #tapHint{
+          right: var(--hud-right) !important;
+          bottom: calc(var(--hud-bottom) + 182px) !important;
           font-size: 11px !important;
         }
       }
 
-      /* ===== LANDSCAPE PHONE / COMPACT ===== */
-      @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px){
+      /* ===== PHONE ===== */
+      @media (max-width: 640px){
+        body.oh-hud-rebuild{
+          --mobile-bottom-stack: 168px;
+        }
+
         body.oh-hud-rebuild #nemesisHud{
-          top: calc(8px + env(safe-area-inset-top)) !important;
-          left: 8px !important;
-          width: min(220px, 28vw) !important;
+          top: var(--hud-top) !important;
+          left: var(--hud-left) !important;
+          width: calc(50vw - 14px) !important;
         }
 
         body.oh-hud-rebuild #apocHud{
-          top: calc(8px + env(safe-area-inset-top)) !important;
-          right: 8px !important;
-          width: min(220px, 28vw) !important;
+          top: var(--hud-top) !important;
+          right: var(--hud-right) !important;
+          width: calc(50vw - 14px) !important;
         }
 
         body.oh-hud-rebuild #nemesisHud .nem-card,
         body.oh-hud-rebuild #apocHud .apoc-card{
-          padding: 8px 9px !important;
+          padding: 8px 8px !important;
           border-radius: 14px !important;
         }
 
@@ -8116,20 +8114,158 @@ function shootWithDirection(dirOverride=null){
 
         body.oh-hud-rebuild #apocHud .apoc-btn{
           font-size: 9px !important;
-          padding: .55rem .6rem !important;
+          padding: .56rem .62rem !important;
+        }
+
+        body.oh-hud-rebuild #ui{
+          top: calc(var(--hud-top) + 106px) !important;
+          width: calc(100vw - 14px) !important;
+          max-width: calc(100vw - 14px) !important;
+          padding: 10px !important;
+          border-radius: 16px !important;
+        }
+
+        body.oh-hud-rebuild #brand{
+          gap: 9px !important;
+          margin-bottom: 8px !important;
+        }
+
+        body.oh-hud-rebuild #brandMark{
+          width: 36px !important;
+          height: 36px !important;
+          border-radius: 11px !important;
+        }
+
+        body.oh-hud-rebuild #brandText b{
+          font-size: 13px !important;
+        }
+
+        body.oh-hud-rebuild #brandText span{
+          display:none !important;
+        }
+
+        body.oh-hud-rebuild #hud{
+          grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          gap: 5px !important;
+        }
+
+        body.oh-hud-rebuild .stat{
+          padding: 8px 7px !important;
+          border-radius: 11px !important;
+        }
+
+        body.oh-hud-rebuild .stat .label{
+          font-size: 8px !important;
+        }
+
+        body.oh-hud-rebuild .stat .value{
+          font-size: 14px !important;
+        }
+
+        body.oh-hud-rebuild #bossBarWrap{
+          top: calc(var(--hud-top) + 82px) !important;
+          width: calc(100vw - 14px) !important;
+        }
+
+        body.oh-hud-rebuild #minimapWrap{
+          width: 138px !important;
+          height: 170px !important;
+          bottom: calc(var(--hud-bottom) + 162px) !important;
+          border-radius: 16px !important;
+        }
+
+        body.oh-hud-rebuild #weaponBar{
+          bottom: var(--hud-bottom) !important;
+          transform: translateX(-50%) scale(.96) !important;
+          transform-origin: center bottom !important;
+        }
+
+        body.oh-hud-rebuild #abilityDock{
+          right: var(--hud-right) !important;
+          bottom: calc(var(--hud-bottom) + 68px) !important;
+          gap: 7px !important;
+        }
+
+        body.oh-hud-rebuild .ability-btn{
+          min-width: 64px !important;
+          min-height: 44px !important;
+          padding: 8px 9px !important;
+          border-radius: 13px !important;
+          font-size: 10px !important;
+        }
+
+        body.oh-hud-rebuild #tapHint{
+          right: var(--hud-right) !important;
+          bottom: calc(var(--hud-bottom) + 166px) !important;
+          font-size: 10px !important;
+        }
+      }
+
+      /* ===== PHONE LANDSCAPE ===== */
+      @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px){
+        body.oh-hud-rebuild{
+          --mobile-bottom-stack: 112px;
+        }
+
+        body.oh-hud-rebuild #nemesisHud{
+          top: calc(8px + env(safe-area-inset-top)) !important;
+          left: 8px !important;
+          width: min(220px, 28vw) !important;
+        }
+
+        body.oh-hud-rebuild #apocHud{
+          top: calc(8px + env(safe-area-inset-top)) !important;
+          right: 8px !important;
+          width: min(220px, 28vw) !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-card,
+        body.oh-hud-rebuild #apocHud .apoc-card{
+          padding: 7px 8px !important;
+          border-radius: 12px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-title,
+        body.oh-hud-rebuild #nemesisHud .nem-sub,
+        body.oh-hud-rebuild #apocHud .apoc-sub{
+          font-size: 8px !important;
+        }
+
+        body.oh-hud-rebuild #nemesisHud .nem-main,
+        body.oh-hud-rebuild #apocHud .apoc-row{
+          font-size: 10px !important;
+        }
+
+        body.oh-hud-rebuild #apocHud .apoc-btn{
+          font-size: 8px !important;
+          padding: .46rem .52rem !important;
         }
 
         body.oh-hud-rebuild #ui{
           top: calc(8px + env(safe-area-inset-top)) !important;
-          width: min(46vw, 360px) !important;
-          left: 50% !important;
-          transform: translateX(-50%) !important;
+          width: min(50vw, 390px) !important;
+          max-width: min(50vw, 390px) !important;
+          min-width: 0 !important;
           padding: 8px !important;
           border-radius: 14px !important;
         }
 
+        body.oh-hud-rebuild #brand{
+          margin-bottom: 6px !important;
+        }
+
+        body.oh-hud-rebuild #brandMark{
+          width: 28px !important;
+          height: 28px !important;
+          border-radius: 9px !important;
+        }
+
+        body.oh-hud-rebuild #brandText b{
+          font-size: 11px !important;
+        }
+
         body.oh-hud-rebuild #brandText span{
-          display: none !important;
+          display:none !important;
         }
 
         body.oh-hud-rebuild #hud{
@@ -8143,7 +8279,7 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild .stat .label{
-          font-size: 8px !important;
+          font-size: 7px !important;
           margin-bottom: 2px !important;
         }
 
@@ -8152,43 +8288,44 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(8px + env(safe-area-inset-top) + 88px) !important;
-          width: min(40vw, 320px) !important;
+          top: calc(8px + env(safe-area-inset-top) + 68px) !important;
+          width: min(46vw, 340px) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
-          top: calc(8px + env(safe-area-inset-top) + 94px) !important;
+          top: auto !important;
+          bottom: calc(8px + env(safe-area-inset-bottom) + 96px) !important;
           right: 8px !important;
-          bottom: auto !important;
-          width: 88px !important;
-          height: 88px !important;
+          width: 110px !important;
+          height: 132px !important;
+          border-radius: 14px !important;
         }
 
         body.oh-hud-rebuild #weaponBar{
           bottom: 6px !important;
-          transform: translateX(-50%) scale(.9) !important;
+          transform: translateX(-50%) scale(.90) !important;
         }
 
         body.oh-hud-rebuild #abilityDock{
           right: 8px !important;
-          bottom: 112px !important;
+          bottom: 56px !important;
           gap: 6px !important;
         }
 
         body.oh-hud-rebuild .ability-btn{
-          min-width: 60px !important;
-          padding: 7px 8px !important;
-          font-size: 10px !important;
+          min-width: 56px !important;
+          min-height: 38px !important;
+          padding: 6px 8px !important;
+          font-size: 9px !important;
         }
 
         body.oh-hud-rebuild #tapHint{
           right: 8px !important;
-          bottom: 78px !important;
-          font-size: 10px !important;
+          bottom: 144px !important;
+          font-size: 9px !important;
         }
       }
 
-      /* ===== VEILIGHEID: compact labels als panelen toch te klein zijn ===== */
       body.oh-hud-rebuild.oh-hud-tight #brandText span{
         display:none !important;
       }
@@ -8200,28 +8337,36 @@ function shootWithDirection(dirOverride=null){
     document.head.appendChild(style);
   }
 
-  function tightenHudIfNeeded(){
-    const ui = document.getElementById("ui");
-    if(!ui) return;
-
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const tight = vw < 980 || vh < 620;
-    document.body.classList.toggle("oh-hud-tight", tight);
-  }
-
   function normalizeHudPanels(){
     const ui = document.getElementById("ui");
     const nem = document.getElementById("nemesisHud");
     const apoc = document.getElementById("apocHud");
     const boss = document.getElementById("bossBarWrap");
     const map = document.getElementById("minimapWrap");
+    const weaponBar = document.getElementById("weaponBar");
+    const abilityDock = document.getElementById("abilityDock");
 
     if(ui) ui.style.pointerEvents = "none";
     if(nem) nem.style.pointerEvents = "none";
     if(apoc) apoc.style.pointerEvents = "none";
     if(boss) boss.style.pointerEvents = "none";
     if(map) map.style.pointerEvents = "none";
+
+    if(weaponBar){
+      weaponBar.style.left = "";
+      weaponBar.style.right = "";
+      weaponBar.style.top = "";
+    }
+
+    if(abilityDock){
+      abilityDock.style.left = "";
+      abilityDock.style.top = "";
+    }
+  }
+
+  function tightenHudIfNeeded(){
+    const tight = window.innerWidth < 1120 || window.innerHeight < 720;
+    document.body.classList.toggle("oh-hud-tight", tight);
   }
 
   function rebuildHud(){
