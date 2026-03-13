@@ -10191,6 +10191,371 @@ function shootWithDirection(dirOverride=null){
   showFloating("OH named skills online");
 })();
 
+/* ==========================================
+   OH NAMED ENEMY EXTRA PATCH
+   Patrick vlucht echt weg
+   Jan schiet boeken
+   Kevin zwart pak
+   Pieter death = sting + 3s freeze
+   Plak DIT HELE BLOK onderaan je code
+   ========================================== */
+(() => {
+  function ohFindNamedEnemy(enemy){
+    return enemy?.enemyName || enemy?.mesh?.userData?.enemyName || "";
+  }
+
+  function ohAddFreezeOverlay(){
+    if(document.getElementById("ohFreezeOverlay")) return;
+
+    const overlay = document.createElement("div");
+    overlay.id = "ohFreezeOverlay";
+    overlay.style.cssText = `
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background:radial-gradient(circle at 50% 40%, rgba(255,210,120,.10), rgba(0,0,0,.56));
+      backdrop-filter: blur(3px);
+      z-index:9999;
+      pointer-events:none;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:#fff5d2;
+      font-weight:900;
+      font-size:min(5vw,32px);
+      text-shadow:0 0 24px rgba(255,209,102,.25);
+    `;
+    overlay.textContent = "PIETER DOWN";
+    document.body.appendChild(overlay);
+  }
+
+  function ohSetFreeze(active){
+    ohAddFreezeOverlay();
+    const overlay = document.getElementById("ohFreezeOverlay");
+    if(overlay) overlay.style.display = active ? "flex" : "none";
+  }
+
+  function ohFreezeGame(seconds = 3){
+    state.ohFreezeUntil = performance.now() + seconds * 1000;
+    ohSetFreeze(true);
+    flashHint?.(`Pieter down — ${seconds} sec pauze`, seconds * 1000);
+    createShockwave?.(player.pos.clone(), 0xffd166, 2.8);
+  }
+
+  function ohFreezeActive(){
+    const active = (state.ohFreezeUntil || 0) > performance.now();
+    if(!active) ohSetFreeze(false);
+    return active;
+  }
+
+  function ohPieterSting(){
+    if(typeof audioCtx === "undefined" || !audioCtx) return;
+
+    const t = audioCtx.currentTime + 0.01;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      osc.type = i < 2 ? "sawtooth" : "triangle";
+      osc.frequency.setValueAtTime(freq, t + i * 0.09);
+
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1800, t + i * 0.09);
+
+      gain.gain.setValueAtTime(0.0001, t + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.06, t + i * 0.09 + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.09 + 0.26);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(t + i * 0.09);
+      osc.stop(t + i * 0.09 + 0.28);
+    });
+  }
+
+  function ohMakeBookProjectile(start, dir){
+    const proj = createProjectile(start, dir, {
+      speed: 11.5,
+      friendly: false,
+      color: 0x6f4328,
+      size: 0.16,
+      life: 3.2,
+      damage: 14,
+      type: "enemy_book"
+    });
+
+    if(proj?.mesh){
+      scene.remove(proj.mesh);
+
+      const book = new THREE.Group();
+
+      const cover = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.10, 0.46),
+        new THREE.MeshStandardMaterial({
+          color: 0x7a3d18,
+          roughness: 0.82,
+          metalness: 0.04
+        })
+      );
+
+      const pages = new THREE.Mesh(
+        new THREE.BoxGeometry(0.28, 0.07, 0.40),
+        new THREE.MeshStandardMaterial({
+          color: 0xe8dfc8,
+          roughness: 0.95,
+          metalness: 0.0
+        })
+      );
+      pages.position.y = 0.01;
+
+      const spine = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.11, 0.46),
+        new THREE.MeshStandardMaterial({
+          color: 0x3a1f12,
+          roughness: 0.8,
+          metalness: 0.05
+        })
+      );
+      spine.position.x = -0.145;
+
+      const title = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.012, 0.20),
+        new THREE.MeshStandardMaterial({
+          color: 0xffd166,
+          emissive: 0x7a5e10,
+          emissiveIntensity: 0.24,
+          roughness: 0.4,
+          metalness: 0.15
+        })
+      );
+      title.position.set(0.03, 0.056, 0.00);
+
+      book.add(cover, pages, spine, title);
+      book.position.copy(start);
+      book.rotation.set(rand(-0.5, 0.5), rand(-0.5, 0.5), rand(-0.5, 0.5));
+      scene.add(book);
+
+      proj.mesh = book;
+      proj.spin = rand(9, 16);
+      proj.damage = 18;
+      proj.trailColor = 0xffd166;
+      proj.explosionColor = 0xffd166;
+    }
+
+    return proj;
+  }
+
+  function ohStyleKevin(enemy){
+    if(!enemy?.mesh || enemy.__ohKevinStyled) return;
+    if(ohFindNamedEnemy(enemy) !== "Kevin") return;
+
+    const parts = enemy.mesh.userData?.parts || {};
+
+    const darkSuit = new THREE.Color(0x101114);
+    const darker = new THREE.Color(0x07080a);
+    const trim = new THREE.Color(0xd7dde7);
+
+    const recolorMat = (mat, color, emissive = null, emissiveIntensity = null) => {
+      if(!mat) return;
+      if(mat.color) mat.color.copy(color);
+      if(emissive && mat.emissive) mat.emissive.copy(emissive);
+      if(emissiveIntensity != null) mat.emissiveIntensity = emissiveIntensity;
+      mat.needsUpdate = true;
+    };
+
+    recolorMat(parts.torso?.material, darkSuit, darker, 0.18);
+    recolorMat(parts.pelvis?.material, darker, darker, 0.10);
+    recolorMat(parts.armL?.material, darkSuit, darker, 0.12);
+    recolorMat(parts.armR?.material, darkSuit, darker, 0.12);
+    recolorMat(parts.foreArmL?.material, darker, darker, 0.08);
+    recolorMat(parts.foreArmR?.material, darker, darker, 0.08);
+    recolorMat(parts.legL?.material, darker, darker, 0.08);
+    recolorMat(parts.legR?.material, darker, darker, 0.08);
+    recolorMat(parts.shinL?.material, darkSuit, darker, 0.08);
+    recolorMat(parts.shinR?.material, darkSuit, darker, 0.08);
+    recolorMat(parts.bootL?.material, darker, darker, 0.08);
+    recolorMat(parts.bootR?.material, darker, darker, 0.08);
+    recolorMat(parts.chest?.material, trim, new THREE.Color(0x3e4650), 0.12);
+    recolorMat(parts.cape?.material, new THREE.Color(0x111214), new THREE.Color(0x08090b), 0.06);
+    recolorMat(parts.gauntletL?.material, trim, new THREE.Color(0x3e4650), 0.22);
+    recolorMat(parts.gauntletR?.material, trim, new THREE.Color(0x3e4650), 0.22);
+
+    if(parts.logo?.traverse){
+      parts.logo.traverse(obj => {
+        if(obj.material?.color) obj.material.color.setHex(0xf2f6ff);
+        if(obj.material?.emissive) obj.material.emissive.setHex(0x8d98a8);
+        if(obj.material) obj.material.emissiveIntensity = 0.28;
+      });
+    }
+    if(parts.backLogo?.traverse){
+      parts.backLogo.traverse(obj => {
+        if(obj.material?.color) obj.material.color.setHex(0xf2f6ff);
+        if(obj.material?.emissive) obj.material.emissive.setHex(0x8d98a8);
+        if(obj.material) obj.material.emissiveIntensity = 0.22;
+      });
+    }
+
+    if(enemy.groundRing?.material){
+      enemy.groundRing.material.color.setHex(0xc7d0dc);
+      enemy.groundRing.material.opacity = 0.24;
+    }
+
+    enemy.__ohKevinStyled = true;
+  }
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss = false){
+    const before = state.enemies.length;
+    const hadBoss = !!state.boss;
+
+    const result = _spawnEnemy(isBoss);
+
+    let enemy = null;
+    if(isBoss){
+      enemy = state.boss;
+    } else if(state.enemies.length > before){
+      enemy = state.enemies[state.enemies.length - 1];
+    } else if(!hadBoss && isBoss && state.boss){
+      enemy = state.boss;
+    }
+
+    if(enemy){
+      ohStyleKevin(enemy);
+    }
+
+    return result;
+  };
+
+  const _enemyShoot = enemyShoot;
+  enemyShoot = function(enemy){
+    const name = ohFindNamedEnemy(enemy);
+
+    if(name === "Jan"){
+      const start = enemy.mesh.position.clone();
+      start.y = enemy.isBoss ? 2.8 : 2.0;
+
+      const target = player.pos.clone();
+      target.y = 1.3;
+
+      const dir = target.sub(start).normalize();
+      dir.x += rand(-0.04, 0.04);
+      dir.y += rand(-0.02, 0.04);
+      dir.z += rand(-0.04, 0.04);
+      dir.normalize();
+
+      const book = ohMakeBookProjectile(start, dir);
+      state.enemyBullets.push(book);
+
+      createFlash?.(start.clone(), 0xffd166, 1.0, 3.2, 0.05);
+      return;
+    }
+
+    return _enemyShoot(enemy);
+  };
+
+  const _updateEnemies = updateEnemies;
+  updateEnemies = function(dt){
+    if(ohFreezeActive()) return;
+
+    _updateEnemies(dt);
+
+    for(const enemy of state.enemies){
+      if(!enemy?.mesh) continue;
+
+      const name = ohFindNamedEnemy(enemy);
+
+      if(name === "Patrick"){
+        const dx = enemy.mesh.position.x - player.pos.x;
+        const dz = enemy.mesh.position.z - player.pos.z;
+        const dist = Math.hypot(dx, dz) || 1;
+
+        const awayX = dx / dist;
+        const awayZ = dz / dist;
+
+        const targetDist = 26;
+        let fleeMul = 1.35;
+        if(dist < 8) fleeMul = 2.25;
+        else if(dist < 14) fleeMul = 1.85;
+
+        const step = Math.max(3.2, (enemy.speed || 4)) * fleeMul * dt;
+        const nx = enemy.mesh.position.x + awayX * step;
+        const nz = enemy.mesh.position.z + awayZ * step;
+
+        if(!collidesAt(nx, nz, enemy.radius || 1)){
+          enemy.mesh.position.x = nx;
+          enemy.mesh.position.z = nz;
+        } else {
+          const sideX = -awayZ;
+          const sideZ = awayX;
+
+          const sx1 = enemy.mesh.position.x + (awayX + sideX * 0.7) * step;
+          const sz1 = enemy.mesh.position.z + (awayZ + sideZ * 0.7) * step;
+          const sx2 = enemy.mesh.position.x + (awayX - sideX * 0.7) * step;
+          const sz2 = enemy.mesh.position.z + (awayZ - sideZ * 0.7) * step;
+
+          if(!collidesAt(sx1, sz1, enemy.radius || 1)){
+            enemy.mesh.position.x = sx1;
+            enemy.mesh.position.z = sz1;
+          } else if(!collidesAt(sx2, sz2, enemy.radius || 1)){
+            enemy.mesh.position.x = sx2;
+            enemy.mesh.position.z = sz2;
+          }
+        }
+
+        enemy.preferredDistance = targetDist;
+        enemy.fireCooldown = 9999;
+        enemy.mesh.lookAt(
+          enemy.mesh.position.x + awayX * 4,
+          1.6,
+          enemy.mesh.position.z + awayZ * 4
+        );
+
+        if(enemy.groundRing){
+          enemy.groundRing.position.set(enemy.mesh.position.x, 0.03, enemy.mesh.position.z);
+          enemy.groundRing.rotation.z += dt * 2.2;
+        }
+      }
+    }
+  };
+
+  const _updateMovement = updateMovement;
+  updateMovement = function(dt){
+    if(ohFreezeActive()) return;
+    return _updateMovement(dt);
+  };
+
+  const _updateBullets = updateBullets;
+  updateBullets = function(dt){
+    if(ohFreezeActive()) return;
+    return _updateBullets(dt);
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    const name = ohFindNamedEnemy(enemy);
+
+    if(name === "Pieter"){
+      ohPieterSting();
+      ohFreezeGame(3);
+    }
+
+    return _killEnemy(enemy);
+  };
+
+  // direct bestaande enemies bijwerken als je tijdens een run plakt
+  for(const enemy of state.enemies){
+    ohStyleKevin(enemy);
+  }
+
+  showFloating?.("OH extra named patch online");
+})();
 
 
   animate(performance.now());
