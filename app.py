@@ -3830,17 +3830,41 @@ function drawMinimap(){
     }, delay * 1000);
   }
 
-  const musicLead = [784, 988, 1175, 1568, 1175, 988, 880, 988, 784, 988, 1175, 1760, 1568, 1175, 988, 880, 698, 880, 988, 1319, 988, 880, 784, 880, 659, 784, 988, 1175, 988, 784, 698, 784];
-  const musicHarmony = [392, 494, 587, 784, 587, 494, 440, 494, 392, 494, 587, 880, 784, 587, 494, 440, 349, 440, 494, 659, 494, 440, 392, 440, 330, 392, 494, 587, 494, 392, 349, 392];
-  const musicBass = [98, 98, 123, 123, 110, 110, 123, 123, 98, 98, 123, 147, 131, 131, 123, 110, 87, 87, 110, 110, 98, 98, 110, 110, 82, 82, 98, 98, 87, 87, 98, 98];
-  const musicArp = [1568, 1760, 1976, 1760, 1568, 1760, 1976, 2349, 1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093, 1175, 1319, 1568, 1319, 1175, 1319, 1568, 1760, 1047, 1175, 1319, 1175, 1047, 1175, 1319, 1568];
+const musicLead = [
+  659, 784, 988, 1175, 988, 784, 659, 784,
+  698, 880, 1047, 1319, 1047, 880, 698, 880,
+  784, 988, 1175, 1568, 1175, 988, 784, 988,
+  880, 1047, 1319, 1760, 1319, 1047, 880, 988
+];
+
+const musicHarmony = [
+  392, 494, 587, 698, 587, 494, 392, 494,
+  440, 523, 659, 784, 659, 523, 440, 523,
+  494, 587, 698, 988, 698, 587, 494, 587,
+  523, 659, 784, 1175, 784, 659, 523, 587
+];
+
+const musicBass = [
+  82, 82, 82, 82, 98, 98, 98, 98,
+  87, 87, 87, 87, 110, 110, 110, 110,
+  98, 98, 98, 98, 123, 123, 123, 123,
+  110, 110, 110, 110, 131, 131, 131, 131
+];
+
+const musicArp = [
+  1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093,
+  1397, 1760, 2093, 1760, 1397, 1760, 2093, 2349,
+  1568, 1976, 2349, 1976, 1568, 1976, 2349, 2637,
+  1760, 2093, 2637, 2093, 1760, 2093, 2637, 3136
+];
+
   function playChip(freq, when, dur, type, gain, detune=0){
     if(!audioCtx) return;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     const filter = audioCtx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(type === 'square' ? 1800 : 2400, when);
+    filter.frequency.setValueAtTime(type === 'square' ? 2200 : 3200, when);
     o.type = type;
     o.frequency.setValueAtTime(freq, when);
     if(detune) o.detune.setValueAtTime(detune, when);
@@ -3872,63 +3896,63 @@ function updateMusic(){
   intensity = Math.max(0.2, Math.min(1.0, intensity));
 
   // tempo schaalt mee met spanning
-  const stepDur =
-    bossActive ? Math.max(0.092, 0.122 - intensity * 0.018)
-    : hpRatio < 0.35 ? Math.max(0.098, 0.132 - intensity * 0.02)
-    : Math.max(0.104, 0.145 - intensity * 0.024);
+const stepDur =
+  bossActive ? Math.max(0.082, 0.114 - intensity * 0.020)
+  : hpRatio < 0.35 ? Math.max(0.092, 0.126 - intensity * 0.020)
+  : Math.max(0.098, 0.136 - intensity * 0.022);
 
-  const scheduleAhead = 0.34 + intensity * 0.12;
+const scheduleAhead = 0.38 + intensity * 0.14;
 
-  const kick = (when, vol=0.018, heavy=false) => {
-    if(!audioCtx) return;
+const kick = (when, vol=0.022, heavy=false) => {
+  if(!audioCtx) return;
 
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
 
-    osc.type = heavy ? "sawtooth" : "triangle";
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(220, when);
+  osc.type = heavy ? "sawtooth" : "triangle";
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(240, when);
 
-    osc.frequency.setValueAtTime(heavy ? 120 : 95, when);
-    osc.frequency.exponentialRampToValueAtTime(42, when + (heavy ? 0.12 : 0.09));
+  osc.frequency.setValueAtTime(heavy ? 135 : 105, when);
+  osc.frequency.exponentialRampToValueAtTime(40, when + (heavy ? 0.13 : 0.10));
 
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(vol, when + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.16 : 0.11));
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(vol, when + 0.003);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.18 : 0.12));
 
-    osc.connect(filter).connect(gain).connect(audioCtx.destination);
-    osc.start(when);
-    osc.stop(when + 0.18);
-  };
+  osc.connect(filter).connect(gain).connect(audioCtx.destination);
+  osc.start(when);
+  osc.stop(when + 0.20);
+};
 
-  const hat = (when, vol=0.004, bright=7000) => {
-    if(!audioCtx) return;
+ const hat = (when, vol=0.005, bright=8200) => {
+  if(!audioCtx) return;
 
-    const size = Math.max(1, (audioCtx.sampleRate * 0.02) | 0);
-    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
+  const size = Math.max(1, (audioCtx.sampleRate * 0.018) | 0);
+  const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
 
-    for(let i=0;i<size;i++){
-      data[i] = (Math.random() * 2 - 1) * (1 - i / size);
-    }
+  for(let i=0;i<size;i++){
+    data[i] = (Math.random() * 2 - 1) * (1 - i / size);
+  }
 
-    const src = audioCtx.createBufferSource();
-    const gain = audioCtx.createGain();
-    const hp = audioCtx.createBiquadFilter();
+  const src = audioCtx.createBufferSource();
+  const gain = audioCtx.createGain();
+  const hp = audioCtx.createBiquadFilter();
 
-    hp.type = "highpass";
-    hp.frequency.setValueAtTime(bright, when);
+  hp.type = "highpass";
+  hp.frequency.setValueAtTime(bright, when);
 
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(vol, when + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.028);
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(vol, when + 0.0015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.024);
 
-    src.buffer = buffer;
-    src.connect(hp).connect(gain).connect(audioCtx.destination);
-    src.start(when);
-    src.stop(when + 0.04);
-  };
+  src.buffer = buffer;
+  src.connect(hp).connect(gain).connect(audioCtx.destination);
+  src.start(when);
+  src.stop(when + 0.03);
+};
 
   const subDrop = (freq, when, dur, gainAmt) => {
     if(!audioCtx) return;
