@@ -3161,6 +3161,54 @@ renderBoard();
   function sfxPickup(){ tone(540,0.07,"triangle",0.04,130); setTimeout(()=>tone(760,0.1,"triangle",0.03,90),50); }
   function sfxBoss(){ tone(85,0.16,"sawtooth",0.055,15); }
 
+  /* ===== NIEUWE BACKGROUND MUZIEK ===== */
+
+let musicStarted = false;
+
+function startBackgroundMusic(){
+
+  if(!audioCtx || musicStarted) return;
+  musicStarted = true;
+
+  const tempo = 110;
+  const beat = 60 / tempo;
+
+  const master = audioCtx.createGain();
+  master.gain.value = 0.25;
+  master.connect(audioCtx.destination);
+
+  function createSynth(type="sawtooth", vol=0.2){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = type;
+    gain.gain.value = vol;
+
+    osc.connect(gain);
+    gain.connect(master);
+
+    osc.start();
+
+    return {osc, gain};
+  }
+
+  const pad = createSynth("sawtooth",0.15);
+  const bass = createSynth("square",0.2);
+
+  const chords = [
+    220,196,174,196
+  ];
+
+  let step = 0;
+
+  setInterval(()=>{
+    const note = chords[step % chords.length];
+    pad.osc.frequency.setValueAtTime(note, audioCtx.currentTime);
+    bass.osc.frequency.setValueAtTime(note/2, audioCtx.currentTime);
+    step++;
+  }, beat * 2000);
+}
+
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x090014, 22, 120);
 
@@ -6465,7 +6513,11 @@ function shootWithDirection(dirOverride=null){
     if(!isTouch) renderer.domElement.requestPointerLock?.();
   }
 
-  ui.startBtn.addEventListener("click", startGame);
+  ui.startBtn.addEventListener("click", () => {
+  ensureAudio();
+  startBackgroundMusic();
+  startGame();
+});
   ui.restartBtn.addEventListener("click", restartGame);
 
   document.addEventListener("pointerlockchange", () => {
