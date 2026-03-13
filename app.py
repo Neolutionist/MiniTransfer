@@ -9732,14 +9732,62 @@ function shootWithDirection(dirOverride=null){
         enemy.fireRateMul = 0.90;
         enemy.damageMul = 1.00;
       },
-      onHit(enemy, damage){
-        const bonus = Math.max(12, Math.round(damage * 2.2));
-        player.score += bonus;
-        state.comboTimer = Math.max(state.comboTimer, 1.2);
-        showFloating(`LISA BONUS +${bonus}`);
-        createFlash?.(enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0)), 0xff87d1, 1.1, 3.5, 0.06);
-        setStat?.();
-      }
+onHit(enemy, damage){
+  const bonus = Math.max(12, Math.round(damage * 2.2));
+  player.score += bonus;
+
+  state.comboTimer = Math.max(state.comboTimer, 1.2);
+
+  showFloating(`LISA BONUS +${bonus}`);
+
+  // groene cash explosie
+  const origin = enemy.mesh.position.clone();
+  origin.y += 1.4;
+
+  for(let i = 0; i < 14; i++){
+
+    const bill = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.22, 0.12),
+      new THREE.MeshBasicMaterial({
+        color: 0x4cff7a,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide
+      })
+    );
+
+    bill.position.copy(origin);
+    bill.rotation.set(rand(-0.4,0.4), rand(0,Math.PI), rand(-0.4,0.4));
+
+    scene.add(bill);
+
+    state.particles.push({
+      mesh: bill,
+      vel: new THREE.Vector3(
+        rand(-2.2,2.2),
+        rand(2.0,4.2),
+        rand(-2.2,2.2)
+      ),
+      life: rand(0.6,1.2),
+      drag: 0.92,
+      gravity: -3.5,
+      rotate: rand(-6,6),
+      shrink: 0.98
+    });
+
+  }
+
+  createFlash?.(
+    enemy.mesh.position.clone().add(new THREE.Vector3(0,1.4,0)),
+    0x4cff7a,
+    1.3,
+    3.6,
+    0.06
+  );
+
+  setStat?.();
+}
+
     },
     Joost: {
       role: "skirmisher",
