@@ -1,4 +1,5 @@
 
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -3161,54 +3162,6 @@ renderBoard();
   function sfxPickup(){ tone(540,0.07,"triangle",0.04,130); setTimeout(()=>tone(760,0.1,"triangle",0.03,90),50); }
   function sfxBoss(){ tone(85,0.16,"sawtooth",0.055,15); }
 
-  /* ===== NIEUWE BACKGROUND MUZIEK ===== */
-
-let musicStarted = false;
-
-function startBackgroundMusic(){
-
-  if(!audioCtx || musicStarted) return;
-  musicStarted = true;
-
-  const tempo = 110;
-  const beat = 60 / tempo;
-
-  const master = audioCtx.createGain();
-  master.gain.value = 0.25;
-  master.connect(audioCtx.destination);
-
-  function createSynth(type="sawtooth", vol=0.2){
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-
-    osc.type = type;
-    gain.gain.value = vol;
-
-    osc.connect(gain);
-    gain.connect(master);
-
-    osc.start();
-
-    return {osc, gain};
-  }
-
-  const pad = createSynth("sawtooth",0.15);
-  const bass = createSynth("square",0.2);
-
-  const chords = [
-    220,196,174,196
-  ];
-
-  let step = 0;
-
-  setInterval(()=>{
-    const note = chords[step % chords.length];
-    pad.osc.frequency.setValueAtTime(note, audioCtx.currentTime);
-    bass.osc.frequency.setValueAtTime(note/2, audioCtx.currentTime);
-    step++;
-  }, beat * 2000);
-}
-
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x090014, 22, 120);
 
@@ -3830,41 +3783,17 @@ function drawMinimap(){
     }, delay * 1000);
   }
 
-const musicLead = [
-  659, 784, 988, 1175, 988, 784, 659, 784,
-  698, 880, 1047, 1319, 1047, 880, 698, 880,
-  784, 988, 1175, 1568, 1175, 988, 784, 988,
-  880, 1047, 1319, 1760, 1319, 1047, 880, 988
-];
-
-const musicHarmony = [
-  392, 494, 587, 698, 587, 494, 392, 494,
-  440, 523, 659, 784, 659, 523, 440, 523,
-  494, 587, 698, 988, 698, 587, 494, 587,
-  523, 659, 784, 1175, 784, 659, 523, 587
-];
-
-const musicBass = [
-  82, 82, 82, 82, 98, 98, 98, 98,
-  87, 87, 87, 87, 110, 110, 110, 110,
-  98, 98, 98, 98, 123, 123, 123, 123,
-  110, 110, 110, 110, 131, 131, 131, 131
-];
-
-const musicArp = [
-  1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093,
-  1397, 1760, 2093, 1760, 1397, 1760, 2093, 2349,
-  1568, 1976, 2349, 1976, 1568, 1976, 2349, 2637,
-  1760, 2093, 2637, 2093, 1760, 2093, 2637, 3136
-];
-
+  const musicLead = [784, 988, 1175, 1568, 1175, 988, 880, 988, 784, 988, 1175, 1760, 1568, 1175, 988, 880, 698, 880, 988, 1319, 988, 880, 784, 880, 659, 784, 988, 1175, 988, 784, 698, 784];
+  const musicHarmony = [392, 494, 587, 784, 587, 494, 440, 494, 392, 494, 587, 880, 784, 587, 494, 440, 349, 440, 494, 659, 494, 440, 392, 440, 330, 392, 494, 587, 494, 392, 349, 392];
+  const musicBass = [98, 98, 123, 123, 110, 110, 123, 123, 98, 98, 123, 147, 131, 131, 123, 110, 87, 87, 110, 110, 98, 98, 110, 110, 82, 82, 98, 98, 87, 87, 98, 98];
+  const musicArp = [1568, 1760, 1976, 1760, 1568, 1760, 1976, 2349, 1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093, 1175, 1319, 1568, 1319, 1175, 1319, 1568, 1760, 1047, 1175, 1319, 1175, 1047, 1175, 1319, 1568];
   function playChip(freq, when, dur, type, gain, detune=0){
     if(!audioCtx) return;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     const filter = audioCtx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(type === 'square' ? 2200 : 3200, when);
+    filter.frequency.setValueAtTime(type === 'square' ? 1800 : 2400, when);
     o.type = type;
     o.frequency.setValueAtTime(freq, when);
     if(detune) o.detune.setValueAtTime(detune, when);
@@ -3896,63 +3825,63 @@ function updateMusic(){
   intensity = Math.max(0.2, Math.min(1.0, intensity));
 
   // tempo schaalt mee met spanning
-const stepDur =
-  bossActive ? Math.max(0.082, 0.114 - intensity * 0.020)
-  : hpRatio < 0.35 ? Math.max(0.092, 0.126 - intensity * 0.020)
-  : Math.max(0.098, 0.136 - intensity * 0.022);
+  const stepDur =
+    bossActive ? Math.max(0.092, 0.122 - intensity * 0.018)
+    : hpRatio < 0.35 ? Math.max(0.098, 0.132 - intensity * 0.02)
+    : Math.max(0.104, 0.145 - intensity * 0.024);
 
-const scheduleAhead = 0.38 + intensity * 0.14;
+  const scheduleAhead = 0.34 + intensity * 0.12;
 
-const kick = (when, vol=0.022, heavy=false) => {
-  if(!audioCtx) return;
+  const kick = (when, vol=0.018, heavy=false) => {
+    if(!audioCtx) return;
 
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  const filter = audioCtx.createBiquadFilter();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
 
-  osc.type = heavy ? "sawtooth" : "triangle";
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(240, when);
+    osc.type = heavy ? "sawtooth" : "triangle";
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(220, when);
 
-  osc.frequency.setValueAtTime(heavy ? 135 : 105, when);
-  osc.frequency.exponentialRampToValueAtTime(40, when + (heavy ? 0.13 : 0.10));
+    osc.frequency.setValueAtTime(heavy ? 120 : 95, when);
+    osc.frequency.exponentialRampToValueAtTime(42, when + (heavy ? 0.12 : 0.09));
 
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(vol, when + 0.003);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.18 : 0.12));
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(vol, when + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.16 : 0.11));
 
-  osc.connect(filter).connect(gain).connect(audioCtx.destination);
-  osc.start(when);
-  osc.stop(when + 0.20);
-};
+    osc.connect(filter).connect(gain).connect(audioCtx.destination);
+    osc.start(when);
+    osc.stop(when + 0.18);
+  };
 
- const hat = (when, vol=0.005, bright=8200) => {
-  if(!audioCtx) return;
+  const hat = (when, vol=0.004, bright=7000) => {
+    if(!audioCtx) return;
 
-  const size = Math.max(1, (audioCtx.sampleRate * 0.018) | 0);
-  const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
-  const data = buffer.getChannelData(0);
+    const size = Math.max(1, (audioCtx.sampleRate * 0.02) | 0);
+    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
 
-  for(let i=0;i<size;i++){
-    data[i] = (Math.random() * 2 - 1) * (1 - i / size);
-  }
+    for(let i=0;i<size;i++){
+      data[i] = (Math.random() * 2 - 1) * (1 - i / size);
+    }
 
-  const src = audioCtx.createBufferSource();
-  const gain = audioCtx.createGain();
-  const hp = audioCtx.createBiquadFilter();
+    const src = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    const hp = audioCtx.createBiquadFilter();
 
-  hp.type = "highpass";
-  hp.frequency.setValueAtTime(bright, when);
+    hp.type = "highpass";
+    hp.frequency.setValueAtTime(bright, when);
 
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(vol, when + 0.0015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.024);
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(vol, when + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.028);
 
-  src.buffer = buffer;
-  src.connect(hp).connect(gain).connect(audioCtx.destination);
-  src.start(when);
-  src.stop(when + 0.03);
-};
+    src.buffer = buffer;
+    src.connect(hp).connect(gain).connect(audioCtx.destination);
+    src.start(when);
+    src.stop(when + 0.04);
+  };
 
   const subDrop = (freq, when, dur, gainAmt) => {
     if(!audioCtx) return;
@@ -6537,11 +6466,7 @@ function shootWithDirection(dirOverride=null){
     if(!isTouch) renderer.domElement.requestPointerLock?.();
   }
 
-  ui.startBtn.addEventListener("click", () => {
-  ensureAudio();
-  startBackgroundMusic();
-  startGame();
-});
+  ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
 
   document.addEventListener("pointerlockchange", () => {
