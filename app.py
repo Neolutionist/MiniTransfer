@@ -4041,6 +4041,74 @@ function updateMusic(){
 }
 
 
+  const raycaster = new THREE.Raycaster();
+
+  const player = {
+    pos: new THREE.Vector3(0,1.7,0),
+    radius: 0.7,
+    speed: 10.2,
+    hp: 100,
+    maxHp: 100,
+    score: 0,
+    wave: 1,
+    kills: 0,
+    fireCooldown: 0,
+    damageCooldown: 0,
+    alive: true,
+    ammo: {
+      bullet: 64,
+      rocket: 4,
+      grenade: 3
+    },
+    abilities: {
+      plasma: 3,
+      mine: 2,
+      orbital: 1
+    },
+    weapon: "bullet"
+  };
+
+  const state = {
+    running:false,
+    pointerLocked:false,
+    lastTime: performance.now(),
+    enemies: [],
+    boss: null,
+    bullets: [],
+    enemyBullets: [],
+    particles: [],
+    pickups: [],
+    rings: [],
+    flashes: [],
+    fireHeld:false,
+    nextWaveQueued:false,
+    viewKick:0,
+    walkTime:0,
+    cameraShake:0,
+    songClock:0,
+    songStep:-1,
+    ambientPulse:0,
+    combo:1,
+    comboTimer:0,
+    comboBest:1,
+    emergencyAmmoTimer:0,
+    ammoHintTimer:0,
+    lastClearStamp:performance.now(),
+    ragdolls: [],
+    hazards: [],
+    firedAbility: "",
+    abilityFlashTimers: { plasma:null, mine:null, orbital:null }
+  };
+
+  const input = {
+    keyboard:{},
+    forward:0,
+    strafe:0,
+    turn:0,
+    lookX:0,
+    lookY:0
+  };
+
   function weaponLabel(w){
     return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
   }
