@@ -3800,93 +3800,246 @@ renderBoard();
     o.stop(when + dur + 0.03);
   }
 
-  function updateMusic(){
-    if(!audioCtx || !state.running) return;
-    const t = audioCtx.currentTime;
-    while(state.songClock < t + 0.28){
-      state.songStep = (state.songStep + 1) % musicLead.length;
-      const when = Math.max(t, state.songClock);
-      const lead = musicLead[state.songStep];
-      const harmony = musicHarmony[state.songStep];
-      const bass = musicBass[state.songStep];
-      const arp = musicArp[state.songStep];
-      const accent = state.songStep % 8 === 0;
-      playChip(lead, when, accent ? 0.22 : 0.16, accent ? 'sawtooth' : 'square', accent ? 0.026 : 0.02, accent ? -4 : 0);
-      playChip(harmony, when + 0.02, 0.14, 'triangle', 0.010);
-      playChip(bass, when, 0.18, 'square', 0.015, -8);
-      if(state.songStep % 2 === 0) playChip(arp, when + 0.09, 0.08, 'square', 0.008, 6);
-      if(state.songStep % 4 === 3) noiseBurst(0.025, 0.0045);
-      state.songClock += 0.145;
+function updateMusic(){
+  if(!audioCtx || !state.running) return;
+
+  const t = audioCtx.currentTime;
+
+  const wave = player?.wave || 1;
+  const combo = state?.combo || 1;
+  const hpRatio = player?.maxHp ? player.hp / player.maxHp : 1;
+  const bossActive = !!state.boss;
+
+  // intensiteit bepaalt hoeveel lagen / agressie / snelheid
+  let intensity = 0.32;
+  intensity += Math.min(0.30, wave * 0.022);
+  intensity += Math.min(0.18, Math.max(0, combo - 1) * 0.09);
+  intensity += bossActive ? 0.32 : 0;
+  intensity += hpRatio < 0.45 ? (0.45 - hpRatio) * 0.55 : 0;
+  intensity = Math.max(0.2, Math.min(1.0, intensity));
+
+  // tempo schaalt mee met spanning
+  const stepDur =
+    bossActive ? Math.max(0.092, 0.122 - intensity * 0.018)
+    : hpRatio < 0.35 ? Math.max(0.098, 0.132 - intensity * 0.02)
+    : Math.max(0.104, 0.145 - intensity * 0.024);
+
+  const scheduleAhead = 0.34 + intensity * 0.12;
+
+  const kick = (when, vol=0.018, heavy=false) => {
+    if(!audioCtx) return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = heavy ? "sawtooth" : "triangle";
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(220, when);
+
+    osc.frequency.setValueAtTime(heavy ? 120 : 95, when);
+    osc.frequency.exponentialRampToValueAtTime(42, when + (heavy ? 0.12 : 0.09));
+
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(vol, when + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.16 : 0.11));
+
+    osc.connect(filter).connect(gain).connect(audioCtx.destination);
+    osc.start(when);
+    osc.stop(when + 0.18);
+  };
+
+  const hat = (when, vol=0.004, bright=7000) => {
+    if(!audioCtx) return;
+
+    const size = Math.max(1, (audioCtx.sampleRate * 0.02) | 0);
+    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for(let i=0;i<size;i++){
+      data[i] = (Math.random() * 2 - 1) * (1 - i / size);
     }
+
+    const src = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    const hp = audioCtx.createBiquadFilter();
+
+    hp.type = "highpass";
+    hp.frequency.setValueAtTime(bright, when);
+
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(vol, when + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.028);
+
+    src.buffer = buffer;
+    src.connect(hp).connect(gain).connect(audioCtx.destination);
+    src.start(when);
+    src.stop(when + 0.04);
+  };
+
+  const subDrop = (freq, when, dur, gainAmt) => {
+    if(!audioCtx) return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const lp = audioCtx.createBiquadFilter();
+
+    osc.type = "sine";
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(180, when);
+
+    osc.frequency.setValueAtTime(freq, when);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(28, freq * 0.6), when + dur);
+
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(gainAmt, when + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+
+    osc.connect(lp).connect(gain).connect(audioCtx.destination);
+    osc.start(when);
+    osc.stop(when + dur + 0.03);
+  };
+
+  while(state.songClock < t + scheduleAhead){
+    state.songStep = (state.songStep + 1) % musicLead.length;
+    const when = Math.max(t, state.songClock);
+    const step = state.songStep;
+
+    const lead = musicLead[step];
+    const harmony = musicHarmony[step];
+    const bass = musicBass[step];
+    const arp = musicArp[step];
+
+    const barPos = step % 8;
+    const phrasePos = step % 16;
+    const accent = barPos === 0;
+    const danger = hpRatio < 0.35;
+    const climax = combo >= 2.4 || bossActive;
+
+    // melodische shift voor spanning
+    const leadFreq =
+      bossActive ? lead * (phrasePos >= 12 ? 0.5 : 1)
+      : danger && phrasePos >= 8 ? lead * 0.5
+      : lead;
+
+    const harmonyFreq =
+      bossActive && phrasePos % 4 === 2 ? harmony * 1.5
+      : danger ? harmony * 0.75
+      : harmony;
+
+    // hoofdlead
+    playChip(
+      leadFreq,
+      when,
+      accent ? 0.24 : (climax ? 0.18 : 0.15),
+      accent || climax ? "sawtooth" : "square",
+      accent ? (0.030 + intensity * 0.010) : (0.018 + intensity * 0.010),
+      bossActive ? -6 : 0
+    );
+
+    // onderste harmony laag
+    playChip(
+      harmonyFreq,
+      when + 0.018,
+      danger ? 0.18 : 0.14,
+      danger ? "sawtooth" : "triangle",
+      0.008 + intensity * 0.005,
+      danger ? -8 : 0
+    );
+
+    // bass pulse
+    playChip(
+      bass,
+      when,
+      bossActive ? 0.22 : 0.18,
+      "square",
+      0.013 + intensity * 0.008,
+      -10
+    );
+
+    // sub layer op accents / bosses
+    if(accent || bossActive){
+      subDrop(
+        Math.max(45, bass * 0.5),
+        when,
+        bossActive ? 0.18 : 0.14,
+        bossActive ? 0.018 : 0.012
+      );
+    }
+
+    // arp
+    if(step % 2 === 0){
+      playChip(
+        arp,
+        when + 0.08,
+        climax ? 0.09 : 0.075,
+        "square",
+        0.006 + intensity * 0.004,
+        bossActive ? 8 : 4
+      );
+    }
+
+    // extra upper sparkle bij hoge combo / latere waves
+    if((combo >= 2 || wave >= 6) && step % 4 === 1){
+      playChip(
+        lead * 2,
+        when + 0.045,
+        0.06,
+        "triangle",
+        0.004 + intensity * 0.003,
+        10
+      );
+    }
+
+    // kick pattern
+    if(barPos === 0 || barPos === 4){
+      kick(when, 0.014 + intensity * 0.012, bossActive || accent);
+    }
+    if((intensity > 0.48 && barPos === 2) || (bossActive && barPos === 6)){
+      kick(when, 0.010 + intensity * 0.008, false);
+    }
+
+    // hats
+    if(step % 2 === 1){
+      hat(when + 0.03, 0.0028 + intensity * 0.0035, bossActive ? 8200 : 7000);
+    }
+    if(intensity > 0.55){
+      hat(when + stepDur * 0.5, 0.002 + intensity * 0.0028, 9000);
+    }
+
+    // snare/noise accent
+    if(barPos === 3 || barPos === 7){
+      noiseBurst(0.02 + intensity * 0.015, 0.003 + intensity * 0.0035);
+    }
+
+    // boss pulse / alarm laag
+    if(bossActive && step % 4 === 0){
+      playChip(
+        Math.max(110, bass * 2),
+        when + 0.01,
+        0.11,
+        "sawtooth",
+        0.007 + intensity * 0.004,
+        -16
+      );
+    }
+
+    // low HP noodgevoel
+    if(danger && step % 8 === 6){
+      playChip(
+        Math.max(220, lead * 0.5),
+        when + 0.02,
+        0.12,
+        "sawtooth",
+        0.008 + (0.35 - hpRatio) * 0.02,
+        -18
+      );
+    }
+
+    state.songClock += stepDur;
   }
+}
 
-  const raycaster = new THREE.Raycaster();
-
-  const player = {
-    pos: new THREE.Vector3(0,1.7,0),
-    radius: 0.7,
-    speed: 10.2,
-    hp: 100,
-    maxHp: 100,
-    score: 0,
-    wave: 1,
-    kills: 0,
-    fireCooldown: 0,
-    damageCooldown: 0,
-    alive: true,
-    ammo: {
-      bullet: 64,
-      rocket: 4,
-      grenade: 3
-    },
-    abilities: {
-      plasma: 3,
-      mine: 2,
-      orbital: 1
-    },
-    weapon: "bullet"
-  };
-
-  const state = {
-    running:false,
-    pointerLocked:false,
-    lastTime: performance.now(),
-    enemies: [],
-    boss: null,
-    bullets: [],
-    enemyBullets: [],
-    particles: [],
-    pickups: [],
-    rings: [],
-    flashes: [],
-    fireHeld:false,
-    nextWaveQueued:false,
-    viewKick:0,
-    walkTime:0,
-    cameraShake:0,
-    songClock:0,
-    songStep:-1,
-    ambientPulse:0,
-    combo:1,
-    comboTimer:0,
-    comboBest:1,
-    emergencyAmmoTimer:0,
-    ammoHintTimer:0,
-    lastClearStamp:performance.now(),
-    ragdolls: [],
-    hazards: [],
-    firedAbility: "",
-    abilityFlashTimers: { plasma:null, mine:null, orbital:null }
-  };
-
-  const input = {
-    keyboard:{},
-    forward:0,
-    strafe:0,
-    turn:0,
-    lookX:0,
-    lookY:0
-  };
 
   function weaponLabel(w){
     return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade";
