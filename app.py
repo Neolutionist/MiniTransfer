@@ -8065,7 +8065,556 @@ function spawnWave(){
     if(L.echo) entries.push(`Echo ${L.echo}`);
     if(L.scavenger) entries.push(`Scavenger ${L.scavenger}`);
     if(L.phoenix) entries.push(`Phoenix ${L.phoenix}${armory.reviveUsed ? " (used)" : ""}`);
-    retur
+    return entries.length ? entries.slice(0, 6) : ["Nog geen relics"];
+  }
+
+  function updateHud(){
+    if(!armory.hud.root) return;
+    armory.hud.credits.textContent = fmt(armory.credits);
+    armory.hud.relics.textContent = fmt(armory.relicsTaken);
+    armory.hud.runs.textContent = fmt(armory.profile.runs);
+    armory.hud.sub.textContent =
+      armory.draftOpen
+        ? "Relic Draft open — kies een upgrade of ga verder."
+        : `Beste wave: ${fmt(armory.profile.bestWave)} • Beste score: ${fmt(armory.profile.bestScore)}`;
+
+    armory.hud.list.innerHTML = activePerkLines()
+      .map(x => `<div class="armory-pill">${x}</div>`)
+      .join("");
+  }
+
+  function syncDerivedStats(){
+    player.maxHp = 100 + armory.levels.frame * 25;
+    player.speed = 10.2 * (1 + armory.levels.magboots * 0.12);
+    if(player.hp > player.maxHp) player.hp = player.maxHp;
+    setStat?.();
+    updateHud();
+  }
+
+  function awardCredits(amount, source=""){
+    const bonus = 1 + armory.levels.scavenger * 0.18;
+    const finalAmount = Math.max(1, Math.round(amount * bonus));
+    armory.credits += finalAmount;
+    armory.earnedThisRun += finalAmount;
+    armory.profile.lifetimeCredits += finalAmount;
+    saveProfile();
+    updateHud();
+    if(source){
+      flashHint?.(`+${finalAmount} salvage • ${source}`, 900);
+    }
+  }
+
+  function relicPool(){
+    return [
+      {
+        id:"overclock",
+        rarity:"rare",
+        name:"Overclock Chamber",
+        desc:"+18% projectile damage voor al je vriendelijke projectiles. Schaalbaar.",
+        cost:26 + armory.levels.overclock * 10,
+        apply(){
+          armory.levels.overclock += 1;
+        }
+      },
+      {
+        id:"rapidfire",
+        rarity:"rare",
+        name:"Cyclone Receiver",
+        desc:"+16% snellere fire-rate. Werkt op bullet, rocket en grenade.",
+        cost:24 + armory.levels.rapidfire * 10,
+        apply(){
+          armory.levels.rapidfire += 1;
+        }
+      },
+      {
+        id:"plating",
+        rarity:"rare",
+        name:"Nano Plating",
+        desc:"-14% inkomende schade. Schaalbaar.",
+        cost:24 + armory.levels.plating * 12,
+        apply(){
+          armory.levels.plating += 1;
+        }
+      },
+      {
+        id:"frame",
+        rarity:"epic",
+        name:"Reinforced Frame",
+        desc:"+25 max HP en directe heal van 25 HP.",
+        cost:32 + armory.levels.frame * 12,
+        apply(){
+          armory.levels.frame += 1;
+          syncDerivedStats();
+          player.hp = Math.min(player.maxHp, player.hp + 25);
+          setStat?.();
+        }
+      },
+      {
+        id:"magboots",
+        rarity:"rare",
+        name:"Mag Boots",
+        desc:"+12% movespeed. Je voelt het direct op desktop én mobiel.",
+        cost:22 + armory.levels.magboots * 10,
+        apply(){
+          armory.levels.magboots += 1;
+          syncDerivedStats();
+        }
+      },
+      {
+        id:"vamp",
+        rarity:"epic",
+        name:"Vamp Core",
+        desc:"Heal 2 HP per kill. Boss kill geeft extra sustain.",
+        cost:30 + armory.levels.vamp * 12,
+        apply(){
+          armory.levels.vamp += 1;
+        }
+      },
+      {
+        id:"printer",
+        rarity:"rare",
+        name:"Ammo Printer",
+        desc:"+ammo tussen waves. Ook extra bullets bij elke relic draft.",
+        cost:22 + armory.levels.printer * 10,
+        apply(){
+          armory.levels.printer += 1;
+          player.ammo.bullet += 12;
+          player.ammo.rocket += 1;
+          player.ammo.grenade += 1;
+          setStat?.();
+        }
+      },
+      {
+        id:"capacitor",
+        rarity:"epic",
+        name:"Plasma Capacitor",
+        desc:"+1 charge op alle skills en grotere explosies voor rocket/grenade/plasma.",
+        cost:34 + armory.levels.capacitor * 12,
+        apply(){
+          armory.levels.capacitor += 1;
+          player.abilities.plasma += 1;
+          player.abilities.mine += 1;
+          player.abilities.orbital += 1;
+          setStat?.();
+        }
+      },
+      {
+        id:"combo",
+        rarity:"rare",
+        name:"Combo Engine",
+        desc:"Langere combo timer en +8% extra score per level.",
+        cost:24 + armory.levels.combo * 10,
+        apply(){
+          armory.levels.combo += 1;
+        }
+      },
+      {
+        id:"echo",
+        rarity:"epic",
+        name:"Echo Trigger",
+        desc:"Kans op twee extra side-shots bij vuur. Sterk met bullet builds.",
+        cost:30 + armory.levels.echo * 14,
+        apply(){
+          armory.levels.echo += 1;
+        }
+      },
+      {
+        id:"scavenger",
+        rarity:"rare",
+        name:"Scavenger Array",
+        desc:"+18% meer salvage per pickup/kill/wave.",
+        cost:20 + armory.levels.scavenger * 10,
+        apply(){
+          armory.levels.scavenger += 1;
+        }
+      },
+      {
+        id:"phoenix",
+        rarity:"legend",
+        name:"Phoenix Protocol",
+        desc:"1x per run: overleef lethale schade en kom terug met 45 HP.",
+        cost:42 + armory.levels.phoenix * 18,
+        apply(){
+          armory.levels.phoenix += 1;
+        }
+      }
+    ];
+  }
+
+  function generateDraftChoices(){
+    const pool = aShuffle(relicPool());
+
+    const boostedLegendChance = (player.wave + 1) % 5 === 0 ? 0.45 : 0.12;
+    const results = [];
+
+    while(results.length < 3 && pool.length){
+      let relic = pool.shift();
+
+      if(relic.rarity === "legend" && Math.random() > boostedLegendChance){
+        pool.push(relic);
+        continue;
+      }
+
+      results.push(relic);
+    }
+
+    while(results.length < 3){
+      results.push(aPick(relicPool()));
+    }
+
+    armory.currentChoices = results;
+    renderDraftChoices();
+  }
+
+  function renderDraftChoices(){
+    const choices = armory.currentChoices || [];
+    armory.draft.cards.innerHTML = choices.map((choice, idx) => `
+      <div class="relic-card" data-rarity="${choice.rarity}">
+        <div class="relic-rarity">${choice.rarity}</div>
+        <div class="relic-name">${choice.name}</div>
+        <div class="relic-desc">${choice.desc}</div>
+        <div class="relic-tagline">Level nu: ${armory.levels[choice.id] || 0}</div>
+        <div class="relic-buy">
+          <span class="relic-cost">${fmt(choice.cost)} salvage</span>
+          <button class="relic-btn" type="button" data-buy="${idx}">
+            Koop
+          </button>
+        </div>
+      </div>
+    `).join("");
+
+    armory.draft.cards.querySelectorAll("[data-buy]").forEach(btn => {
+      btn.addEventListener("click", () => buyRelic(Number(btn.dataset.buy)));
+    });
+
+    armory.draft.rerollBtn.disabled = armory.rerolls <= 0;
+    armory.draft.rerollBtn.textContent = armory.rerolls > 0
+      ? `Reroll (${armory.rerolls})`
+      : "Reroll op";
+  }
+
+  function rerollDraft(){
+    if(armory.rerolls <= 0 || !armory.draftOpen) return;
+    armory.rerolls -= 1;
+    generateDraftChoices();
+    updateHud();
+  }
+
+  function buyRelic(idx){
+    const choice = armory.currentChoices?.[idx];
+    if(!choice) return;
+
+    if(armory.credits < choice.cost){
+      flashHint?.("Niet genoeg salvage", 900);
+      return;
+    }
+
+    armory.credits -= choice.cost;
+    armory.relicsTaken += 1;
+    armory.profile.totalRelics += 1;
+    choice.apply();
+
+    if(choice.id !== "frame" && choice.id !== "printer" && choice.id !== "capacitor"){
+      syncDerivedStats();
+    }
+
+    saveProfile();
+    updateHud();
+    flashHint?.(`Relic gekocht: ${choice.name}`, 1200);
+
+    // gratis tussen-wave pakket
+    player.hp = Math.min(player.maxHp, player.hp + 12 + armory.levels.frame * 2);
+    player.ammo.bullet += 8 + armory.levels.printer * 4;
+    player.ammo.rocket += armory.levels.printer > 0 ? 1 : 0;
+    player.ammo.grenade += armory.levels.printer > 1 ? 1 : 0;
+    if(armory.levels.capacitor > 0 && Math.random() < 0.55){
+      player.abilities.plasma += 1;
+    }
+    setStat?.();
+
+    closeDraftAndContinue();
+  }
+
+  function shouldOfferDraft(nextWave){
+    if(nextWave <= 1) return false;
+    if(nextWave % 5 === 0) return true; // boss / major
+    if(nextWave % 2 === 0) return true; // elke 2 waves
+    return false;
+  }
+
+  function openDraft(nextWave, continueFn){
+    armory.draftOpen = true;
+    armory.awaitingWaveStart = true;
+    armory.continueFn = continueFn;
+
+    state.running = false;
+    state.fireHeld = false;
+    if(document.pointerLockElement === renderer.domElement){
+      document.exitPointerLock?.();
+    }
+
+    armory.draft.root.classList.add("show");
+    armory.draft.title.textContent = nextWave % 5 === 0
+      ? `Major Relic Draft • Wave ${nextWave}`
+      : `Relic Draft • Wave ${nextWave}`;
+    armory.draft.sub.textContent =
+      `Je hebt ${fmt(armory.credits)} salvage. Kies slim: damage, sustain of controle.`;
+
+    generateDraftChoices();
+    updateHud();
+  }
+
+  function closeDraftAndContinue(){
+    armory.draftOpen = false;
+    armory.awaitingWaveStart = false;
+    armory.draft.root.classList.remove("show");
+
+    const fn = armory.continueFn;
+    armory.continueFn = null;
+    updateHud();
+
+    if(typeof fn === "function"){
+      fn();
+    }
+
+    if(!isTouch && state.running){
+      setTimeout(() => renderer.domElement.requestPointerLock?.(), 60);
+    }
+  }
+
+  function resetRun(){
+    armory.credits = 0;
+    armory.earnedThisRun = 0;
+    armory.relicsTaken = 0;
+    armory.rerolls = 1;
+    armory.awaitingWaveStart = false;
+    armory.draftOpen = false;
+    armory.continueFn = null;
+    armory.reviveUsed = false;
+    Object.keys(armory.levels).forEach(k => armory.levels[k] = 0);
+    syncDerivedStats();
+    updateHud();
+  }
+
+  function finishRunSnapshot(){
+    armory.profile.runs += 1;
+    armory.profile.bestWave = Math.max(armory.profile.bestWave || 1, player.wave || 1);
+    armory.profile.bestScore = Math.max(armory.profile.bestScore || 0, Math.floor(player.score || 0));
+    saveProfile();
+    updateHud();
+  }
+
+  /* ---------- wrappers ---------- */
+
+  const _createProjectile = createProjectile;
+  createProjectile = function(start, dir, opts = {}){
+    const copy = { ...opts };
+
+    if(copy.friendly){
+      const dmgMul = 1 + armory.levels.overclock * 0.18;
+      const speedMul = 1 + armory.levels.rapidfire * 0.03;
+      const radiusMul = 1 + armory.levels.capacitor * 0.12;
+
+      copy.damage = (copy.damage || 0) * dmgMul;
+      copy.speed = (copy.speed || 0) * speedMul;
+
+      if(copy.type === "rocket" || copy.type === "grenade" || copy.type === "plasma"){
+        copy.radius = (copy.radius || 0) * radiusMul;
+      }
+    }
+
+    return _createProjectile(start, dir, copy);
+  };
+
+  const _shootWithDirection = shootWithDirection;
+  shootWithDirection = function(dirOverride = null){
+    if(armory.levels.rapidfire > 0){
+      player.fireCooldown *= Math.max(0.7, 1 - armory.levels.rapidfire * 0.06);
+    }
+
+    const ok = _shootWithDirection(dirOverride);
+
+    if(ok && armory.levels.echo > 0 && player.weapon === "bullet"){
+      const chance = 0.15 + armory.levels.echo * 0.08;
+      if(Math.random() < chance){
+        const dir = dirOverride ? dirOverride.clone() : new THREE.Vector3();
+        if(!dirOverride){
+          camera.getWorldDirection(dir);
+        }
+        dir.normalize();
+
+        const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+        const a = dir.clone().addScaledVector(right, 0.16).normalize();
+        const b = dir.clone().addScaledVector(right, -0.16).normalize();
+        const base = player.pos.clone();
+        base.y = 1.52;
+
+        [a, b].forEach((d, idx) => {
+          const start = base.clone()
+            .addScaledVector(right, idx === 0 ? 0.20 : -0.20)
+            .add(d.clone().multiplyScalar(.82));
+
+          state.bullets.push(createProjectile(start, d, {
+            speed: 30,
+            friendly: true,
+            color: idx === 0 ? 0xffd166 : 0x8bf0ff,
+            trailColor: 0xffffff,
+            size: 0.08,
+            life: 1.08,
+            damage: 5 + armory.levels.echo * 1.5,
+            type: "echo"
+          }));
+        });
+
+        createFlash?.(base.clone(), 0xffd166, 0.9, 2.4, 0.05);
+      }
+    }
+
+    return ok;
+  };
+
+  const _registerKill = registerKill;
+  registerKill = function(points){
+    _registerKill(points);
+
+    if(armory.levels.combo > 0){
+      state.comboTimer += armory.levels.combo * 0.45;
+      state.combo = clamp(state.combo + armory.levels.combo * 0.03, 1, 3.6 + armory.levels.combo * 0.3);
+      player.score += Math.round(points * 0.08 * armory.levels.combo);
+    }
+
+    if(armory.levels.vamp > 0){
+      player.hp = Math.min(player.maxHp, player.hp + armory.levels.vamp * 2);
+    }
+
+    setStat?.();
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    if(enemy?.isBoss){
+      awardCredits(28, "boss");
+    }else if(enemy?.type === "elite"){
+      awardCredits(10, "elite");
+    }else if(enemy?.type === "tank"){
+      awardCredits(8, "tank");
+    }else if(enemy?.type === "runner"){
+      awardCredits(6, "runner");
+    }else{
+      awardCredits(5, "kill");
+    }
+    return _killEnemy(enemy);
+  };
+
+  const _applyDamage = applyDamage;
+  applyDamage = function(amount){
+    let finalAmount = amount * (1 - armory.levels.plating * 0.14);
+
+    if(
+      armory.levels.phoenix > 0 &&
+      !armory.reviveUsed &&
+      player.alive &&
+      player.hp - finalAmount <= 0
+    ){
+      armory.reviveUsed = true;
+      player.hp = Math.max(45, Math.floor(player.maxHp * 0.45));
+      player.damageCooldown = 1.25;
+      state.cameraShake = Math.min(2.2, state.cameraShake + 1.0);
+      createShockwave?.(player.pos.clone(), 0xffd166, 4.4);
+      createShockwave?.(player.pos.clone(), 0xff4fd8, 3.2);
+      flashHint?.("PHOENIX PROTOCOL", 1600);
+      setStat?.();
+      updateHud();
+      return;
+    }
+
+    const result = _applyDamage(finalAmount);
+
+    if(!player.alive){
+      finishRunSnapshot();
+    }
+
+    return result;
+  };
+
+  const _restartGame = restartGame;
+  restartGame = function(){
+    finishRunSnapshot();
+    resetRun();
+    return _restartGame();
+  };
+
+  queueNextWave = function(delay = 1.2){
+    if(state.nextWaveQueued || !player.alive) return;
+
+    state.nextWaveQueued = true;
+
+    setTimeout(() => {
+      state.nextWaveQueued = false;
+      if(!player.alive) return;
+      if(!(state.running && state.enemies.length === 0 && !state.boss)) return;
+
+      const nextWave = player.wave + 1;
+
+      const startNextWave = () => {
+        player.wave = nextWave;
+        player.hp = Math.min(player.maxHp, player.hp + 12 + armory.levels.frame * 2);
+        player.ammo.bullet += 6 + armory.levels.printer * 4;
+        if(armory.levels.printer > 0) player.ammo.rocket += 1;
+        if(armory.levels.printer > 1) player.ammo.grenade += 1;
+        if(armory.levels.capacitor > 1 && nextWave % 3 === 0){
+          player.abilities.plasma += 1;
+          player.abilities.mine += 1;
+        }
+
+        awardCredits(10 + Math.floor(nextWave * 1.5), `wave ${nextWave}`);
+        state.lastClearStamp = performance.now();
+        state.running = true;
+        setStat?.();
+        updateHud();
+        spawnWave();
+      };
+
+      if(shouldOfferDraft(nextWave)){
+        openDraft(nextWave, startNextWave);
+      } else {
+        startNextWave();
+      }
+    }, delay * 1000);
+  };
+
+  const _startGame = startGame;
+  startGame = function(){
+    armory.profile.runs = armory.profile.runs || 0;
+    updateHud();
+    return _startGame();
+  };
+
+  /* ---------- hotkeys ---------- */
+  function onArmoryHotkeys(e){
+    const code = e.code || "";
+    if(code === "Tab"){
+      if(!armory.awaitingWaveStart && !armory.draftOpen) return;
+      e.preventDefault();
+      if(armory.draftOpen){
+        closeDraftAndContinue();
+      }
+    }
+    if(code === "KeyB"){
+      if(armory.awaitingWaveStart && armory.draftOpen){
+        e.preventDefault();
+        closeDraftAndContinue();
+      }
+    }
+  }
+  window.addEventListener("keydown", onArmoryHotkeys, { capture:true, passive:false });
+
+  /* ---------- init ---------- */
+  buildHud();
+  resetRun();
+  syncDerivedStats();
+})();
+
 
 
   animate(performance.now());
