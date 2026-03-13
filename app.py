@@ -3664,102 +3664,106 @@ renderBoard();
     camera.position.y += (Math.random()-0.5) * state.cameraShake * 0.04;
   }
 
-  function drawMinimap(){
-    const c = ui.minimapCanvas;
-    const ctx = minimapCtx;
-    if(!c || !ctx) return;
-    const w = c.width, h = c.height;
-    const range = 36;
-    ctx.clearRect(0,0,w,h);
-    const bg = ctx.createLinearGradient(0,0,0,h);
-    bg.addColorStop(0, "rgba(7,22,40,.96)");
-    bg.addColorStop(1, "rgba(3,8,18,.98)");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0,0,w,h);
+function drawMinimap(){
+  const c = ui.minimapCanvas;
+  const ctx = minimapCtx;
+  if(!c || !ctx) return;
+  const w = c.width, h = c.height;
+  ctx.clearRect(0,0,w,h);
 
-    ctx.strokeStyle = "rgba(77,247,255,.12)";
-    ctx.lineWidth = 1;
-    for(let i=0;i<=8;i++){
-      const p = (i/8)*w;
-      ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(w,p); ctx.stroke();
-    }
+  ctx.fillStyle = "rgba(5,10,20,.92)";
+  ctx.fillRect(0,0,w,h);
 
-    function worldToMap(wx,wz){
-      const dx = wx - player.pos.x;
-      const dz = wz - player.pos.z;
-      return {
-        x: w/2 + (dx/range)*(w/2-14),
-        y: h/2 + (dz/range)*(h/2-14)
-      };
-    }
-    function plot(wx,wz,color,size=4,stroke=null){
-      const p = worldToMap(wx,wz);
-      if(p.x<8||p.x>w-8||p.y<8||p.y>h-8) return;
-      ctx.fillStyle = color;
-      ctx.beginPath(); ctx.arc(p.x,p.y,size,0,Math.PI*2); ctx.fill();
-      if(stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
-    }
-
-    for(const cinfo of colliders){
-      const b = cinfo.box;
-      const p = worldToMap((b.min.x+b.max.x)*0.5, (b.min.z+b.max.z)*0.5);
-      const rw = Math.max(2, ((b.max.x-b.min.x)/range)*(w/2-14));
-      const rh = Math.max(2, ((b.max.z-b.min.z)/range)*(h/2-14));
-      ctx.fillStyle = "rgba(120,170,255,.16)";
-      ctx.fillRect(p.x-rw, p.y-rh, rw*2, rh*2);
-    }
-
-    const coneRadius = Math.min(w,h)*0.28;
-    ctx.save();
-    ctx.translate(w/2,h/2);
-    ctx.rotate(-lookYaw);
-    ctx.fillStyle = "rgba(77,247,255,.08)";
+  ctx.strokeStyle = "rgba(0,247,255,.18)";
+  ctx.lineWidth = 1;
+  for(let i=1;i<4;i++){
     ctx.beginPath();
-    ctx.moveTo(0,0);
-    ctx.arc(0,0,coneRadius,-0.42,0.42);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    for(const e of state.enemies){
-      const color = e.type === "elite" ? "#ff9f6e" : e.type === "logo" ? "#ffd166" : e.type === "tank" ? "#ff7f95" : e.type === "runner" ? "#9dff7c" : "#7ed8ff";
-      plot(e.mesh.position.x, e.mesh.position.z, color, e.type === "tank" ? 5 : 4);
-    }
-    if(state.boss){
-      plot(state.boss.mesh.position.x, state.boss.mesh.position.z, "#ff2b80", 7, "rgba(255,255,255,.75)");
-    }
-    for(const p of state.pickups){
-      const pickupColor = p.kind === "heal" ? "#62ffb0" : p.kind === "shield" ? "#74a8ff" : p.kind === "rocket" ? "#ff7b7b" : p.kind === "grenade" ? "#9dff7c" : "#ffd166";
-      plot(p.mesh.position.x, p.mesh.position.z, pickupColor, 2.6);
-    }
-    for(const hzd of state.hazards){
-      plot(hzd.mesh.position.x, hzd.mesh.position.z, hzd.kind === "mine" ? "#a2f3ff" : "#ff5c5c", 3.2);
-    }
-
-    ctx.save();
-    ctx.translate(w/2, h/2);
-    ctx.rotate(-lookYaw);
-    ctx.fillStyle = "#f5fbff";
-    ctx.beginPath();
-    ctx.moveTo(0,-13); ctx.lineTo(8,9); ctx.lineTo(0,5); ctx.lineTo(-8,9);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    ctx.fillStyle = "rgba(245,251,255,.85)";
-    ctx.font = "bold 12px system-ui";
-    ctx.fillText("N", w/2-4, 14);
-    ctx.font = "bold 11px system-ui";
-    ctx.fillText(`Wave ${player.wave}`, 10, h-30);
-    ctx.fillText(`Enemies ${state.enemies.length + (state.boss?1:0)}`, 10, h-15);
-    ctx.textAlign = "right";
-    ctx.fillText(`HP ${Math.round(player.hp)}`, w-10, h-15);
-    ctx.textAlign = "left";
-    ctx.strokeStyle = "rgba(77,247,255,.55)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1,1,w-2,h-2);
+    ctx.arc(w/2,h/2,(w*0.16)*i,0,Math.PI*2);
+    ctx.stroke();
   }
+  ctx.beginPath();
+  ctx.moveTo(w/2,0); ctx.lineTo(w/2,h);
+  ctx.moveTo(0,h/2); ctx.lineTo(w,h/2);
+  ctx.stroke();
+
+  const scale = 3.2;
+  const ox = w/2 - player.pos.x*scale;
+  const oy = h/2 - player.pos.z*scale;
+
+  for(const obs of colliders){
+    const b = obs.box;
+    const x = ox + b.min.x*scale;
+    const y = oy + b.min.z*scale;
+    const ww = (b.max.x-b.min.x)*scale;
+    const hh = (b.max.z-b.min.z)*scale;
+    ctx.fillStyle = "rgba(140,170,220,.16)";
+    ctx.fillRect(x,y,ww,hh);
+  }
+
+  for(const p of state.pickups){
+    const x = ox + p.mesh.position.x*scale;
+    const y = oy + p.mesh.position.z*scale;
+    ctx.fillStyle =
+      p.kind==="heal" ? "#39ff9c" :
+      p.kind==="shield" ? "#7db7ff" :
+      p.kind==="rocket" ? "#ff6b6b" :
+      p.kind==="grenade" ? "#9cff57" :
+      "#ffd24d";
+    ctx.beginPath();
+    ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  for(const hzd of state.hazards){
+    const x = ox + hzd.mesh.position.x*scale;
+    const y = oy + hzd.mesh.position.z*scale;
+    ctx.fillStyle = hzd.kind === "mine" ? "#8cf7ff" : "#ff5555";
+    ctx.beginPath();
+    ctx.arc(x,y,3.5,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  for(const e of state.enemies){
+    const x = ox + e.mesh.position.x*scale;
+    const y = oy + e.mesh.position.z*scale;
+    ctx.fillStyle =
+      e.type==="elite" ? "#ff9b5f" :
+      e.type==="logo" ? "#ffd24d" :
+      e.type==="tank" ? "#ff799f" :
+      e.type==="runner" ? "#a7ff52" :
+      "#7fe7ff";
+    ctx.beginPath();
+    ctx.arc(x,y,e.type==="tank"?4.5:3.3,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  if(state.boss){
+    const x = ox + state.boss.mesh.position.x*scale;
+    const y = oy + state.boss.mesh.position.z*scale;
+    ctx.strokeStyle = "#ff2b80";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x,y,7,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(w/2,h/2);
+  ctx.rotate(-lookYaw);
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(0,-8);
+  ctx.lineTo(6,6);
+  ctx.lineTo(-6,6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  if(ui.minimapLabel){
+    ui.minimapLabel.textContent = state.boss ? "BOSS IN ARENA" : `Hostiles ${state.enemies.length}`;
+  }
+}
+
 
   function queueNextWave(delay=1.2){
     if(state.nextWaveQueued || !player.alive) return;
@@ -7634,23 +7638,18 @@ function shootWithDirection(dirOverride=null){
     style.id = "ohHudRebuildStyles";
     style.textContent = `
       :root{
-        --hud-gap: 14px;
-        --hud-radius: 22px;
-        --hud-panel: linear-gradient(180deg, rgba(8,12,28,.88), rgba(14,10,34,.78));
-        --hud-panel-soft: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-        --hud-border: rgba(255,255,255,.14);
-        --hud-border-strong: rgba(255,255,255,.24);
-        --hud-shadow: 0 20px 48px rgba(0,0,0,.34), 0 0 36px rgba(0,247,255,.08);
-        --hud-blur: blur(18px) saturate(1.12);
-        --hud-top: calc(14px + env(safe-area-inset-top));
-        --hud-side: max(14px, env(safe-area-inset-left));
-        --hud-side-right: max(14px, env(safe-area-inset-right));
-        --hud-accent: #00f7ff;
-        --hud-accent-2: #ff4fd8;
-        --hud-text-soft: rgba(255,255,255,.72);
-        --hud-text-mid: rgba(255,255,255,.84);
+        --hud-gap: 12px;
+        --hud-radius: 18px;
+        --hud-panel: linear-gradient(180deg, rgba(10,12,24,.82), rgba(14,9,30,.68));
+        --hud-border: rgba(255,255,255,.12);
+        --hud-shadow: 0 16px 34px rgba(0,0,0,.30), 0 0 24px rgba(0,247,255,.06);
+        --hud-blur: blur(14px) saturate(1.08);
+        --hud-top: calc(12px + env(safe-area-inset-top));
+        --hud-side: max(12px, env(safe-area-inset-left));
+        --hud-side-right: max(12px, env(safe-area-inset-right));
       }
 
+      /* ===== BASISLAYOUT ===== */
       #ui,
       #nemesisHud,
       #apocHud,
@@ -7666,12 +7665,10 @@ function shootWithDirection(dirOverride=null){
           right .18s ease,
           bottom .18s ease,
           width .18s ease,
-          height .18s ease,
           transform .18s ease,
           opacity .18s ease;
       }
 
-      /* ===== CENTRALE HUD ===== */
       body.oh-hud-rebuild #ui{
         position: fixed !important;
         top: var(--hud-top) !important;
@@ -7679,11 +7676,11 @@ function shootWithDirection(dirOverride=null){
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(980px, calc(100vw - 420px)) !important;
-        min-width: min(720px, calc(100vw - 40px)) !important;
+        width: min(720px, calc(100vw - 360px)) !important;
+        min-width: min(520px, calc(100vw - 40px)) !important;
         max-width: calc(100vw - 40px) !important;
-        padding: 16px 18px !important;
-        border-radius: 24px !important;
+        padding: 12px 14px !important;
+        border-radius: 20px !important;
         background: var(--hud-panel) !important;
         border: 1px solid var(--hud-border) !important;
         box-shadow: var(--hud-shadow) !important;
@@ -7692,33 +7689,18 @@ function shootWithDirection(dirOverride=null){
         pointer-events: none !important;
       }
 
-      body.oh-hud-rebuild #ui::before{
-        content: "" !important;
-        position: absolute !important;
-        inset: 0 !important;
-        border-radius: inherit !important;
-        background:
-          radial-gradient(circle at 12% 0%, rgba(0,247,255,.12), transparent 34%),
-          radial-gradient(circle at 100% 0%, rgba(255,79,216,.10), transparent 28%),
-          linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)) !important;
-        pointer-events: none !important;
-      }
-
       body.oh-hud-rebuild #brand{
-        position: relative !important;
-        z-index: 1 !important;
-        margin-bottom: 14px !important;
+        margin-bottom: 10px !important;
         display:flex !important;
         align-items:center !important;
-        gap:14px !important;
+        gap:10px !important;
       }
 
       body.oh-hud-rebuild #brandMark{
-        width: 52px !important;
-        height: 52px !important;
-        border-radius: 16px !important;
+        width: 40px !important;
+        height: 40px !important;
+        border-radius: 12px !important;
         flex: 0 0 auto !important;
-        box-shadow: 0 0 20px rgba(0,247,255,.12) !important;
       }
 
       body.oh-hud-rebuild #brandText{
@@ -7727,46 +7709,40 @@ function shootWithDirection(dirOverride=null){
 
       body.oh-hud-rebuild #brandText b{
         display:block !important;
-        font-size: 17px !important;
-        line-height: 1.05 !important;
-        letter-spacing: .04em !important;
+        font-size: 14px !important;
+        line-height: 1.1 !important;
       }
 
       body.oh-hud-rebuild #brandText span{
         display:block !important;
-        font-size: 12px !important;
-        opacity:.86 !important;
-        line-height: 1.2 !important;
+        font-size: 11px !important;
+        opacity:.82 !important;
+        line-height: 1.15 !important;
       }
 
       body.oh-hud-rebuild #hud{
-        position: relative !important;
-        z-index: 1 !important;
         display:grid !important;
         grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
-        gap: 10px !important;
+        gap: 8px !important;
       }
 
       body.oh-hud-rebuild .stat{
         min-width: 0 !important;
-        padding: 12px 12px !important;
-        border-radius: 16px !important;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.045)) !important;
-        border: 1px solid rgba(255,255,255,.10) !important;
-        box-shadow:
-          inset 0 0 18px rgba(255,255,255,.02),
-          0 10px 18px rgba(0,0,0,.12) !important;
+        padding: 9px 10px !important;
+        border-radius: 14px !important;
+        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035)) !important;
+        border: 1px solid rgba(255,255,255,.08) !important;
+        box-shadow: inset 0 0 14px rgba(255,255,255,.02) !important;
       }
 
       body.oh-hud-rebuild .stat .label{
         display:block !important;
-        font-size: 11px !important;
+        font-size: 10px !important;
         line-height: 1.05 !important;
         text-transform: uppercase !important;
-        letter-spacing: .08em !important;
-        color: var(--hud-text-soft) !important;
-        margin-bottom: 6px !important;
+        letter-spacing: .06em !important;
+        color: rgba(255,255,255,.70) !important;
+        margin-bottom: 4px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
@@ -7774,43 +7750,32 @@ function shootWithDirection(dirOverride=null){
 
       body.oh-hud-rebuild .stat .value{
         display:block !important;
-        font-size: 20px !important;
+        font-size: 17px !important;
         line-height: 1 !important;
         font-weight: 900 !important;
-        color: #fff !important;
-        text-shadow: 0 0 14px rgba(0,247,255,.08) !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
       }
 
-      /* belangrijke stats extra zichtbaar */
-      body.oh-hud-rebuild .stat:nth-child(1),
-      body.oh-hud-rebuild .stat:nth-child(2),
-      body.oh-hud-rebuild .stat:nth-child(3){
-        background:
-          linear-gradient(180deg, rgba(0,247,255,.12), rgba(255,255,255,.045)) !important;
-        border-color: rgba(0,247,255,.16) !important;
-      }
-
-      /* ===== LINKS: NEMESIS ===== */
+      /* ===== NEMESIS LINKS ===== */
       body.oh-hud-rebuild #nemesisHud{
         position: fixed !important;
         top: var(--hud-top) !important;
         left: var(--hud-side) !important;
         right: auto !important;
         bottom: auto !important;
-        width: min(360px, calc(50vw - 42px)) !important;
+        width: min(300px, calc(50vw - 28px)) !important;
         z-index: 29 !important;
         display:flex !important;
         flex-direction:column !important;
-        gap:12px !important;
+        gap:10px !important;
         pointer-events:none !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-card{
-        border-radius: 22px !important;
-        padding: 14px 15px !important;
+        border-radius: 18px !important;
+        padding: 11px 12px !important;
         background: var(--hud-panel) !important;
         border: 1px solid var(--hud-border) !important;
         box-shadow: var(--hud-shadow) !important;
@@ -7818,40 +7783,37 @@ function shootWithDirection(dirOverride=null){
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-title{
-        font-size: 11px !important;
-        letter-spacing: .08em !important;
-        text-transform: uppercase !important;
+        font-size: 10px !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-main{
-        font-size: 17px !important;
-        gap: 12px !important;
+        font-size: 14px !important;
+        gap: 10px !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-sub{
-        font-size: 12px !important;
-        line-height: 1.35 !important;
-        color: var(--hud-text-mid) !important;
+        font-size: 11px !important;
+        line-height: 1.25 !important;
       }
 
-      /* ===== RECHTS: APOC ===== */
+      /* ===== APOC RECHTS ===== */
       body.oh-hud-rebuild #apocHud{
         position: fixed !important;
         top: var(--hud-top) !important;
         right: var(--hud-side-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: min(360px, calc(50vw - 42px)) !important;
+        width: min(300px, calc(50vw - 28px)) !important;
         z-index: 29 !important;
         display:flex !important;
         flex-direction:column !important;
-        gap:12px !important;
+        gap:10px !important;
         pointer-events:none !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-card{
-        border-radius: 22px !important;
-        padding: 14px 15px !important;
+        border-radius: 18px !important;
+        padding: 11px 12px !important;
         background: var(--hud-panel) !important;
         border: 1px solid var(--hud-border) !important;
         box-shadow: var(--hud-shadow) !important;
@@ -7859,146 +7821,121 @@ function shootWithDirection(dirOverride=null){
       }
 
       body.oh-hud-rebuild #apocHud .apoc-row{
-        font-size: 15px !important;
+        font-size: 13px !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-sub{
-        font-size: 12px !important;
-        line-height: 1.35 !important;
-        color: var(--hud-text-mid) !important;
+        font-size: 11px !important;
+        line-height: 1.25 !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-btn{
-        font-size: 12px !important;
-        padding: .8rem .95rem !important;
-        border-radius: 15px !important;
+        font-size: 11px !important;
+        padding: .72rem .85rem !important;
       }
 
-      /* ===== BOSS BAR ===== */
+      /* ===== BOSS BAR LOS VAN ALLE PANELS ===== */
       body.oh-hud-rebuild #bossBarWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 158px) !important;
+        top: calc(var(--hud-top) + 126px) !important;
         left: 50% !important;
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(760px, calc(100vw - 120px)) !important;
+        width: min(560px, calc(100vw - 60px)) !important;
         z-index: 28 !important;
       }
 
-      body.oh-hud-rebuild #bossBarWrap *{
-        font-size: 14px !important;
-      }
-
-      /* ===== MINIMAP ===== */
+      /* ===== MINIMAP RECHTSONDER HOEK BOVEN ===== */
       body.oh-hud-rebuild #minimapWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 172px) !important;
+        top: calc(var(--hud-top) + 150px) !important;
         right: var(--hud-side-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: 150px !important;
-        height: 150px !important;
-        border-radius: 22px !important;
-        overflow: hidden !important;
+        width: 118px !important;
+        height: 118px !important;
+        border-radius: 18px !important;
         z-index: 28 !important;
-        box-shadow: 0 18px 34px rgba(0,0,0,.28), 0 0 22px rgba(0,247,255,.06) !important;
       }
 
       body.oh-hud-rebuild #minimapLabel{
-        font-size: 11px !important;
-        letter-spacing: .08em !important;
+        font-size: 10px !important;
       }
 
-      /* ===== WEAPON BAR ===== */
+      /* ===== WEAPON EN ABILITIES ===== */
       body.oh-hud-rebuild #weaponBar{
         position: fixed !important;
         left: 50% !important;
         right: auto !important;
-        bottom: calc(18px + env(safe-area-inset-bottom)) !important;
+        bottom: calc(16px + env(safe-area-inset-bottom)) !important;
         top: auto !important;
-        transform: translateX(-50%) scale(1.08) !important;
-        transform-origin: center bottom !important;
+        transform: translateX(-50%) !important;
         z-index: 28 !important;
       }
 
-      /* ===== ABILITIES ===== */
       body.oh-hud-rebuild #abilityDock{
         position: fixed !important;
         right: var(--hud-side-right) !important;
         left: auto !important;
-        bottom: calc(18px + env(safe-area-inset-bottom) + 92px) !important;
+        bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
         top: auto !important;
         z-index: 28 !important;
-        gap: 12px !important;
+        gap: 10px !important;
       }
 
       body.oh-hud-rebuild .ability-btn{
-        min-width: 98px !important;
-        min-height: 56px !important;
-        border-radius: 18px !important;
-        font-size: 13px !important;
-        font-weight: 800 !important;
+        min-width: 82px !important;
+        border-radius: 16px !important;
       }
 
-      /* ===== TAP HINT ===== */
+      /* ===== TAPHINT / MOBILE ===== */
       body.oh-hud-rebuild #tapHint{
         right: var(--hud-side-right) !important;
-        bottom: calc(18px + env(safe-area-inset-bottom) + 238px) !important;
+        bottom: calc(16px + env(safe-area-inset-bottom) + 206px) !important;
         z-index: 28 !important;
-        font-size: 13px !important;
       }
 
       body.oh-hud-rebuild #mobileControls{
         z-index: 27 !important;
       }
 
-      /* ===== MID DESKTOP ===== */
-      @media (max-width: 1380px){
+      /* ===== DESKTOP / MID ===== */
+      @media (max-width: 1280px){
         body.oh-hud-rebuild #ui{
-          width: min(860px, calc(100vw - 360px)) !important;
-          min-width: min(640px, calc(100vw - 34px)) !important;
+          width: min(620px, calc(100vw - 330px)) !important;
+          min-width: min(460px, calc(100vw - 40px)) !important;
         }
-
         body.oh-hud-rebuild #hud{
           grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
         }
-
-        body.oh-hud-rebuild #bossBarWrap{
-          width: min(680px, calc(100vw - 100px)) !important;
-        }
       }
 
-      @media (max-width: 1180px){
+      @media (max-width: 1080px){
         body.oh-hud-rebuild #ui{
-          width: min(760px, calc(100vw - 40px)) !important;
+          width: min(560px, calc(100vw - 40px)) !important;
           min-width: 0 !important;
         }
-
         body.oh-hud-rebuild #nemesisHud,
         body.oh-hud-rebuild #apocHud{
-          width: min(300px, calc(50vw - 22px)) !important;
+          width: min(260px, calc(50vw - 22px)) !important;
         }
-
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 172px) !important;
-          width: min(620px, calc(100vw - 60px)) !important;
+          top: calc(var(--hud-top) + 144px) !important;
         }
-
         body.oh-hud-rebuild #minimapWrap{
-          top: calc(var(--hud-top) + 360px) !important;
-          width: 128px !important;
-          height: 128px !important;
+          top: calc(var(--hud-top) + 320px) !important;
+          width: 104px !important;
+          height: 104px !important;
         }
       }
 
-      /* ===== TABLET ===== */
-      @media (max-width: 900px){
+      /* ===== TABLET / SMAL ===== */
+      @media (max-width: 860px){
         body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 190px) !important;
+          top: calc(var(--hud-top) + 170px) !important;
           width: calc(100vw - 20px) !important;
-          padding: 14px !important;
-          border-radius: 20px !important;
+          transform: translateX(-50%) !important;
         }
 
         body.oh-hud-rebuild #nemesisHud{
@@ -8014,25 +7951,21 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 136px) !important;
+          top: calc(var(--hud-top) + 124px) !important;
           width: calc(100vw - 20px) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
           top: auto !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 182px) !important;
+          bottom: calc(16px + env(safe-area-inset-bottom) + 164px) !important;
           right: 10px !important;
-          width: 112px !important;
-          height: 112px !important;
+          width: 96px !important;
+          height: 96px !important;
         }
 
         body.oh-hud-rebuild #abilityDock{
           right: 10px !important;
-          bottom: calc(16px + env(safe-area-inset-bottom) + 82px) !important;
-        }
-
-        body.oh-hud-rebuild #weaponBar{
-          transform: translateX(-50%) scale(1.02) !important;
+          bottom: calc(16px + env(safe-area-inset-bottom) + 74px) !important;
         }
       }
 
@@ -8054,7 +7987,7 @@ function shootWithDirection(dirOverride=null){
 
         body.oh-hud-rebuild #nemesisHud .nem-card,
         body.oh-hud-rebuild #apocHud .apoc-card{
-          padding: 10px 11px !important;
+          padding: 9px 10px !important;
           border-radius: 16px !important;
         }
 
@@ -8066,34 +7999,33 @@ function shootWithDirection(dirOverride=null){
 
         body.oh-hud-rebuild #nemesisHud .nem-main,
         body.oh-hud-rebuild #apocHud .apoc-row{
-          font-size: 13px !important;
+          font-size: 12px !important;
         }
 
         body.oh-hud-rebuild #apocHud .apoc-btn{
           font-size: 10px !important;
-          padding: .66rem .76rem !important;
+          padding: .62rem .72rem !important;
         }
 
         body.oh-hud-rebuild #ui{
-          top: calc(var(--hud-top) + 166px) !important;
-          width: calc(100vw - 14px) !important;
-          padding: 11px !important;
+          top: calc(var(--hud-top) + 160px) !important;
+          width: calc(100vw - 16px) !important;
+          padding: 10px !important;
           border-radius: 16px !important;
         }
 
         body.oh-hud-rebuild #brand{
-          margin-bottom: 9px !important;
-          gap: 10px !important;
+          margin-bottom: 8px !important;
         }
 
         body.oh-hud-rebuild #brandMark{
-          width: 38px !important;
-          height: 38px !important;
-          border-radius: 12px !important;
+          width: 34px !important;
+          height: 34px !important;
+          border-radius: 10px !important;
         }
 
         body.oh-hud-rebuild #brandText b{
-          font-size: 13px !important;
+          font-size: 12px !important;
         }
 
         body.oh-hud-rebuild #brandText span{
@@ -8106,70 +8038,63 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild .stat{
-          padding: 9px 8px !important;
+          padding: 8px 8px !important;
           border-radius: 12px !important;
         }
 
         body.oh-hud-rebuild .stat .label{
           font-size: 9px !important;
-          margin-bottom: 4px !important;
+          margin-bottom: 3px !important;
         }
 
         body.oh-hud-rebuild .stat .value{
-          font-size: 15px !important;
+          font-size: 14px !important;
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(var(--hud-top) + 116px) !important;
-          width: calc(100vw - 14px) !important;
+          top: calc(var(--hud-top) + 114px) !important;
+          width: calc(100vw - 16px) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
-          width: 94px !important;
-          height: 94px !important;
-          bottom: calc(14px + env(safe-area-inset-bottom) + 182px) !important;
-          border-radius: 16px !important;
+          width: 84px !important;
+          height: 84px !important;
+          bottom: calc(14px + env(safe-area-inset-bottom) + 176px) !important;
+          border-radius: 14px !important;
         }
 
         body.oh-hud-rebuild #weaponBar{
           bottom: calc(8px + env(safe-area-inset-bottom)) !important;
-          transform: translateX(-50%) scale(.96) !important;
+          transform: translateX(-50%) scale(.94) !important;
           transform-origin: center bottom !important;
         }
 
         body.oh-hud-rebuild #abilityDock{
           right: 8px !important;
-          bottom: calc(8px + env(safe-area-inset-bottom) + 78px) !important;
+          bottom: calc(8px + env(safe-area-inset-bottom) + 76px) !important;
           gap: 8px !important;
         }
 
         body.oh-hud-rebuild .ability-btn{
-          min-width: 72px !important;
-          min-height: 48px !important;
+          min-width: 68px !important;
           padding: 8px 10px !important;
           border-radius: 14px !important;
           font-size: 11px !important;
         }
-
-        body.oh-hud-rebuild #tapHint{
-          right: 8px !important;
-          bottom: calc(8px + env(safe-area-inset-bottom) + 214px) !important;
-          font-size: 11px !important;
-        }
       }
 
-      /* ===== LANDSCAPE PHONE ===== */
+      /* ===== LANDSCAPE PHONE / COMPACT ===== */
       @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px){
         body.oh-hud-rebuild #nemesisHud{
           top: calc(8px + env(safe-area-inset-top)) !important;
           left: 8px !important;
-          width: min(230px, 28vw) !important;
+          width: min(220px, 28vw) !important;
         }
 
         body.oh-hud-rebuild #apocHud{
           top: calc(8px + env(safe-area-inset-top)) !important;
           right: 8px !important;
-          width: min(230px, 28vw) !important;
+          width: min(220px, 28vw) !important;
         }
 
         body.oh-hud-rebuild #nemesisHud .nem-card,
@@ -8196,7 +8121,7 @@ function shootWithDirection(dirOverride=null){
 
         body.oh-hud-rebuild #ui{
           top: calc(8px + env(safe-area-inset-top)) !important;
-          width: min(52vw, 420px) !important;
+          width: min(46vw, 360px) !important;
           left: 50% !important;
           transform: translateX(-50%) !important;
           padding: 8px !important;
@@ -8227,12 +8152,12 @@ function shootWithDirection(dirOverride=null){
         }
 
         body.oh-hud-rebuild #bossBarWrap{
-          top: calc(8px + env(safe-area-inset-top) + 90px) !important;
-          width: min(46vw, 360px) !important;
+          top: calc(8px + env(safe-area-inset-top) + 88px) !important;
+          width: min(40vw, 320px) !important;
         }
 
         body.oh-hud-rebuild #minimapWrap{
-          top: calc(8px + env(safe-area-inset-top) + 98px) !important;
+          top: calc(8px + env(safe-area-inset-top) + 94px) !important;
           right: 8px !important;
           bottom: auto !important;
           width: 88px !important;
@@ -8252,7 +8177,6 @@ function shootWithDirection(dirOverride=null){
 
         body.oh-hud-rebuild .ability-btn{
           min-width: 60px !important;
-          min-height: 42px !important;
           padding: 7px 8px !important;
           font-size: 10px !important;
         }
@@ -8264,7 +8188,7 @@ function shootWithDirection(dirOverride=null){
         }
       }
 
-      /* ===== VEILIGHEID / COMPACT ===== */
+      /* ===== VEILIGHEID: compact labels als panelen toch te klein zijn ===== */
       body.oh-hud-rebuild.oh-hud-tight #brandText span{
         display:none !important;
       }
@@ -8282,7 +8206,7 @@ function shootWithDirection(dirOverride=null){
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const tight = vw < 1040 || vh < 680;
+    const tight = vw < 980 || vh < 620;
     document.body.classList.toggle("oh-hud-tight", tight);
   }
 
