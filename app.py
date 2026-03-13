@@ -2955,7 +2955,7 @@ canvas{ display:block; }
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills en <b>P / Esc</b> voor pauze. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -7755,23 +7755,18 @@ function spawnWave(){
 })();
 
 /* =========================
-   OLDE HANTER PAUSE PACK
+   SAFE PAUSE PACK
+   vervangt de vorige pause update volledig
    plak dit direct boven: animate(performance.now());
    ========================= */
 (() => {
-  const pauseState = {
-    paused: false,
-    wasRunningBeforePause: false,
-    reason: "",
-    overlay: null,
-    title: null,
-    text: null,
-    btn: null,
-    lastPauseAt: 0
-  };
+  let paused = false;
+  let overlay = null;
+  let titleEl = null;
+  let textEl = null;
 
   function ensurePauseUi(){
-    if(pauseState.overlay) return;
+    if(overlay) return;
 
     const style = document.createElement("style");
     style.textContent = `
@@ -7847,7 +7842,7 @@ function spawnWave(){
     `;
     document.head.appendChild(style);
 
-    const overlay = document.createElement("div");
+    overlay = document.createElement("div");
     overlay.id = "pauseOverlay";
     overlay.innerHTML = `
       <div class="pause-card">
@@ -7862,115 +7857,69 @@ function spawnWave(){
     `;
     document.body.appendChild(overlay);
 
-    pauseState.overlay = overlay;
-    pauseState.title = overlay.querySelector(".pause-title");
-    pauseState.text = overlay.querySelector(".pause-text");
-    pauseState.btn = overlay.querySelector("#pauseResumeBtn");
+    titleEl = overlay.querySelector(".pause-title");
+    textEl = overlay.querySelector(".pause-text");
 
     overlay.querySelector("#pauseResumeBtn").addEventListener("click", () => {
       resumeGame();
     });
 
     overlay.querySelector("#pauseRestartBtn").addEventListener("click", () => {
-      pauseState.paused = false;
-      pauseState.overlay.classList.remove("show");
-      restartGame?.();
-    });
-
-    overlay.addEventListener("pointerdown", e => {
-      e.stopPropagation();
+      paused = false;
+      overlay.classList.remove("show");
+      restartGame();
     });
   }
 
-  function setPauseMessage(title, text){
-    ensurePauseUi();
-    pauseState.title.textContent = title || "Gepauzeerd";
-    pauseState.text.innerHTML = text || 'Druk op <b>P</b> of <b>Escape</b> om verder te gaan.';
-  }
-
-  function pauseGame(reason="manual"){
+  function pauseGame(){
     ensurePauseUi();
 
-    if(pauseState.paused) return;
+    if(paused) return;
     if(!player?.alive) return;
     if(!state?.running) return;
 
-    pauseState.paused = true;
-    pauseState.wasRunningBeforePause = !!state.running;
-    pauseState.reason = reason;
-    pauseState.lastPauseAt = performance.now();
-
+    paused = true;
     state.running = false;
     state.fireHeld = false;
 
-    input.forward = 0;
-    input.strafe = 0;
-    input.turn = 0;
-    input.lookX = 0;
-    input.lookY = 0;
-    if(input.keyboard){
-      Object.keys(input.keyboard).forEach(k => input.keyboard[k] = false);
+    if(input){
+      input.forward = 0;
+      input.strafe = 0;
+      input.turn = 0;
+      input.lookX = 0;
+      input.lookY = 0;
+      if(input.keyboard){
+        Object.keys(input.keyboard).forEach(k => input.keyboard[k] = false);
+      }
     }
 
-    if(document.pointerLockElement === renderer?.domElement){
-      document.exitPointerLock?.();
-    }
-
-    if(reason === "hidden"){
-      setPauseMessage(
-        "Automatisch gepauzeerd",
-        'Je wisselde van tab of app. Druk op <b>P</b>, <b>Escape</b> of de knop hieronder om verder te gaan.'
-      );
-    }else{
-      setPauseMessage(
-        "Gepauzeerd",
-        'Druk op <b>P</b> of <b>Escape</b> om verder te gaan. Je score en wave blijven behouden.'
-      );
-    }
-
-    pauseState.overlay.classList.add("show");
+    if(titleEl) titleEl.textContent = "Gepauzeerd";
+    if(textEl) textEl.innerHTML = 'Druk op <b>P</b> of <b>Escape</b> om verder te gaan.';
+    overlay.classList.add("show");
   }
 
   function resumeGame(){
     ensurePauseUi();
 
-    if(!pauseState.paused) return;
+    if(!paused) return;
     if(!player?.alive) return;
 
-    pauseState.paused = false;
-    pauseState.overlay.classList.remove("show");
-
+    paused = false;
+    overlay.classList.remove("show");
     state.lastTime = performance.now();
     state.running = true;
 
     ensureAudio?.();
 
-    if(!isTouch){
-      renderer?.domElement?.requestPointerLock?.();
+    if(!isTouch && renderer?.domElement){
+      renderer.domElement.requestPointerLock?.();
     }
   }
 
   function togglePause(){
-    if(!player?.alive) return;
-    if(pauseState.paused) resumeGame();
-    else pauseGame("manual");
+    if(paused) resumeGame();
+    else pauseGame();
   }
-
-  const _startGame = startGame;
-  startGame = function(...args){
-    ensurePauseUi();
-    pauseState.paused = false;
-    pauseState.overlay.classList.remove("show");
-    return _startGame.apply(this, args);
-  };
-
-  const _restartGame = restartGame;
-  restartGame = function(...args){
-    ensurePauseUi();
-    pauseState.paused = false;
-    pauseState.overlay.classList.remove("show");
-    return _restartGame.apply(this, args);
-  };
 
   window.addEventListener("keydown", e => {
     const code = e.code || "";
@@ -7981,18 +7930,9 @@ function spawnWave(){
     }
   }, { capture:true, passive:false });
 
-  document.addEventListener("visibilitychange", () => {
-    if(document.hidden){
-      pauseGame("hidden");
-    }
-  });
-
-  window.addEventListener("blur", () => {
-    pauseGame("hidden");
-  });
-
   ensurePauseUi();
 })();
+
 
 
   animate(performance.now());
