@@ -5472,116 +5472,286 @@ function shootWithDirection(dirOverride=null){
     }
   }
 
-  function updateEnemies(dt){
-    for(let i=state.enemies.length-1;i>=0;i--){
-      const e = state.enemies[i];
-      e.bob += dt * (e.type === "runner" ? 6.5 : 4.2);
-      if(e.mesh.userData.parts){
-        const swing = Math.sin(e.bob) * (e.type === "runner" ? 0.6 : e.type === "tank" ? 0.22 : e.type === "elite" ? 0.4 : 0.34);
-        e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
-        e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
-        e.mesh.userData.parts.legL.rotation.x = -swing;
-        e.mesh.userData.parts.legR.rotation.x = swing;
-        if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
-        if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
-        e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.5) * 0.05;
-        if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.08;
-        e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
-      }
-      e.fireCooldown -= dt;
+ function updateEnemies(dt){
+  const now = performance.now() * 0.001;
 
-      const dx = player.pos.x - e.mesh.position.x;
-      const dz = player.pos.z - e.mesh.position.z;
-      const dist = Math.max(0.001, Math.hypot(dx, dz));
-      const dirX = dx / dist;
-      const dirZ = dz / dist;
+  for(let i=state.enemies.length-1;i>=0;i--){
+    const e = state.enemies[i];
 
-      const ideal = e.type === "tank" ? (dist > 8 ? 1 : -0.12) : e.type === "elite" ? (dist > 10 ? 1 : -0.2) : (dist > 7 ? 1 : -0.32);
-      const sideX = -dirZ * e.strafe * (e.type === "runner" ? 0.5 : 0.3);
-      const sideZ =  dirX * e.strafe * (e.type === "runner" ? 0.5 : 0.3);
+    if(e.aiClock == null) e.aiClock = Math.random() * 10;
+    if(e.dodgeCooldown == null) e.dodgeCooldown = rand(0.4, 1.4);
+    if(e.burstCooldown == null) e.burstCooldown = rand(1.2, 2.8);
+    if(e.chargeCooldown == null) e.chargeCooldown = rand(2.5, 5.0);
+    if(e.wobble == null) e.wobble = rand(0.7, 1.3);
 
-      const mx = (dirX * ideal + sideX * dt) * e.speed * dt;
-      const mz = (dirZ * ideal + sideZ * dt) * e.speed * dt;
+    e.aiClock += dt;
+    e.fireCooldown -= dt;
+    e.dodgeCooldown -= dt;
+    e.burstCooldown -= dt;
+    e.chargeCooldown -= dt;
+    e.bob += dt * (e.type === "runner" ? 7.2 : e.type === "tank" ? 3.2 : e.type === "elite" ? 5.2 : 4.4);
 
-      const nx = e.mesh.position.x + mx;
-      const nz = e.mesh.position.z + mz;
-      if(!collidesAt(nx, nz, e.radius)){
-        e.mesh.position.x = nx;
-        e.mesh.position.z = nz;
-      }
+    if(e.mesh.userData.parts){
+      const swing = Math.sin(e.bob) * (
+        e.type === "runner" ? 0.75 :
+        e.type === "tank" ? 0.18 :
+        e.type === "elite" ? 0.46 : 0.34
+      );
+      e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
+      e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
+      e.mesh.userData.parts.legL.rotation.x = -swing;
+      e.mesh.userData.parts.legR.rotation.x = swing;
+      if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
+      if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
+      if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.07;
+      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.1;
+      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
+    }
 
-      e.mesh.position.y = 0.02 + Math.sin(e.bob) * 0.04;
-      if(e.groundRing){
-        e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
-        e.groundRing.material.opacity = 0.12 + 0.16 * (e.hp / e.maxHp);
-      }
-      e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
+    const dx = player.pos.x - e.mesh.position.x;
+    const dz = player.pos.z - e.mesh.position.z;
+    const dist = Math.max(0.001, Math.hypot(dx, dz));
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+    const sideX = -dirZ;
+    const sideZ = dirX;
 
-      if(dist < (e.type === "tank" ? 2.0 : e.type === "elite" ? 1.85 : 1.6)){
-        applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : 12) * dt * 8);
-        if(Math.random() < dt * (e.type === "runner" ? 3.0 : 2.0)) createShockwave(e.mesh.position.clone(), e.type === "elite" ? 0xffa86e : 0xff6ea1, e.type === "tank" ? 2.4 : 1.6);
-      }
+    const hpRatio = e.hp / e.maxHp;
 
-      if(e.type === "elite" && e.fireCooldown <= 0 && dist < 14){
-        createShockwave(e.mesh.position.clone(), 0xffa86e, 3.6);
-        explodeAt(player.pos.clone(), 3.0, 8, 0xffa86e);
-        e.fireCooldown = rand(3.0,4.2);
-      } else if(e.fireCooldown <= 0 && dist < (e.type === "tank" ? 18 : 24)){
-        enemyShoot(e);
-        e.fireCooldown = e.type === "runner" ? rand(1.1,1.8) : e.type === "tank" ? rand(1.7,2.6) : e.type === "elite" ? rand(1.5,2.1) : rand(0.95,1.8);
+    const preferRange =
+      e.type === "tank" ? 8.5 :
+      e.type === "elite" ? 10.5 :
+      e.type === "runner" ? 4.8 : 7.0;
+
+    let moveForward = 0;
+    if(dist > preferRange + 0.8) moveForward = 1;
+    else if(dist < preferRange - 0.8) moveForward = -0.75;
+
+    let strafeStrength =
+      e.type === "runner" ? 1.0 :
+      e.type === "elite" ? 0.8 :
+      e.type === "tank" ? 0.35 : 0.5;
+
+    let strafeDir = Math.sin(e.aiClock * e.wobble + i) >= 0 ? 1 : -1;
+
+    // Beschadigde vijanden worden agressiever / slimmer
+    if(hpRatio < 0.45){
+      strafeStrength += 0.18;
+      if(e.type !== "tank") moveForward += 0.12;
+    }
+
+    // Runner kan charge doen
+    let speedMul = 1;
+    if(e.type === "runner" && e.chargeCooldown <= 0 && dist > 3.5 && dist < 10){
+      moveForward = 1.45;
+      strafeStrength = 0.18;
+      speedMul = 1.55;
+      e.chargeCooldown = rand(3.5, 5.5);
+      createShockwave(e.mesh.position.clone(), 0xff6ea1, 1.6);
+    }
+
+    // Elite dodge / sidestep voor "slimmere" AI
+    if((e.type === "elite" || e.type === "runner") && e.dodgeCooldown <= 0 && dist < 13){
+      strafeDir *= -1;
+      strafeStrength += 1.4;
+      e.dodgeCooldown = e.type === "elite" ? rand(0.9, 1.7) : rand(1.2, 2.0);
+    }
+
+    // Tanks drukken juist meer door
+    if(e.type === "tank"){
+      moveForward += dist > 6.5 ? 0.2 : -0.05;
+    }
+
+    const wobble = Math.sin(now * (1.4 + e.wobble) + i * 1.7) * 0.16;
+    const moveX = (dirX * moveForward + sideX * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * dt;
+    const moveZ = (dirZ * moveForward + sideZ * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * dt;
+
+    let nx = e.mesh.position.x + moveX;
+    let nz = e.mesh.position.z + moveZ;
+
+    // Botsingen met arena
+    if(!collidesAt(nx, nz, e.radius)){
+      e.mesh.position.x = nx;
+      e.mesh.position.z = nz;
+    } else {
+      // probeer alsnog zijwaarts te glijden langs muren
+      const slideX = e.mesh.position.x + sideX * strafeDir * e.speed * 0.8 * dt;
+      const slideZ = e.mesh.position.z + sideZ * strafeDir * e.speed * 0.8 * dt;
+      if(!collidesAt(slideX, slideZ, e.radius)){
+        e.mesh.position.x = slideX;
+        e.mesh.position.z = slideZ;
       }
     }
 
-    if(state.boss){
-      const e = state.boss;
-      e.bob += dt * 2.2;
-      if(e.mesh.userData.parts){
-        const swing = Math.sin(e.bob) * 0.22;
-        e.mesh.userData.parts.armL.rotation.x = swing * 0.5;
-        e.mesh.userData.parts.armR.rotation.x = -swing * 0.5;
-        e.mesh.userData.parts.legL.rotation.x = -swing * 0.75;
-        e.mesh.userData.parts.legR.rotation.x = swing * 0.75;
-        if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.45)) * 0.1;
-        e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.04;
+    // Scheiding tussen enemies zodat ze minder op elkaar klonteren
+    for(let j=state.enemies.length-1;j>=0;j--){
+      if(i === j) continue;
+      const o = state.enemies[j];
+      const sx = e.mesh.position.x - o.mesh.position.x;
+      const sz = e.mesh.position.z - o.mesh.position.z;
+      const dd = Math.hypot(sx, sz) || 0.001;
+      const minDist = (e.radius + o.radius) * 0.72;
+      if(dd < minDist){
+        const push = (minDist - dd) * 0.045;
+        e.mesh.position.x += (sx / dd) * push;
+        e.mesh.position.z += (sz / dd) * push;
       }
-      e.fireCooldown -= dt;
+    }
 
-      const dx = player.pos.x - e.mesh.position.x;
-      const dz = player.pos.z - e.mesh.position.z;
-      const dist = Math.max(0.001, Math.hypot(dx, dz));
-      const dirX = dx / dist;
-      const dirZ = dz / dist;
+    e.mesh.position.y = 0.02 + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
 
-      if(dist > 9){
-        const nx = e.mesh.position.x + dirX * e.speed * dt;
-        const nz = e.mesh.position.z + dirZ * e.speed * dt;
-        if(!collidesAt(nx, nz, e.radius)){
-          e.mesh.position.x = nx;
-          e.mesh.position.z = nz;
+    if(e.groundRing){
+      e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
+      e.groundRing.rotation.z += dt * (e.type === "elite" ? 1.4 : e.type === "runner" ? 0.7 : 0.2);
+      e.groundRing.material.opacity = 0.12 + 0.16 * (e.hp / e.maxHp);
+    }
+
+    e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
+
+    // Melee pressure
+    if(dist < (e.type === "tank" ? 2.2 : e.type === "elite" ? 1.9 : e.type === "runner" ? 1.45 : 1.6)){
+      applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : e.type === "runner" ? 13 : 12) * dt * 8);
+      if(Math.random() < dt * (e.type === "runner" ? 3.6 : 2.1)){
+        createShockwave(
+          e.mesh.position.clone(),
+          e.type === "elite" ? 0xffa86e : 0xff6ea1,
+          e.type === "tank" ? 2.6 : 1.7
+        );
+      }
+    }
+
+    // Fire behaviour per enemy type
+    if(e.type === "elite" && e.fireCooldown <= 0 && dist < 15){
+      if(e.burstCooldown <= 0){
+        // elite burst / bombardement
+        createShockwave(e.mesh.position.clone(), 0xffa86e, 3.8);
+        for(let s=0;s<3;s++){
+          setTimeout(() => {
+            if(state.running && player.alive){
+              explodeAt(player.pos.clone(), 2.8, 8, 0xffa86e);
+            }
+          }, s * 180);
         }
-      }
-
-      e.mesh.position.y = 0.04 + Math.sin(e.bob) * 0.06;
-      if(e.groundRing){
-        e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
-        e.groundRing.material.opacity = 0.18 + 0.22 * (e.hp / e.maxHp);
-      }
-      e.mesh.lookAt(player.pos.x, 2.0, player.pos.z);
-
-      if(dist < 2.6){
-        applyDamage(22 * dt * 8);
-      }
-
-      if(e.fireCooldown <= 0 && dist < 32){
+        e.burstCooldown = rand(3.4, 5.2);
+        e.fireCooldown = rand(1.6, 2.2);
+      } else {
         enemyShoot(e);
-        enemyShoot(e);
-        if(player.wave >= 8) enemyShoot(e);
-        e.fireCooldown = player.wave >= 8 ? 0.42 : 0.58;
+        e.fireCooldown = rand(1.2, 1.8);
       }
-
-      updateBossBar();
+    } else if(e.type === "runner" && e.fireCooldown <= 0 && dist < 12){
+      if(Math.random() < 0.45) enemyShoot(e);
+      e.fireCooldown = rand(1.4, 2.1);
+    } else if(e.type === "tank" && e.fireCooldown <= 0 && dist < 18){
+      enemyShoot(e);
+      if(Math.random() < 0.35) enemyShoot(e);
+      e.fireCooldown = rand(1.9, 2.8);
+    } else if(e.type === "basic" && e.fireCooldown <= 0 && dist < 22){
+      enemyShoot(e);
+      e.fireCooldown = rand(1.0, 1.8);
     }
   }
+
+  if(state.boss){
+    const e = state.boss;
+
+    if(e.phase == null) e.phase = 1;
+    if(e.dashCooldown == null) e.dashCooldown = 4.5;
+    if(e.volleyCooldown == null) e.volleyCooldown = 2.2;
+    if(e.slamCooldown == null) e.slamCooldown = 6.2;
+
+    e.bob += dt * 2.35;
+    e.fireCooldown -= dt;
+    e.dashCooldown -= dt;
+    e.volleyCooldown -= dt;
+    e.slamCooldown -= dt;
+
+    const hpRatio = e.hp / e.maxHp;
+    e.phase = hpRatio < 0.33 ? 3 : hpRatio < 0.66 ? 2 : 1;
+
+    if(e.mesh.userData.parts){
+      const swing = Math.sin(e.bob) * (e.phase === 3 ? 0.34 : 0.24);
+      e.mesh.userData.parts.armL.rotation.x = swing * 0.55;
+      e.mesh.userData.parts.armR.rotation.x = -swing * 0.55;
+      e.mesh.userData.parts.legL.rotation.x = -swing * 0.8;
+      e.mesh.userData.parts.legR.rotation.x = swing * 0.8;
+      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.52)) * 0.13;
+      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.05;
+    }
+
+    const dx = player.pos.x - e.mesh.position.x;
+    const dz = player.pos.z - e.mesh.position.z;
+    const dist = Math.max(0.001, Math.hypot(dx, dz));
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+    const sideX = -dirZ;
+    const sideZ = dirX;
+
+    const targetRange = e.phase === 1 ? 11 : e.phase === 2 ? 9 : 7;
+
+    let forward = 0;
+    if(dist > targetRange + 1) forward = 1;
+    else if(dist < targetRange - 1) forward = -0.6;
+
+    const orbit = Math.sin(now * (e.phase === 3 ? 2.1 : 1.3)) * (e.phase === 3 ? 1.0 : 0.6);
+
+    let nx = e.mesh.position.x + (dirX * forward + sideX * orbit * 0.45) * e.speed * dt;
+    let nz = e.mesh.position.z + (dirZ * forward + sideZ * orbit * 0.45) * e.speed * dt;
+
+    if(!collidesAt(nx, nz, e.radius)){
+      e.mesh.position.x = nx;
+      e.mesh.position.z = nz;
+    }
+
+    // Boss dash in fase 2/3
+    if(e.phase >= 2 && e.dashCooldown <= 0 && dist > 5 && dist < 16){
+      const dash = (e.phase === 3 ? 6.8 : 5.2);
+      const tx = e.mesh.position.x + dirX * dash;
+      const tz = e.mesh.position.z + dirZ * dash;
+      if(!collidesAt(tx, tz, e.radius)){
+        e.mesh.position.x = tx;
+        e.mesh.position.z = tz;
+        createShockwave(e.mesh.position.clone(), 0xff2e88, e.phase === 3 ? 5.2 : 4.3);
+        if(dist < 8) applyDamage(e.phase === 3 ? 18 : 12);
+      }
+      e.dashCooldown = e.phase === 3 ? 3.2 : 4.4;
+    }
+
+    e.mesh.position.y = 0.04 + Math.sin(e.bob) * 0.07;
+    if(e.groundRing){
+      e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
+      e.groundRing.rotation.z += dt * (e.phase === 3 ? 2.5 : 1.2);
+      e.groundRing.material.opacity = 0.18 + 0.22 * hpRatio;
+    }
+
+    e.mesh.lookAt(player.pos.x, 2.0, player.pos.z);
+
+    if(dist < 2.7){
+      applyDamage((e.phase === 3 ? 28 : 22) * dt * 8);
+    }
+
+    // Boss slam
+    if(e.slamCooldown <= 0 && dist < 10){
+      createShockwave(e.mesh.position.clone(), 0xff6ea1, e.phase === 3 ? 6.0 : 5.0);
+      explodeAt(player.pos.clone(), e.phase === 3 ? 3.8 : 3.1, e.phase === 3 ? 15 : 10, 0xff6ea1);
+      e.slamCooldown = e.phase === 3 ? 4.8 : 6.5;
+    }
+
+    // Boss volley
+    if(e.volleyCooldown <= 0 && dist < 30){
+      const shots = e.phase === 1 ? 2 : e.phase === 2 ? 3 : 5;
+      for(let k=0;k<shots;k++){
+        setTimeout(() => {
+          if(state.running && player.alive && state.boss === e){
+            enemyShoot(e);
+          }
+        }, k * (e.phase === 3 ? 90 : 130));
+      }
+      e.volleyCooldown = e.phase === 3 ? 1.4 : e.phase === 2 ? 1.9 : 2.4;
+    }
+
+    updateBossBar();
+  }
+}
 
   function updateParticles(dt){
     for(let i=state.particles.length-1;i>=0;i--){
