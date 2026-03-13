@@ -2949,13 +2949,13 @@ canvas{ display:block; }
 
 <div id="centerMessage">
   <h1>Downloadlink verlopen</h1>
-  <p>Speel ondertussen de nieuwe arcade challenge om woede en frustratie te verminderen!</p>
+  <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten en een lokale leaderboard op dit apparaat.</p>
 
   <div id="nameRow">
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills en <b>P / Esc</b> voor pauze. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
+  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -3039,9 +3039,6 @@ canvas{ display:block; }
   };
 
 
-const LOCAL_BOARD_KEY = "expired_html_leaderboard_v2";
-const PLAYER_NAME_KEY = "expired_html_player_name_v1";
-
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, m => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",
@@ -3053,139 +3050,51 @@ function getPlayerName(){
   return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
 }
 
-function savePlayerName(){
-  try{
-    localStorage.setItem(PLAYER_NAME_KEY, getPlayerName());
-  }catch(_){}
-}
-
-function loadPlayerName(){
-  try{
-    const saved = localStorage.getItem(PLAYER_NAME_KEY);
-    if(saved && ui.playerName) ui.playerName.value = saved.slice(0,18);
-  }catch(_){}
-}
-
-function getLocalBoard(){
-  try{
-    const raw = localStorage.getItem(LOCAL_BOARD_KEY);
-    const rows = raw ? JSON.parse(raw) : [];
-    return Array.isArray(rows) ? rows : [];
-  }catch(_){
-    return [];
-  }
-}
-
-function setLocalBoard(rows){
-  try{
-    localStorage.setItem(LOCAL_BOARD_KEY, JSON.stringify(rows.slice(0,10)));
-  }catch(_){}
-}
-
-function addLocalScore(entry){
-  const rows = getLocalBoard();
-  rows.push({
-    name: String(entry.name || "Speler").slice(0,18),
-    score: Math.max(0, entry.score|0),
-    wave: Math.max(0, entry.wave|0),
-    ts: Date.now()
-  });
-
-  rows.sort((a,b) => {
-    if((b.score|0) !== (a.score|0)) return (b.score|0) - (a.score|0);
-    if((b.wave|0) !== (a.wave|0)) return (b.wave|0) - (a.wave|0);
-    return (a.ts|0) - (b.ts|0);
-  });
-
-  setLocalBoard(rows);
-}
-
-function mergeBoards(remoteRows, localRows){
-  const merged = [...(remoteRows || []), ...(localRows || [])]
-    .map(r => ({
-      name: String(r.name || "Speler").slice(0,18),
-      score: Math.max(0, r.score|0),
-      wave: Math.max(0, r.wave|0),
-      ts: r.ts || 0
-    }))
-    .sort((a,b) => {
-      if(b.score !== a.score) return b.score - a.score;
-      if(b.wave !== a.wave) return b.wave - a.wave;
-      return a.ts - b.ts;
-    })
-    .slice(0,10);
-
-  return merged;
-}
-
-function renderBoardRows(rows, sourceLabel="Leaderboard"){
-  ui.leaderboard.innerHTML = rows.length
-    ? rows.map(r =>
-        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
-      ).join("")
-    : "<li>Nog geen scores</li>";
-
-  const meta = document.querySelector("#boardWrap .board-meta span");
-  if(meta) meta.textContent = sourceLabel;
-}
-
 async function renderBoard(){
   ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
-  const localRows = getLocalBoard();
-
   try{
-    const res = await fetch("/api/leaderboard/top?limit=10", { cache: "no-store" });
+    const res = await fetch("/api/leaderboard/top?limit=10");
     if(!res.ok) throw new Error("HTTP error");
 
     const data = await res.json();
-    const remoteRows = Array.isArray(data.rows) ? data.rows : [];
-    const merged = mergeBoards(remoteRows, localRows);
+    const rows = data.rows || [];
 
-    renderBoardRows(merged, "Online + lokaal");
+    ui.leaderboard.innerHTML = rows.length
+      ? rows.map(r =>
+        `<li><b>${escapeHtml(r.name)}</b> — ${r.score} punten — wave ${r.wave}</li>`
+      ).join("")
+      : "<li>Nog geen scores</li>";
+
   }catch(err){
     console.error(err);
-    renderBoardRows(localRows, "Lokale fallback");
+    ui.leaderboard.innerHTML = "<li>Leaderboard niet beschikbaar</li>";
   }
 }
 
 async function submitScore(){
+
   const score = Math.floor(player.score);
+
   if(score <= 0) return;
 
-  const payload = {
-    name: getPlayerName(),
-    score,
-    wave: player.wave || 0
-  };
+  await fetch("/api/leaderboard/submit", {
 
-  savePlayerName();
-  addLocalScore(payload);
+    method: "POST",
 
-  try{
-    await fetch("/api/leaderboard/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-  }catch(err){
-    console.warn("Online submit mislukt, lokaal bewaard.", err);
-  }
+    headers: {
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+      name: getPlayerName(),
+      score: score,
+      wave: player.wave || 0
+    })
+
+  });
 
   renderBoard();
-}
-
-if(ui.playerName){
-  loadPlayerName();
-  ui.playerName.addEventListener("change", savePlayerName);
-  ui.playerName.addEventListener("input", () => {
-    if(ui.playerName.value.length > 18){
-      ui.playerName.value = ui.playerName.value.slice(0,18);
-    }
-  });
-}
-
-renderBoard();
 
 }
 
@@ -7753,187 +7662,6 @@ function spawnWave(){
   window.addEventListener("resize", tightenHudIfNeeded, { passive: true });
   window.addEventListener("orientationchange", tightenHudIfNeeded, { passive: true });
 })();
-
-/* =========================
-   SAFE PAUSE PACK
-   vervangt de vorige pause update volledig
-   plak dit direct boven: animate(performance.now());
-   ========================= */
-(() => {
-  let paused = false;
-  let overlay = null;
-  let titleEl = null;
-  let textEl = null;
-
-  function ensurePauseUi(){
-    if(overlay) return;
-
-    const style = document.createElement("style");
-    style.textContent = `
-      #pauseOverlay{
-        position:fixed;
-        inset:0;
-        z-index:60;
-        display:none;
-        align-items:center;
-        justify-content:center;
-        padding:24px;
-        background:radial-gradient(circle at 50% 35%, rgba(157,107,255,.14), rgba(3,3,10,.78) 58%, rgba(0,0,0,.88));
-        backdrop-filter:blur(10px) saturate(1.08);
-      }
-      #pauseOverlay.show{ display:flex; }
-      .pause-card{
-        width:min(520px, calc(100vw - 32px));
-        background:linear-gradient(180deg, rgba(10,12,22,.84), rgba(16,8,28,.78));
-        border:1px solid rgba(255,255,255,.14);
-        border-radius:22px;
-        padding:22px 20px 18px;
-        box-shadow:0 18px 60px rgba(0,0,0,.42), 0 0 40px rgba(157,107,255,.10);
-        text-align:center;
-        color:#fff;
-      }
-      .pause-kicker{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        padding:6px 10px;
-        margin-bottom:10px;
-        border-radius:999px;
-        font-size:12px;
-        letter-spacing:.08em;
-        text-transform:uppercase;
-        color:rgba(255,255,255,.82);
-        background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.08);
-      }
-      .pause-title{
-        margin:0 0 10px;
-        font-size:clamp(28px, 6vw, 42px);
-        line-height:1;
-      }
-      .pause-text{
-        margin:0 0 16px;
-        color:rgba(255,255,255,.78);
-        font-size:15px;
-        line-height:1.45;
-      }
-      .pause-actions{
-        display:flex;
-        justify-content:center;
-        gap:10px;
-        flex-wrap:wrap;
-      }
-      .pause-btn{
-        appearance:none;
-        border:0;
-        border-radius:14px;
-        padding:12px 16px;
-        font:inherit;
-        font-weight:800;
-        cursor:pointer;
-        color:#fff;
-        background:linear-gradient(180deg, rgba(77,247,255,.30), rgba(157,107,255,.28));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow:0 8px 26px rgba(0,0,0,.24);
-      }
-      .pause-btn.secondary{
-        background:rgba(255,255,255,.06);
-      }
-    `;
-    document.head.appendChild(style);
-
-    overlay = document.createElement("div");
-    overlay.id = "pauseOverlay";
-    overlay.innerHTML = `
-      <div class="pause-card">
-        <div class="pause-kicker">Spel onderbroken</div>
-        <h2 class="pause-title">Gepauzeerd</h2>
-        <p class="pause-text">Druk op <b>P</b> of <b>Escape</b> om verder te gaan.</p>
-        <div class="pause-actions">
-          <button class="pause-btn" type="button" id="pauseResumeBtn">Verder spelen</button>
-          <button class="pause-btn secondary" type="button" id="pauseRestartBtn">Opnieuw starten</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    titleEl = overlay.querySelector(".pause-title");
-    textEl = overlay.querySelector(".pause-text");
-
-    overlay.querySelector("#pauseResumeBtn").addEventListener("click", () => {
-      resumeGame();
-    });
-
-    overlay.querySelector("#pauseRestartBtn").addEventListener("click", () => {
-      paused = false;
-      overlay.classList.remove("show");
-      restartGame();
-    });
-  }
-
-  function pauseGame(){
-    ensurePauseUi();
-
-    if(paused) return;
-    if(!player?.alive) return;
-    if(!state?.running) return;
-
-    paused = true;
-    state.running = false;
-    state.fireHeld = false;
-
-    if(input){
-      input.forward = 0;
-      input.strafe = 0;
-      input.turn = 0;
-      input.lookX = 0;
-      input.lookY = 0;
-      if(input.keyboard){
-        Object.keys(input.keyboard).forEach(k => input.keyboard[k] = false);
-      }
-    }
-
-    if(titleEl) titleEl.textContent = "Gepauzeerd";
-    if(textEl) textEl.innerHTML = 'Druk op <b>P</b> of <b>Escape</b> om verder te gaan.';
-    overlay.classList.add("show");
-  }
-
-  function resumeGame(){
-    ensurePauseUi();
-
-    if(!paused) return;
-    if(!player?.alive) return;
-
-    paused = false;
-    overlay.classList.remove("show");
-    state.lastTime = performance.now();
-    state.running = true;
-
-    ensureAudio?.();
-
-    if(!isTouch && renderer?.domElement){
-      renderer.domElement.requestPointerLock?.();
-    }
-  }
-
-  function togglePause(){
-    if(paused) resumeGame();
-    else pauseGame();
-  }
-
-  window.addEventListener("keydown", e => {
-    const code = e.code || "";
-    if(code === "KeyP" || code === "Escape"){
-      if(!player?.alive) return;
-      e.preventDefault();
-      togglePause();
-    }
-  }, { capture:true, passive:false });
-
-  ensurePauseUi();
-})();
-
-
 
   animate(performance.now());
 })();
