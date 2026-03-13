@@ -7663,6 +7663,411 @@ function spawnWave(){
   window.addEventListener("orientationchange", tightenHudIfNeeded, { passive: true });
 })();
 
+/* =========================
+   OLDE HANTER RELIC ARMORY PACK
+   plak dit direct boven: animate(performance.now());
+   ========================= */
+(() => {
+  const ARMORY_KEY = "oldehanter_relic_armory_v1";
+
+  const armory = {
+    credits: 0,
+    earnedThisRun: 0,
+    relicsTaken: 0,
+    rerolls: 1,
+    awaitingWaveStart: false,
+    draftOpen: false,
+    continueFn: null,
+    reviveUsed: false,
+    levels: {
+      overclock: 0,     // damage
+      rapidfire: 0,     // fire rate
+      plating: 0,       // resist
+      frame: 0,         // max hp
+      magboots: 0,      // speed
+      vamp: 0,          // heal on kill
+      printer: 0,       // ammo packages
+      capacitor: 0,     // ability stocks / blast radius
+      combo: 0,         // combo duration/score bonus
+      echo: 0,          // chance on extra side shot
+      scavenger: 0,     // more credits
+      phoenix: 0        // once-per-run revive
+    },
+    profile: loadProfile(),
+    hud: {},
+    draft: {
+      root: null,
+      cards: null,
+      title: null,
+      sub: null,
+      continueBtn: null,
+      rerollBtn: null
+    }
+  };
+
+  function loadProfile(){
+    try{
+      return JSON.parse(localStorage.getItem(ARMORY_KEY)) || {
+        lifetimeCredits: 0,
+        totalRelics: 0,
+        runs: 0,
+        bestWave: 1,
+        bestScore: 0
+      };
+    }catch{
+      return {
+        lifetimeCredits: 0,
+        totalRelics: 0,
+        runs: 0,
+        bestWave: 1,
+        bestScore: 0
+      };
+    }
+  }
+
+  function saveProfile(){
+    try{
+      localStorage.setItem(ARMORY_KEY, JSON.stringify(armory.profile));
+    }catch{}
+  }
+
+  function aClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function aRand(a, b){ return a + Math.random() * (b - a); }
+  function aPick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+  function aShuffle(arr){
+    const copy = arr.slice();
+    for(let i = copy.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+  function fmt(n){ return Math.round(n).toLocaleString("nl-NL"); }
+
+  function addArmoryStyles(){
+    const style = document.createElement("style");
+    style.id = "ohRelicArmoryStyles";
+    style.textContent = `
+      #armoryHud{
+        position:fixed;
+        left:16px;
+        bottom:16px;
+        z-index:26;
+        width:min(330px, calc(100vw - 32px));
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+        pointer-events:none;
+      }
+      .armory-card{
+        pointer-events:auto;
+        border-radius:18px;
+        padding:12px 14px;
+        color:#fff;
+        background:linear-gradient(180deg, rgba(8,10,22,.82), rgba(15,8,30,.68));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 16px 34px rgba(0,0,0,.28), 0 0 24px rgba(255,230,0,.08);
+        backdrop-filter:blur(14px) saturate(1.08);
+      }
+      .armory-top{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        font-weight:900;
+      }
+      .armory-kicker{
+        font-size:.76rem;
+        letter-spacing:.14em;
+        text-transform:uppercase;
+        color:rgba(255,255,255,.72);
+      }
+      .armory-credits{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        font-size:1rem;
+      }
+      .armory-chip{
+        padding:.32rem .7rem;
+        border-radius:999px;
+        background:linear-gradient(90deg, rgba(255,209,102,.22), rgba(255,79,216,.18));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 0 18px rgba(255,209,102,.10);
+      }
+      .armory-sub{
+        margin-top:8px;
+        color:rgba(255,255,255,.76);
+        font-size:.84rem;
+        font-weight:700;
+      }
+      .armory-list{
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:8px;
+        margin-top:10px;
+      }
+      .armory-pill{
+        padding:.55rem .7rem;
+        border-radius:14px;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+        font-size:.8rem;
+        font-weight:800;
+        color:#fff;
+      }
+
+      #relicDraft{
+        position:fixed;
+        inset:0;
+        z-index:60;
+        display:none;
+        align-items:center;
+        justify-content:center;
+        padding:18px;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 32%),
+          rgba(2,4,10,.72);
+        backdrop-filter: blur(10px) saturate(1.06);
+      }
+      #relicDraft.show{ display:flex; }
+
+      .relic-shell{
+        width:min(1120px, 100%);
+        max-height:min(92vh, 920px);
+        overflow:auto;
+        border-radius:26px;
+        padding:18px;
+        background:linear-gradient(180deg, rgba(9,10,24,.94), rgba(16,10,34,.88));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 22px 60px rgba(0,0,0,.35), 0 0 34px rgba(138,46,255,.14);
+      }
+      .relic-head{
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:14px;
+        flex-wrap:wrap;
+      }
+      .relic-title{
+        color:#fff;
+        font-size:clamp(1.4rem, 3vw, 2rem);
+        font-weight:900;
+        letter-spacing:.02em;
+      }
+      .relic-meta{
+        color:rgba(255,255,255,.72);
+        font-weight:700;
+        line-height:1.35;
+      }
+      .relic-actions{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        flex-wrap:wrap;
+      }
+      .relic-btn{
+        appearance:none;
+        border:0;
+        cursor:pointer;
+        border-radius:999px;
+        padding:.82rem 1rem;
+        font-weight:900;
+        color:#fff;
+        background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
+        background-size:240% 240%;
+        animation:relicFlow 4.5s linear infinite;
+        box-shadow:0 0 18px rgba(255,0,168,.20), 0 0 28px rgba(0,247,255,.12);
+      }
+      .relic-btn.secondary{
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.14);
+        box-shadow:none;
+        animation:none;
+      }
+      .relic-btn:disabled{
+        filter:grayscale(.75) brightness(.7);
+        cursor:not-allowed;
+        box-shadow:none;
+      }
+      .relic-grid{
+        margin-top:18px;
+        display:grid;
+        grid-template-columns:repeat(3, minmax(0, 1fr));
+        gap:14px;
+      }
+      .relic-card{
+        border-radius:22px;
+        padding:16px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 10px 24px rgba(0,0,0,.20);
+        color:#fff;
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+        min-height:240px;
+      }
+      .relic-rarity{
+        font-size:.76rem;
+        letter-spacing:.16em;
+        text-transform:uppercase;
+        color:rgba(255,255,255,.68);
+        font-weight:900;
+      }
+      .relic-name{
+        font-size:1.18rem;
+        font-weight:900;
+        line-height:1.12;
+      }
+      .relic-desc{
+        color:rgba(255,255,255,.78);
+        font-size:.92rem;
+        line-height:1.45;
+        flex:1;
+      }
+      .relic-tagline{
+        font-size:.8rem;
+        color:rgba(255,255,255,.62);
+        font-weight:700;
+      }
+      .relic-buy{
+        margin-top:auto;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+      }
+      .relic-cost{
+        font-weight:900;
+        color:#ffd166;
+      }
+      .relic-card[data-rarity="epic"]{
+        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 0 26px rgba(255,0,168,.10);
+      }
+      .relic-card[data-rarity="legend"]{
+        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 0 28px rgba(255,230,0,.12);
+      }
+      .relic-note{
+        margin-top:14px;
+        color:rgba(255,255,255,.72);
+        font-size:.86rem;
+        font-weight:700;
+      }
+
+      @keyframes relicFlow{
+        0%{ background-position:0% 50%; }
+        100%{ background-position:200% 50%; }
+      }
+
+      @media (max-width: 980px){
+        .relic-grid{ grid-template-columns:1fr; }
+      }
+
+      @media (max-width: 720px){
+        #armoryHud{
+          left:10px;
+          bottom:10px;
+          width:min(290px, calc(100vw - 20px));
+        }
+        .armory-list{
+          grid-template-columns:1fr 1fr;
+        }
+        .relic-shell{
+          padding:14px;
+          border-radius:22px;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildHud(){
+    addArmoryStyles();
+
+    const hud = document.createElement("div");
+    hud.id = "armoryHud";
+    hud.innerHTML = `
+      <div class="armory-card">
+        <div class="armory-kicker">Relic Armory</div>
+        <div class="armory-top">
+          <div class="armory-credits">
+            <span class="armory-chip">Salvage: <b id="armoryCredits">0</b></span>
+            <span class="armory-chip">Relics: <b id="armoryRelics">0</b></span>
+          </div>
+          <span class="armory-chip">Runs: <b id="armoryRuns">0</b></span>
+        </div>
+        <div class="armory-sub" id="armorySub">
+          Elke 2 waves krijg je een relic draft. Boss waves geven betere keuzes.
+        </div>
+        <div class="armory-list" id="armoryList"></div>
+      </div>
+    `;
+    document.body.appendChild(hud);
+
+    armory.hud.root = hud;
+    armory.hud.credits = hud.querySelector("#armoryCredits");
+    armory.hud.relics = hud.querySelector("#armoryRelics");
+    armory.hud.runs = hud.querySelector("#armoryRuns");
+    armory.hud.sub = hud.querySelector("#armorySub");
+    armory.hud.list = hud.querySelector("#armoryList");
+
+    const draft = document.createElement("div");
+    draft.id = "relicDraft";
+    draft.innerHTML = `
+      <div class="relic-shell">
+        <div class="relic-head">
+          <div>
+            <div class="relic-title" id="relicDraftTitle">Relic Draft</div>
+            <div class="relic-meta" id="relicDraftSub">
+              Kies een upgrade tussen de waves. Je spel pauzeert totdat je doorgaat.
+            </div>
+          </div>
+          <div class="relic-actions">
+            <button id="relicRerollBtn" class="relic-btn secondary" type="button">Reroll</button>
+            <button id="relicContinueBtn" class="relic-btn secondary" type="button">Doorgaan</button>
+          </div>
+        </div>
+        <div class="relic-grid" id="relicCards"></div>
+        <div class="relic-note">
+          Tip: koop damage, fire-rate en plating vroeg. Neem Phoenix alleen als verzekering.
+        </div>
+      </div>
+    `;
+    document.body.appendChild(draft);
+
+    armory.draft.root = draft;
+    armory.draft.cards = draft.querySelector("#relicCards");
+    armory.draft.title = draft.querySelector("#relicDraftTitle");
+    armory.draft.sub = draft.querySelector("#relicDraftSub");
+    armory.draft.continueBtn = draft.querySelector("#relicContinueBtn");
+    armory.draft.rerollBtn = draft.querySelector("#relicRerollBtn");
+
+    armory.draft.continueBtn.addEventListener("click", () => closeDraftAndContinue());
+    armory.draft.rerollBtn.addEventListener("click", () => rerollDraft());
+
+    updateHud();
+  }
+
+  function activePerkLines(){
+    const entries = [];
+    const L = armory.levels;
+    if(L.overclock) entries.push(`Overclock ${L.overclock}`);
+    if(L.rapidfire) entries.push(`Rapid ${L.rapidfire}`);
+    if(L.plating) entries.push(`Plating ${L.plating}`);
+    if(L.frame) entries.push(`Frame ${L.frame}`);
+    if(L.magboots) entries.push(`Mag Boots ${L.magboots}`);
+    if(L.vamp) entries.push(`Vamp ${L.vamp}`);
+    if(L.printer) entries.push(`Printer ${L.printer}`);
+    if(L.capacitor) entries.push(`Capacitor ${L.capacitor}`);
+    if(L.combo) entries.push(`Combo ${L.combo}`);
+    if(L.echo) entries.push(`Echo ${L.echo}`);
+    if(L.scavenger) entries.push(`Scavenger ${L.scavenger}`);
+    if(L.phoenix) entries.push(`Phoenix ${L.phoenix}${armory.reviveUsed ? " (used)" : ""}`);
+    retur
+
+
   animate(performance.now());
 })();
 
