@@ -10557,6 +10557,245 @@ function shootWithDirection(dirOverride=null){
   showFloating?.("OH extra named patch online");
 })();
 
+/* ==========================================
+   OH WEAPON SCROLL + 6 SLOT LOADOUT PATCH
+   Plak dit HELE blok onderaan je code
+   ========================================== */
+(() => {
+  const LOADOUT_ORDER = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
+
+  function slotLabel(slot){
+    return slot === "bullet"  ? "Bullet Rifle"  :
+           slot === "rocket"  ? "Rocket Launcher" :
+           slot === "grenade" ? "Grenade Lobber" :
+           slot === "plasma"  ? "Plasma Burst" :
+           slot === "mine"    ? "Shock Mine" :
+           slot === "orbital" ? "Orbital Beam" :
+           "Weapon";
+  }
+
+  function slotShort(slot){
+    return slot === "bullet"  ? "Bullet"  :
+           slot === "rocket"  ? "Rocket"  :
+           slot === "grenade" ? "Grenade" :
+           slot === "plasma"  ? "Plasma"  :
+           slot === "mine"    ? "Mine"    :
+           slot === "orbital" ? "Orbital" :
+           "Weapon";
+  }
+
+  function slotResourceText(slot){
+    return slot === "bullet"  ? `${player.ammo.bullet} ammo` :
+           slot === "rocket"  ? `${player.ammo.rocket} ammo` :
+           slot === "grenade" ? `${player.ammo.grenade} ammo` :
+           slot === "plasma"  ? `${player.abilities.plasma} charge` + (player.abilities.plasma === 1 ? "" : "s") :
+           slot === "mine"    ? `${player.abilities.mine} charge` + (player.abilities.mine === 1 ? "" : "s") :
+           slot === "orbital" ? `${player.abilities.orbital} charge` + (player.abilities.orbital === 1 ? "" : "s") :
+           "";
+  }
+
+  function slotAvailable(slot){
+    return slot === "bullet"  ? player.ammo.bullet > 0 :
+           slot === "rocket"  ? player.ammo.rocket > 0 :
+           slot === "grenade" ? player.ammo.grenade > 0 :
+           slot === "plasma"  ? player.abilities.plasma > 0 :
+           slot === "mine"    ? player.abilities.mine > 0 :
+           slot === "orbital" ? player.abilities.orbital > 0 :
+           false;
+  }
+
+  function chipForSlot(slot){
+    return slot === "bullet"  ? ui.chipBullet :
+           slot === "rocket"  ? ui.chipRocket :
+           slot === "grenade" ? ui.chipGrenade :
+           slot === "plasma"  ? ui.chipPlasma :
+           slot === "mine"    ? ui.chipMine :
+           slot === "orbital" ? ui.chipOrbital :
+           null;
+  }
+
+  function slotIndex(slot){
+    const i = LOADOUT_ORDER.indexOf(slot);
+    return i >= 0 ? i : 0;
+  }
+
+  function updateWeaponChipTexts(){
+    if(ui.chipBullet)  ui.chipBullet.textContent  = `1 ${slotShort("bullet")} · ${player.ammo.bullet}`;
+    if(ui.chipRocket)  ui.chipRocket.textContent  = `2 ${slotShort("rocket")} · ${player.ammo.rocket}`;
+    if(ui.chipGrenade) ui.chipGrenade.textContent = `3 ${slotShort("grenade")} · ${player.ammo.grenade}`;
+    if(ui.chipPlasma)  ui.chipPlasma.textContent  = `4 ${slotShort("plasma")} · ${player.abilities.plasma}`;
+    if(ui.chipMine)    ui.chipMine.textContent    = `5 ${slotShort("mine")} · ${player.abilities.mine}`;
+    if(ui.chipOrbital) ui.chipOrbital.textContent = `6 ${slotShort("orbital")} · ${player.abilities.orbital}`;
+
+    LOADOUT_ORDER.forEach(slot => {
+      const chip = chipForSlot(slot);
+      if(!chip) return;
+      chip.classList.toggle("active", player.weapon === slot);
+      chip.classList.toggle("empty", !slotAvailable(slot));
+      chip.style.opacity = slotAvailable(slot) ? "1" : "0.45";
+    });
+  }
+
+  function updateSelectedWeaponUI(){
+    if(ui.weaponName){
+      ui.weaponName.textContent = `${slotLabel(player.weapon)} · ${slotResourceText(player.weapon)}`;
+    }
+    updateWeaponChipTexts();
+  }
+
+  function cycleWeapon(dir = 1){
+    let idx = slotIndex(player.weapon);
+    idx = (idx + dir + LOADOUT_ORDER.length) % LOADOUT_ORDER.length;
+    setWeapon(LOADOUT_ORDER[idx]);
+  }
+
+  weaponLabel = function(w){
+    return slotLabel(w);
+  };
+
+  setWeapon = function(w){
+    if(!LOADOUT_ORDER.includes(w)) w = "bullet";
+    player.weapon = w;
+    updateSelectedWeaponUI();
+
+    if(w === "plasma"){
+      flashHint?.(`Plasma Burst geselecteerd · ${player.abilities.plasma} charge(s)`);
+    }else if(w === "mine"){
+      flashHint?.(`Shock Mine geselecteerd · ${player.abilities.mine} charge(s)`);
+    }else if(w === "orbital"){
+      flashHint?.(`Orbital Beam geselecteerd · ${player.abilities.orbital} charge(s)`);
+    }
+  };
+
+  ensureUsableWeapon = function(){
+    if(slotAvailable(player.weapon)) return;
+
+    const currentIndex = slotIndex(player.weapon);
+
+    for(let step = 1; step <= LOADOUT_ORDER.length; step++){
+      const next = LOADOUT_ORDER[(currentIndex + step) % LOADOUT_ORDER.length];
+      if(slotAvailable(next)){
+        setWeapon(next);
+        return;
+      }
+    }
+
+    setWeapon("bullet");
+  };
+
+  const _setStat = setStat;
+  setStat = function(){
+    _setStat();
+    updateSelectedWeaponUI();
+  };
+
+  const _shootWithDirection = shootWithDirection;
+  shootWithDirection = function(dirOverride = null){
+    if(!state.running || !player.alive) return false;
+
+    if(player.weapon === "plasma"){
+      if(player.abilities.plasma <= 0){
+        flashHint?.("Geen plasma charges");
+        ensureUsableWeapon();
+        return false;
+      }
+      firePlasmaBurst();
+      updateSelectedWeaponUI();
+      return true;
+    }
+
+    if(player.weapon === "mine"){
+      if(player.abilities.mine <= 0){
+        flashHint?.("Geen mines over");
+        ensureUsableWeapon();
+        return false;
+      }
+      deployShockMine();
+      updateSelectedWeaponUI();
+      return true;
+    }
+
+    if(player.weapon === "orbital"){
+      if(player.abilities.orbital <= 0){
+        flashHint?.("Geen orbital charges");
+        ensureUsableWeapon();
+        return false;
+      }
+      deployOrbital();
+      updateSelectedWeaponUI();
+      return true;
+    }
+
+    const ok = _shootWithDirection(dirOverride);
+    updateSelectedWeaponUI();
+    return ok;
+  };
+
+  function handleDirectSlotSelect(slot){
+    setWeapon(slot);
+  }
+
+  window.addEventListener("wheel", e => {
+    if(!state.running) return;
+    if(Math.abs(e.deltaY) < 4) return;
+
+    e.preventDefault();
+    cycleWeapon(e.deltaY > 0 ? 1 : -1);
+  }, { passive:false });
+
+  window.addEventListener("keydown", e => {
+    if(!state.running && !["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6"].includes(e.code)) return;
+
+    if(e.code === "Digit1"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("bullet");
+    } else if(e.code === "Digit2"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("rocket");
+    } else if(e.code === "Digit3"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("grenade");
+    } else if(e.code === "Digit4"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("plasma");
+    } else if(e.code === "Digit5"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("mine");
+    } else if(e.code === "Digit6"){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handleDirectSlotSelect("orbital");
+    }
+  }, true);
+
+  [ui.chipBullet, ui.chipRocket, ui.chipGrenade, ui.chipPlasma, ui.chipMine, ui.chipOrbital].forEach((chip, i) => {
+    if(!chip || chip.dataset.ohScrollBound) return;
+    chip.dataset.ohScrollBound = "1";
+    chip.style.pointerEvents = "auto";
+    chip.style.cursor = "pointer";
+    chip.addEventListener("click", () => {
+      setWeapon(LOADOUT_ORDER[i]);
+    });
+  });
+
+  if(!state.weaponScrollHintShown){
+    state.weaponScrollHintShown = true;
+    flashHint?.("Scroll of druk 1-6 om tussen alle 6 loadout-slots te wisselen");
+  }
+
+  if(!LOADOUT_ORDER.includes(player.weapon)){
+    player.weapon = "bullet";
+  }
+
+  updateSelectedWeaponUI();
+})();
+
+
 
   animate(performance.now());
 })();
