@@ -4528,52 +4528,59 @@ function updateMusic(){
   }
 
 function spawnWave(){
-
   state.lastClearStamp = performance.now();
-  const count = Math.min(6 + player.wave * 2, 30);
 
-  showFloating(`WAVE ${player.wave} · ${count} vijanden`);
+  const wave = player.wave;
+  const baseCount = Math.min(5 + Math.floor(wave * 1.6), 34);
 
-  for(let i=0;i<count;i++) spawnEnemy(false);
+  const batchCount =
+    wave < 3 ? 1 :
+    wave < 6 ? 2 :
+    wave < 10 ? 3 : 4;
 
-  if(player.wave % 4 === 0){
+  const totalCount = Math.min(baseCount + (wave >= 8 ? 2 : 0), 38);
+  const perBatch = Math.max(2, Math.ceil(totalCount / batchCount));
 
-    setTimeout(()=>{
+  const waveLabel =
+    wave % 8 === 0 ? `WAVE ${wave} · ANOMALY SURGE` :
+    wave % 4 === 0 ? `WAVE ${wave} · BOSS WAVE` :
+    wave >= 6 ? `WAVE ${wave} · HEAVY CONTACT` :
+    `WAVE ${wave} · ${totalCount} vijanden`;
 
-      if(state.running && player.alive && !state.boss){
+  showFloating(waveLabel);
 
-        if(state.enemies.length > 16){
+  createShockwave(player.pos.clone(), wave % 4 === 0 ? 0xff6ea1 : 0x00f7ff);
 
-          const overflow = state.enemies.splice(16);
+  for(let batch = 0; batch < batchCount; batch++){
+    const delay = batch * (wave >= 10 ? 650 : 900);
 
-          for(const extra of overflow){
-            scene.remove(extra.mesh);
-            if(extra.groundRing) scene.remove(extra.groundRing);
-          }
+    setTimeout(() => {
+      if(!state.running || !player.alive) return;
 
-        }
+      const remaining = totalCount - batch * perBatch;
+      const amount = Math.max(0, Math.min(perBatch, remaining));
 
-        spawnEnemy(true);
-
+      for(let i = 0; i < amount; i++){
+        setTimeout(() => {
+          if(state.running && player.alive) spawnEnemy(false);
+        }, i * 110);
       }
-
-    },900);
-
+    }, delay);
   }
 
-  if(player.wave >= 5 && player.wave % 3 === 0){
+  if(wave % 4 === 0){
+    setTimeout(() => {
+      if(!state.running || !player.alive || state.boss) return;
 
-    setTimeout(()=>{
-
-      if(state.running && player.alive)
-        spawnEnemy(false);
-
-    },1500);
-
+      showFloating("BOSS INBOUND");
+      createShockwave(player.pos.clone(), 0xff2e88);
+      spawnEnemy(true);
+    }, 1400);
   }
 
   setStat();
 }
+
   function createProjectile(pos, dir, config){
     const material = new THREE.MeshBasicMaterial({ color: config.color });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(config.size, 10, 10), material);
