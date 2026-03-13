@@ -1022,7 +1022,7 @@ INDEX_HTML = """
       animation:blobMove 12s ease-in-out infinite;
     }
     .blob.b1{
-      width:220px;height:220px;background:#ff00a8;top:-70px;left:-50px;
+      width:260px;height:260px;background:#ff00a8;top:-70px;left:-50px;
     }
     .blob.b2{
       width:180px;height:180px;background:#00f7ff;right:-50px;top:36px;animation-delay:-4s;
@@ -3271,120 +3271,69 @@ renderBoard();
     return mesh;
   }
 
-  function buildArena(){
-    const B = 62;
-    addBox(2,5,B*2, -B,2.5,0, 0x19336c);
-    addBox(2,5,B*2,  B,2.5,0, 0x19336c);
-    addBox(B*2,5,2, 0,2.5,-B, 0x4b1f7c);
-    addBox(B*2,5,2, 0,2.5, B, 0x4b1f7c);
+const arenaVariants = ["crossroads","lanes","ring","fortress"];
+let currentArenaVariant = "crossroads";
 
-    addBox(14,4,3, 0,2,-8, 0x2fb8ff);
-    addBox(14,4,3, 0,2, 14, 0xff4fd8);
-
-    addBox(3,4,18, -22,2,-6, 0x2c4df0);
-    addBox(3,4,18, -34,2, 12, 0x8b4dff);
-    addBox(12,4,3, -28,2, 22, 0x16c7b8);
-
-    addBox(3,4,18, 22,2,-6, 0xff4fd8);
-    addBox(3,4,18, 34,2, 12, 0x2fb8ff);
-    addBox(12,4,3, 28,2, 22, 0x16c7b8);
-
-    addBox(6,2.5,6, -10,1.25,16, 0x2c4df0);
-    addBox(6,2.5,6, 10,1.25,16, 0xff4fd8);
-    addBox(8,3,5, 0,1.5,28, 0x7d33ff);
-
-    addBox(10,4,4, -18,2,-28, 0x2fb8ff);
-    addBox(10,4,4,  18,2,-28, 0xff4fd8);
-    addBox(8,4,8, 0,2,-38, 0x16c7b8);
-
-    [
-      [-40,1,-14], [-32,1,-14], [-24,1,-14],
-      [24,1,-14], [32,1,-14], [40,1,-14],
-      [-18,1,34], [-6,1,34], [6,1,34], [18,1,34]
-    ].forEach(([x,y,z]) => addBox(4,2,2, x,y,z, 0xffd166));
-
-    for(let i=0;i<10;i++){
-      const x = (i < 5 ? -1 : 1) * (18 + (i%5)*8);
-      const z = i < 5 ? 4 : -4;
-      addCylinderCollider(0.9,5,x,2.5,z,0x18284e);
-    }
-
-    for(let i=0;i<8;i++){
-      const angle = i / 8 * Math.PI * 2;
-      const x = Math.cos(angle) * 44;
-      const z = Math.sin(angle) * 44;
-
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.18,0.24,6,8),
-        new THREE.MeshStandardMaterial({ color:0x3a3f52, metalness:0.55, roughness:0.45 })
-      );
-      pole.position.set(x,3,z);
-      pole.castShadow = true;
-      scene.add(pole);
-
-      const lamp = new THREE.Mesh(
-        new THREE.BoxGeometry(0.8,0.35,0.8),
-        new THREE.MeshStandardMaterial({
-          color:i % 2 ? 0x4df7ff : 0xff4fd8,
-          emissive:i % 2 ? 0x4df7ff : 0xff4fd8,
-          emissiveIntensity:1.2
-        })
-      );
-      lamp.position.set(x,5.8,z);
-      scene.add(lamp);
-
-      const glow = new THREE.PointLight(i % 2 ? 0x4df7ff : 0xff4fd8, 1.1, 14, 2);
-      glow.position.set(x,5.6,z);
-      scene.add(glow);
-    }
-
-    for(let z=-48; z<=48; z+=12){
-      for(let x=-48; x<=48; x+=12){
-        if(Math.abs(x) < 8 && Math.abs(z) < 8) continue;
-        const tile = new THREE.Mesh(
-          new THREE.BoxGeometry(8,0.15,8),
-          new THREE.MeshStandardMaterial({
-            color: ((x+z)/12) % 2 === 0 ? 0x101c3d : 0x1a1136,
-            emissive: ((x+z)/12) % 2 === 0 ? 0x0b1734 : 0x120a27,
-            emissiveIntensity:0.18,
-            roughness:0.88,
-            metalness:0.08
-          })
-        );
-        tile.position.set(x,0.08,z);
-        tile.receiveShadow = true;
-        scene.add(tile);
-      }
-    }
-
-    [
-      [-44,1.5,28, 8,3,6, 0x205e7a],
-      [-44,1.5,36, 8,3,6, 0x6a2868],
-      [44,1.5,28, 8,3,6, 0x205e7a],
-      [44,1.5,36, 8,3,6, 0x6a2868]
-    ].forEach(([x,y,z,w,h,d,c]) => addBox(w,h,d,x,y,z,c));
-
-    for(let i=0;i<7;i++){
-      const beam = new THREE.Mesh(
-        new THREE.BoxGeometry(110, 0.35, 1.1),
-        new THREE.MeshStandardMaterial({ color:0x2a2f45, metalness:0.35, roughness:0.55 })
-      );
-      beam.position.set(0, 6.5, -42 + i*14);
-      beam.castShadow = true;
-      scene.add(beam);
-    }
-
-    for(let i=0;i<6;i++){
-      const beam = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 0.35, 110),
-        new THREE.MeshStandardMaterial({ color:0x2a2f45, metalness:0.35, roughness:0.55 })
-      );
-      beam.position.set(-42 + i*16, 6.3, 0);
-      beam.castShadow = true;
-      scene.add(beam);
-    }
+function clearArena(){
+  for(const c of colliders){
+    scene.remove(c.mesh);
   }
-  buildArena();
+  colliders.length = 0;
+}
+
+function buildArenaVariant(id){
+  const B = 62;
+
+  addBox(2,5,B*2,-B,2.5,0,0x19336c);
+  addBox(2,5,B*2,B,2.5,0,0x19336c);
+  addBox(B*2,5,2,0,2.5,-B,0x4b1f7c);
+  addBox(B*2,5,2,0,2.5,B,0x4b1f7c);
+
+  if(id==="crossroads"){
+    addBox(18,4,3,0,2,-10,0x2fb8ff);
+    addBox(18,4,3,0,2,10,0xff4fd8);
+    addBox(3,4,18,-10,2,0,0x2c4df0);
+    addBox(3,4,18,10,2,0,0x8b4dff);
+    addBox(8,3,8,0,1.5,0,0x16c7b8);
+  }
+
+  if(id==="lanes"){
+    addBox(6,4,40,-12,2,0,0x2c4df0);
+    addBox(6,4,40,12,2,0,0xff4fd8);
+    addBox(10,3,8,0,1.5,-24,0x16c7b8);
+    addBox(10,3,8,0,1.5,24,0x16c7b8);
+  }
+
+  if(id==="ring"){
+    addBox(28,4,3,0,2,-18,0x2fb8ff);
+    addBox(28,4,3,0,2,18,0xff4fd8);
+    addBox(3,4,28,-18,2,0,0x2c4df0);
+    addBox(3,4,28,18,2,0,0x8b4dff);
+  }
+
+  if(id==="fortress"){
+    addBox(22,4,3,-8,2,-16,0x2fb8ff);
+    addBox(3,4,24,16,2,2,0xff4fd8);
+    addBox(12,4,4,-20,2,20,0x16c7b8);
+    addBox(8,3,8,10,1.5,-6,0x7d33ff);
+  }
+
+  for(let i=0;i<8;i++){
+    const angle=i/8*Math.PI*2;
+    const x=Math.cos(angle)*42;
+    const z=Math.sin(angle)*42;
+    addCylinderCollider(1.1,5,x,2.5,z,0x18284e);
+  }
+}
+
+function rebuildArena(){
+  clearArena();
+  currentArenaVariant=arenaVariants[Math.floor(Math.random()*arenaVariants.length)];
+  buildArenaVariant(currentArenaVariant);
+}
+
+rebuildArena();
+
 
   const moon = new THREE.Mesh(
     new THREE.SphereGeometry(5.2, 24, 24),
@@ -3664,12 +3613,21 @@ renderBoard();
     camera.position.y += (Math.random()-0.5) * state.cameraShake * 0.04;
   }
 
+  let minimapZoom = 32;
+
+window.addEventListener("keydown",(e)=>{
+  if(e.key.toLowerCase()==="m"){
+    minimapZoom = minimapZoom === 32 ? 52 : 32;
+  }
+});
+
+
   function drawMinimap(){
     const c = ui.minimapCanvas;
     const ctx = minimapCtx;
     if(!c || !ctx) return;
     const w = c.width, h = c.height;
-    const range = 36;
+    const range = minimapZoom;
     ctx.clearRect(0,0,w,h);
     const bg = ctx.createLinearGradient(0,0,0,h);
     bg.addColorStop(0, "rgba(7,22,40,.96)");
