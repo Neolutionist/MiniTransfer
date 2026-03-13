@@ -10795,6 +10795,113 @@ function shootWithDirection(dirOverride=null){
   updateSelectedWeaponUI();
 })();
 
+/* ==========================================
+   OH JOOST SMOKE PATCH
+   Plak dit HELE blok onderaan je code
+   ========================================== */
+(() => {
+  function ohEnemyName(enemy){
+    return enemy?.enemyName || enemy?.mesh?.userData?.enemyName || "";
+  }
+
+  function spawnJoostSmoke(enemy, dt){
+    if(!enemy?.mesh) return;
+
+    enemy._joostSmokeTimer = (enemy._joostSmokeTimer || 0) - dt;
+    if(enemy._joostSmokeTimer > 0) return;
+
+    enemy._joostSmokeTimer = 0.045;
+
+    const origin = enemy.mesh.position.clone();
+    origin.y += 1.15 + Math.random() * 0.55;
+    origin.x += rand(-0.22, 0.22);
+    origin.z += rand(-0.22, 0.22);
+
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(rand(0.10, 0.18), 8, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xdfe6ee,
+        transparent: true,
+        opacity: rand(0.16, 0.28)
+      })
+    );
+
+    puff.position.copy(origin);
+    scene.add(puff);
+
+    state.particles.push({
+      mesh: puff,
+      vel: new THREE.Vector3(
+        rand(-0.25, 0.25),
+        rand(0.22, 0.55),
+        rand(-0.25, 0.25)
+      ),
+      life: rand(0.55, 1.05),
+      drag: 0.95,
+      gravity: -0.06,
+      shrink: 1.01,
+      rotate: rand(-1.2, 1.2),
+      smoke: true
+    });
+  }
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss = false){
+    const before = state.enemies.length;
+    const hadBoss = !!state.boss;
+
+    const result = _spawnEnemy(isBoss);
+
+    let enemy = null;
+    if(isBoss){
+      enemy = state.boss;
+    } else if(state.enemies.length > before){
+      enemy = state.enemies[state.enemies.length - 1];
+    } else if(!hadBoss && isBoss && state.boss){
+      enemy = state.boss;
+    }
+
+    if(enemy && ohEnemyName(enemy) === "Joost"){
+      enemy.hasJoostSmoke = true;
+      enemy._joostSmokeTimer = 0.02;
+    }
+
+    return result;
+  };
+
+  const _updateEnemies = updateEnemies;
+  updateEnemies = function(dt){
+    _updateEnemies(dt);
+
+    for(const enemy of state.enemies){
+      if(ohEnemyName(enemy) === "Joost"){
+        enemy.hasJoostSmoke = true;
+        spawnJoostSmoke(enemy, dt);
+      }
+    }
+
+    if(state.boss && ohEnemyName(state.boss) === "Joost"){
+      state.boss.hasJoostSmoke = true;
+      spawnJoostSmoke(state.boss, dt);
+    }
+  };
+
+  // ook direct toepassen op enemies die al bestaan
+  for(const enemy of state.enemies){
+    if(ohEnemyName(enemy) === "Joost"){
+      enemy.hasJoostSmoke = true;
+      enemy._joostSmokeTimer = 0.02;
+    }
+  }
+
+  if(state.boss && ohEnemyName(state.boss) === "Joost"){
+    state.boss.hasJoostSmoke = true;
+    state.boss._joostSmokeTimer = 0.02;
+  }
+
+  showFloating?.("Joost smoke online");
+})();
+
 
 
   animate(performance.now());
