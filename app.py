@@ -9707,6 +9707,507 @@ function shootWithDirection(dirOverride=null){
 })();
 
 
+/* ===========================
+   OH NAMED ENEMY SKILLS PACK
+   plak dit HELE blok onderin je game-code
+   =========================== */
+(() => {
+  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
+
+  const NAMED_TRAITS = {
+    Pieter: {
+      role: "captain",
+      hpMul: 1.45,
+      speedMul: 1.02,
+      color: 0xffd166,
+      label: "Captain",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.82;
+        enemy.damageMul = 1.18;
+      }
+    },
+    Jos: {
+      role: "turret",
+      hpMul: 1.9,
+      speedMul: 0.0,
+      color: 0xff965e,
+      label: "Turret",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.62;
+        enemy.damageMul = 2.15;
+        enemy.isStaticNamed = true;
+      }
+    },
+    Lisa: {
+      role: "bounty",
+      hpMul: 0.96,
+      speedMul: 1.12,
+      color: 0xff87d1,
+      label: "Bounty",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.90;
+        enemy.damageMul = 1.00;
+      },
+      onHit(enemy, damage){
+        const bonus = Math.max(12, Math.round(damage * 2.2));
+        player.score += bonus;
+        state.comboTimer = Math.max(state.comboTimer, 1.2);
+        showFloating(`LISA BONUS +${bonus}`);
+        createFlash?.(enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0)), 0xff87d1, 1.1, 3.5, 0.06);
+        setStat?.();
+      }
+    },
+    Joost: {
+      role: "skirmisher",
+      hpMul: 0.92,
+      speedMul: 1.26,
+      color: 0x8ff6ff,
+      label: "Skirmisher",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.92;
+        enemy.damageMul = 0.96;
+      }
+    },
+    Jan: {
+      role: "bruiser",
+      hpMul: 1.34,
+      speedMul: 0.92,
+      color: 0xffc45f,
+      label: "Bruiser",
+      onSpawn(enemy){
+        enemy.fireRateMul = 1.05;
+        enemy.damageMul = 1.15;
+      }
+    },
+    Patrick: {
+      role: "coward",
+      hpMul: 1.08,
+      speedMul: 1.28,
+      color: 0x7affb7,
+      label: "Coward",
+      onSpawn(enemy){
+        enemy.fireRateMul = 999;
+        enemy.damageMul = 0;
+        enemy.alwaysFlee = true;
+        enemy.neverShoot = true;
+      }
+    },
+    Miranda: {
+      role: "adrenaline",
+      hpMul: 1.02,
+      speedMul: 1.06,
+      color: 0x8eb8ff,
+      label: "Adrenaline",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.95;
+        enemy.damageMul = 1.00;
+      },
+      onHit(enemy){
+        const now = performance.now() * 0.001;
+        player._ohSpeedBoostUntil = Math.max(player._ohSpeedBoostUntil || 0, now + 2.5);
+        showFloating("MIRANDA BOOST");
+        createShockwave?.(player.pos.clone(), 0x8eb8ff, 2.2);
+      }
+    },
+    Jad: {
+      role: "glitch",
+      hpMul: 1.00,
+      speedMul: 1.04,
+      color: 0x9eff84,
+      label: "Glitch",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.88;
+        enemy.damageMul = 0.92;
+        enemy.wrongAim = true;
+      }
+    },
+    Kevin: {
+      role: "marksman",
+      hpMul: 1.10,
+      speedMul: 1.00,
+      color: 0xaadfff,
+      label: "Marksman",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.84;
+        enemy.damageMul = 1.12;
+      }
+    }
+  };
+
+  function ohPickName(){
+    return OH_NAMED_ENEMIES[Math.floor(Math.random() * OH_NAMED_ENEMIES.length)];
+  }
+
+  function ohEnsureTagText(enemy){
+    const sprite = enemy?.mesh?.userData?.parts?.nameTag;
+    if(!sprite?.material?.map?.image) return;
+
+    const canvas = sprite.material.map.image;
+    const ctx = canvas.getContext?.("2d");
+    if(!ctx) return;
+
+    const name = enemy.enemyName || "OH Unit";
+    const color = NAMED_TRAITS[name]?.color || 0x00f7ff;
+    const glow = "#" + color.toString(16).padStart(6, "0");
+    const role = NAMED_TRAITS[name]?.label || "OH";
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "rgba(6,10,22,.86)";
+    ctx.strokeStyle = "rgba(255,255,255,.18)";
+    ctx.lineWidth = 3;
+    if(ctx.roundRect){
+      ctx.beginPath();
+      ctx.roundRect(8, 10, canvas.width - 16, 62, 18);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(8, 10, canvas.width - 16, 62);
+      ctx.strokeRect(8, 10, canvas.width - 16, 62);
+    }
+
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "#f7fbff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "900 27px system-ui";
+    ctx.fillText(name, canvas.width * 0.5, 38);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,.70)";
+    ctx.font = "700 15px system-ui";
+    ctx.fillText(role, canvas.width * 0.5, 61);
+
+    sprite.material.map.needsUpdate = true;
+  }
+
+  function ohDecorateNamedEnemy(enemy){
+    if(!enemy || enemy.isBoss || enemy.__ohNamedApplied) return enemy;
+
+    let name = enemy.enemyName;
+    if(!OH_NAMED_ENEMIES.includes(name)){
+      name = ohPickName();
+    }
+
+    const trait = NAMED_TRAITS[name];
+    enemy.enemyName = name;
+    enemy.namedTrait = trait?.role || "oh";
+    enemy.__ohNamedApplied = true;
+
+    enemy.maxHp = Math.round(enemy.maxHp * (trait?.hpMul || 1));
+    enemy.hp = Math.round(enemy.hp * (trait?.hpMul || 1));
+    enemy.speed *= trait?.speedMul ?? 1;
+    enemy.fireRateMul = trait?.fireRateMul || 1;
+    enemy.damageMul = trait?.damageMul || 1;
+
+    if(enemy.mesh){
+      enemy.mesh.userData.enemyName = name;
+      enemy.mesh.userData.namedTrait = trait?.role || "oh";
+    }
+
+    if(enemy.groundRing?.material && trait?.color){
+      enemy.groundRing.material.color.setHex(trait.color);
+      enemy.groundRing.material.opacity = Math.max(enemy.groundRing.material.opacity || 0.22, 0.28);
+    }
+
+    if(enemy.mesh?.userData?.parts?.logo?.material && trait?.color){
+      enemy.mesh.userData.parts.logo.material.emissive?.setHex?.(trait.color);
+      enemy.mesh.userData.parts.logo.material.emissiveIntensity = 0.34;
+    }
+
+    if(enemy.mesh?.userData?.parts?.backLogo?.material && trait?.color){
+      enemy.mesh.userData.parts.backLogo.material.emissive?.setHex?.(trait.color);
+      enemy.mesh.userData.parts.backLogo.material.emissiveIntensity = 0.26;
+    }
+
+    if(enemy.mesh?.userData?.parts?.nameTag){
+      ohEnsureTagText(enemy);
+    }
+
+    if(typeof trait?.onSpawn === "function"){
+      trait.onSpawn(enemy);
+    }
+
+    return enemy;
+  }
+
+  function ohPieterDownSting(){
+    if(typeof audioCtx === "undefined" || !audioCtx) return;
+    const t = audioCtx.currentTime + 0.01;
+
+    const notes = [392, 523.25, 659.25, 783.99];
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = i < 2 ? "sawtooth" : "triangle";
+      osc.frequency.setValueAtTime(freq, t + i * 0.08);
+      gain.gain.setValueAtTime(0.0001, t + i * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.05, t + i * 0.08 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.08 + 0.22);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t + i * 0.08);
+      osc.stop(t + i * 0.08 + 0.24);
+    });
+  }
+
+  function ohNamedOnHit(enemy, damage){
+    if(!enemy?.enemyName) return;
+    const trait = NAMED_TRAITS[enemy.enemyName];
+    if(typeof trait?.onHit === "function"){
+      trait.onHit(enemy, damage);
+    }
+  }
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss = false){
+    const beforeCount = state.enemies.length;
+    const hadBoss = !!state.boss;
+
+    const result = _spawnEnemy(isBoss);
+
+    let enemy = null;
+    if(isBoss){
+      enemy = state.boss;
+    } else if(state.enemies.length > beforeCount){
+      enemy = state.enemies[state.enemies.length - 1];
+    } else if(!hadBoss && state.boss && isBoss){
+      enemy = state.boss;
+    }
+
+    if(enemy && !enemy.isBoss){
+      ohDecorateNamedEnemy(enemy);
+    }
+
+    return result;
+  };
+
+  const _enemyShoot = enemyShoot;
+  enemyShoot = function(enemy){
+    if(!enemy) return;
+
+    const name = enemy.enemyName || "";
+    const start = enemy.mesh.position.clone();
+    start.y = enemy.isBoss ? 2.9 : 2.05;
+
+    if(name === "Patrick" || enemy.neverShoot){
+      return;
+    }
+
+    if(name === "Jos"){
+      const target = player.pos.clone();
+      target.y = 1.45;
+      const dir = target.sub(start).normalize();
+
+      for(let i = 0; i < 3; i++){
+        const shotDir = dir.clone();
+        shotDir.x += (i - 1) * 0.08;
+        shotDir.y += (Math.random() - 0.5) * 0.015;
+        shotDir.z += (Math.random() - 0.5) * 0.02;
+        shotDir.normalize();
+
+        state.enemyBullets.push(createProjectile(start.clone(), shotDir, {
+          speed: 11,
+          friendly: false,
+          color: 0xff965e,
+          size: 0.19,
+          life: 3.6,
+          damage: 24,
+          type: "enemy"
+        }));
+      }
+
+      createFlash?.(start.clone(), 0xff965e, 1.0, 4.6, 0.07);
+      return;
+    }
+
+    if(name === "Jad" || enemy.wrongAim){
+      const target = player.pos.clone();
+      target.y = 1.45;
+      const dir = target.sub(start).normalize();
+
+      const wrongYaw = (Math.random() < 0.5 ? 1 : -1) * (Math.PI * (0.55 + Math.random() * 0.35));
+      const sin = Math.sin(wrongYaw);
+      const cos = Math.cos(wrongYaw);
+
+      const badDir = new THREE.Vector3(
+        dir.x * cos - dir.z * sin,
+        clamp(dir.y + rand(-0.18, 0.18), -0.35, 0.35),
+        dir.x * sin + dir.z * cos
+      ).normalize();
+
+      state.enemyBullets.push(createProjectile(start.clone(), badDir, {
+        speed: 13,
+        friendly: false,
+        color: 0x9eff84,
+        size: 0.13,
+        life: 3.2,
+        damage: 9,
+        type: "enemy"
+      }));
+
+      createFlash?.(start.clone(), 0x9eff84, 0.8, 2.6, 0.04);
+      return;
+    }
+
+    const oldCooldown = enemy.fireCooldown;
+    if(enemy.fireRateMul && enemy.fireRateMul !== 1){
+      enemy.fireCooldown = oldCooldown * enemy.fireRateMul;
+    }
+
+    _enemyShoot(enemy);
+
+    if(enemy.damageMul && enemy.damageMul !== 1){
+      const last = state.enemyBullets[state.enemyBullets.length - 1];
+      if(last && !last.friendly){
+        last.damage *= enemy.damageMul;
+        if(name === "Kevin"){
+          last.vel.multiplyScalar(1.12);
+          last.mesh.scale.setScalar(1.08);
+        }
+      }
+      if(name === "Pieter" && state.enemyBullets.length >= 2){
+        for(let i = state.enemyBullets.length - 2; i < state.enemyBullets.length; i++){
+          const b = state.enemyBullets[i];
+          if(b && !b.friendly){
+            b.damage *= 1.12;
+            b.vel.multiplyScalar(1.04);
+          }
+        }
+      }
+    }
+
+    enemy.fireCooldown = oldCooldown;
+  };
+
+  const _updateEnemies = updateEnemies;
+  updateEnemies = function(dt){
+    _updateEnemies(dt);
+
+    for(const enemy of state.enemies){
+      if(!enemy?.mesh) continue;
+
+      const name = enemy.enemyName || "";
+
+      if(name === "Jos"){
+        if(!enemy._staticAnchor){
+          enemy._staticAnchor = enemy.mesh.position.clone();
+        }
+        enemy.mesh.position.x = enemy._staticAnchor.x;
+        enemy.mesh.position.z = enemy._staticAnchor.z;
+        if(enemy.groundRing){
+          enemy.groundRing.position.set(enemy.mesh.position.x, 0.03, enemy.mesh.position.z);
+        }
+      }
+
+      if(name === "Patrick" || enemy.alwaysFlee){
+        const dx = enemy.mesh.position.x - player.pos.x;
+        const dz = enemy.mesh.position.z - player.pos.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        const awayX = dx / dist;
+        const awayZ = dz / dist;
+
+        const fleeStep = (enemy.speed || 4) * 0.62 * dt;
+        const nx = enemy.mesh.position.x + awayX * fleeStep;
+        const nz = enemy.mesh.position.z + awayZ * fleeStep;
+
+        if(!collidesAt(nx, nz, enemy.radius || 1)){
+          enemy.mesh.position.x = nx;
+          enemy.mesh.position.z = nz;
+        }
+
+        enemy.mesh.lookAt(
+          enemy.mesh.position.x + awayX * 3,
+          1.6,
+          enemy.mesh.position.z + awayZ * 3
+        );
+
+        if(enemy.groundRing){
+          enemy.groundRing.position.set(enemy.mesh.position.x, 0.03, enemy.mesh.position.z);
+        }
+      }
+
+      if(name === "Joost"){
+        enemy.mesh.position.y += Math.sin(performance.now() * 0.012 + enemy.bob) * 0.003;
+      }
+
+      if(name === "Kevin" && enemy.groundRing){
+        enemy.groundRing.rotation.z += dt * 1.8;
+      }
+    }
+  };
+
+  const _updateMovement = updateMovement;
+  updateMovement = function(dt){
+    if(player._ohBaseSpeed == null) player._ohBaseSpeed = player.speed;
+
+    const now = performance.now() * 0.001;
+    const bonusActive = (player._ohSpeedBoostUntil || 0) > now;
+    player.speed = player._ohBaseSpeed + (bonusActive ? 3.2 : 0);
+
+    _updateMovement(dt);
+
+    player.speed = player._ohBaseSpeed;
+  };
+
+  const _damageEnemyDirect = typeof damageEnemyDirect === "function" ? damageEnemyDirect : null;
+  if(_damageEnemyDirect){
+    damageEnemyDirect = function(enemy, damage){
+      const before = enemy?.hp;
+      const ok = _damageEnemyDirect(enemy, damage);
+      if(ok && enemy && typeof before === "number" && enemy.hp < before){
+        ohNamedOnHit(enemy, before - enemy.hp);
+      }
+      return ok;
+    };
+  }
+
+  const _updateBullets = updateBullets;
+  updateBullets = function(dt){
+    const hpBefore = new Map();
+    state.enemies.forEach(e => hpBefore.set(e, e.hp));
+    const bossRef = state.boss;
+    const bossHpBefore = bossRef ? bossRef.hp : null;
+
+    _updateBullets(dt);
+
+    for(const [enemy, before] of hpBefore.entries()){
+      if(typeof before === "number" && enemy && enemy.hp < before){
+        ohNamedOnHit(enemy, before - enemy.hp);
+      }
+    }
+
+    if(bossRef && typeof bossHpBefore === "number" && bossRef.hp < bossHpBefore){
+      ohNamedOnHit(bossRef, bossHpBefore - bossRef.hp);
+    }
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    if(enemy?.enemyName === "Pieter"){
+      ohPieterDownSting();
+      showFloating("PIETER DOWN");
+      createShockwave?.(enemy.mesh.position.clone(), 0xffd166, 3.6);
+    }
+    return _killEnemy(enemy);
+  };
+
+  const _restartGame = restartGame;
+  restartGame = function(){
+    player._ohSpeedBoostUntil = 0;
+    player._ohBaseSpeed = player.speed || 10.2;
+    return _restartGame();
+  };
+
+  // bestaande enemies direct updaten als je tijdens een lopende run plakt
+  for(const enemy of state.enemies){
+    ohDecorateNamedEnemy(enemy);
+  }
+
+  showFloating("OH named skills online");
+})();
+
+
 
   animate(performance.now());
 })();
