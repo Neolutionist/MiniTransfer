@@ -3818,6 +3818,8 @@ function drawMinimap(){
     state.nextWaveQueued = true;
     setTimeout(() => {
       state.nextWaveQueued = false;
+    state.moonNukeWave = 0;
+    state.preBossRelief = false;
       if(!player.alive) return;
       if(state.running && state.enemies.length === 0 && !state.boss){
         player.wave += 1;
@@ -4118,7 +4120,9 @@ function updateMusic(){
       mine: 2,
       orbital: 1
     },
-    weapon: "bullet"
+    weapon: "bullet",
+    speedBoost: 0,
+    speedBoostTimer: 0
   };
 
   const state = {
@@ -4150,7 +4154,9 @@ function updateMusic(){
     ragdolls: [],
     hazards: [],
     firedAbility: "",
-    abilityFlashTimers: { plasma:null, mine:null, orbital:null }
+    abilityFlashTimers: { plasma:null, mine:null, orbital:null },
+    moonNukeWave: 0,
+    preBossRelief: false
   };
 
   const input = {
@@ -5939,6 +5945,35 @@ function updateBullets(dt){
     return true;
   }
 
+  function triggerMoonNuke(hitPosition=null){
+    if(state.moonNukeWave === player.wave) return false;
+    state.moonNukeWave = player.wave;
+
+    createFlash?.(moon.position.clone(), 0xdbe9ff, 3.4, 18, 0.24);
+    createShockwave?.(moon.position.clone(), 0xc8dcff, 6.8);
+    createShockwave?.(player.pos.clone(), 0xc8dcff, 4.6);
+
+    if(hitPosition){
+      createBurst?.(hitPosition.clone(), 0xffd8b0, 10, 3.2, { minLife:.12, maxLife:.22, minSize:.05, maxSize:.11 });
+    }
+
+    const targets = state.enemies.slice();
+    for(const enemy of targets){
+      damageEnemyDirect?.(enemy, 999999);
+    }
+    if(state.boss){
+      damageEnemyDirect?.(state.boss, 999999);
+    }
+
+    for(let i = state.enemyBullets.length - 1; i >= 0; i--){
+      removeEnemyBullet?.(i);
+    }
+
+    flashHint?.("MAANRAAKET: wave gewist", 1500);
+    apocToast?.("MOON NUKE");
+    return true;
+  }
+
   function explodeProjectile(bullet){
     explodeAt(
       bullet.mesh.position.clone(),
@@ -5981,6 +6016,15 @@ function updateBullets(dt){
 
     b.life -= dt;
     let remove = b.life <= 0;
+
+    // maan-hit met rocket = wave skip / nuke
+    if(!remove && b.type === "rocket" && state.moonNukeWave !== player.wave){
+      const moonHitRadius = 8.4;
+      if(b.mesh.position.distanceTo(moon.position) <= moonHitRadius){
+        triggerMoonNuke(b.mesh.position.clone());
+        remove = true;
+      }
+    }
 
     // muur / arena collision
     if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
@@ -7850,6 +7894,15 @@ function startGame(){
     createFlash?.(base.clone(), 0xffffff, 0.8, 2.0, 0.04);
   }
 
+  function updateTemporaryRelicEffects(dt){
+    if(player.speedBoostTimer > 0){
+      player.speedBoostTimer = Math.max(0, player.speedBoostTimer - dt);
+      if(player.speedBoostTimer <= 0){
+        player.speedBoost = 0;
+      }
+    }
+  }
+
   function updateFury(dt){
     if(apoc.dashCd > 0){
       apoc.dashCd = Math.max(0, apoc.dashCd - dt);
@@ -7986,6 +8039,7 @@ function startGame(){
     const dt = Math.min(0.033, (now - apoc.extraLast) / 1000 || 0.016);
     apoc.extraLast = now;
 
+    updateTemporaryRelicEffects(dt);
     updateFury(dt);
     updateDrones(dt, now);
 
@@ -9755,7 +9809,7 @@ function startGame(){
 
   function syncDerivedStats(){
     player.maxHp = 100 + armory.levels.frame * 25;
-    player.speed = 10.2 * (1 + armory.levels.magboots * 0.12);
+    player.speed = 10.2 * (1 + armory.levels.magboots * 0.12) * (1 + (player.speedBoost || 0));
     if(player.hp > player.maxHp) player.hp = player.maxHp;
     setStat?.();
     updateHud();
@@ -9819,13 +9873,15 @@ function startGame(){
     const lowHp = player.hp <= player.maxHp * 0.45;
     const lowAmmo = player.ammo.bullet <= 20 && player.ammo.rocket <= 1 && player.ammo.grenade <= 1;
     const lowAbilities = (player.abilities.plasma + player.abilities.mine + player.abilities.orbital) <= 2;
+    const wave = player.wave;
 
     const pool = [
       makeRelic({
         id:"overclock",
         rarity:"rare",
         name:"Railspire Injector",
-        desc:"+18% projectile damage. Jouw kogels, rockets en plasma slaan merkbaar harder in.",
+        desc:"+18% projectielschade per niveau. Verhoogt de schade van kogels, rockets en plasma.",
+        tagline:"Offensief • schade",
         cost:26 + L.overclock * 10,
         weight: 1.15 + (L.overclock <= 1 ? 0.15 : 0),
         apply(){
@@ -9837,7 +9893,8 @@ function startGame(){
         id:"rapidfire",
         rarity:"rare",
         name:"Tempest Chamber",
-        desc:"+16% fire-rate. Je gun voelt direct agressiever en strakker.",
+        desc:"+16% vuursnelheid per niveau. Verhoogt de druk op korte en middellange afstand.",
+        tagline:"Offensief • vuursnelheid",
         cost:24 + L.rapidfire * 10,
         weight: 1.1 + (L.echo > 0 ? 0.15 : 0),
         apply(){
@@ -9849,7 +9906,8 @@ function startGame(){
         id:"plating",
         rarity:"rare",
         name:"Bastion Weave",
-        desc:"-14% inkomende schade. Een no-nonsense overlevingsupgrade.",
+        desc:"-14% inkomende schade per niveau. Eenvoudige maar betrouwbare verdedigingsupgrade.",
+        tagline:"Defensief • schadebeperking",
         cost:24 + L.plating * 12,
         weight: lowHp ? 1.45 : 1.0,
         apply(){
@@ -9861,7 +9919,8 @@ function startGame(){
         id:"frame",
         rarity:"epic",
         name:"Titan Chassis",
-        desc:"+25 max HP en directe reparatie van 25 HP. Dikke frontline energy.",
+        desc:"+25 maximale HP en direct 25 HP herstel. Verbetert de foutmarge van je run aanzienlijk.",
+        tagline:"Defensief • maximale HP",
         cost:32 + L.frame * 12,
         needsSync: true,
         weight: lowHp ? 1.5 : 0.95,
@@ -9877,7 +9936,8 @@ function startGame(){
         id:"magboots",
         rarity:"rare",
         name:"Slipstream Soles",
-        desc:"+12% movespeed. Goed voor kiten, dodgen en snel looten.",
+        desc:"+12% bewegingssnelheid per niveau. Handig voor positionering, ontwijken en pickups veiligstellen.",
+        tagline:"Mobiliteit • snelheid",
         cost:22 + L.magboots * 10,
         needsSync: true,
         weight: 1.05 + (player.wave >= 4 ? 0.1 : 0),
@@ -9891,7 +9951,8 @@ function startGame(){
         id:"vamp",
         rarity:"epic",
         name:"Crimson Recycler",
-        desc:"Heal 2 HP per kill. Hoe chaotischer het wordt, hoe beter dit voelt.",
+        desc:"Herstel 2 HP per kill. Wordt sterker naarmate gevechten drukker worden.",
+        tagline:"Sustain • levensherstel",
         cost:30 + L.vamp * 12,
         weight: 1.0 + (player.wave >= 5 ? 0.15 : 0),
         apply(){
@@ -9903,7 +9964,8 @@ function startGame(){
         id:"printer",
         rarity:"rare",
         name:"Munitions Foundry",
-        desc:"Meer ammo tussen waves én meteen een verse levering bij aankoop.",
+        desc:"Meer munitie tussen waves en direct een extra levering bij aankoop.",
+        tagline:"Logistiek • munitie",
         cost:22 + L.printer * 10,
         weight: lowAmmo ? 1.55 : 1.05,
         apply(){
@@ -9919,7 +9981,8 @@ function startGame(){
         id:"capacitor",
         rarity:"epic",
         name:"Stormglass Capacitor",
-        desc:"+1 charge op alle abilities en grotere explosieradius voor heavy shots.",
+        desc:"+1 charge op alle abilities en grotere explosieradius voor zware projectielen.",
+        tagline:"Abilities • capaciteit",
         cost:34 + L.capacitor * 12,
         weight: lowAbilities ? 1.4 : 1.0,
         apply(){
@@ -9935,7 +9998,8 @@ function startGame(){
         id:"combo",
         rarity:"rare",
         name:"Encore Matrix",
-        desc:"Langere combo timer en een vettere score snowball per level.",
+        desc:"Verlengt de combo-duur en verhoogt de scoregroei per niveau.",
+        tagline:"Offensief • combo",
         cost:24 + L.combo * 10,
         weight: 1.0 + (player.score > 0 ? 0.1 : 0),
         apply(){
@@ -9947,7 +10011,8 @@ function startGame(){
         id:"echo",
         rarity:"epic",
         name:"Mirrorcoil Trigger",
-        desc:"Kans op extra side-shots. Ideaal als je een bullet blender wilt bouwen.",
+        desc:"Geeft een kans op extra zijdelingse schoten. Past goed in snelle bullet-builds.",
+        tagline:"Offensief • extra projectielen",
         cost:30 + L.echo * 14,
         weight: 1.0 + (L.rapidfire > 0 ? 0.2 : 0),
         apply(){
@@ -9960,6 +10025,7 @@ function startGame(){
         rarity:"rare",
         name:"Graveroute Scanner",
         desc:"+18% meer salvage uit kills, pickups en wave-beloningen.",
+        tagline:"Economie • salvage",
         cost:20 + L.scavenger * 10,
         weight: armory.credits < 28 ? 1.3 : 0.95,
         apply(){
@@ -9971,7 +10037,8 @@ function startGame(){
         id:"phoenix",
         rarity:"legend",
         name:"Phoenix Protocol",
-        desc:"1x per run: overleef lethale schade en kom terug met 45 HP.",
+        desc:"Eenmaal per run: overleef lethale schade en keer terug met 45 HP.",
+        tagline:"Legendair • tweede kans",
         cost:42 + L.phoenix * 18,
         weight: armory.reviveUsed ? 0.25 : 0.9,
         apply(){
@@ -9979,15 +10046,14 @@ function startGame(){
         }
       }),
 
-      // --- nieuwe leuke specials / bundles ---
       makeRelic({
         id:"fieldkit",
         rarity:"common",
         oneShot:true,
         levelKey:null,
         name:"Field Kit Drop",
-        desc:"Directe tussenronde-push: flinke heal, ammo refill en kans op een bonus plasma charge.",
-        tagline:"Special • sustain",
+        desc:"Direct herstelpakket: herstel HP, vul munitie aan en ontvang kans op 1 extra plasma charge.",
+        tagline:"Eenmalig • herstelpakket",
         cost:16 + Math.floor(player.wave * 1.5),
         weight: lowHp || lowAmmo ? 1.8 : 0.85,
         apply(){
@@ -10006,8 +10072,8 @@ function startGame(){
         oneShot:true,
         levelKey:null,
         name:"Black Market Bounty",
-        desc:"Krijg direct een salvage-injectie en een gratis reroll. Perfect als de draft saai is.",
-        tagline:"Special • economy",
+        desc:"Ontvang direct salvage en 1 gratis reroll voor de huidige draft.",
+        tagline:"Eenmalig • economie",
         cost:18 + Math.floor(player.wave * 2),
         weight: armory.rerolls <= 0 ? 1.5 : 1.0,
         apply(){
@@ -10022,8 +10088,8 @@ function startGame(){
         oneShot:true,
         levelKey:null,
         name:"Fusion Ritual",
-        desc:"+1 Overclock én +1 Rapidfire in één pick. Minder subtiel, veel leuker.",
-        tagline:"Bundle • damage",
+        desc:"+1 Overclock en +1 Rapidfire in één keuze. Eenvoudige offensieve bundel.",
+        tagline:"Bundel • schade en tempo",
         cost:40 + (L.overclock + L.rapidfire) * 10,
         apply(){
           L.overclock += 1;
@@ -10037,8 +10103,8 @@ function startGame(){
         oneShot:true,
         levelKey:null,
         name:"Bulwark Pact",
-        desc:"+1 Plating, +1 Frame en direct een dikke heal. Voor runs die net niet stabiel genoeg voelen.",
-        tagline:"Bundle • tank",
+        desc:"+1 Plating, +1 Frame en direct herstel. Ideaal voor runs die onder druk staan.",
+        tagline:"Bundel • verdediging",
         cost:42 + (L.plating + L.frame) * 10,
         needsSync: true,
         weight: lowHp ? 1.55 : 0.8,
@@ -10057,8 +10123,8 @@ function startGame(){
         oneShot:true,
         levelKey:null,
         name:"Arc Surge Cache",
-        desc:"Volledige ability-top-up: +2 plasma, +1 mine, +1 orbital. Pure chaos pick.",
-        tagline:"Bundle • abilities",
+        desc:"Vult abilities direct aan: +2 plasma, +1 mine en +1 orbital.",
+        tagline:"Bundel • abilities",
         cost:36 + L.capacitor * 8,
         weight: lowAbilities ? 1.55 : 0.85,
         apply(){
@@ -10075,8 +10141,8 @@ function startGame(){
         oneShot:true,
         levelKey:null,
         name:"Trickster Deal",
-        desc:"+1 Echo, +1 Mag Boots en een kleine cash refund. Sneller, gekker, speelser.",
-        tagline:"Bundle • mobility",
+        desc:"+1 Echo, +1 Mag Boots en een kleine salvage-teruggave.",
+        tagline:"Bundel • mobiliteit",
         cost:31 + (L.echo + L.magboots) * 9,
         needsSync: true,
         weight: 1.0 + (L.echo === 0 ? 0.15 : 0),
@@ -10085,6 +10151,113 @@ function startGame(){
           L.magboots += 1;
           armory.credits += 8;
           syncDerivedStats();
+        }
+      }),
+
+      makeRelic({
+        id:"moonKey",
+        rarity:"epic",
+        oneShot:true,
+        levelKey:null,
+        name:"Lunar Calibration Key",
+        desc:"Een rocket die de maan raakt, wist direct de volledige huidige wave. Werkt ook op bosses.",
+        tagline:"Special • wave skip",
+        cost:34 + Math.floor(wave * 1.8),
+        weight: wave >= 4 ? 1.05 : 0.25,
+        apply(){
+          state.moonNukeWave = 0;
+          flashHint?.("Lunar calibration gereed");
+        }
+      }),
+
+      makeRelic({
+        id:"supplyLine",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Quartermaster Note",
+        desc:"Ontvang 2 rockets, 2 granaten en 20 kogels. Functioneel en direct bruikbaar.",
+        tagline:"Eenmalig • zware munitie",
+        cost:17 + Math.floor(wave * 1.2),
+        weight: lowAmmo ? 1.75 : 0.9,
+        apply(){
+          player.ammo.bullet += 20;
+          player.ammo.rocket += 2;
+          player.ammo.grenade += 2;
+          setStat?.();
+        }
+      }),
+
+      makeRelic({
+        id:"backspin",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Unsafe Prototype",
+        desc:"Experimenteel pakket: +1 rocket, +1 plasma charge en 6 salvage. Niet elegant, wel nuttig.",
+        tagline:"Curiositeit • experimenteel",
+        cost:11 + Math.floor(wave * 0.8),
+        weight: 0.95,
+        apply(){
+          player.ammo.rocket += 1;
+          player.abilities.plasma += 1;
+          armory.credits += 6;
+          flashHint?.("Prototype bleef heel");
+          setStat?.();
+        }
+      }),
+
+      makeRelic({
+        id:"stageNotes",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Arena Director Notes",
+        desc:"Een stapel managementnotities. Geeft 10 salvage, vooral omdat iemand ze moet opruimen.",
+        tagline:"Grappig • administratie",
+        cost:6 + Math.floor(wave * 0.6),
+        weight: 0.75,
+        apply(){
+          armory.credits += 10;
+          flashHint?.("Notities uit roulatie gehaald");
+        }
+      }),
+
+      makeRelic({
+        id:"coffee",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Night Shift Coffee",
+        desc:"Herstel 12 HP en ontvang tijdelijk extra bewegingssnelheid voor de volgende wave.",
+        tagline:"Special • tijdelijke boost",
+        cost:13 + Math.floor(wave),
+        weight: lowHp ? 1.2 : 0.9,
+        apply(){
+          player.hp = Math.min(player.maxHp, player.hp + 12);
+          player.speedBoost = Math.max(player.speedBoost || 0, 0.08);
+          player.speedBoostTimer = Math.max(player.speedBoostTimer || 0, 45);
+          setStat?.();
+          flashHint?.("Koffie actief");
+        }
+      }),
+
+      makeRelic({
+        id:"satchel",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Auxiliary Satchel",
+        desc:"Verhoogt direct je voorraad: +1 plasma, +1 mine, +1 orbital en +1 grenade.",
+        tagline:"Special • tactische reserve",
+        cost:24 + Math.floor(wave * 1.4),
+        weight: lowAbilities ? 1.45 : 0.95,
+        apply(){
+          player.abilities.plasma += 1;
+          player.abilities.mine += 1;
+          player.abilities.orbital += 1;
+          player.ammo.grenade += 1;
+          setStat?.();
         }
       })
     ];
@@ -10097,8 +10270,8 @@ function startGame(){
           oneShot:true,
           levelKey:null,
           name:"Apex Core",
-          desc:"+1 Overclock, +1 Capacitor, +1 Combo en een gratis resupply. Boss-prep in één kaart.",
-          tagline:"Legend bundle • boss prep",
+          desc:"+1 Overclock, +1 Capacitor, +1 Combo en een volledige resupply voor de boss wave.",
+          tagline:"Legendair • bossvoorbereiding",
           cost:58 + Math.floor(player.wave * 2.5),
           apply(){
             L.overclock += 1;
@@ -10107,6 +10280,23 @@ function startGame(){
             player.abilities.plasma += 1;
             player.abilities.mine += 1;
             draftResupply(1.15);
+          }
+        }),
+        makeRelic({
+          id:"ceasefire",
+          rarity:"epic",
+          oneShot:true,
+          levelKey:null,
+          name:"Emergency Ceasefire",
+          desc:"Start de volgende boss wave met minder reguliere adds en extra ability charges.",
+          tagline:"Special • bosscontrole",
+          cost:41 + Math.floor(player.wave * 1.7),
+          apply(){
+            player.abilities.plasma += 2;
+            player.abilities.mine += 1;
+            player.abilities.orbital += 1;
+            state.preBossRelief = true;
+            setStat?.();
           }
         })
       );
@@ -10466,6 +10656,7 @@ function startGame(){
 
       const startNextWave = () => {
         player.wave = nextWave;
+        state.moonNukeWave = 0;
         player.hp = Math.min(player.maxHp, player.hp + 12 + armory.levels.frame * 2);
         player.ammo.bullet += 6 + armory.levels.printer * 4;
         if(armory.levels.printer > 0) player.ammo.rocket += 1;
@@ -11044,7 +11235,8 @@ onHit(enemy, damage){
 
     const now = performance.now() * 0.001;
     const bonusActive = (player._ohSpeedBoostUntil || 0) > now;
-    player.speed = player._ohBaseSpeed + (bonusActive ? 3.2 : 0);
+    const relicMult = 1 + (player.speedBoost || 0);
+    player.speed = (player._ohBaseSpeed + (bonusActive ? 3.2 : 0)) * relicMult;
 
     _updateMovement(dt);
 
@@ -12706,6 +12898,20 @@ updateBullets = function(dt){
       player.wave >= 10 ? "Hoog tempo: chain kills voor combo-control en emergency ammo voorkomen." :
       player.wave >= 6 ? "Elite packs actief: speel rond cover pods en forceer sightlines." :
       "Bouw resources op en leer de sector-routes.";
+
+    if(state.preBossRelief && player.wave % 5 === 0){
+      state.preBossRelief = false;
+      setTimeout(() => {
+        if(!state.running || !player.alive) return;
+        const trimCount = Math.min(3, state.enemies.length);
+        for(let i = 0; i < trimCount; i++){
+          const target = state.enemies[state.enemies.length - 1];
+          if(target) damageEnemyDirect?.(target, 999999);
+        }
+        showFloating("BOSS ENTRY STABILIZED");
+      }, 700);
+    }
+
     if(player.wave >= 5 && player.wave % 3 === 2){
       setTimeout(() => {
         if(!state.running || !player.alive) return;
