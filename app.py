@@ -5426,54 +5426,53 @@ function shootWithDirection(dirOverride=null){
     player.fireCooldown = Math.max(0.115, 0.18 - Math.min(0.05, combo * 0.012));
     sfxShoot();
 
-  } else if(weapon === "rocket"){
-    player.ammo.rocket -= 1;
+} else if(weapon === "rocket"){
+  player.ammo.rocket -= 1;
 
-    const rocketDir = makeDir(0, 0);
-    if(state.moonNukeWave !== player.wave && rocketAimTriggersMoonNuke(start.clone(), rocketDir.clone())){
-      triggerMoonNuke(start.clone().add(rocketDir.clone().multiplyScalar(4)));
-      state.cameraShake = Math.min(2.4, state.cameraShake + 0.55);
-      player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
-      sfxRocket();
-      setStat();
-      return true;
-    }
+  const rocketDir = makeDir(0, 0);
 
-    spawnFriendly(start.clone(), rocketDir, {
-      speed: 18 + Math.min(2.5, combo * 0.35),
-      color: 0xff7b7b,
-      trailColor: 0xffb0a3,
+  const rocket = createProjectile(start.clone(), rocketDir, {
+    friendly: true,
+    speed: 18 + Math.min(2.5, combo * 0.35),
+    color: 0xff7b7b,
+    trailColor: 0xffb0a3,
+    smoke: true,
+    size: 0.18,
+    life: 2.6,
+    damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
+    radius: 4.2 + Math.min(1.2, combo * 0.22),
+    type: "rocket",
+    explosionColor: 0xff7b7b
+  });
+
+  if(state.moonNukeWave !== player.wave && rocketAimTriggersMoonNuke(start.clone(), rocketDir.clone())){
+    rocket.moonShot = true;
+  }
+
+  state.bullets.push(rocket);
+
+  // bonus micro-rocket bij sterke combo
+  if(combo >= 2.4){
+    const microDir = makeDir((Math.random() > 0.5 ? 0.07 : -0.07), 0.01);
+    const microStart = start.clone().addScaledVector(right, Math.random() > 0.5 ? 0.22 : -0.22);
+
+    spawnFriendly(microStart, microDir, {
+      speed: 19,
+      color: 0xffd166,
+      trailColor: 0xffefb0,
       smoke: true,
-      size: 0.18,
-      life: 2.6,
-      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
-      radius: 4.2 + Math.min(1.2, combo * 0.22),
+      size: 0.12,
+      life: 1.8,
+      damage: 12 + Math.min(5, Math.floor(combo)),
+      radius: 2.2,
       type: "rocket",
-      explosionColor: 0xff7b7b
+      explosionColor: 0xffd166
     });
+  }
 
-    // bonus micro-rocket bij sterke combo
-    if(combo >= 2.4){
-      const microDir = makeDir((Math.random() > 0.5 ? 0.07 : -0.07), 0.01);
-      const microStart = start.clone().addScaledVector(right, Math.random() > 0.5 ? 0.22 : -0.22);
-
-      spawnFriendly(microStart, microDir, {
-        speed: 19,
-        color: 0xffd166,
-        trailColor: 0xffefb0,
-        smoke: true,
-        size: 0.12,
-        life: 1.8,
-        damage: 12 + Math.min(5, Math.floor(combo)),
-        radius: 2.2,
-        type: "rocket",
-        explosionColor: 0xffd166
-      });
-    }
-
-    player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
-    sfxRocket();
-
+  player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
+  sfxRocket();
+  
   } else if(weapon === "grenade"){
     player.ammo.grenade -= 1;
 
@@ -6083,14 +6082,14 @@ function updateBullets(dt){
       }
     }
 
-    // mikken op de maan mag ook zonder letterlijk de maanmesh te raken
-    if(!remove && b.type === "rocket" && state.moonNukeWave !== player.wave){
-      const flightDir = b.vel?.clone?.().normalize?.() || null;
-      if(flightDir && rocketAimTriggersMoonNuke(b.mesh.position.clone(), flightDir)){
-        triggerMoonNuke(b.mesh.position.clone());
-        remove = true;
-      }
-    }
+// alleen rockets die bij afvuren als moon shot gemarkeerd zijn mogen de nuke triggeren
+if(!remove && b.type === "rocket" && b.moonShot && state.moonNukeWave !== player.wave){
+  const flightDir = b.vel?.clone?.().normalize?.() || null;
+  if(flightDir && rocketAimTriggersMoonNuke(b.mesh.position.clone(), flightDir)){
+    triggerMoonNuke(b.mesh.position.clone());
+    remove = true;
+  }
+}
 
     // muur / arena collision
     if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
