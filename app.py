@@ -8049,10 +8049,10 @@ function shootWithDirection(dirOverride=null){
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(920px, calc(100vw - 380px)) !important;
-        min-width: min(760px, calc(100vw - 32px)) !important;
-        max-width: calc(100vw - 32px) !important;
-        padding: 14px 16px !important;
+        width: min(1180px, calc(100vw - 24px)) !important;
+        min-width: 0 !important;
+        max-width: calc(100vw - 24px) !important;
+        padding: 12px 14px !important;
         border-radius: 22px !important;
         background: var(--panel-bg) !important;
         border: 1px solid var(--panel-border) !important;
@@ -8109,8 +8109,8 @@ function shootWithDirection(dirOverride=null){
         position: relative !important;
         z-index: 1 !important;
         display:grid !important;
-        grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
-        gap: 8px !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        gap: 10px !important;
       }
 
       body.oh-hud-rebuild .stat{
@@ -8159,17 +8159,7 @@ function shootWithDirection(dirOverride=null){
 
       /* ===== LEFT INTEL PANEL ===== */
       body.oh-hud-rebuild #nemesisHud{
-        position: fixed !important;
-        top: var(--hud-top) !important;
-        left: var(--hud-left) !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: min(300px, calc(50vw - 36px)) !important;
-        display:flex !important;
-        flex-direction:column !important;
-        gap:10px !important;
-        z-index: 29 !important;
-        pointer-events: none !important;
+      display:none !important;
       }
 
       body.oh-hud-rebuild #nemesisHud .nem-card{
@@ -8201,17 +8191,7 @@ function shootWithDirection(dirOverride=null){
 
       /* ===== RIGHT SIDE PANEL ===== */
       body.oh-hud-rebuild #apocHud{
-        position: fixed !important;
-        top: var(--hud-top) !important;
-        right: var(--hud-right) !important;
-        left: auto !important;
-        bottom: auto !important;
-        width: min(300px, calc(50vw - 36px)) !important;
-        display:flex !important;
-        flex-direction:column !important;
-        gap:10px !important;
-        z-index: 29 !important;
-        pointer-events: none !important;
+      display:none !important;
       }
 
       body.oh-hud-rebuild #apocHud .apoc-card{
@@ -8242,24 +8222,24 @@ function shootWithDirection(dirOverride=null){
       /* ===== CENTER BOSS BAR ===== */
       body.oh-hud-rebuild #bossBarWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 132px) !important;
+        top: calc(var(--hud-top) + 108px) !important;
         left: 50% !important;
         right: auto !important;
         bottom: auto !important;
         transform: translateX(-50%) !important;
-        width: min(640px, calc(100vw - 80px)) !important;
+        width: min(760px, calc(100vw - 40px)) !important;
         z-index: 28 !important;
       }
 
       /* ===== RIGHT MID MINIMAP ===== */
       body.oh-hud-rebuild #minimapWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 148px) !important;
+        top: calc(var(--hud-top) + 124px) !important;
         right: var(--hud-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: 220px !important;
-        height: 260px !important;
+        width: 190px !important;
+        height: 220px !important;
         border-radius: 22px !important;
         z-index: 28 !important;
       }
@@ -8693,6 +8673,20 @@ function shootWithDirection(dirOverride=null){
       body.oh-hud-rebuild.oh-hud-tight #hud{
         grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
       }
+
+      /* HIER PLAKKEN */
+        body.oh-hud-rebuild #nemesisHud,
+        body.oh-hud-rebuild #apocHud{
+        display:none !important;
+        }
+
+        @media (max-width: 980px){
+        body.oh-hud-rebuild #hud{
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+      
     `;
     document.head.appendChild(style);
   }
@@ -8733,6 +8727,28 @@ function shootWithDirection(dirOverride=null){
     if(document.getElementById("ohHudRebuildStyles")) return;
     injectHudRebuildStyles();
     document.body.classList.add("oh-hud-rebuild");
+    if(!document.getElementById("hudCompactBtn")){
+  const btn = document.createElement("button");
+  btn.id = "hudCompactBtn";
+  btn.textContent = "HUD";
+  Object.assign(btn.style, {
+    position: "fixed",
+    top: "12px",
+    right: "12px",
+    zIndex: "60",
+    padding: "8px 10px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,.16)",
+    background: "rgba(10,14,30,.78)",
+    color: "#fff",
+    fontWeight: "800",
+    backdropFilter: "blur(10px)"
+  });
+  btn.addEventListener("click", () => {
+    document.body.classList.toggle("oh-hud-compact");
+  });
+  document.body.appendChild(btn);
+}
     normalizeHudPanels();
     tightenHudIfNeeded();
   }
@@ -9058,6 +9074,80 @@ function shootWithDirection(dirOverride=null){
           border-radius:22px;
         }
       }
+
+      /* ===== FINAL OVERRIDE: single professional HUD ===== */
+body.oh-hud-rebuild #nemesisHud,
+body.oh-hud-rebuild #apocHud{
+  display:none !important;
+}
+
+@media (max-width: 1280px){
+  body.oh-hud-rebuild #ui{
+    width: calc(100vw - 20px) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 20px) !important;
+  }
+}
+
+@media (max-width: 980px){
+  body.oh-hud-rebuild #ui{
+    top: var(--hud-top) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    padding: 10px !important;
+  }
+
+  body.oh-hud-rebuild #bossBarWrap{
+    top: calc(var(--hud-top) + 94px) !important;
+    width: calc(100vw - 16px) !important;
+  }
+
+  body.oh-hud-rebuild #minimapWrap{
+    width: 150px !important;
+    height: 180px !important;
+    bottom: calc(var(--hud-bottom) + 168px) !important;
+    top: auto !important;
+  }
+
+  body.oh-hud-rebuild #hud{
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 640px){
+  body.oh-hud-rebuild #ui{
+    top: var(--hud-top) !important;
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
+    padding: 8px !important;
+  }
+
+  body.oh-hud-rebuild #brandText span{
+    display:none !important;
+  }
+
+  body.oh-hud-rebuild #hud{
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+  }
+
+  body.oh-hud-rebuild .stat:nth-child(n+5){
+    display:none !important;
+  }
+
+  body.oh-hud-rebuild #bossBarWrap{
+    top: calc(var(--hud-top) + 78px) !important;
+    width: calc(100vw - 12px) !important;
+  }
+
+  body.oh-hud-rebuild #minimapWrap{
+    width: 132px !important;
+    height: 162px !important;
+    bottom: calc(var(--hud-bottom) + 150px) !important;
+  }
+}
+
+      
     `;
     document.head.appendChild(style);
   }
