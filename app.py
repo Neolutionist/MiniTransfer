@@ -2954,7 +2954,7 @@ canvas{ display:block; }
   <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten, sector-based arena layout, uitgebreidere wapensystemen en een online leaderboard.</p>
 
   <div id="nameRow">
-    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="" autocomplete="off"/>
+    <input id="playerName" maxlength="18" placeholder="Jouw naam" value=""/>
   </div>
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
@@ -3049,18 +3049,20 @@ function escapeHtml(s){
 }
 
 function getPlayerName(){
-  return (ui.playerName?.value || "").trim().slice(0,18);
+  return (ui.playerName.value || "").trim().slice(0,18);
 }
 
 function isValidPlayerName(name = getPlayerName()){
-  return /^[A-Za-z0-9 ]+$/.test(name) && name.trim().length > 0;
+  return /^[a-zA-Z0-9 ]+$/.test(name) && name.length > 0;
 }
 
-function updateStartButtonState(){
-  if(!ui.startBtn) return;
-  const ok = isValidPlayerName();
-  ui.startBtn.disabled = !ok;
-  ui.startBtn.classList.toggle("disabled", !ok);
+function syncStartNameState(){
+  if(!ui.startBtn || !ui.playerName) return;
+  const raw = getPlayerName();
+  const valid = isValidPlayerName(raw);
+  ui.startBtn.disabled = !valid;
+  ui.startBtn.classList.toggle("disabled", !valid);
+  ui.playerName.setCustomValidity(!raw || valid ? "" : "Gebruik alleen letters, cijfers en spaties.");
 }
 
 async function renderBoard(){
@@ -3649,13 +3651,7 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     const bodyMat = new THREE.MeshStandardMaterial({ color:0x30374c, metalness:0.72, roughness:0.28 });
     const trimMat = new THREE.MeshStandardMaterial({ color:0x7de7ff, emissive:0x1d7e91, emissiveIntensity:0.7, metalness:0.52, roughness:0.24 });
     const woodMat = new THREE.MeshStandardMaterial({ color:0x6d4a2e, roughness:0.72, metalness:0.08 });
-    weaponRig.userData.bodyMat = bodyMat;
-    weaponRig.userData.trimMat = trimMat;
-    weaponRig.userData.woodMat = woodMat;
-    weaponRig.userData.healthLowColor = new THREE.Color(0xff4f6d);
-    weaponRig.userData.healthHighColor = new THREE.Color(0x7de7ff);
-    weaponRig.userData.healthBodyLowColor = new THREE.Color(0x5a222c);
-    weaponRig.userData.healthBodyHighColor = new THREE.Color(0x30374c);
+    weaponRig.userData.weaponMats = { bodyMat, trimMat, woodMat };
 
     const root = new THREE.Group();
     root.position.set(0.36, -0.35, -0.68);
@@ -3706,27 +3702,9 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   }
   buildViewWeapon();
 
-  function updateWeaponHealthTint(){
-    const bodyMat = weaponRig.userData.bodyMat;
-    const trimMat = weaponRig.userData.trimMat;
-    const woodMat = weaponRig.userData.woodMat;
-    if(!bodyMat || !trimMat || !woodMat) return;
-
-    const hpRatio = clamp(player.hp / Math.max(1, player.maxHp || 100), 0, 1);
-    const pulse = hpRatio < 0.35 ? (0.82 + Math.sin(performance.now() * 0.01) * 0.18) : 1;
-
-    bodyMat.color.copy(weaponRig.userData.healthBodyLowColor).lerp(weaponRig.userData.healthBodyHighColor, hpRatio);
-    trimMat.color.copy(weaponRig.userData.healthLowColor).lerp(weaponRig.userData.healthHighColor, hpRatio);
-    trimMat.emissive.copy(trimMat.color).multiplyScalar(0.26 * pulse);
-    trimMat.emissiveIntensity = 0.55 + (1 - hpRatio) * 0.9;
-
-    woodMat.color.setHSL(0.075, 0.42, 0.27 + hpRatio * 0.08);
-  }
-
   function updateViewWeapon(dt){
     const root = weaponRig.userData.root;
     if(!root) return;
-    updateWeaponHealthTint();
     const moving = Math.hypot(input.forward, input.strafe) > 0.01;
     state.walkTime += dt * (moving ? 8.5 : 3.2);
     state.viewKick = Math.max(0, state.viewKick - dt * 4.2);
@@ -4234,6 +4212,7 @@ function updateMusic(){
     ui.score.textContent = Math.floor(player.score);
     ui.wave.textContent = player.wave;
     ui.hp.textContent = Math.max(0, Math.floor(player.hp));
+    if(typeof updateHealthWeaponTheme === "function") updateHealthWeaponTheme();
     ui.kills.textContent = player.kills;
     ui.ammoBullets.textContent = player.ammo.bullet;
     ui.ammoRockets.textContent = player.ammo.rocket;
@@ -4254,7 +4233,6 @@ function updateMusic(){
     ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
   }
   setStat();
-  updateWeaponHealthTint();
   resetPlayerPosition();
 
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
@@ -5470,7 +5448,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.18,
       life: 2.6,
-      damage: 140 + Math.min(50, Math.floor(combo * 11)),
+      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
       radius: 4.2 + Math.min(1.2, combo * 0.22),
       type: "rocket",
       explosionColor: 0xff7b7b
@@ -5488,7 +5466,7 @@ function shootWithDirection(dirOverride=null){
         smoke: true,
         size: 0.12,
         life: 1.8,
-        damage: 60 + Math.min(25, Math.floor(combo * 5)),
+        damage: 12 + Math.min(5, Math.floor(combo)),
         radius: 2.2,
         type: "rocket",
         explosionColor: 0xffd166
@@ -5508,7 +5486,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.16,
       life: 1.6,
-      damage: 110 + Math.min(40, Math.floor(combo * 8.5)),
+      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
       radius: 3.6 + Math.min(1.2, combo * 0.24),
       type: "grenade",
       gravity: 10,
@@ -5668,7 +5646,7 @@ function shootWithDirection(dirOverride=null){
     aura.position.copy(group.position);
     aura.position.y = 0.03;
     scene.add(aura);
-    state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:290, pulse:0, tick:0 });
+    state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:58, pulse:0, tick:0 });
     createShockwave(group.position.clone(), 0x8bf0ff, 1.6);
     flashHint("Shock Mine geplaatst");
     setStat();
@@ -5695,7 +5673,7 @@ function shootWithDirection(dirOverride=null){
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
     beam.position.set(pos.x, 20, pos.z);
     scene.add(marker, inner, beam);
-    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:410, pulse:0, strikes:0, tick:0 });
+    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
     flashHint("Orbital lock bevestigd");
     setStat();
   }
@@ -5722,7 +5700,7 @@ function shootWithDirection(dirOverride=null){
         trailColor: 0xc9fbff,
         size: 0.16,
         life: 2.0,
-        damage: 70,
+        damage: 14,
         radius: 2.8,
         type: "plasma",
         explosionColor: 0x8bf0ff
@@ -7198,13 +7176,6 @@ function animate(now){
 }
 
 function startGame(){
-  if(!isValidPlayerName()){
-    ui.playerName?.focus?.();
-    updateStartButtonState?.();
-    flashHint?.("Vul eerst een geldige naam in");
-    return;
-  }
-
   ensureAudio?.();
 
   if(audioCtx && state.songClock < audioCtx.currentTime){
@@ -7235,25 +7206,6 @@ function startGame(){
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
 
-  updateStartButtonState();
-  ui.playerName?.addEventListener("input", () => {
-    const cleaned = (ui.playerName.value || "").replace(/[^A-Za-z0-9 ]+/g, "").slice(0, 18);
-    if(ui.playerName.value !== cleaned) ui.playerName.value = cleaned;
-    updateStartButtonState();
-  });
-  ui.playerName?.addEventListener("keydown", e => {
-    e.stopPropagation();
-    if(e.code === "Enter"){
-      e.preventDefault();
-      if(isValidPlayerName()) startGame();
-      else updateStartButtonState();
-      return;
-    }
-    if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)){
-      e.stopPropagation();
-    }
-  });
-
   document.addEventListener("pointerlockchange", () => {
     state.pointerLocked = document.pointerLockElement === renderer.domElement;
   });
@@ -7268,11 +7220,6 @@ function startGame(){
   });
 
   window.addEventListener("keydown", e => {
-    if(document.activeElement === ui.playerName){
-      if(e.code === "Enter") e.preventDefault();
-      return;
-    }
-
     input.keyboard[e.code] = true;
 
     if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
@@ -7299,7 +7246,6 @@ function startGame(){
   }, { passive:false });
 
   window.addEventListener("keyup", e => {
-    if(document.activeElement === ui.playerName) return;
     input.keyboard[e.code] = false;
     if(e.code === "Space" || e.code === "Enter"){
       state.fireHeld = false;
@@ -7900,7 +7846,7 @@ function startGame(){
   function getMoveVector(){
     const v = new THREE.Vector3();
     if(input.forward || input.strafe){
-      const forward = new THREE.Vector3(-Math.sin(lookYaw), 0, -Math.cos(lookYaw));
+      const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
       const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
       v.addScaledVector(forward, input.forward);
       v.addScaledVector(right, input.strafe);
@@ -7909,7 +7855,7 @@ function startGame(){
       v.y = 0;
     }
     if(v.lengthSq() < 0.0001){
-      v.set(-Math.sin(lookYaw), 0, -Math.cos(lookYaw));
+      v.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
     }
     return v.normalize();
   }
@@ -7920,12 +7866,9 @@ function startGame(){
     const dir = getMoveVector();
     const old = player.pos.clone();
     let moved = false;
-    const dashDistance = 8.0;   // ongeveer 8 meter naar voren
-    const dashStepSize = 0.5;   // kleine stappen voor collision checks
-    const dashSteps = Math.max(1, Math.round(dashDistance / dashStepSize));
 
-    for(let step = 1; step <= dashSteps; step++){
-      const test = old.clone().add(dir.clone().multiplyScalar(step * dashStepSize));
+    for(let step = 1; step <= 10; step++){
+      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
       const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
       if(blocked) break;
       player.pos.copy(test);
@@ -11553,7 +11496,7 @@ onHit(enemy, damage){
       color: 0x6f4328,
       size: 0.16,
       life: 3.2,
-      damage: 70,
+      damage: 14,
       type: "enemy_book"
     });
 
@@ -11979,18 +11922,8 @@ updateBullets = function(dt){
     }
   };
 
-  ensureUsableWeapon = function(preferred = "bullet"){
+  ensureUsableWeapon = function(){
     if(slotAvailable(player.weapon)) return;
-
-    if(preferred && slotAvailable(preferred)){
-      setWeapon(preferred);
-      return;
-    }
-
-    if(slotAvailable("bullet")){
-      setWeapon("bullet");
-      return;
-    }
 
     const currentIndex = slotIndex(player.weapon);
 
@@ -12018,12 +11951,10 @@ updateBullets = function(dt){
     if(player.weapon === "plasma"){
       if(player.abilities.plasma <= 0){
         flashHint?.("Geen plasma charges");
-        ensureUsableWeapon("bullet");
+        ensureUsableWeapon();
         return false;
       }
       firePlasmaBurst();
-      if(slotAvailable("bullet")) setWeapon("bullet");
-      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
@@ -12031,12 +11962,10 @@ updateBullets = function(dt){
     if(player.weapon === "mine"){
       if(player.abilities.mine <= 0){
         flashHint?.("Geen mines over");
-        ensureUsableWeapon("bullet");
+        ensureUsableWeapon();
         return false;
       }
       deployShockMine();
-      if(slotAvailable("bullet")) setWeapon("bullet");
-      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
@@ -12044,12 +11973,10 @@ updateBullets = function(dt){
     if(player.weapon === "orbital"){
       if(player.abilities.orbital <= 0){
         flashHint?.("Geen orbital charges");
-        ensureUsableWeapon("bullet");
+        ensureUsableWeapon();
         return false;
       }
       deployOrbital();
-      if(slotAvailable("bullet")) setWeapon("bullet");
-      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
@@ -12121,6 +12048,126 @@ updateBullets = function(dt){
   }
 
   updateSelectedWeaponUI();
+})();
+
+/* === FINAL UX / BULLET DEFAULT / HP THEME PATCH === */
+(() => {
+  function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+  window.updateHealthWeaponTheme = function(){
+    if(typeof player === "undefined" || typeof ui === "undefined") return;
+    const ratio = clamp01((player.hp || 0) / Math.max(1, player.maxHp || 100));
+    const hue = Math.round(ratio * 200);
+    const color = `hsl(${hue} 95% 60%)`;
+    const glow = `hsl(${hue} 100% ${ratio < 0.28 ? 72 : 64}%)`;
+    const danger = ratio < 0.28;
+
+    if(ui.hp) ui.hp.style.color = color;
+    if(ui.weaponName){
+      ui.weaponName.style.color = color;
+      ui.weaponName.style.textShadow = `0 0 10px ${glow}`;
+    }
+
+    [ui.chipBullet, ui.chipRocket, ui.chipGrenade, ui.chipPlasma, ui.chipMine, ui.chipOrbital].forEach(chip => {
+      if(!chip) return;
+      chip.style.borderColor = color;
+      chip.style.boxShadow = chip.classList.contains("active") ? `0 0 18px ${glow}` : `0 0 8px color-mix(in srgb, ${glow} 45%, transparent)`;
+      chip.style.color = chip.classList.contains("active") ? color : "";
+    });
+
+    const mats = weaponRig?.userData?.weaponMats;
+    if(mats?.trimMat){
+      mats.trimMat.color.setHSL(hue / 360, 0.92, 0.60);
+      mats.trimMat.emissive.setHSL(hue / 360, 0.92, danger ? 0.34 : 0.22);
+      mats.trimMat.emissiveIntensity = danger ? 1.35 : 0.82;
+    }
+    if(mats?.bodyMat){
+      mats.bodyMat.color.setHSL(hue / 360, 0.28, 0.22 + ratio * 0.1);
+    }
+  };
+
+  const _setWeaponFinal = setWeapon;
+  setWeapon = function(w){
+    const allowed = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
+    _setWeaponFinal(allowed.includes(w) ? w : "bullet");
+    updateHealthWeaponTheme?.();
+  };
+
+  ensureUsableWeapon = function(){
+    if(player.weapon === "bullet" && player.ammo.bullet > 0) return;
+    if(player.weapon === "rocket" && player.ammo.rocket > 0) return;
+    if(player.weapon === "grenade" && player.ammo.grenade > 0) return;
+    if(player.weapon === "plasma" && player.abilities.plasma > 0) return;
+    if(player.weapon === "mine" && player.abilities.mine > 0) return;
+    if(player.weapon === "orbital" && player.abilities.orbital > 0) return;
+    setWeapon("bullet");
+  };
+
+  const _firePlasmaBurstFinal = firePlasmaBurst;
+  firePlasmaBurst = function(){
+    const res = _firePlasmaBurstFinal();
+    setWeapon("bullet");
+    return res;
+  };
+
+  const _deployShockMineFinal = deployShockMine;
+  deployShockMine = function(){
+    const res = _deployShockMineFinal();
+    setWeapon("bullet");
+    return res;
+  };
+
+  const _deployOrbitalFinal = deployOrbital;
+  deployOrbital = function(){
+    const res = _deployOrbitalFinal();
+    setWeapon("bullet");
+    return res;
+  };
+
+  const _startGameFinalPatch = startGame;
+  startGame = function(){
+    syncStartNameState?.();
+    const name = getPlayerName();
+    if(!isValidPlayerName(name)){
+      ui.playerName?.focus();
+      flashHint?.(!name ? "Vul eerst een naam in" : "Gebruik alleen letters, cijfers en spaties in je naam");
+      return false;
+    }
+    return _startGameFinalPatch();
+  };
+
+  if(ui.playerName){
+    ui.playerName.addEventListener("input", syncStartNameState);
+    ui.playerName.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if(e.key === "Enter"){
+        e.preventDefault();
+        startGame();
+      }
+    }, true);
+    ui.playerName.addEventListener("keyup", e => e.stopPropagation(), true);
+    ui.playerName.addEventListener("keypress", e => e.stopPropagation(), true);
+  }
+
+  window.addEventListener("keydown", e => {
+    if(document.activeElement !== ui.playerName) return;
+    if(["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyR"].includes(e.code)){
+      e.stopImmediatePropagation();
+      if(e.key !== "Enter") return;
+    }
+  }, true);
+
+  const _restartGameFinalPatch = restartGame;
+  restartGame = function(){
+    const res = _restartGameFinalPatch();
+    syncStartNameState?.();
+    updateHealthWeaponTheme?.();
+    return res;
+  };
+
+  syncStartNameState?.();
+  updateHealthWeaponTheme?.();
+  if(player.weapon !== "bullet") setWeapon("bullet");
 })();
 
 /* ==========================================
