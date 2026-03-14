@@ -6688,7 +6688,7 @@ function updateBullets(dt){
       if(state.comboTimer === 0) state.combo = 1;
     }
 
-    if(totalAmmo() === 0 && player.alive){
+    if(player.ammo.bullet <= 0 && player.alive){
       state.emergencyAmmoTimer += dt;
       if(state.emergencyAmmoTimer >= 1.15){
         player.ammo.bullet = Math.min(24, player.ammo.bullet + 6);
