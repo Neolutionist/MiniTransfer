@@ -5429,7 +5429,17 @@ function shootWithDirection(dirOverride=null){
   } else if(weapon === "rocket"){
     player.ammo.rocket -= 1;
 
-    spawnFriendly(start.clone(), makeDir(0, 0), {
+    const rocketDir = makeDir(0, 0);
+    if(state.moonNukeWave !== player.wave && rocketAimTriggersMoonNuke(start.clone(), rocketDir.clone())){
+      triggerMoonNuke(start.clone().add(rocketDir.clone().multiplyScalar(4)));
+      state.cameraShake = Math.min(2.4, state.cameraShake + 0.55);
+      player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
+      sfxRocket();
+      setStat();
+      return true;
+    }
+
+    spawnFriendly(start.clone(), rocketDir, {
       speed: 18 + Math.min(2.5, combo * 0.35),
       color: 0xff7b7b,
       trailColor: 0xffb0a3,
@@ -5995,6 +6005,25 @@ function updateBullets(dt){
     return true;
   }
 
+  function rocketAimTriggersMoonNuke(start, dir){
+    if(!start || !dir || !moon?.position) return false;
+
+    const aim = dir.clone().normalize();
+    const toMoon = moon.position.clone().sub(start);
+    const moonDistance = toMoon.length();
+    if(moonDistance <= 0.001) return false;
+
+    const alignment = aim.dot(toMoon.clone().normalize());
+    if(alignment < 0.985) return false;
+
+    const projected = Math.max(0, toMoon.dot(aim));
+    const closestPoint = start.clone().add(aim.clone().multiplyScalar(projected));
+    const missDistance = closestPoint.distanceTo(moon.position);
+    const allowedMiss = Math.max(8.4, moonDistance * 0.035);
+
+    return missDistance <= allowedMiss || alignment >= 0.994;
+  }
+
   function explodeProjectile(bullet){
     explodeAt(
       bullet.mesh.position.clone(),
@@ -6042,6 +6071,15 @@ function updateBullets(dt){
     if(!remove && b.type === "rocket" && state.moonNukeWave !== player.wave){
       const moonHitRadius = 8.4;
       if(b.mesh.position.distanceTo(moon.position) <= moonHitRadius){
+        triggerMoonNuke(b.mesh.position.clone());
+        remove = true;
+      }
+    }
+
+    // mikken op de maan mag ook zonder letterlijk de maanmesh te raken
+    if(!remove && b.type === "rocket" && state.moonNukeWave !== player.wave){
+      const flightDir = b.vel?.clone?.().normalize?.() || null;
+      if(flightDir && rocketAimTriggersMoonNuke(b.mesh.position.clone(), flightDir)){
         triggerMoonNuke(b.mesh.position.clone());
         remove = true;
       }
@@ -10808,7 +10846,7 @@ function startGame(){
    plak dit HELE blok onderin je game-code
    =========================== */
 (() => {
-  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
+  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin","Elly","Mark"];
 
   const NAMED_TRAITS = {
     Pieter: {
@@ -10935,6 +10973,31 @@ onHit(enemy, damage){
         enemy.alwaysFlee = false;
         enemy.neverShoot = false;
         enemy.usesGrenades = true;
+        enemy.preferredDistance = 2.4;
+      }
+    },
+    Elly: {
+      role: "halo runner",
+      hpMul: 0.9,
+      speedMul: 1.34,
+      color: 0xff7bff,
+      label: "Halo Runner",
+      onSpawn(enemy){
+        enemy.fireRateMul = 0.88;
+        enemy.damageMul = 0.9;
+        enemy.preferredDistance = 3.2;
+      }
+    },
+    Mark: {
+      role: "demolisher",
+      hpMul: 1.62,
+      speedMul: 0.82,
+      color: 0xff8a5b,
+      label: "Demolisher",
+      onSpawn(enemy){
+        enemy.fireRateMul = 1.16;
+        enemy.damageMul = 1.22;
+        enemy.preferredDistance = 2.1;
       }
     },
     Miranda: {
@@ -11135,38 +11198,64 @@ onHit(enemy, damage){
     const start = enemy.mesh.position.clone();
     start.y = enemy.isBoss ? 2.9 : 2.05;
 
-    if(name === "Patrick"){
+    if(name === "Patrick" || name === "Mark"){
       const target = player.pos.clone();
       target.y = 1.1;
       const toTarget = target.sub(start);
       const flatDist = Math.hypot(toTarget.x, toTarget.z) || 1;
       const dir = toTarget.normalize();
-      dir.y = clamp(0.24 + flatDist * 0.012, 0.24, 0.48);
+      const arcBase = name === "Mark" ? 0.3 : 0.24;
+      dir.y = clamp(arcBase + flatDist * 0.012, arcBase, name === "Mark" ? 0.52 : 0.48);
       dir.x += rand(-0.025, 0.025);
       dir.z += rand(-0.025, 0.025);
       dir.normalize();
 
       state.ohEnemyGrenades = state.ohEnemyGrenades || [];
       const grenade = createProjectile(start.clone(), dir, {
-        speed: 10.5,
+        speed: name === "Mark" ? 9.6 : 10.5,
         friendly: false,
-        color: 0x9dff7c,
-        trailColor: 0xd8ffca,
-        size: 0.15,
-        life: 1.55,
-        damage: 18,
-        radius: 2.7,
+        color: name === "Mark" ? 0xff8a5b : 0x9dff7c,
+        trailColor: name === "Mark" ? 0xffc29b : 0xd8ffca,
+        size: name === "Mark" ? 0.19 : 0.15,
+        life: name === "Mark" ? 1.85 : 1.55,
+        damage: name === "Mark" ? 24 : 18,
+        radius: name === "Mark" ? 3.4 : 2.7,
         type: "enemy_grenade",
         gravity: 9.6,
-        explosionColor: 0x9dff7c
+        explosionColor: name === "Mark" ? 0xff8a5b : 0x9dff7c
       });
       grenade.enemyGrenade = true;
       grenade.spin = rand(7, 12);
-      grenade.trailEvery = 0.05;
+      grenade.trailEvery = name === "Mark" ? 0.07 : 0.05;
       grenade.trailClock = 0;
       state.ohEnemyGrenades.push(grenade);
 
-      createFlash?.(start.clone(), 0x9dff7c, 0.7, 2.2, 0.04);
+      createFlash?.(start.clone(), name === "Mark" ? 0xff8a5b : 0x9dff7c, name === "Mark" ? 0.9 : 0.7, name === "Mark" ? 2.8 : 2.2, 0.04);
+      return;
+    }
+
+    if(name === "Elly"){
+      const target = player.pos.clone();
+      target.y = 1.35;
+      const dir = target.sub(start).normalize();
+      for(const yaw of [-0.08, 0.08]){
+        const shotDir = dir.clone();
+        shotDir.x += yaw;
+        shotDir.y += rand(-0.012, 0.02);
+        shotDir.z += rand(-0.03, 0.03);
+        shotDir.normalize();
+        state.enemyBullets.push(createProjectile(start.clone(), shotDir, {
+          speed: 14.5,
+          friendly: false,
+          color: 0xff7bff,
+          trailColor: 0xcafcff,
+          size: 0.11,
+          life: 2.8,
+          damage: 10,
+          type: "enemy"
+        }));
+      }
+      createFlash?.(start.clone(), 0xff7bff, 0.82, 2.7, 0.04);
       return;
     }
 
@@ -11669,7 +11758,19 @@ onHit(enemy, damage){
       const name = ohFindNamedEnemy(enemy);
 
       if(name === "Patrick"){
-        enemy.preferredDistance = Math.max(enemy.preferredDistance || 0, 10);
+        enemy.alwaysFlee = false;
+        enemy.neverShoot = false;
+        enemy.usesGrenades = true;
+        enemy.preferredDistance = 2.4;
+      }
+
+      if(name === "Elly"){
+        enemy.preferredDistance = 3.2;
+        enemy.speed = Math.max(enemy.speed || 0, 5.6);
+      }
+
+      if(name === "Mark"){
+        enemy.preferredDistance = 2.1;
       }
     }
   };
