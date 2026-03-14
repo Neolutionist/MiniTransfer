@@ -5754,49 +5754,203 @@ function shootWithDirection(dirOverride=null){
     updateViewWeapon(dt);
   }
 
-  function updateBullets(dt){
-    for(let i=state.bullets.length-1;i>=0;i--){
-      const b = state.bullets[i];
-      b.mesh.position.addScaledVector(b.vel, dt);
-      if(b.gravity){
-        b.vel.y -= b.gravity * dt;
+function updateBullets(dt){
+  const BULLET_WALL_RADIUS = 0.14;
+  const PLAYER_HIT_RADIUS = 1.15;
+
+  function ensureEnemyHp(target){
+    if(!target) return false;
+
+    if(!Number.isFinite(target.maxHp) || target.maxHp <= 0){
+      const fallbackMax = Number.isFinite(target.hp) && target.hp > 0 ? target.hp : 1;
+      target.maxHp = fallbackMax;
+    }
+
+    if(!Number.isFinite(target.hp)){
+      target.hp = target.maxHp;
+    }
+
+    target.hp = Math.min(target.hp, target.maxHp);
+    return true;
+  }
+
+  function hitNormalEnemy(enemy, damage, hitPosition){
+    if(!enemy?.mesh) return false;
+    if(!ensureEnemyHp(enemy)) return false;
+
+    const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
+    enemy.hp = Math.max(0, enemy.hp - dmg);
+
+    createBurst(hitPosition, 0xffec7d, 6, 3);
+    sfxHit();
+
+    if(enemy.hp <= 0){
+      killEnemy(enemy);
+      const idx = state.enemies.indexOf(enemy);
+      if(idx !== -1) state.enemies.splice(idx, 1);
+    }
+
+    return true;
+  }
+
+  function hitBoss(damage, hitPosition){
+    if(!state.boss?.mesh) return false;
+    if(!ensureEnemyHp(state.boss)) return false;
+
+    const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
+    state.boss.hp = Math.max(0, state.boss.hp - dmg);
+
+    createBurst(hitPosition, 0xff88bb, 8, 3);
+    sfxHit();
+    updateBossBar();
+
+    if(state.boss.hp <= 0){
+      killEnemy(state.boss);
+    }
+
+    return true;
+  }
+
+  function explodeProjectile(bullet){
+    explodeAt(
+      bullet.mesh.position.clone(),
+      bullet.radius,
+      bullet.damage,
+      bullet.explosionColor
+    );
+  }
+
+  function isExplosiveBullet(bullet){
+    return bullet.type === "rocket" || bullet.type === "grenade" || bullet.type === "plasma";
+  }
+
+  function removePlayerBullet(index){
+    const bullet = state.bullets[index];
+    if(!bullet) return;
+    if(bullet.mesh) scene.remove(bullet.mesh);
+    state.bullets.splice(index, 1);
+  }
+
+  function removeEnemyBullet(index){
+    const bullet = state.enemyBullets[index];
+    if(!bullet) return;
+    if(bullet.mesh) scene.remove(bullet.mesh);
+    state.enemyBullets.splice(index, 1);
+  }
+
+  for(let i = state.bullets.length - 1; i >= 0; i--){
+    const b = state.bullets[i];
+    if(!b?.mesh){
+      state.bullets.splice(i, 1);
+      continue;
+    }
+
+    b.mesh.position.addScaledVector(b.vel, dt);
+
+    if(b.gravity){
+      b.vel.y -= b.gravity * dt;
+    }
+
+    b.life -= dt;
+    let remove = b.life <= 0;
+
+    // muur / arena collision
+    if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
+      if(isExplosiveBullet(b)){
+        explodeProjectile(b);
+      } else {
+        createBurst(b.mesh.position, b.explosionColor, 6, 2.5);
       }
-      b.life -= dt;
+      remove = true;
+    }
 
-      let remove = b.life <= 0;
+    // grond impact voor arcing projectiles
+    if(!remove && b.mesh.position.y <= 0.2 && (b.type === "grenade" || b.type === "plasma")){
+      explodeProjectile(b);
+      remove = true;
+    }
 
-      if(collidesAt(b.mesh.position.x, b.mesh.position.z, 0.14)){
-        if(b.type === "rocket" || b.type === "grenade"){
-          explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
-        } else {
-          createBurst(b.mesh.position, b.explosionColor, 6, 2.5);
-        }
-        remove = true;
-      }
-
-      if(b.mesh.position.y <= 0.2 && (b.type === "grenade" || b.type === "plasma")){
-        explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
-        remove = true;
-      }
-
-      for(let j=state.enemies.length-1;j>=0 && !remove;j--){
+    // normale enemies
+    if(!remove){
+      for(let j = state.enemies.length - 1; j >= 0; j--){
         const e = state.enemies[j];
+        if(!e?.mesh) continue;
+
         const hitPos = e.mesh.position.clone();
-        hitPos.y = 1.9;
-        if(b.mesh.position.distanceTo(hitPos) < e.radius){
-          if(b.type === "rocket" || b.type === "grenade" || b.type === "plasma"){
-            explodeAt(b.mesh.position.clone(), b.radius, b.damage, b.explosionColor);
+        hitPos.y = e.isBoss ? 2.5 : 1.9;
+
+        const radius = Math.max(
+          0.35,
+          Number.isFinite(e.radius) ? e.radius : 1
+        );
+
+        if(b.mesh.position.distanceTo(hitPos) < radius){
+          if(isExplosiveBullet(b)){
+            explodeProjectile(b);
           } else {
-            e.hp -= b.damage;
-            createBurst(b.mesh.position, 0xffec7d, 6, 3);
-            sfxHit();
-            if(e.hp <= 0){
-              killEnemy(e);
-              state.enemies.splice(j,1);
-            }
+            hitNormalEnemy(e, b.damage, b.mesh.position);
           }
           remove = true;
+          break;
         }
+      }
+    }
+
+    // boss
+    if(!remove && state.boss?.mesh){
+      const bossHitPos = state.boss.mesh.position.clone();
+      bossHitPos.y = 2.5;
+
+      const bossRadius = Math.max(
+        0.8,
+        Number.isFinite(state.boss.radius) ? state.boss.radius : 2
+      );
+
+      if(b.mesh.position.distanceTo(bossHitPos) < bossRadius){
+        if(isExplosiveBullet(b)){
+          explodeProjectile(b);
+        } else {
+          hitBoss(b.damage, b.mesh.position);
+        }
+        remove = true;
+      }
+    }
+
+    if(remove){
+      removePlayerBullet(i);
+    }
+  }
+
+  for(let i = state.enemyBullets.length - 1; i >= 0; i--){
+    const b = state.enemyBullets[i];
+    if(!b?.mesh){
+      state.enemyBullets.splice(i, 1);
+      continue;
+    }
+
+    b.mesh.position.addScaledVector(b.vel, dt);
+    b.life -= dt;
+
+    let remove = b.life <= 0;
+
+    if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
+      remove = true;
+    }
+
+    if(!remove){
+      const playerHit = new THREE.Vector3(player.pos.x, 1.45, player.pos.z);
+      if(b.mesh.position.distanceTo(playerHit) < PLAYER_HIT_RADIUS){
+        applyDamage(b.damage);
+        createBurst(b.mesh.position, 0xff6ea1, 7, 2.8);
+        remove = true;
+      }
+    }
+
+    if(remove){
+      removeEnemyBullet(i);
+    }
+  }
+}
       }
 
       if(state.boss && !remove){
