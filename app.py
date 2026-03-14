@@ -2387,14 +2387,77 @@ canvas{ display:block; }
   justify-content:center;
 }
 #playerName{
-  width:min(290px, 78vw);
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.14);
-  padding:12px 14px;
-  background:rgba(255,255,255,.08);
+  width:min(320px, 82vw);
+  border-radius:14px;
+  border:1px solid rgba(142,219,255,.22);
+  padding:13px 15px;
+  background:rgba(255,255,255,.09);
   color:#fff;
   outline:none;
   font-size:15px;
+  box-shadow:0 0 0 0 rgba(77,247,255,0);
+  transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+#playerName:focus{
+  border-color:rgba(144,232,255,.72);
+  box-shadow:0 0 0 4px rgba(77,247,255,.12);
+  background:rgba(255,255,255,.12);
+}
+.prelaunch-banner{
+  margin:14px auto 0;
+  display:grid;
+  gap:8px;
+  text-align:left;
+  background:linear-gradient(180deg, rgba(80,170,255,.11), rgba(255,255,255,.04));
+  border:1px solid rgba(143,224,255,.18);
+  border-radius:16px;
+  padding:12px 14px;
+}
+.prelaunch-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:max-content;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#dff8ff;
+  background:rgba(77,247,255,.12);
+  border:1px solid rgba(77,247,255,.18);
+}
+.prelaunch-copy{
+  color:rgba(255,255,255,.78);
+  line-height:1.45;
+  font-size:13px;
+}
+.intro-grid{
+  margin-top:14px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  text-align:left;
+}
+.intro-card{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+  padding:12px;
+}
+.intro-title{
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:#dff8ff;
+  margin-bottom:7px;
+}
+.intro-body{
+  color:rgba(255,255,255,.76);
+  line-height:1.5;
+  font-size:13px;
 }
 
 #startBtn,#restartBtn{
@@ -2956,11 +3019,25 @@ canvas{ display:block; }
   <h1>Downloadlink verlopen</h1>
   <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten, sector-based arena layout, uitgebreidere wapensystemen en een online leaderboard.</p>
 
-  <div id="nameRow">
-    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
+  <div class="prelaunch-banner">
+    <div class="prelaunch-pill">Veilige invoermodus actief</div>
+    <div class="prelaunch-copy">Zolang dit startscherm zichtbaar is, zijn gameplay-sneltoetsen tijdelijk uitgeschakeld zodat je rustig je naam voor het leaderboard kunt invoeren.</div>
   </div>
 
-  <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
+  <div id="nameRow">
+    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler" autocomplete="off" spellcheck="false" autofocus/>
+  </div>
+
+  <div class="intro-grid">
+    <div class="intro-card">
+      <div class="intro-title">Desktop</div>
+      <div class="intro-body"><b>WASD</b> bewegen · <b>muis / klik</b> richten en vuren · <b>1-6</b> loadout en skills · <b>Shift</b> dash · <b>R</b> reload · <b>T</b> support turret · <b>K</b> command deck · <b>F1</b> briefing</div>
+    </div>
+    <div class="intro-card">
+      <div class="intro-title">Mobiel</div>
+      <div class="intro-body">Linker joystick beweegt · rechter joystick kijkt · tik om te schieten · gebruik rechts de skillknoppen en support-acties.</div>
+    </div>
+  </div>
 
   <button id="startBtn">Start spel</button>
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
@@ -3053,6 +3130,23 @@ function escapeHtml(s){
 
 function getPlayerName(){
   return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
+}
+
+function isTypingTarget(el){
+  if(!el) return false;
+  const tag = (el.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el.isContentEditable;
+}
+
+function gameplayShortcutsBlocked(e){
+  const target = e?.target || document.activeElement;
+  const introOpen = !!ui.center && !ui.center.classList.contains("hidden");
+  if(isTypingTarget(target) || isTypingTarget(document.activeElement)) return true;
+  if(introOpen){
+    const allowed = new Set(["Enter","NumpadEnter","Tab","Escape"]);
+    if(!allowed.has(e?.code)) return true;
+  }
+  return false;
 }
 
 async function renderBoard(){
@@ -5667,6 +5761,7 @@ function shootWithDirection(dirOverride=null){
 
     state.running = true;
     state.fireHeld = false;
+    ui.playerName?.focus?.();
     state.nextWaveQueued = false;
     state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
     state.songStep = -1;
@@ -6464,6 +6559,7 @@ function shootWithDirection(dirOverride=null){
     }
     state.running = true;
     player.alive = true;
+    ui.playerName?.blur?.();
     ui.center.classList.add("hidden");
     if(!state.enemies.length && !state.boss) spawnWave();
     if(!isTouch) renderer.domElement.requestPointerLock?.();
@@ -6486,6 +6582,14 @@ function shootWithDirection(dirOverride=null){
   });
 
   window.addEventListener("keydown", e => {
+    if(gameplayShortcutsBlocked(e)){
+      if(["Space","Enter","Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","KeyR","KeyT","KeyK","KeyJ","F1","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)){
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
+
     input.keyboard[e.code] = true;
 
     if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
@@ -6513,6 +6617,7 @@ function shootWithDirection(dirOverride=null){
 
   window.addEventListener("keyup", e => {
     input.keyboard[e.code] = false;
+    if(gameplayShortcutsBlocked(e)) return;
     if(e.code === "Space" || e.code === "Enter"){
       state.fireHeld = false;
     }
@@ -7279,6 +7384,7 @@ function shootWithDirection(dirOverride=null){
 
   /* extra inputlaag: lost 4/5/6 issues op + nieuwe controls */
   function handleApocHotkeys(e){
+    if(gameplayShortcutsBlocked(e)) return;
     const code = e.code || "";
     const key = (e.key || "").toLowerCase();
 
@@ -9671,6 +9777,7 @@ function shootWithDirection(dirOverride=null){
 
   /* ---------- hotkeys ---------- */
   function onArmoryHotkeys(e){
+    if(gameplayShortcutsBlocked(e)) return;
     const code = e.code || "";
     if(code === "Tab"){
       if(!armory.awaitingWaveStart && !armory.draftOpen) return;
@@ -10796,6 +10903,7 @@ onHit(enemy, damage){
   }, { passive:false });
 
   window.addEventListener("keydown", e => {
+    if(gameplayShortcutsBlocked(e)) return;
     if(!state.running && !["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6"].includes(e.code)) return;
 
     if(e.code === "Digit1"){
@@ -12586,6 +12694,7 @@ onHit(enemy, damage){
   };
 
   window.addEventListener("keydown", (e) => {
+    if(gameplayShortcutsBlocked(e)) return;
     if((e.code === "KeyR" || e.key === "r" || e.key === "R") && !e.repeat){
       if(player.weapon in combat.shotsInMag){
         e.preventDefault();
@@ -13215,6 +13324,7 @@ onHit(enemy, damage){
   };
 
   window.addEventListener("keydown", (e) => {
+    if(gameplayShortcutsBlocked(e)) return;
     if(e.code === "KeyK" && !e.repeat){
       e.preventDefault();
       toggleMetaPanel();
@@ -13939,6 +14049,7 @@ onHit(enemy, damage){
 
 
   window.addEventListener("keydown", (e) => {
+    if(gameplayShortcutsBlocked(e)) return;
     if(e.code === "KeyT" && !e.repeat){ e.preventDefault(); deploySupportTurret(); }
     if(e.code === "F1"){ e.preventDefault(); toggleBriefing(); }
   }, { passive:false });
@@ -13946,6 +14057,173 @@ onHit(enemy, damage){
   loadFinalProfile();
   ensureFinalUi();
   updateFinalHud();
+})();
+
+
+(() => {
+  function applyUltimateLayoutPolish(){
+    if(document.getElementById("ultimateLayoutPolish")) return;
+    const style = document.createElement("style");
+    style.id = "ultimateLayoutPolish";
+    style.textContent = `
+      :root{
+        --oh-left:14px;
+        --oh-right:14px;
+        --oh-top:14px;
+        --oh-gap:12px;
+      }
+      #ui{
+        left:var(--oh-left)!important;
+        top:var(--oh-top)!important;
+        width:min(430px, calc(100vw - 28px))!important;
+        z-index:26!important;
+      }
+      #hud{ grid-template-columns:repeat(4,minmax(84px,1fr))!important; }
+      .stat{ min-height:62px; }
+      #msg{ margin-top:10px!important; font-size:12px!important; }
+      #bossBarWrap{
+        top:18px!important;
+        width:min(560px, calc(100vw - 520px))!important;
+        z-index:27!important;
+      }
+      #minimapWrap{
+        right:var(--oh-right)!important;
+        top:14px!important;
+        width:190px!important;
+        height:190px!important;
+        z-index:27!important;
+      }
+      #apocHud{
+        right:var(--oh-right)!important;
+        top:216px!important;
+        width:min(300px, calc(100vw - 28px))!important;
+      }
+      #combatPolishHud{
+        left:var(--oh-left)!important;
+        top:236px!important;
+        width:min(340px, calc(100vw - 28px))!important;
+        z-index:28!important;
+      }
+      #nemesisHud{
+        left:var(--oh-left)!important;
+        top:470px!important;
+        width:min(330px, calc(100vw - 28px))!important;
+        z-index:28!important;
+      }
+      #armoryHud{
+        left:var(--oh-left)!important;
+        bottom:146px!important;
+        width:min(330px, calc(100vw - 28px))!important;
+        z-index:28!important;
+      }
+      #metaHud{
+        left:var(--oh-left)!important;
+        bottom:14px!important;
+        width:min(330px, calc(100vw - 28px))!important;
+        min-width:0!important;
+        z-index:28!important;
+      }
+      #ultimateDirectorHud{
+        right:var(--oh-right)!important;
+        bottom:14px!important;
+        width:min(340px, calc(100vw - 28px))!important;
+        z-index:28!important;
+      }
+      #abilityDock{
+        right:var(--oh-right)!important;
+        bottom:170px!important;
+        z-index:29!important;
+      }
+      #weaponBar{
+        bottom:14px!important;
+        max-width:calc(100vw - 380px)!important;
+        flex-wrap:wrap!important;
+        justify-content:center!important;
+        row-gap:8px!important;
+      }
+      #mailLink{ bottom:14px!important; right:370px!important; }
+      #bossIntroBanner{ top:130px!important; max-width:min(720px, calc(100vw - 420px))!important; min-width:0!important; }
+      #centerMessage{ width:min(760px, calc(100vw - 28px))!important; }
+      #leaderboard{ max-height:220px!important; }
+      @media (max-width: 1420px){
+        #bossBarWrap{ width:min(500px, calc(100vw - 460px))!important; }
+        #bossIntroBanner{ max-width:min(620px, calc(100vw - 360px))!important; }
+      }
+      @media (max-width: 1180px){
+        #ui{ width:min(440px, calc(100vw - 240px))!important; }
+        #bossBarWrap{
+          left:auto!important;
+          right:214px!important;
+          transform:none!important;
+          width:min(420px, calc(100vw - 668px))!important;
+        }
+        #combatPolishHud{ top:256px!important; width:min(310px, 32vw)!important; }
+        #nemesisHud{ top:500px!important; width:min(310px, 32vw)!important; }
+        #ultimateDirectorHud{ width:min(300px, 30vw)!important; }
+        #mailLink{ right:320px!important; }
+      }
+      @media (max-width: 980px){
+        #ui{ left:12px!important; right:12px!important; top:12px!important; width:auto!important; }
+        #minimapWrap{ right:12px!important; top:auto!important; bottom:228px!important; width:120px!important; height:120px!important; }
+        #bossBarWrap{ left:12px!important; right:12px!important; top:196px!important; width:auto!important; transform:none!important; }
+        #apocHud{ right:12px!important; top:auto!important; bottom:360px!important; width:min(280px, calc(100vw - 24px))!important; }
+        #combatPolishHud{ left:12px!important; top:auto!important; bottom:230px!important; width:min(320px, calc(100vw - 24px))!important; }
+        #nemesisHud{ left:12px!important; top:auto!important; bottom:430px!important; width:min(320px, calc(100vw - 24px))!important; }
+        #armoryHud{ left:12px!important; bottom:126px!important; width:min(320px, calc(100vw - 24px))!important; }
+        #metaHud{ left:12px!important; bottom:12px!important; width:min(320px, calc(100vw - 24px))!important; }
+        #ultimateDirectorHud{ right:12px!important; bottom:12px!important; width:min(300px, calc(100vw - 24px))!important; }
+        #abilityDock{ right:12px!important; bottom:150px!important; }
+        #weaponBar{ left:50%!important; max-width:calc(100vw - 24px)!important; bottom:84px!important; }
+        #mailLink{ display:none!important; }
+        #bossIntroBanner{ top:240px!important; max-width:calc(100vw - 24px)!important; }
+        .intro-grid{ grid-template-columns:1fr!important; }
+      }
+      @media (max-width: 760px){
+        #ui{ background:rgba(8,14,24,.78)!important; backdrop-filter:blur(12px)!important; }
+        #hud{ grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+        #msg{ display:none!important; }
+        #combatPolishHud, #nemesisHud, #armoryHud, #metaHud, #ultimateDirectorHud, #apocHud{
+          width:min(240px, calc(100vw - 24px))!important;
+          transform:scale(.94);
+          transform-origin:bottom left;
+        }
+        #ultimateDirectorHud{ transform-origin:bottom right; }
+        #minimapWrap{ width:104px!important; height:104px!important; bottom:210px!important; }
+        #centerMessage{ padding:18px!important; }
+        #bossBarWrap{ top:248px!important; }
+      }
+      @media (max-width: 560px){
+        #combatPolishHud, #nemesisHud, #armoryHud, #metaHud, #ultimateDirectorHud, #apocHud{ display:none!important; }
+        #weaponBar{ bottom:76px!important; }
+        #centerMessage{ width:min(94vw, 760px)!important; }
+        #bossBarWrap{ top:16px!important; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function installOverlayFocusManagement(){
+    const name = document.getElementById("playerName");
+    if(name && !name.dataset.overlayFocusBound){
+      name.dataset.overlayFocusBound = "1";
+      const sync = () => {
+        document.body.classList.toggle("name-entry-active", document.activeElement === name);
+      };
+      name.addEventListener("focus", sync);
+      name.addEventListener("blur", sync);
+      name.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if(e.code === "Enter" || e.code === "NumpadEnter"){
+          e.preventDefault();
+          document.getElementById("startBtn")?.click();
+        }
+      }, true);
+      sync();
+    }
+  }
+
+  applyUltimateLayoutPolish();
+  installOverlayFocusManagement();
 })();
 
 
