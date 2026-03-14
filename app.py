@@ -39,7 +39,7 @@ DB_PATH  = DATA_DIR / "files_multi.db"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")  
 
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_REGION = os.getenv("S3_REGION", "eu-central-003")
@@ -5425,53 +5425,44 @@ function shootWithDirection(dirOverride=null){
     player.fireCooldown = Math.max(0.115, 0.18 - Math.min(0.05, combo * 0.012));
     sfxShoot();
 
-} else if(weapon === "rocket"){
-  player.ammo.rocket -= 1;
+  } else if(weapon === "rocket"){
+    player.ammo.rocket -= 1;
 
-  const rocketDir = makeDir(0, 0);
-
-  const rocket = createProjectile(start.clone(), rocketDir, {
-    friendly: true,
-    speed: 18 + Math.min(2.5, combo * 0.35),
-    color: 0xff7b7b,
-    trailColor: 0xffb0a3,
-    smoke: true,
-    size: 0.18,
-    life: 2.6,
-    damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
-    radius: 4.2 + Math.min(1.2, combo * 0.22),
-    type: "rocket",
-    explosionColor: 0xff7b7b
-  });
-
-  if(state.moonNukeWave !== player.wave && rocketAimTriggersMoonNuke(start.clone(), rocketDir.clone())){
-    rocket.moonShot = true;
-  }
-
-  state.bullets.push(rocket);
-
-  // bonus micro-rocket bij sterke combo
-  if(combo >= 2.4){
-    const microDir = makeDir((Math.random() > 0.5 ? 0.07 : -0.07), 0.01);
-    const microStart = start.clone().addScaledVector(right, Math.random() > 0.5 ? 0.22 : -0.22);
-
-    spawnFriendly(microStart, microDir, {
-      speed: 19,
-      color: 0xffd166,
-      trailColor: 0xffefb0,
+    spawnFriendly(start.clone(), makeDir(0, 0), {
+      speed: 18 + Math.min(2.5, combo * 0.35),
+      color: 0xff7b7b,
+      trailColor: 0xffb0a3,
       smoke: true,
-      size: 0.12,
-      life: 1.8,
-      damage: 12 + Math.min(5, Math.floor(combo)),
-      radius: 2.2,
+      size: 0.18,
+      life: 2.6,
+      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
+      radius: 4.2 + Math.min(1.2, combo * 0.22),
       type: "rocket",
-      explosionColor: 0xffd166
+      explosionColor: 0xff7b7b
     });
-  }
 
-  player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
-  sfxRocket();
-  
+    // bonus micro-rocket bij sterke combo
+    if(combo >= 2.4){
+      const microDir = makeDir((Math.random() > 0.5 ? 0.07 : -0.07), 0.01);
+      const microStart = start.clone().addScaledVector(right, Math.random() > 0.5 ? 0.22 : -0.22);
+
+      spawnFriendly(microStart, microDir, {
+        speed: 19,
+        color: 0xffd166,
+        trailColor: 0xffefb0,
+        smoke: true,
+        size: 0.12,
+        life: 1.8,
+        damage: 12 + Math.min(5, Math.floor(combo)),
+        radius: 2.2,
+        type: "rocket",
+        explosionColor: 0xffd166
+      });
+    }
+
+    player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
+    sfxRocket();
+
   } else if(weapon === "grenade"){
     player.ammo.grenade -= 1;
 
@@ -6003,32 +5994,6 @@ function updateBullets(dt){
     return true;
   }
 
-  function rocketAimTriggersMoonNuke(start, dir){
-    if(!start || !dir || !moon?.position) return false;
-
-    const aim = dir.clone().normalize();
-    if(aim.y < 0.2) return false;
-
-    const toMoon = moon.position.clone().sub(start);
-    const moonDistance = toMoon.length();
-    if(moonDistance <= 0.001) return false;
-
-    const moonDir = toMoon.clone().normalize();
-    const alignment = aim.dot(moonDir);
-
-    // Strakker dan voorheen: alleen bijna exact op de maan mikken.
-    if(alignment < 0.9965) return false;
-
-    const projected = Math.max(0, toMoon.dot(aim));
-    const closestPoint = start.clone().add(aim.clone().multiplyScalar(projected));
-    const missDistance = closestPoint.distanceTo(moon.position);
-
-    // Kleinere tolerantie zodat normale rockets niet onbedoeld als moon shot tellen.
-    const allowedMiss = Math.max(3.4, moonDistance * 0.0125);
-
-    return missDistance <= allowedMiss || alignment >= 0.9992;
-  }
-
   function explodeProjectile(bullet){
     explodeAt(
       bullet.mesh.position.clone(),
@@ -6080,15 +6045,6 @@ function updateBullets(dt){
         remove = true;
       }
     }
-
-// alleen rockets die bij afvuren als moon shot gemarkeerd zijn mogen de nuke triggeren
-if(!remove && b.type === "rocket" && b.moonShot && state.moonNukeWave !== player.wave){
-  const flightDir = b.vel?.clone?.().normalize?.() || null;
-  if(flightDir && rocketAimTriggersMoonNuke(b.mesh.position.clone(), flightDir)){
-    triggerMoonNuke(b.mesh.position.clone());
-    remove = true;
-  }
-}
 
     // muur / arena collision
     if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
@@ -10851,7 +10807,7 @@ function startGame(){
    plak dit HELE blok onderin je game-code
    =========================== */
 (() => {
-  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin","Elly","Mark"];
+  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
 
   const NAMED_TRAITS = {
     Pieter: {
@@ -10978,31 +10934,6 @@ onHit(enemy, damage){
         enemy.alwaysFlee = false;
         enemy.neverShoot = false;
         enemy.usesGrenades = true;
-        enemy.preferredDistance = 2.4;
-      }
-    },
-    Elly: {
-      role: "halo runner",
-      hpMul: 0.9,
-      speedMul: 1.34,
-      color: 0xff7bff,
-      label: "Halo Runner",
-      onSpawn(enemy){
-        enemy.fireRateMul = 0.88;
-        enemy.damageMul = 0.9;
-        enemy.preferredDistance = 3.2;
-      }
-    },
-    Mark: {
-      role: "demolisher",
-      hpMul: 1.62,
-      speedMul: 0.82,
-      color: 0xff8a5b,
-      label: "Demolisher",
-      onSpawn(enemy){
-        enemy.fireRateMul = 1.16;
-        enemy.damageMul = 1.22;
-        enemy.preferredDistance = 2.1;
       }
     },
     Miranda: {
@@ -11203,64 +11134,38 @@ onHit(enemy, damage){
     const start = enemy.mesh.position.clone();
     start.y = enemy.isBoss ? 2.9 : 2.05;
 
-    if(name === "Patrick" || name === "Mark"){
+    if(name === "Patrick"){
       const target = player.pos.clone();
       target.y = 1.1;
       const toTarget = target.sub(start);
       const flatDist = Math.hypot(toTarget.x, toTarget.z) || 1;
       const dir = toTarget.normalize();
-      const arcBase = name === "Mark" ? 0.3 : 0.24;
-      dir.y = clamp(arcBase + flatDist * 0.012, arcBase, name === "Mark" ? 0.52 : 0.48);
+      dir.y = clamp(0.24 + flatDist * 0.012, 0.24, 0.48);
       dir.x += rand(-0.025, 0.025);
       dir.z += rand(-0.025, 0.025);
       dir.normalize();
 
       state.ohEnemyGrenades = state.ohEnemyGrenades || [];
       const grenade = createProjectile(start.clone(), dir, {
-        speed: name === "Mark" ? 9.6 : 10.5,
+        speed: 10.5,
         friendly: false,
-        color: name === "Mark" ? 0xff8a5b : 0x9dff7c,
-        trailColor: name === "Mark" ? 0xffc29b : 0xd8ffca,
-        size: name === "Mark" ? 0.19 : 0.15,
-        life: name === "Mark" ? 1.85 : 1.55,
-        damage: name === "Mark" ? 24 : 18,
-        radius: name === "Mark" ? 3.4 : 2.7,
+        color: 0x9dff7c,
+        trailColor: 0xd8ffca,
+        size: 0.15,
+        life: 1.55,
+        damage: 18,
+        radius: 2.7,
         type: "enemy_grenade",
         gravity: 9.6,
-        explosionColor: name === "Mark" ? 0xff8a5b : 0x9dff7c
+        explosionColor: 0x9dff7c
       });
       grenade.enemyGrenade = true;
       grenade.spin = rand(7, 12);
-      grenade.trailEvery = name === "Mark" ? 0.07 : 0.05;
+      grenade.trailEvery = 0.05;
       grenade.trailClock = 0;
       state.ohEnemyGrenades.push(grenade);
 
-      createFlash?.(start.clone(), name === "Mark" ? 0xff8a5b : 0x9dff7c, name === "Mark" ? 0.9 : 0.7, name === "Mark" ? 2.8 : 2.2, 0.04);
-      return;
-    }
-
-    if(name === "Elly"){
-      const target = player.pos.clone();
-      target.y = 1.35;
-      const dir = target.sub(start).normalize();
-      for(const yaw of [-0.08, 0.08]){
-        const shotDir = dir.clone();
-        shotDir.x += yaw;
-        shotDir.y += rand(-0.012, 0.02);
-        shotDir.z += rand(-0.03, 0.03);
-        shotDir.normalize();
-        state.enemyBullets.push(createProjectile(start.clone(), shotDir, {
-          speed: 14.5,
-          friendly: false,
-          color: 0xff7bff,
-          trailColor: 0xcafcff,
-          size: 0.11,
-          life: 2.8,
-          damage: 10,
-          type: "enemy"
-        }));
-      }
-      createFlash?.(start.clone(), 0xff7bff, 0.82, 2.7, 0.04);
+      createFlash?.(start.clone(), 0x9dff7c, 0.7, 2.2, 0.04);
       return;
     }
 
@@ -11763,19 +11668,7 @@ onHit(enemy, damage){
       const name = ohFindNamedEnemy(enemy);
 
       if(name === "Patrick"){
-        enemy.alwaysFlee = false;
-        enemy.neverShoot = false;
-        enemy.usesGrenades = true;
-        enemy.preferredDistance = 2.4;
-      }
-
-      if(name === "Elly"){
-        enemy.preferredDistance = 3.2;
-        enemy.speed = Math.max(enemy.speed || 0, 5.6);
-      }
-
-      if(name === "Mark"){
-        enemy.preferredDistance = 2.1;
+        enemy.preferredDistance = Math.max(enemy.preferredDistance || 0, 10);
       }
     }
   };
@@ -14545,6 +14438,294 @@ updateBullets = function(dt){
   renderMetaPanel();
 })();
 
+
+
+
+/* ==========================================
+   OH FINAL HOTFIX: MOON AIM + ELLY + MARK
+   ========================================== */
+(() => {
+  function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+  function refreshNameTag(enemy, glowHex){
+    const sprite = enemy?.mesh?.userData?.parts?.nameTag;
+    const canvas = sprite?.material?.map?.image;
+    const ctx = canvas?.getContext?.("2d");
+    if(!ctx || !canvas) return;
+
+    const role = enemy.enemyName === "Elly" ? "Neon Striker" :
+                 enemy.enemyName === "Mark" ? "Demolisher" :
+                 enemy.enemyName === "Patrick" ? "Grenadier" :
+                 "Hunter";
+    const glow = "#" + (glowHex || 0x8bf0ff).toString(16).padStart(6, "0");
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(6,10,22,.88)";
+    ctx.strokeStyle = "rgba(255,255,255,.18)";
+    ctx.lineWidth = 3;
+    if(ctx.roundRect){
+      ctx.beginPath();
+      ctx.roundRect(8, 10, canvas.width - 16, 62, 18);
+      ctx.fill();
+      ctx.stroke();
+    }else{
+      ctx.fillRect(8, 10, canvas.width - 16, 62);
+      ctx.strokeRect(8, 10, canvas.width - 16, 62);
+    }
+
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "#f7fbff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "900 27px system-ui";
+    ctx.fillText(enemy.enemyName || "Enemy", canvas.width * 0.5, 38);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,.72)";
+    ctx.font = "700 15px system-ui";
+    ctx.fillText(role, canvas.width * 0.5, 61);
+    sprite.material.map.needsUpdate = true;
+  }
+
+  function styleElly(enemy){
+    enemy.enemyName = "Elly";
+    enemy.__ellyMarkApplied = true;
+    enemy.maxHp = Math.round(enemy.maxHp * 0.92);
+    enemy.hp = Math.min(enemy.maxHp, Math.round(enemy.hp * 0.92));
+    enemy.speed *= 1.24;
+    enemy.fireRateMul = Math.min(enemy.fireRateMul || 1, 0.84);
+    enemy.damageMul = Math.max(enemy.damageMul || 1, 0.96);
+    enemy.alwaysFlee = false;
+    enemy.neverShoot = false;
+    enemy.usesGrenades = false;
+
+    if(enemy.groundRing?.material){
+      enemy.groundRing.material.color.setHex(0x73f7ff);
+      enemy.groundRing.material.opacity = Math.max(enemy.groundRing.material.opacity || 0.22, 0.34);
+    }
+    if(enemy.mesh?.material?.emissive){
+      enemy.mesh.material.color.setHex(0xa7fbff);
+      enemy.mesh.material.emissive.setHex(0x2dd4ff);
+      enemy.mesh.material.emissiveIntensity = 0.85;
+    }
+
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(0.72, 0.06, 10, 28),
+      new THREE.MeshBasicMaterial({ color:0x6cf6ff, transparent:true, opacity:0.78 })
+    );
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = 1.85;
+    enemy.mesh.add(halo);
+    enemy.__ellyHalo = halo;
+
+    const core = new THREE.PointLight(0x6cf6ff, 0.9, 8, 2);
+    core.position.set(0, 1.7, 0);
+    enemy.mesh.add(core);
+    enemy.__ellyLight = core;
+
+    refreshNameTag(enemy, 0x6cf6ff);
+  }
+
+  function styleMark(enemy){
+    enemy.enemyName = "Mark";
+    enemy.__ellyMarkApplied = true;
+    enemy.maxHp = Math.round(enemy.maxHp * 1.42);
+    enemy.hp = Math.min(enemy.maxHp, Math.round(enemy.hp * 1.42));
+    enemy.speed *= 0.9;
+    enemy.fireRateMul = Math.max(0.94, (enemy.fireRateMul || 1) * 1.02);
+    enemy.damageMul = Math.max(enemy.damageMul || 1, 1.24);
+    enemy.alwaysFlee = false;
+    enemy.neverShoot = false;
+    enemy.usesGrenades = true;
+
+    if(enemy.groundRing?.material){
+      enemy.groundRing.material.color.setHex(0xffa45d);
+      enemy.groundRing.material.opacity = Math.max(enemy.groundRing.material.opacity || 0.22, 0.32);
+    }
+    if(enemy.mesh?.material?.emissive){
+      enemy.mesh.material.color.setHex(0xffc995);
+      enemy.mesh.material.emissive.setHex(0x8a3f12);
+      enemy.mesh.material.emissiveIntensity = 0.55;
+    }
+
+    const left = new THREE.Mesh(
+      new THREE.BoxGeometry(0.34, 0.22, 0.28),
+      new THREE.MeshStandardMaterial({ color:0xffa45d, emissive:0x5a220a, emissiveIntensity:0.45, roughness:0.7, metalness:0.2 })
+    );
+    const right = left.clone();
+    left.position.set(-0.32, 1.35, 0);
+    right.position.set(0.32, 1.35, 0);
+    enemy.mesh.add(left, right);
+    enemy.__markPads = [left, right];
+
+    refreshNameTag(enemy, 0xffa45d);
+  }
+
+  function maybeApplyExtraEnemy(enemy){
+    if(!enemy || enemy.isBoss || enemy.__ellyMarkApplied) return enemy;
+    const roll = Math.random();
+    if(roll < 0.11){
+      styleElly(enemy);
+    }else if(roll < 0.20){
+      styleMark(enemy);
+    }else if(enemy.enemyName === "Patrick"){
+      enemy.alwaysFlee = false;
+      enemy.neverShoot = false;
+      enemy.usesGrenades = true;
+      refreshNameTag(enemy, 0x7affb7);
+    }
+    return enemy;
+  }
+
+  const _spawnEnemyMoonHotfix = spawnEnemy;
+  spawnEnemy = function(isBoss=false){
+    const enemy = _spawnEnemyMoonHotfix(isBoss);
+    if(enemy && !isBoss){
+      maybeApplyExtraEnemy(enemy);
+    }
+    return enemy;
+  };
+
+  const _enemyShootMoonHotfix = enemyShoot;
+  enemyShoot = function(enemy){
+    if(!enemy?.mesh) return;
+
+    if(enemy.enemyName === "Patrick"){
+      enemy.alwaysFlee = false;
+      enemy.neverShoot = false;
+      enemy.usesGrenades = true;
+    }
+
+    if(enemy.enemyName === "Elly"){
+      const start = enemy.mesh.position.clone();
+      start.y = enemy.isBoss ? 2.6 : 2.0;
+      const target = player.pos.clone();
+      target.y = 1.35;
+      const dir = target.sub(start).normalize();
+      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+      [-0.08, 0.08].forEach((offset, idx) => {
+        const shotDir = dir.clone().addScaledVector(right, offset).add(new THREE.Vector3(0, rand(-0.015, 0.02), 0)).normalize();
+        const shotStart = start.clone().addScaledVector(right, idx === 0 ? -0.12 : 0.12);
+        state.enemyBullets.push(createProjectile(shotStart, shotDir, {
+          speed: 14.5,
+          friendly: false,
+          color: idx === 0 ? 0x6cf6ff : 0xff7ae8,
+          trailColor: 0xdffcff,
+          size: 0.11,
+          life: 2.9,
+          damage: 9,
+          type: "enemy"
+        }));
+      });
+      createFlash?.(start.clone(), 0x6cf6ff, 0.85, 2.6, 0.05);
+      return;
+    }
+
+    if(enemy.enemyName === "Mark"){
+      const start = enemy.mesh.position.clone();
+      start.y = 2.15;
+      const target = player.pos.clone();
+      target.y = 1.1;
+      const toTarget = target.sub(start);
+      const flatDist = Math.hypot(toTarget.x, toTarget.z) || 1;
+      const dir = toTarget.normalize();
+      dir.y = clamp(0.22 + flatDist * 0.012, 0.22, 0.45);
+      dir.x += rand(-0.015, 0.015);
+      dir.z += rand(-0.015, 0.015);
+      dir.normalize();
+
+      state.ohEnemyGrenades = state.ohEnemyGrenades || [];
+      const grenade = createProjectile(start.clone(), dir, {
+        speed: 9.6,
+        friendly: false,
+        color: 0xffb16a,
+        trailColor: 0xffddb9,
+        size: 0.19,
+        life: 1.75,
+        damage: 24,
+        radius: 3.2,
+        type: "enemy_grenade",
+        gravity: 9.4,
+        explosionColor: 0xffa45d
+      });
+      grenade.enemyGrenade = true;
+      grenade.spin = rand(4, 8);
+      grenade.trailEvery = 0.06;
+      grenade.trailClock = 0;
+      state.ohEnemyGrenades.push(grenade);
+      createFlash?.(start.clone(), 0xffa45d, 0.95, 2.8, 0.05);
+      return;
+    }
+
+    return _enemyShootMoonHotfix(enemy);
+  };
+
+  const _updateEnemiesMoonHotfix = updateEnemies;
+  updateEnemies = function(dt){
+    _updateEnemiesMoonHotfix(dt);
+    for(const enemy of state.enemies){
+      if(!enemy?.mesh) continue;
+      if(enemy.enemyName === "Patrick"){
+        enemy.alwaysFlee = false;
+        enemy.neverShoot = false;
+        enemy.usesGrenades = true;
+      }
+      if(enemy.enemyName === "Elly" && enemy.__ellyHalo){
+        enemy.__ellyHalo.rotation.z += dt * 1.6;
+        enemy.__ellyHalo.material.opacity = 0.55 + Math.sin(performance.now() * 0.008) * 0.18;
+      }
+      if(enemy.enemyName === "Mark" && enemy.__markPads){
+        for(const pad of enemy.__markPads){
+          if(pad?.rotation) pad.rotation.y += dt * 0.9;
+        }
+      }
+    }
+  };
+
+  function getMoonAimData(dir){
+    if(!moon?.position || !dir) return null;
+    const from = player.pos.clone();
+    from.y = 1.52;
+    const toMoon = moon.position.clone().sub(from);
+    const dist = Math.max(0.001, toMoon.length());
+    const moonDir = toMoon.clone().normalize();
+    const dot = dir.clone().normalize().dot(moonDir);
+    return { from, dist, moonDir, dot };
+  }
+
+  function tryMoonAimNuke(dir){
+    if(player.weapon !== "rocket") return false;
+    if(state.moonNukeWave === player.wave) return false;
+    const info = getMoonAimData(dir);
+    if(!info) return false;
+    const strictEnough = info.dot > 0.9962 && dir.y > 0.16;
+    if(!strictEnough) return false;
+
+    const hitPos = info.from.clone().addScaledVector(info.moonDir, Math.min(info.dist * 0.72, 36));
+    setTimeout(() => {
+      if(state.running && player.alive && state.moonNukeWave !== player.wave){
+        triggerMoonNuke?.(hitPos);
+      }
+    }, 30);
+    return true;
+  }
+
+  const _shootWithDirectionMoonHotfix = shootWithDirection;
+  shootWithDirection = function(dirOverride=null){
+    const weaponBefore = player.weapon;
+    const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
+    if(!dirOverride){
+      camera.getWorldDirection(dir);
+      dir.normalize();
+    }
+
+    const ok = _shootWithDirectionMoonHotfix(dirOverride);
+    if(ok && weaponBefore === "rocket"){
+      tryMoonAimNuke(dir);
+    }
+    return ok;
+  };
+})();
 
   animate(performance.now());
 })();
