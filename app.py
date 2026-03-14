@@ -4,7 +4,6 @@
 # -*- coding: utf-8 -*-
 
 # ========= MiniTransfer – Olde Hanter (met abonnementbeheer + PayPal webhook) =========
-# - Login met vast wachtwoord "Hulsmaat" (e-mail vooraf ingevuld)
 # - Upload (files/folders) naar B2 (S3) met voortgang
 # - Downloadpagina met zip-stream en precheck
 # - Contact/aanvraag met PayPal abonnement-knop (pas zichtbaar bij volledig geldig formulier)
@@ -40,7 +39,7 @@ DB_PATH  = DATA_DIR / "files_multi.db"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")  # vast wachtwoord voor het inloggen
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")
 
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_REGION = os.getenv("S3_REGION", "eu-central-003")
