@@ -8609,6 +8609,10 @@ function startGame(){
       body.oh-hud-rebuild #apocHud{
         display:none !important;
       }
+      body.oh-hud-rebuild #directorHud,
+      body.oh-hud-rebuild #metaHud{
+        display:none !important;
+      }
 
       body.oh-hud-rebuild #ui{
         position: fixed !important;
@@ -8806,11 +8810,11 @@ function startGame(){
 
       body.oh-hud-rebuild #minimapWrap{
         position: fixed !important;
-        top: calc(var(--hud-top) + 124px) !important;
+        top: var(--hud-top) !important;
         right: var(--hud-right) !important;
         left: auto !important;
         bottom: auto !important;
-        width: 190px !important;
+        width: 220px !important;
         height: 220px !important;
         border-radius: 22px !important;
         z-index: 28 !important;
@@ -9164,7 +9168,7 @@ function startGame(){
     const mapWidth = (fromId, toId) => {
       const from = document.getElementById(fromId);
       const to = document.getElementById(toId);
-      if(from && to) to.style.width = from.style.width || "0%";
+      if(from && to) to.style.setProperty("width", from.style.width || "0%", "important");
     };
 
     const tick = () => {
@@ -12265,13 +12269,13 @@ updateBullets = function(dt){
     director.panelTimer = 0.18;
     director.sectorName = sectorName();
     const threat = state.boss ? "MAX" : player.wave >= 10 ? "HIGH" : player.wave >= 5 ? "MED" : "LOW";
-    directorHud.sector.textContent = `Sector: ${director.sectorName}`;
-    directorHud.threat.textContent = `Threat ${threat}`;
-    directorHud.weapon.textContent = currentWeaponDirective();
-    directorHud.boss.textContent = state.boss ? `${director.lastBossName} · fase ${state.boss.phase || 1}` : director.lastBossName;
-    directorHud.map.textContent = director.mapLabel;
-    directorHud.directive.textContent = director.waveDirective;
-    directorHud.foot.textContent = state.boss
+    if(directorHud.sector) directorHud.sector.textContent = `Sector: ${director.sectorName}`;
+    if(directorHud.threat) directorHud.threat.textContent = `Threat ${threat}`;
+    if(directorHud.weapon) directorHud.weapon.textContent = currentWeaponDirective();
+    if(directorHud.boss) directorHud.boss.textContent = state.boss ? `${director.lastBossName} · fase ${state.boss.phase || 1}` : director.lastBossName;
+    if(directorHud.map) directorHud.map.textContent = director.mapLabel;
+    if(directorHud.directive) directorHud.directive.textContent = director.waveDirective;
+    if(directorHud.foot) directorHud.foot.textContent = state.boss
       ? `Boss actief in ${director.sectorName}. Hou ruimte tussen jou en de arena telegraphs.`
       : `Wave ${player.wave} · ${state.enemies.length} hostiles · combo x${(state.combo || 1).toFixed(1)}`;
   }
@@ -13613,6 +13617,7 @@ updateBullets = function(dt){
       <div class="row"><span class="soft">Panel</span><span>Press <b>K</b></span></div>
     `;
     document.body.appendChild(hud);
+    hud.style.display = "none";
 
     const wrap = document.createElement("div");
     wrap.id = "metaPanelWrap";
