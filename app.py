@@ -5951,7 +5951,6 @@ function updateBullets(dt){
     }
   }
 }
-      }
 
  function updateEnemies(dt){
   const now = performance.now() * 0.001;
