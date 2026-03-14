@@ -3237,44 +3237,88 @@ renderBoard();
 
   const colliders = [];
 
-  function addBox(w,h,d,x,y,z,color=0x243d84){
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w,h,d),
-      new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: 0.12,
-        roughness:0.75,
-        metalness:0.15
-      })
-    );
-    mesh.position.set(x,y,z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-    colliders.push({ mesh, box:new THREE.Box3().setFromObject(mesh) });
-    return mesh;
+function intersectsAnyCollider(box, padding = 0.02){
+  const test = box.clone().expandByScalar(-padding);
+
+  for(const c of colliders){
+    if(test.intersectsBox(c.box)) return true;
+  }
+  return false;
+}
+
+function addBox(w, h, d, x, y, z, color = 0x243d84, opts = {}){
+  const {
+    preventOverlap = true,
+    overlapPadding = 0.02,
+    yEpsilon = 0.01
+  } = opts;
+
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.12,
+    roughness: 0.75,
+    metalness: 0.15
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+
+  // klein hoogteverschil tegen coplanar z-fighting
+  mesh.position.set(x, y + yEpsilon, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(mesh);
+
+  if(preventOverlap && intersectsAnyCollider(box, overlapPadding)){
+    console.warn("Blok niet geplaatst wegens overlap:", { w, h, d, x, y, z });
+    geo.dispose();
+    mat.dispose();
+    return null;
   }
 
-  function addCylinderCollider(radius,height,x,y,z,color=0x1d2c4f){
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius,radius,height,12),
-      new THREE.MeshStandardMaterial({
-        color,
-        emissive:0x0d1a33,
-        emissiveIntensity:0.35,
-        roughness:0.75,
-        metalness:0.18
-      })
-    );
-    mesh.position.set(x,y,z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-    colliders.push({ mesh, box:new THREE.Box3().setFromObject(mesh) });
-    return mesh;
+  scene.add(mesh);
+  colliders.push({ mesh, box });
+  return mesh;
+}
+
+function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {}){
+  const {
+    preventOverlap = true,
+    overlapPadding = 0.02,
+    yEpsilon = 0.01
+  } = opts;
+
+  const geo = new THREE.CylinderGeometry(radius, radius, height, 12);
+  const mat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: 0x0d1a33,
+    emissiveIntensity: 0.35,
+    roughness: 0.75,
+    metalness: 0.18
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y + yEpsilon, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(mesh);
+
+  if(preventOverlap && intersectsAnyCollider(box, overlapPadding)){
+    console.warn("Cylinder niet geplaatst wegens overlap:", { radius, height, x, y, z });
+    geo.dispose();
+    mat.dispose();
+    return null;
   }
 
+  scene.add(mesh);
+  colliders.push({ mesh, box });
+  return mesh;
+}
   function buildArena(){
     const B = 62;
     addBox(2,5,B*2, -B,2.5,0, 0x19336c);
@@ -4755,6 +4799,18 @@ function spawnEnemy(isBoss=false){
     const spawnMin = -48;
     const spawnMax = 48;
 
+    function enemySpawnBoxCollides(x, z, radius, height = 3){
+  const box = new THREE.Box3(
+    new THREE.Vector3(x - radius, 0, z - radius),
+    new THREE.Vector3(x + radius, height, z + radius)
+  );
+
+  for(const c of colliders){
+    if(box.intersectsBox(c.box)) return true;
+  }
+  return false;
+}
+
     function isSafeSpawn(x, z, r){
       // niet te dicht bij speler
       const dx = x - player.pos.x;
@@ -4763,10 +4819,13 @@ function spawnEnemy(isBoss=false){
 
       // extra veiligheidsmarge t.o.v. map blocks
       if(collidesAt(x, z, r)) return false;
-      if(collidesAt(x + r * 0.75, z, r * 0.65)) return false;
-      if(collidesAt(x - r * 0.75, z, r * 0.65)) return false;
-      if(collidesAt(x, z + r * 0.75, r * 0.65)) return false;
-      if(collidesAt(x, z - r * 0.75, r * 0.65)) return false;
+    if(collidesAt(x + r * 0.75, z, r * 0.65)) return false;
+    if(collidesAt(x - r * 0.75, z, r * 0.65)) return false;
+    if(collidesAt(x, z + r * 0.75, r * 0.65)) return false;
+    if(collidesAt(x, z - r * 0.75, r * 0.65)) return false;
+
+    // extra harde check tegen complete collider-boxen
+    if(enemySpawnBoxCollides(x, z, r + 0.15, 3.2)) return false;
 
       // ook niet te dicht op andere enemies
       for(const other of state.enemies){
