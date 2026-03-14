@@ -187,7 +187,7 @@ def init_db():
       )
     """)
 
-    # ===== NIEUWE ONLINE LEADERBOARD =====
+    # ===== ONLINE LEADERBOARD =====
     c.execute("""
       CREATE TABLE IF NOT EXISTS leaderboard_scores (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -201,6 +201,7 @@ def init_db():
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_created_at ON leaderboard_scores(created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_score_wave ON leaderboard_scores(score DESC, wave DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_ip_created ON leaderboard_scores(ip, created_at)")
 
     c.commit()
     c.close()
@@ -2953,7 +2954,7 @@ canvas{ display:block; }
 
 <div id="centerMessage">
   <h1>Downloadlink verlopen</h1>
-  <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten en een lokale leaderboard op dit apparaat.</p>
+  <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten, sector-based arena layout, uitgebreidere wapensystemen en een online leaderboard.</p>
 
   <div id="nameRow">
     <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
@@ -11163,6 +11164,674 @@ onHit(enemy, damage){
 })();
 
 
+/* =========================
+   OLDE HANTER PROFESSIONAL ARENA / ARMORY / BOSS EXPANSION
+   plak dit direct boven: animate(performance.now());
+   ========================= */
+(() => {
+  const bossBarLabelEl = document.getElementById("bossBarLabel");
+
+  function injectDirectorStyles(){
+    if(document.getElementById("ohDirectorStyles")) return;
+    const style = document.createElement("style");
+    style.id = "ohDirectorStyles";
+    style.textContent = `
+      #directorHud{
+        position:fixed;
+        top:14px;
+        right:14px;
+        z-index:22;
+        width:min(320px, calc(100vw - 28px));
+        background:linear-gradient(180deg, rgba(8,16,34,.88), rgba(8,11,24,.74));
+        border:1px solid rgba(126,213,255,.18);
+        box-shadow:0 18px 40px rgba(0,0,0,.28);
+        border-radius:18px;
+        padding:12px 14px;
+        backdrop-filter:blur(10px);
+        pointer-events:none;
+      }
+      #directorHud .dir-top{
+        display:flex;
+        justify-content:space-between;
+        gap:8px;
+        align-items:flex-start;
+        margin-bottom:10px;
+      }
+      #directorHud .dir-title{
+        font-size:13px;
+        font-weight:800;
+        letter-spacing:.08em;
+        text-transform:uppercase;
+      }
+      #directorHud .dir-sub{
+        color:rgba(227,242,255,.72);
+        font-size:11px;
+        margin-top:2px;
+      }
+      #directorHud .dir-chip{
+        border-radius:999px;
+        padding:5px 9px;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(255,255,255,.06);
+        font-size:11px;
+        color:rgba(255,255,255,.88);
+      }
+      #directorHud .dir-grid{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:8px;
+      }
+      #directorHud .dir-card{
+        border-radius:12px;
+        border:1px solid rgba(255,255,255,.09);
+        background:rgba(255,255,255,.04);
+        padding:8px 10px;
+      }
+      #directorHud .dir-card b{ display:block; font-size:11px; margin-bottom:4px; color:rgba(255,255,255,.74); }
+      #directorHud .dir-card span{ display:block; font-size:12px; line-height:1.35; }
+      #directorHud .dir-card em{ font-style:normal; color:#8cecff; }
+      #directorHud .dir-foot{
+        margin-top:9px;
+        font-size:11px;
+        color:rgba(255,255,255,.72);
+        min-height:16px;
+      }
+      @media (max-width: 960px){
+        #directorHud{ top:auto; right:10px; bottom:10px; width:min(320px, calc(100vw - 20px)); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildDirectorHud(){
+    if(document.getElementById("directorHud")) return;
+    injectDirectorStyles();
+    const hud = document.createElement("div");
+    hud.id = "directorHud";
+    hud.innerHTML = `
+      <div class="dir-top">
+        <div>
+          <div class="dir-title">Arena Director</div>
+          <div class="dir-sub" id="dirSector">Sector: Core Nexus</div>
+        </div>
+        <div class="dir-chip" id="dirThreat">Threat LOW</div>
+      </div>
+      <div class="dir-grid">
+        <div class="dir-card"><b>Weapon Mod</b><span id="dirWeapon">Arc rounds calibreren…</span></div>
+        <div class="dir-card"><b>Boss Intel</b><span id="dirBoss">Nog geen boss op radar</span></div>
+        <div class="dir-card"><b>Map Layer</b><span id="dirMap">Cover pods, lanes en chokepoints actief</span></div>
+        <div class="dir-card"><b>Wave Directive</b><span id="dirDirective">Hou mobiel momentum en pak pickups snel op</span></div>
+      </div>
+      <div class="dir-foot" id="dirFoot">Nieuwe arena modules geladen.</div>
+    `;
+    document.body.appendChild(hud);
+  }
+  buildDirectorHud();
+
+  const directorHud = {
+    sector: document.getElementById("dirSector"),
+    threat: document.getElementById("dirThreat"),
+    weapon: document.getElementById("dirWeapon"),
+    boss: document.getElementById("dirBoss"),
+    map: document.getElementById("dirMap"),
+    directive: document.getElementById("dirDirective"),
+    foot: document.getElementById("dirFoot")
+  };
+
+  const director = {
+    shotCounter: { bullet:0, rocket:0, grenade:0 },
+    panelTimer: 0,
+    sectorName: "Core Nexus",
+    lastBossName: "Nog geen boss op radar",
+    waveDirective: "Hou mobiel momentum en pak pickups snel op",
+    mapLabel: "Cover pods, lanes en chokepoints actief",
+    projectileCache: new WeakMap(),
+    bossProfiles: [
+      {
+        id: "warden",
+        label: "Aegis Warden",
+        hpMul: 1.28,
+        speedMul: 0.94,
+        tint: 0x7ec8ff,
+        ringColor: 0x7ec8ff,
+        threat: "Area denial / guards",
+        intro: "AEGIS WARDEN ARRIVES",
+        directive: "Gebruik cover, vermijd de pulse ring en schakel guards snel uit."
+      },
+      {
+        id: "phantom",
+        label: "Shade Phantom",
+        hpMul: 0.96,
+        speedMul: 1.18,
+        tint: 0xff7fcf,
+        ringColor: 0xff7fcf,
+        threat: "Dashes / mirror fire",
+        intro: "SHADE PHANTOM BREACH",
+        directive: "Blijf bewegen; de phantom straft stilstand met dash slashes."
+      },
+      {
+        id: "siegebreaker",
+        label: "Siegebreaker Prime",
+        hpMul: 1.12,
+        speedMul: 1.00,
+        tint: 0xffc86f,
+        ringColor: 0xffc86f,
+        threat: "Mortars / missile zones",
+        intro: "SIEGEBREAKER PRIME LOCKED",
+        directive: "Lees telegraphs vroeg en forceer rotatie tussen de lanes."
+      }
+    ]
+  };
+
+  function tintMesh(group, tint){
+    group?.traverse?.(obj => {
+      if(!obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(mat => {
+        if(mat.emissive && typeof mat.emissive.getHex === "function"){
+          const mix = new THREE.Color(tint);
+          mat.emissive.lerp(mix, 0.16);
+          mat.emissiveIntensity = Math.max(mat.emissiveIntensity || 0, 0.38);
+        }
+        if(mat.color && typeof mat.color.getHex === "function"){
+          const c = new THREE.Color(tint);
+          mat.color.lerp(c, 0.05);
+        }
+      });
+    });
+  }
+
+  function addCoverPod(x, z, colorA=0x244d96, colorB=0x5c2f88){
+    addBox(6.5, 2.6, 1.6, x, 1.3, z - 3.0, colorA);
+    addBox(6.5, 2.6, 1.6, x, 1.3, z + 3.0, colorA);
+    addBox(1.6, 2.8, 4.4, x - 3.0, 1.4, z, colorB);
+    addBox(1.6, 2.8, 4.4, x + 3.0, 1.4, z, colorB);
+    addCylinderCollider(0.85, 3.1, x, 1.55, z, 0x18284e);
+    addDecalRing(x, z, 3.8, colorA);
+  }
+
+  function addLaneGate(x, z, wide=true, color=0x2bc1ff){
+    const width = wide ? 12 : 8;
+    addBox(width, 0.8, 2.0, x, 0.4, z, 0x2a3c63);
+    addBox(1.8, 4.6, 2.2, x - width * 0.5 + 0.8, 2.3, z, color);
+    addBox(1.8, 4.6, 2.2, x + width * 0.5 - 0.8, 2.3, z, color);
+    const holo = new THREE.Mesh(
+      new THREE.PlaneGeometry(width * 0.8, 2.4),
+      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.14, side:THREE.DoubleSide, depthWrite:false })
+    );
+    holo.position.set(x, 2.0, z);
+    scene.add(holo);
+    director.projectileCache.set(holo, { phase: Math.random() * Math.PI * 2, baseY: holo.position.y });
+  }
+
+  function addArenaExpansion(){
+    [
+      [-40, -32, 0x2b86ff, 0x8038ff],
+      [40, -32, 0xff5aaa, 0x2b86ff],
+      [-40, 32, 0xffc76b, 0x2b86ff],
+      [40, 32, 0x5ff1c2, 0xff5aaa],
+      [-24, 0, 0x2bc1ff, 0x5f3cff],
+      [24, 0, 0xff6ea1, 0x2bc1ff]
+    ].forEach(([x, z, a, b]) => addCoverPod(x, z, a, b));
+
+    addLaneGate(0, -18, true, 0x4df7ff);
+    addLaneGate(0, 40, true, 0xff8dd8);
+    addLaneGate(-47, 0, false, 0x7ec8ff);
+    addLaneGate(47, 0, false, 0xffd166);
+
+    for(let i=0; i<8; i++){
+      const beacon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.26, 4.6, 10),
+        new THREE.MeshStandardMaterial({ color:0x1b2338, emissive:i % 2 ? 0x2bc1ff : 0xff6ea1, emissiveIntensity:0.7, metalness:0.45, roughness:0.34 })
+      );
+      const angle = (i / 8) * Math.PI * 2;
+      beacon.position.set(Math.cos(angle) * 26, 2.3, Math.sin(angle) * 26);
+      scene.add(beacon);
+      addDecalRing(beacon.position.x, beacon.position.z, 1.45, i % 2 ? 0x2bc1ff : 0xff6ea1);
+    }
+
+    const skylineBanner = new THREE.Group();
+    for(let i=0;i<5;i++){
+      const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(10, 3),
+        new THREE.MeshBasicMaterial({ color:i % 2 ? 0x4df7ff : 0xff4fd8, transparent:true, opacity:0.11, side:THREE.DoubleSide, depthWrite:false })
+      );
+      banner.position.set(-36 + i * 18, 9 + i * 0.3, i % 2 ? 53 : -53);
+      banner.rotation.y = i % 2 ? 0 : Math.PI;
+      skylineBanner.add(banner);
+      director.projectileCache.set(banner, { phase: i * 0.8, baseY: banner.position.y });
+    }
+    scene.add(skylineBanner);
+
+    const oldAnimate = animate;
+    animate = function(now){
+      skylineBanner.children.forEach((banner, i) => {
+        const d = director.projectileCache.get(banner);
+        banner.position.y = d.baseY + Math.sin(now * 0.001 + d.phase + i) * 0.25;
+        banner.material.opacity = 0.08 + Math.sin(now * 0.0018 + d.phase) * 0.03;
+      });
+      oldAnimate(now);
+    };
+  }
+  addArenaExpansion();
+
+  function sectorName(){
+    const x = player.pos.x;
+    const z = player.pos.z;
+    if(Math.abs(x) < 14 && Math.abs(z) < 14) return "Core Nexus";
+    if(z < -18 && Math.abs(x) < 22) return "North Breach";
+    if(z > 18 && Math.abs(x) < 22) return "South Ruins";
+    if(x < -18 && Math.abs(z) < 24) return "West Bastion";
+    if(x > 18 && Math.abs(z) < 24) return "East Relay";
+    if(x < -24 && z < -16) return "Cryo Yard";
+    if(x > 24 && z < -16) return "Neon Foundry";
+    if(x < -24 && z > 16) return "Obsidian Ward";
+    if(x > 24 && z > 16) return "Signal Docks";
+    return "Outer Ring";
+  }
+
+  function currentWeaponDirective(){
+    const w = player.weapon;
+    if(w === "bullet") return `Arc round elke 6e kogel · teller ${director.shotCounter.bullet % 6 || 6}/6`;
+    if(w === "rocket") return "Rockets laten napalm pools achter op impact";
+    return "Grenades splitsen in cluster shrapnel bij detonatie";
+  }
+
+  function refreshDirectorHud(force=false){
+    director.panelTimer -= force ? 999 : 0.12;
+    if(director.panelTimer > 0 && !force) return;
+    director.panelTimer = 0.18;
+    director.sectorName = sectorName();
+    const threat = state.boss ? "MAX" : player.wave >= 10 ? "HIGH" : player.wave >= 5 ? "MED" : "LOW";
+    directorHud.sector.textContent = `Sector: ${director.sectorName}`;
+    directorHud.threat.textContent = `Threat ${threat}`;
+    directorHud.weapon.textContent = currentWeaponDirective();
+    directorHud.boss.textContent = state.boss ? `${director.lastBossName} · fase ${state.boss.phase || 1}` : director.lastBossName;
+    directorHud.map.textContent = director.mapLabel;
+    directorHud.directive.textContent = director.waveDirective;
+    directorHud.foot.textContent = state.boss
+      ? `Boss actief in ${director.sectorName}. Hou ruimte tussen jou en de arena telegraphs.`
+      : `Wave ${player.wave} · ${state.enemies.length} hostiles · combo x${(state.combo || 1).toFixed(1)}`;
+  }
+
+  const _createProjectile = createProjectile;
+  createProjectile = function(pos, dir, config){
+    const proj = _createProjectile(pos, dir, config);
+    if(config?.friendly){
+      if(config.type === "bullet" && player.weapon === "bullet"){
+        director.shotCounter.bullet += 1;
+        if(director.shotCounter.bullet % 6 === 0){
+          proj.arcRound = true;
+          proj.damage += 10;
+          proj.life += 0.25;
+          proj.mesh.scale.multiplyScalar(1.22);
+          if(proj.mesh.material?.color) proj.mesh.material.color.setHex(0x7ef5ff);
+          proj.trailColor = 0x7ef5ff;
+        }
+      } else if(config.type === "rocket" && player.weapon === "rocket"){
+        director.shotCounter.rocket += 1;
+        proj.napalm = true;
+        proj.radius = (proj.radius || 0) + 0.8;
+      } else if(config.type === "grenade" && player.weapon === "grenade"){
+        director.shotCounter.grenade += 1;
+        proj.cluster = true;
+        proj.radius = (proj.radius || 0) + 0.4;
+      }
+    }
+    return proj;
+  };
+
+  function spawnNapalmPool(position){
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.6, 2.8, 34),
+      new THREE.MeshBasicMaterial({ color:0xff9f55, transparent:true, opacity:0.42, side:THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(position.x, 0.05, position.z);
+    const core = new THREE.Mesh(
+      new THREE.CircleGeometry(1.5, 28),
+      new THREE.MeshBasicMaterial({ color:0xff6622, transparent:true, opacity:0.16, side:THREE.DoubleSide })
+    );
+    core.rotation.x = -Math.PI / 2;
+    core.position.set(position.x, 0.035, position.z);
+    scene.add(ring, core);
+    state.hazards.push({ kind:"napalm", mesh:ring, core, life:5.0, pulse:0, radius:3.4, damage:10 });
+    createBurst(position.clone().add(new THREE.Vector3(0,0.5,0)), 0xffa866, 16, 3.6, { minLife:.16, maxLife:.42, gravity:1.8, shrink:0.95 });
+    createFlash(position.clone().add(new THREE.Vector3(0,1.0,0)), 0xff8a42, 2.4, 7.5, 0.12);
+  }
+
+  function spawnClusterShards(position){
+    createBurst(position.clone().add(new THREE.Vector3(0,0.5,0)), 0xc7ff9d, 10, 3.8, { minLife:.16, maxLife:.38, gravity:1.3, shrink:0.95 });
+    for(let i=0;i<6;i++){
+      const angle = (i / 6) * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.cos(angle), 0.10 + Math.random() * 0.08, Math.sin(angle)).normalize();
+      state.bullets.push(_createProjectile(position.clone().add(new THREE.Vector3(0,0.5,0)), dir, {
+        speed: 19,
+        friendly: true,
+        color: 0xcaff9d,
+        trailColor: 0xf0ffd8,
+        size: 0.08,
+        life: 0.85,
+        damage: 7,
+        type: "bullet"
+      }));
+    }
+  }
+
+  function dischargeArc(position){
+    const candidates = [];
+    if(state.boss?.mesh) candidates.push(state.boss);
+    for(const e of state.enemies) if(e?.mesh) candidates.push(e);
+    candidates
+      .filter(e => e.mesh.position.distanceTo(position) < 7.5)
+      .sort((a, b) => a.mesh.position.distanceTo(position) - b.mesh.position.distanceTo(position))
+      .slice(0, 2)
+      .forEach((enemy, idx) => {
+        const target = enemy.mesh.position.clone().add(new THREE.Vector3(0, enemy.isBoss ? 2.2 : 1.3, 0));
+        createFlash(target.clone(), 0x8bf0ff, 1.5, 5.5, 0.08);
+        createBurst(target.clone(), 0x9ffcff, 6, 2.6, { minLife:.10, maxLife:.24, gravity:0.4, shrink:0.93 });
+        damageEnemyDirect(enemy, 8 + idx * 2);
+      });
+  }
+
+  const _updateBullets = updateBullets;
+  updateBullets = function(dt){
+    const tracked = new Map();
+    for(const b of state.bullets){
+      if(b?.mesh) tracked.set(b, {
+        friendly: !!b.friendly,
+        type: b.type,
+        arcRound: !!b.arcRound,
+        napalm: !!b.napalm,
+        cluster: !!b.cluster,
+        pos: b.mesh.position.clone()
+      });
+    }
+
+    _updateBullets(dt);
+
+    for(const [b, meta] of tracked.entries()){
+      if(state.bullets.includes(b)) continue;
+      if(!meta.friendly) continue;
+      if(meta.arcRound) dischargeArc(meta.pos.clone());
+      if(meta.napalm) spawnNapalmPool(meta.pos.clone());
+      if(meta.cluster) spawnClusterShards(meta.pos.clone());
+    }
+  };
+
+  const _updateHazards = updateHazards;
+  updateHazards = function(dt){
+    _updateHazards(dt);
+    for(let i=state.hazards.length-1;i>=0;i--){
+      const h = state.hazards[i];
+      if(h.kind !== "napalm") continue;
+      h.life -= dt;
+      h.pulse += dt;
+      if(h.core){
+        h.core.material.opacity = 0.14 + Math.sin(h.pulse * 10) * 0.05;
+        h.core.scale.setScalar(1 + Math.sin(h.pulse * 6) * 0.08);
+      }
+      if(h.mesh){
+        h.mesh.rotation.z += dt * 0.45;
+        h.mesh.material.opacity = 0.24 + Math.sin(h.pulse * 8) * 0.08;
+        h.mesh.scale.setScalar(1 + Math.sin(h.pulse * 5) * 0.05);
+      }
+      for(let j=state.enemies.length-1;j>=0;j--){
+        const e = state.enemies[j];
+        if(!e?.mesh) continue;
+        const dist = e.mesh.position.distanceTo(h.mesh.position);
+        if(dist < h.radius){
+          e.hp -= h.damage * dt;
+          if(Math.random() < dt * 9){
+            createBurst(e.mesh.position.clone().add(new THREE.Vector3(0,1.0,0)), 0xffa866, 3, 1.5, { minLife:.08, maxLife:.16, gravity:0.4, shrink:0.95 });
+          }
+          if(e.hp <= 0){
+            killEnemy(e);
+            state.enemies.splice(j,1);
+          }
+        }
+      }
+      if(state.boss?.mesh && state.boss.mesh.position.distanceTo(h.mesh.position) < h.radius + 0.8){
+        state.boss.hp -= h.damage * dt * 0.65;
+        updateBossBar();
+        if(state.boss.hp <= 0) killEnemy(state.boss);
+      }
+      if(h.life <= 0){
+        scene.remove(h.mesh);
+        if(h.core) scene.remove(h.core);
+        state.hazards.splice(i,1);
+      }
+    }
+  };
+
+  function pickBossProfile(){
+    const idx = Math.max(0, Math.floor(player.wave / 4) - 1) % director.bossProfiles.length;
+    return director.bossProfiles[idx];
+  }
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss=false){
+    const enemy = _spawnEnemy(isBoss);
+    if(!enemy) return enemy;
+
+    if(isBoss){
+      const profile = pickBossProfile();
+      enemy.bossProfile = profile.id;
+      enemy.bossLabel = profile.label;
+      enemy.maxHp = Math.round(enemy.maxHp * profile.hpMul);
+      enemy.hp = enemy.maxHp;
+      enemy.speed *= profile.speedMul;
+      enemy.specials = {
+        profile,
+        pulseCd: profile.id === "warden" ? 4.0 : 999,
+        summonCd: profile.id === "warden" ? 8.8 : 999,
+        cloakCd: profile.id === "phantom" ? 5.0 : 999,
+        mirrorCd: profile.id === "phantom" ? 3.2 : 999,
+        mortarCd: profile.id === "siegebreaker" ? 4.8 : 999,
+        missileCd: profile.id === "siegebreaker" ? 7.2 : 999,
+        cloakTime: 0
+      };
+      tintMesh(enemy.mesh, profile.tint);
+      if(enemy.groundRing?.material?.color) enemy.groundRing.material.color.setHex(profile.ringColor);
+      if(enemy.groundRing) enemy.groundRing.scale.setScalar(profile.id === "warden" ? 1.18 : profile.id === "phantom" ? 1.08 : 1.14);
+      director.lastBossName = `${profile.label} · ${profile.threat}`;
+      director.waveDirective = profile.directive;
+      if(bossBarLabelEl) bossBarLabelEl.textContent = profile.label.toUpperCase();
+      showFloating(profile.intro);
+      createFlash(enemy.mesh.position.clone().add(new THREE.Vector3(0,3.4,0)), profile.tint, 3.4, 12, 0.18);
+    } else if(player.wave >= 6 && enemy.type === "elite"){
+      enemy.speed *= 1.05;
+      enemy.hp *= 1.08;
+      tintMesh(enemy.mesh, 0xffb26b);
+    }
+    return enemy;
+  };
+
+  function spawnBossMortarField(center, amount=3, radius=6.5, color=0xffae6b){
+    for(let i=0;i<amount;i++){
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 1.6 + Math.random() * radius;
+      const pos = center.clone().add(new THREE.Vector3(Math.cos(angle) * dist, 0.05, Math.sin(angle) * dist));
+      const marker = new THREE.Mesh(
+        new THREE.RingGeometry(0.9, 1.45, 28),
+        new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.72, side:THREE.DoubleSide })
+      );
+      marker.rotation.x = -Math.PI / 2;
+      marker.position.copy(pos);
+      scene.add(marker);
+      setTimeout(() => scene.remove(marker), 900);
+      setTimeout(() => {
+        if(state.running && player.alive){
+          explodeAt(pos.clone(), 3.1, 14, color);
+        }
+      }, 850);
+    }
+  }
+
+  const _updateEnemies = updateEnemies;
+  updateEnemies = function(dt){
+    _updateEnemies(dt);
+
+    const boss = state.boss;
+    if(boss?.specials?.profile){
+      const s = boss.specials;
+      s.pulseCd -= dt;
+      s.summonCd -= dt;
+      s.cloakCd -= dt;
+      s.mirrorCd -= dt;
+      s.mortarCd -= dt;
+      s.missileCd -= dt;
+      if(s.cloakTime > 0) s.cloakTime -= dt;
+
+      if(s.profile.id === "warden"){
+        if(s.pulseCd <= 0){
+          s.pulseCd = boss.phase >= 3 ? 3.8 : 5.1;
+          createShockwave(boss.mesh.position.clone(), 0x7ec8ff, boss.phase >= 3 ? 7.2 : 5.4);
+          for(const enemy of state.enemies){
+            if(enemy?.mesh && enemy.mesh.position.distanceTo(boss.mesh.position) < 12){
+              enemy.hp = Math.min(enemy.maxHp, enemy.hp + 8);
+            }
+          }
+          if(player.pos.distanceTo(boss.mesh.position) < (boss.phase >= 3 ? 7.0 : 5.5)){
+            applyDamage(boss.phase >= 3 ? 17 : 11);
+          }
+          showFloating("WARDEN PULSE");
+        }
+        if(s.summonCd <= 0 && state.enemies.length < 16){
+          s.summonCd = boss.phase >= 3 ? 7.0 : 9.2;
+          for(let i=0;i<(boss.phase >= 3 ? 2 : 1);i++){
+            const guard = spawnEnemy(false);
+            if(guard){
+              guard.type = i === 0 ? "tank" : guard.type;
+              guard.hp *= 1.15;
+              guard.maxHp = guard.hp;
+              tintMesh(guard.mesh, 0x7ec8ff);
+            }
+          }
+          showFloating("WARDEN GUARDS");
+        }
+      } else if(s.profile.id === "phantom"){
+        if(s.cloakCd <= 0){
+          s.cloakCd = boss.phase >= 3 ? 4.0 : 5.4;
+          s.cloakTime = boss.phase >= 3 ? 1.4 : 1.0;
+        }
+        const cloakAlpha = s.cloakTime > 0 ? 0.28 : 1;
+        boss.mesh.traverse?.(obj => {
+          if(!obj.material) return;
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach(mat => {
+            mat.transparent = cloakAlpha < 1;
+            mat.opacity = cloakAlpha;
+          });
+        });
+        if(s.mirrorCd <= 0){
+          s.mirrorCd = boss.phase >= 3 ? 2.2 : 3.1;
+          const from = boss.mesh.position.clone().add(new THREE.Vector3(0,2.5,0));
+          const target = player.pos.clone().add(new THREE.Vector3(0,1.3,0));
+          const baseDir = target.sub(from).normalize();
+          const right = new THREE.Vector3(baseDir.z, 0, -baseDir.x).normalize();
+          [-0.22, 0, 0.22].forEach(offset => {
+            const d = baseDir.clone().addScaledVector(right, offset).normalize();
+            state.enemyBullets.push(_createProjectile(from.clone(), d, {
+              speed: 19,
+              friendly:false,
+              color: 0xff7fcf,
+              size: 0.17,
+              life: 2.8,
+              damage: boss.phase >= 3 ? 16 : 12,
+              type:"enemy"
+            }));
+          });
+          createFlash(from.clone(), 0xff7fcf, 2.2, 8, 0.10);
+        }
+        if(s.cloakTime > 0.5 && boss.dashCooldown <= 0){
+          boss.dashCooldown = boss.phase >= 3 ? 2.6 : 3.4;
+          const dx = player.pos.x - boss.mesh.position.x;
+          const dz = player.pos.z - boss.mesh.position.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const tx = boss.mesh.position.x + (dx / dist) * 5.4;
+          const tz = boss.mesh.position.z + (dz / dist) * 5.4;
+          if(!collidesAt(tx, tz, boss.radius)){
+            boss.mesh.position.x = tx;
+            boss.mesh.position.z = tz;
+            createShockwave(boss.mesh.position.clone(), 0xff7fcf, 4.2);
+            if(player.pos.distanceTo(boss.mesh.position) < 4.1) applyDamage(boss.phase >= 3 ? 15 : 10);
+          }
+        }
+      } else if(s.profile.id === "siegebreaker"){
+        if(s.mortarCd <= 0){
+          s.mortarCd = boss.phase >= 3 ? 3.4 : 4.8;
+          spawnBossMortarField(player.pos.clone(), boss.phase >= 3 ? 4 : 3, boss.phase >= 3 ? 8.5 : 6.5, 0xffc86f);
+          showFloating("MORTAR LOCK");
+        }
+        if(s.missileCd <= 0){
+          s.missileCd = boss.phase >= 3 ? 5.5 : 7.2;
+          const targetBase = player.pos.clone();
+          [
+            new THREE.Vector3(-3, 0, -3),
+            new THREE.Vector3(3, 0, -3),
+            new THREE.Vector3(-3, 0, 3),
+            new THREE.Vector3(3, 0, 3)
+          ].forEach((off, idx) => {
+            setTimeout(() => {
+              if(!state.running || !player.alive || state.boss !== boss) return;
+              const pos = targetBase.clone().add(off);
+              spawnBossMortarField(pos, 1, 0.1, 0xff8c55);
+            }, idx * 140);
+          });
+          createFlash(boss.mesh.position.clone().add(new THREE.Vector3(0,3.2,0)), 0xffc86f, 3.0, 11, 0.15);
+        }
+      }
+    }
+
+    refreshDirectorHud();
+  };
+
+  const _spawnWave = spawnWave;
+  spawnWave = function(){
+    _spawnWave();
+    director.waveDirective =
+      player.wave % 4 === 0 ? "Boss wave: houd lanes vrij en gebruik skills reactief." :
+      player.wave >= 10 ? "Hoog tempo: chain kills voor combo-control en emergency ammo voorkomen." :
+      player.wave >= 6 ? "Elite packs actief: speel rond cover pods en forceer sightlines." :
+      "Bouw resources op en leer de sector-routes.";
+    if(player.wave >= 5 && player.wave % 3 === 2){
+      setTimeout(() => {
+        if(!state.running || !player.alive) return;
+        const extra = Math.min(2 + Math.floor(player.wave / 6), 4);
+        for(let i=0;i<extra;i++){
+          const e = spawnEnemy(false);
+          if(e){
+            e.hp *= 1.06;
+            e.maxHp = e.hp;
+          }
+        }
+        showFloating("REINFORCEMENT PACK");
+      }, 1900);
+    }
+    refreshDirectorHud(true);
+  };
+
+  const _applyDamage = applyDamage;
+  applyDamage = function(amount){
+    _applyDamage(amount);
+    refreshDirectorHud(true);
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    if(enemy?.bossLabel){
+      director.lastBossName = `${enemy.bossLabel} verslagen`;
+      if(bossBarLabelEl) bossBarLabelEl.textContent = "BOSS";
+      director.waveDirective = "Arena opgeschoond. Herpositioneer en pak loot voordat de volgende golf start.";
+    }
+    return _killEnemy(enemy);
+  };
+
+  refreshDirectorHud(true);
+})();
+
+
   animate(performance.now());
 })();
 
@@ -12123,99 +12792,97 @@ def handle_500(err):
 # =============================
 # ONLINE LEADERBOARD API
 # =============================
+
 LEADERBOARD_WINDOW_DAYS = 30
+LEADERBOARD_RATE_LIMIT_SECONDS = 20
 LEADERBOARD_MAX_LIMIT = 50
-LEADERBOARD_SUBMITS_PER_MINUTE = 12
-LEADERBOARD_SCORE_CAP = 10_000_000
-LEADERBOARD_WAVE_CAP = 10_000
-_leaderboard_submit_log = {}
+PLAYER_NAME_RE = re.compile(r"[^A-Za-z0-9 _\-\.]+")
 
 
-def get_client_ip() -> str:
-    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-    return forwarded or (request.remote_addr or "")
-
-
-def leaderboard_cutoff_iso(days: int = LEADERBOARD_WINDOW_DAYS) -> str:
+def leaderboard_cutoff_iso(days=LEADERBOARD_WINDOW_DAYS):
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def cleanup_old_scores(days: int = LEADERBOARD_WINDOW_DAYS):
-    cutoff = leaderboard_cutoff_iso(days)
+def normalize_player_name(value):
+    value = (value or "Speler").strip()[:18]
+    value = PLAYER_NAME_RE.sub("", value).strip()
+    return value or "Speler"
+
+
+def safe_int(value, default=0, minimum=None, maximum=None):
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = default
+    if minimum is not None:
+        result = max(minimum, result)
+    if maximum is not None:
+        result = min(maximum, result)
+    return result
+
+
+def client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()[:64]
+    return (request.remote_addr or "")[:64]
+
+
+def cleanup_old_scores():
     conn = db()
     try:
-        conn.execute("DELETE FROM leaderboard_scores WHERE created_at < ?", (cutoff,))
+        conn.execute(
+            "DELETE FROM leaderboard_scores WHERE created_at < ?",
+            (leaderboard_cutoff_iso(LEADERBOARD_WINDOW_DAYS),)
+        )
         conn.commit()
     finally:
         conn.close()
 
 
-def leaderboard_rate_limited(ip: str, limit: int = LEADERBOARD_SUBMITS_PER_MINUTE, window_seconds: int = 60) -> bool:
-    now = datetime.now(timezone.utc).timestamp()
-    bucket = _leaderboard_submit_log.setdefault(ip or "unknown", [])
-    cutoff = now - window_seconds
-    bucket[:] = [stamp for stamp in bucket if stamp >= cutoff]
-    if len(bucket) >= limit:
-        return True
-    bucket.append(now)
-    if len(_leaderboard_submit_log) > 5000:
-        stale_before = now - (window_seconds * 2)
-        for key in list(_leaderboard_submit_log.keys()):
-            recent = [stamp for stamp in _leaderboard_submit_log[key] if stamp >= stale_before]
-            if recent:
-                _leaderboard_submit_log[key] = recent
-            else:
-                _leaderboard_submit_log.pop(key, None)
-    return False
-
-
-def normalize_player_name(raw: str) -> str:
-    name = re.sub(r"\s+", " ", (raw or "Speler").strip())[:18]
-    return name or "Speler"
-
-
-def safe_int(value, default=0, minimum=0, maximum=None):
-    try:
-        value = int(value)
-    except (TypeError, ValueError):
-        return default
-    if minimum is not None:
-        value = max(minimum, value)
-    if maximum is not None:
-        value = min(maximum, value)
-    return value
+def leaderboard_recent_submit_exists(conn, ip):
+    if not ip:
+        return False
+    recent_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=LEADERBOARD_RATE_LIMIT_SECONDS)).isoformat()
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM leaderboard_scores
+        WHERE ip = ? AND created_at >= ?
+        LIMIT 1
+        """,
+        (ip, recent_cutoff)
+    ).fetchone()
+    return row is not None
 
 
 @app.route("/api/leaderboard/submit", methods=["POST"])
 def leaderboard_submit():
     data = request.get_json(silent=True) or {}
-    score = safe_int(data.get("score"), default=0, minimum=0, maximum=LEADERBOARD_SCORE_CAP)
-    wave = safe_int(data.get("wave"), default=0, minimum=0, maximum=LEADERBOARD_WAVE_CAP)
+
     name = normalize_player_name(data.get("name"))
+    score = safe_int(data.get("score"), default=0, minimum=0, maximum=10_000_000)
+    wave = safe_int(data.get("wave"), default=0, minimum=0, maximum=10_000)
 
     if score <= 0:
         return jsonify({"ok": False, "error": "invalid_score"}), 400
 
-    ip = get_client_ip()
-    if leaderboard_rate_limited(ip):
-        return jsonify({"ok": False, "error": "rate_limited"}), 429
+    ip = client_ip()
+    user_agent = (request.headers.get("User-Agent", "") or "")[:200]
+    created_at = datetime.now(timezone.utc).isoformat()
 
     conn = db()
     try:
+        if leaderboard_recent_submit_exists(conn, ip):
+            return jsonify({"ok": False, "error": "rate_limited"}), 429
+
         conn.execute(
             """
             INSERT INTO leaderboard_scores
             (player_name, score, wave, created_at, ip, user_agent)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (
-                name,
-                score,
-                wave,
-                datetime.now(timezone.utc).isoformat(),
-                ip,
-                (request.headers.get("User-Agent") or "")[:200],
-            ),
+            (name, score, wave, created_at, ip, user_agent)
         )
         conn.commit()
     finally:
@@ -12228,36 +12895,33 @@ def leaderboard_submit():
 @app.route("/api/leaderboard/top")
 def leaderboard_top():
     limit = safe_int(request.args.get("limit", 10), default=10, minimum=1, maximum=LEADERBOARD_MAX_LIMIT)
-    cutoff = leaderboard_cutoff_iso()
+    cutoff = leaderboard_cutoff_iso(LEADERBOARD_WINDOW_DAYS)
 
     conn = db()
     try:
         rows = conn.execute(
             """
-            SELECT player_name, score, wave, MIN(created_at) AS created_at
+            SELECT player_name, score, wave
             FROM leaderboard_scores
             WHERE created_at >= ?
-            GROUP BY player_name, score, wave
             ORDER BY score DESC, wave DESC, created_at ASC
             LIMIT ?
             """,
-            (cutoff, limit),
+            (cutoff, limit)
         ).fetchall()
     finally:
         conn.close()
 
-    return jsonify(
-        {
-            "rows": [
-                {
-                    "name": r["player_name"],
-                    "score": r["score"],
-                    "wave": r["wave"],
-                }
-                for r in rows
-            ]
-        }
-    )
+    return jsonify({
+        "rows": [
+            {
+                "name": r["player_name"],
+                "score": r["score"],
+                "wave": r["wave"]
+            }
+            for r in rows
+        ]
+    })
 
 
 if __name__ == "__main__":
