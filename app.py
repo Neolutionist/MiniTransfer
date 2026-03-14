@@ -6009,19 +6009,26 @@ function updateBullets(dt){
     if(!start || !dir || !moon?.position) return false;
 
     const aim = dir.clone().normalize();
+    if(aim.y < 0.2) return false;
+
     const toMoon = moon.position.clone().sub(start);
     const moonDistance = toMoon.length();
     if(moonDistance <= 0.001) return false;
 
-    const alignment = aim.dot(toMoon.clone().normalize());
-    if(alignment < 0.985) return false;
+    const moonDir = toMoon.clone().normalize();
+    const alignment = aim.dot(moonDir);
+
+    // Strakker dan voorheen: alleen bijna exact op de maan mikken.
+    if(alignment < 0.9965) return false;
 
     const projected = Math.max(0, toMoon.dot(aim));
     const closestPoint = start.clone().add(aim.clone().multiplyScalar(projected));
     const missDistance = closestPoint.distanceTo(moon.position);
-    const allowedMiss = Math.max(8.4, moonDistance * 0.035);
 
-    return missDistance <= allowedMiss || alignment >= 0.994;
+    // Kleinere tolerantie zodat normale rockets niet onbedoeld als moon shot tellen.
+    const allowedMiss = Math.max(3.4, moonDistance * 0.0125);
+
+    return missDistance <= allowedMiss || alignment >= 0.9992;
   }
 
   function explodeProjectile(bullet){
