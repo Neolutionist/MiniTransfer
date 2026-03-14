@@ -2954,7 +2954,7 @@ canvas{ display:block; }
   <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten, sector-based arena layout, uitgebreidere wapensystemen en een online leaderboard.</p>
 
   <div id="nameRow">
-    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
+    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="" autocomplete="off"/>
   </div>
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
@@ -3049,7 +3049,18 @@ function escapeHtml(s){
 }
 
 function getPlayerName(){
-  return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
+  return (ui.playerName?.value || "").trim().slice(0,18);
+}
+
+function isValidPlayerName(name = getPlayerName()){
+  return /^[A-Za-z0-9 ]+$/.test(name) && name.trim().length > 0;
+}
+
+function updateStartButtonState(){
+  if(!ui.startBtn) return;
+  const ok = isValidPlayerName();
+  ui.startBtn.disabled = !ok;
+  ui.startBtn.classList.toggle("disabled", !ok);
 }
 
 async function renderBoard(){
@@ -7161,6 +7172,13 @@ function animate(now){
 }
 
 function startGame(){
+  if(!isValidPlayerName()){
+    ui.playerName?.focus?.();
+    updateStartButtonState?.();
+    flashHint?.("Vul eerst een geldige naam in");
+    return;
+  }
+
   ensureAudio?.();
 
   if(audioCtx && state.songClock < audioCtx.currentTime){
@@ -7191,6 +7209,25 @@ function startGame(){
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
 
+  updateStartButtonState();
+  ui.playerName?.addEventListener("input", () => {
+    const cleaned = (ui.playerName.value || "").replace(/[^A-Za-z0-9 ]+/g, "").slice(0, 18);
+    if(ui.playerName.value !== cleaned) ui.playerName.value = cleaned;
+    updateStartButtonState();
+  });
+  ui.playerName?.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if(e.code === "Enter"){
+      e.preventDefault();
+      if(isValidPlayerName()) startGame();
+      else updateStartButtonState();
+      return;
+    }
+    if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)){
+      e.stopPropagation();
+    }
+  });
+
   document.addEventListener("pointerlockchange", () => {
     state.pointerLocked = document.pointerLockElement === renderer.domElement;
   });
@@ -7205,6 +7242,11 @@ function startGame(){
   });
 
   window.addEventListener("keydown", e => {
+    if(document.activeElement === ui.playerName){
+      if(e.code === "Enter") e.preventDefault();
+      return;
+    }
+
     input.keyboard[e.code] = true;
 
     if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
@@ -7231,6 +7273,7 @@ function startGame(){
   }, { passive:false });
 
   window.addEventListener("keyup", e => {
+    if(document.activeElement === ui.playerName) return;
     input.keyboard[e.code] = false;
     if(e.code === "Space" || e.code === "Enter"){
       state.fireHeld = false;
@@ -7831,7 +7874,7 @@ function startGame(){
   function getMoveVector(){
     const v = new THREE.Vector3();
     if(input.forward || input.strafe){
-      const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
+      const forward = new THREE.Vector3(-Math.sin(lookYaw), 0, -Math.cos(lookYaw));
       const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
       v.addScaledVector(forward, input.forward);
       v.addScaledVector(right, input.strafe);
@@ -7840,7 +7883,7 @@ function startGame(){
       v.y = 0;
     }
     if(v.lengthSq() < 0.0001){
-      v.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
+      v.set(-Math.sin(lookYaw), 0, -Math.cos(lookYaw));
     }
     return v.normalize();
   }
