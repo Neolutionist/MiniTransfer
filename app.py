@@ -6469,6 +6469,403 @@ function shootWithDirection(dirOverride=null){
     if(!isTouch) renderer.domElement.requestPointerLock?.();
   }
 
+  /* ===== CORE REWRITE — plak direct boven: ui.startBtn.addEventListener("click", startGame); ===== */
+
+const CORE_LOOP = {
+  lastDecorAt: 0,
+  lastMinimapAt: 0,
+  lastHudAt: 0,
+  hudDirty: true,
+  decorEveryMs: isTouch ? 50 : 33,
+  minimapEveryMs: isTouch ? 125 : 83,
+};
+
+const CORE_TMP_SEARCH_DIR = new THREE.Vector3(0, -1, -1);
+
+function coreMarkHudDirty(){
+  CORE_LOOP.hudDirty = true;
+}
+
+function coreFlushHud(force = false){
+  if(typeof updateHud !== "function") return;
+  const now = performance.now();
+  if(force || (CORE_LOOP.hudDirty && now - CORE_LOOP.lastHudAt >= 50)){
+    CORE_LOOP.hudDirty = false;
+    CORE_LOOP.lastHudAt = now;
+    updateHud();
+  }
+}
+
+function coreCleanupItem(item){
+  if(!item) return;
+  if(item.mesh) scene.remove(item.mesh);
+  if(item.aura) scene.remove(item.aura);
+  if(item.inner) scene.remove(item.inner);
+  if(item.beam) scene.remove(item.beam);
+  if(item.light) scene.remove(item.light);
+  if(item.groundRing) scene.remove(item.groundRing);
+}
+
+function coreDrainArray(arr){
+  while(arr.length){
+    coreCleanupItem(arr.pop());
+  }
+}
+
+function coreUpdateAmbientDecor(now, dt){
+  if(stars) stars.rotation.y += dt * 0.01;
+  if(skyline) skyline.position.x = Math.sin(now * 0.00006) * 1.6;
+
+  if(arenaDeco?.crystalClusters?.children){
+    arenaDeco.crystalClusters.children.forEach((crystal, i) => {
+      crystal.position.y =
+        crystal.userData.baseY +
+        Math.sin(now * 0.0011 + crystal.userData.floatOffset + i) * 0.08;
+      crystal.rotation.y += dt * 0.35;
+    });
+  }
+
+  if(arenaDeco?.fogWisps?.children){
+    arenaDeco.fogWisps.children.forEach((fog, i) => {
+      fog.position.x =
+        fog.userData.base.x +
+        Math.sin(now * 0.00025 * (i + 1) + fog.userData.phase) * 3.2;
+      fog.position.z =
+        fog.userData.base.z +
+        Math.cos(now * 0.0002 * (i + 1) + fog.userData.phase) * 2.4;
+      fog.position.y =
+        fog.userData.base.y +
+        Math.sin(now * 0.0008 + fog.userData.phase) * 0.22;
+    });
+  }
+
+  if(arenaDeco?.searchlights?.children){
+    arenaDeco.searchlights.children.forEach((item, i) => {
+      if(!item.userData.spot) return;
+      item.rotation.y = Math.sin(now * 0.00045 + item.userData.phase) * 1.2;
+      item.rotation.x = -0.26 + Math.sin(now * 0.00033 + item.userData.phase) * 0.12;
+
+      const spot = item.userData.spot;
+      CORE_TMP_SEARCH_DIR.set(0, -1, -1).applyEuler(item.rotation).normalize();
+      spot.position.copy(item.position);
+      spot.target.position.copy(item.position).add(CORE_TMP_SEARCH_DIR.multiplyScalar(36));
+      spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
+    });
+  }
+
+  if(arenaDeco?.skyBands?.children){
+    arenaDeco.skyBands.children.forEach((band, i) => {
+      band.position.y = band.userData.baseY + Math.sin(now * 0.00035 + band.userData.phase) * 1.6;
+      band.position.x = Math.sin(now * 0.00022 + band.userData.phase) * 12;
+      band.material.opacity = 0.05 + Math.sin(now * 0.0008 + band.userData.phase) * 0.03;
+      band.rotation.z = Math.sin(now * 0.00012 + i) * 0.07;
+    });
+  }
+
+  if(arenaDeco?.floatingShards?.children){
+    arenaDeco.floatingShards.children.forEach((shard, i) => {
+      shard.position.x = shard.userData.base.x + Math.sin(now * 0.0006 + shard.userData.phase + i) * 1.1;
+      shard.position.y = shard.userData.base.y + Math.sin(now * 0.0012 + shard.userData.phase) * 0.48;
+      shard.position.z = shard.userData.base.z + Math.cos(now * 0.00055 + shard.userData.phase) * 1.1;
+      shard.rotation.x += dt * shard.userData.spin;
+      shard.rotation.y += dt * shard.userData.spin * 0.8;
+    });
+  }
+
+  if(arenaDeco?.monoliths?.children){
+    arenaDeco.monoliths.children.forEach((monolith, i) => {
+      monolith.material.emissiveIntensity = 0.08 + Math.sin(now * 0.0011 + i) * 0.05;
+    });
+  }
+
+  if(emberField?.children){
+    emberField.children.forEach((ember, i) => {
+      ember.position.y = ember.userData.baseY + Math.sin(now * 0.001 * ember.userData.speed + i) * 0.18;
+      ember.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
+    });
+  }
+
+  if(neonA){
+    neonA.position.x = Math.sin(now * 0.00045) * 12;
+    neonA.position.z = Math.cos(now * 0.00042) * 10;
+  }
+
+  if(neonB){
+    neonB.position.x = Math.cos(now * 0.0005) * -12;
+    neonB.position.z = Math.sin(now * 0.00047) * 10;
+  }
+
+  if(moonGlow){
+    moonGlow.intensity = 0.7 + Math.sin(now * 0.00035) * 0.1;
+  }
+}
+
+function applyDamage(amount){
+  if(!player.alive) return;
+  if(player.damageCooldown > 0) return;
+
+  player.hp = Math.max(0, player.hp - amount);
+  player.damageCooldown = 0.32;
+  state.cameraShake = Math.min(1.8, state.cameraShake + 0.65);
+
+  if(ui.damageFlash){
+    ui.damageFlash.style.opacity = "1";
+    setTimeout(() => {
+      if(ui.damageFlash) ui.damageFlash.style.opacity = "0";
+    }, 90);
+  }
+
+  sfxDamage?.();
+  setStat?.();
+  coreMarkHudDirty();
+
+  if(player.hp <= 0){
+    player.alive = false;
+    state.running = false;
+    submitScore?.();
+
+    ui.center?.classList.remove("hidden");
+    if(ui.center?.querySelector("h1")) ui.center.querySelector("h1").textContent = "Game over";
+    if(ui.center?.querySelector("p")) ui.center.querySelector("p").textContent = "Je score is opgeslagen in de online leaderboard.";
+    if(ui.startBtn) ui.startBtn.style.display = "none";
+    if(ui.restartBtn) ui.restartBtn.style.display = "";
+
+    if(document.pointerLockElement === renderer.domElement){
+      document.exitPointerLock?.();
+    }
+
+    coreFlushHud(true);
+  }
+}
+
+function killEnemy(enemy){
+  if(!enemy) return;
+
+  spawnRagdoll?.(enemy);
+  scene.remove(enemy.mesh);
+  if(enemy.groundRing) scene.remove(enemy.groundRing);
+
+  createBurst?.(
+    enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.8, 0)),
+    enemy.isBoss
+      ? 0xff6ea1
+      : enemy.type === "elite"
+      ? 0xffa86e
+      : enemy.type === "runner"
+      ? 0x9dff7c
+      : enemy.type === "tank"
+      ? 0xffd166
+      : 0x74a8ff,
+    enemy.isBoss ? 28 : 16,
+    enemy.isBoss ? 8 : 5
+  );
+
+  if(enemy.isBoss){
+    registerKill(150);
+    state.boss = null;
+    ui.bossBarWrap?.classList.remove("show");
+    dropPickup?.(enemy.mesh.position.clone());
+    dropPickup?.(enemy.mesh.position.clone().add(new THREE.Vector3(1, 0, 0)));
+    dropPickup?.(enemy.mesh.position.clone().add(new THREE.Vector3(-1, 0, 0)));
+    sfxBoss?.();
+    queueNextWave(1.1);
+  } else {
+    registerKill(
+      enemy.type === "elite"
+        ? 24
+        : enemy.type === "tank"
+        ? 18
+        : enemy.type === "runner"
+        ? 12
+        : 10
+    );
+    dropPickup?.(enemy.mesh.position.clone());
+    if(state.enemies.length <= 1 && !state.boss) queueNextWave(1.0);
+  }
+
+  state.lastClearStamp = performance.now();
+  sfxEnemyDown?.();
+  coreMarkHudDirty();
+}
+
+function restartGame(){
+  coreDrainArray(state.bullets);
+  coreDrainArray(state.enemyBullets);
+  coreDrainArray(state.particles);
+  coreDrainArray(state.pickups);
+  coreDrainArray(state.rings);
+  coreDrainArray(state.hazards);
+
+  while(state.ragdolls.length){
+    const rag = state.ragdolls.pop();
+    if(rag?.pieces){
+      for(const piece of rag.pieces){
+        if(piece?.mesh) scene.remove(piece.mesh);
+      }
+    }
+  }
+
+  for(const e of state.enemies){
+    if(e?.mesh) scene.remove(e.mesh);
+    if(e?.groundRing) scene.remove(e.groundRing);
+  }
+  state.enemies.length = 0;
+
+  if(state.boss){
+    if(state.boss.mesh) scene.remove(state.boss.mesh);
+    if(state.boss.groundRing) scene.remove(state.boss.groundRing);
+    state.boss = null;
+  }
+
+  resetPlayerPosition();
+
+  player.hp = 100;
+  player.score = 0;
+  player.wave = 1;
+  player.kills = 0;
+  player.fireCooldown = 0;
+  player.damageCooldown = 0;
+  player.alive = true;
+
+  player.ammo.bullet = 64;
+  player.ammo.rocket = 4;
+  player.ammo.grenade = 3;
+  player.abilities.plasma = 3;
+  player.abilities.mine = 2;
+  player.abilities.orbital = 1;
+
+  state.firedAbility = "";
+
+  Object.keys(state.abilityFlashTimers).forEach(key => {
+    if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
+    state.abilityFlashTimers[key] = null;
+  });
+
+  [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital]
+    .forEach(el => el?.classList.remove("active", "fired"));
+
+  state.combo = 1;
+  state.comboTimer = 0;
+  state.comboBest = 1;
+  state.emergencyAmmoTimer = 0;
+  state.ammoHintTimer = 0;
+  state.fireHeld = false;
+  state.nextWaveQueued = false;
+  state.running = true;
+  state.viewKick = 0;
+  state.cameraShake = 0;
+  state.lastClearStamp = performance.now();
+
+  while(state.flashes.length){
+    const flash = state.flashes.pop();
+    if(flash?.light) scene.remove(flash.light);
+  }
+
+  restoreDefaultHint?.();
+  setWeapon?.("bullet");
+
+  state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
+  state.songStep = -1;
+
+  lookYaw = 0;
+  lookPitch = 0;
+  input.lookX = 0;
+  input.lookY = 0;
+  applyCameraLook?.();
+
+  ui.center?.classList.add("hidden");
+  if(ui.startBtn) ui.startBtn.style.display = "";
+  if(ui.restartBtn) ui.restartBtn.style.display = "none";
+  ui.bossBarWrap?.classList.remove("show");
+
+  setStat?.();
+  coreMarkHudDirty();
+  coreFlushHud(true);
+  spawnWave?.();
+}
+
+function tryAdvanceWave(){
+  if(state.enemies.length === 0 && !state.boss){
+    if(performance.now() - state.lastClearStamp > 850){
+      queueNextWave(0.85);
+    }
+  } else {
+    state.lastClearStamp = performance.now();
+  }
+}
+
+function animate(now){
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(0.033, (now - state.lastTime) / 1000 || 0.016);
+  state.lastTime = now;
+
+  if(now - CORE_LOOP.lastDecorAt >= CORE_LOOP.decorEveryMs){
+    const decorDt = Math.min(0.05, (now - CORE_LOOP.lastDecorAt) / 1000 || dt);
+    CORE_LOOP.lastDecorAt = now;
+    coreUpdateAmbientDecor(now, decorDt);
+  }
+
+  if(state.running){
+    updateMusic?.();
+    updateTimers?.(dt);
+    updateMovement?.(dt);
+    updateBullets?.(dt);
+    updateEnemies?.(dt);
+    updateHazards?.(dt);
+    updateParticles?.(dt);
+    updateEffects?.(dt);
+    updateRagdolls?.(dt);
+    updatePickups?.(dt);
+    tryAdvanceWave();
+
+    if(state.fireHeld && !isTouch && player.weapon === "bullet"){
+      shootWithDirection?.();
+    }
+  } else {
+    updateViewWeapon?.(dt);
+    updateEffects?.(dt);
+    updateParticles?.(dt);
+    updateRagdolls?.(dt);
+  }
+
+  if(now - CORE_LOOP.lastMinimapAt >= CORE_LOOP.minimapEveryMs){
+    CORE_LOOP.lastMinimapAt = now;
+    drawMinimap?.();
+  }
+
+  coreFlushHud();
+  renderer.render(scene, camera);
+}
+
+function startGame(){
+  ensureAudio?.();
+
+  if(audioCtx && state.songClock < audioCtx.currentTime){
+    state.songClock = audioCtx.currentTime + 0.05;
+    state.songStep = -1;
+  }
+
+  if(collidesAt(player.pos.x, player.pos.z, player.radius)){
+    resetPlayerPosition();
+  }
+
+  state.running = true;
+  player.alive = true;
+  ui.center?.classList.add("hidden");
+
+  if(!state.enemies.length && !state.boss){
+    spawnWave?.();
+  }
+
+  if(!isTouch){
+    renderer.domElement.requestPointerLock?.();
+  }
+
+  coreMarkHudDirty();
+  coreFlushHud(true);
+}
+
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
 
