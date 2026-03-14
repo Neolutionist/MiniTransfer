@@ -12600,6 +12600,640 @@ onHit(enemy, damage){
 })();
 
 
+/* =========================
+   OLDE HANTER FINAL V3 META LOOP / CONTRACTS / LOADOUTS
+   plak dit direct boven: animate(performance.now());
+   ========================= */
+(() => {
+  const FINAL_META_KEY = "oldehanter_final_v3_meta";
+  const meta = {
+    profile: loadMetaProfile(),
+    runtime: {
+      currentSector: "Core Nexus",
+      objective: null,
+      currentBossRef: null,
+      lastWaveSeen: 0,
+      minibossWave: 0,
+      minibossAlive: false,
+      runWeaponKills: { bullet:0, rocket:0, grenade:0 },
+      runDamageAmp: 1,
+      cinematicTimer: 0,
+      loadoutApplied: false
+    }
+  };
+
+  function loadMetaProfile(){
+    try{
+      const saved = JSON.parse(localStorage.getItem(FINAL_META_KEY) || "null") || {};
+      return {
+        cores: saved.cores || 0,
+        schematics: saved.schematics || 0,
+        bestWave: saved.bestWave || 1,
+        weaponXP: Object.assign({ bullet:0, rocket:0, grenade:0 }, saved.weaponXP || {}),
+        weaponLevel: Object.assign({ bullet:1, rocket:1, grenade:1 }, saved.weaponLevel || {}),
+        completedContracts: saved.completedContracts || 0,
+        completedObjectives: saved.completedObjectives || 0,
+        bossContracts: saved.bossContracts || 0,
+        totalMinibossKills: saved.totalMinibossKills || 0,
+        activeLoadout: saved.activeLoadout || "vanguard",
+        loadouts: Object.assign({
+          vanguard: {
+            label: "Vanguard",
+            startWeapon: "bullet",
+            bonusHp: 14,
+            speed: 0.15,
+            ammo: { bullet: 18, rocket: 0, grenade: 0 },
+            abilities: { plasma: 1, mine: 0, orbital: 0 },
+            perk: "Stabiele opener met extra HP en rifle momentum"
+          },
+          demolisher: {
+            label: "Demolisher",
+            startWeapon: "rocket",
+            bonusHp: 6,
+            speed: -0.1,
+            ammo: { bullet: 0, rocket: 2, grenade: 1 },
+            abilities: { plasma: 0, mine: 1, orbital: 0 },
+            perk: "Explosieve start met rocket pressure en area denial"
+          },
+          tactician: {
+            label: "Tactician",
+            startWeapon: "grenade",
+            bonusHp: 8,
+            speed: 0.08,
+            ammo: { bullet: 8, rocket: 1, grenade: 2 },
+            abilities: { plasma: 0, mine: 1, orbital: 1 },
+            perk: "Utility-heavy run met crowd control en orbital follow-up"
+          }
+        }, saved.loadouts || {})
+      };
+    }catch(err){
+      return {
+        cores: 0,
+        schematics: 0,
+        bestWave: 1,
+        weaponXP: { bullet:0, rocket:0, grenade:0 },
+        weaponLevel: { bullet:1, rocket:1, grenade:1 },
+        completedContracts: 0,
+        completedObjectives: 0,
+        bossContracts: 0,
+        totalMinibossKills: 0,
+        activeLoadout: "vanguard",
+        loadouts: {
+          vanguard: { label:"Vanguard", startWeapon:"bullet", bonusHp:14, speed:0.15, ammo:{ bullet:18, rocket:0, grenade:0 }, abilities:{ plasma:1, mine:0, orbital:0 }, perk:"Stabiele opener met extra HP en rifle momentum" },
+          demolisher: { label:"Demolisher", startWeapon:"rocket", bonusHp:6, speed:-0.1, ammo:{ bullet:0, rocket:2, grenade:1 }, abilities:{ plasma:0, mine:1, orbital:0 }, perk:"Explosieve start met rocket pressure en area denial" },
+          tactician: { label:"Tactician", startWeapon:"grenade", bonusHp:8, speed:0.08, ammo:{ bullet:8, rocket:1, grenade:2 }, abilities:{ plasma:0, mine:1, orbital:1 }, perk:"Utility-heavy run met crowd control en orbital follow-up" }
+        }
+      };
+    }
+  }
+
+  function saveMetaProfile(){
+    try{ localStorage.setItem(FINAL_META_KEY, JSON.stringify(meta.profile)); }catch(err){}
+  }
+
+  function xpNeeded(level){ return 70 + (level - 1) * 55; }
+  function weaponLabelShort(w){ return w === "bullet" ? "Rifle" : w === "rocket" ? "Rocket" : "Grenade"; }
+  function currentLoadout(){ return meta.profile.loadouts[meta.profile.activeLoadout] || meta.profile.loadouts.vanguard; }
+  function weaponTreeBonus(weapon){
+    const lvl = meta.profile.weaponLevel[weapon] || 1;
+    return {
+      damage: 1 + Math.max(0, lvl - 1) * 0.06,
+      radius: 1 + Math.max(0, lvl - 1) * 0.05,
+      speed: 1 + Math.max(0, lvl - 1) * 0.025,
+      heat: 1 - Math.max(0, lvl - 1) * 0.03
+    };
+  }
+
+  function awardWeaponXP(weapon, amount){
+    if(!(weapon in meta.profile.weaponXP)) return;
+    meta.profile.weaponXP[weapon] += amount;
+    let leveled = false;
+    while(meta.profile.weaponXP[weapon] >= xpNeeded(meta.profile.weaponLevel[weapon])){
+      meta.profile.weaponXP[weapon] -= xpNeeded(meta.profile.weaponLevel[weapon]);
+      meta.profile.weaponLevel[weapon] += 1;
+      leveled = true;
+      flashHint?.(`${weaponLabelShort(weapon)} tree level ${meta.profile.weaponLevel[weapon]}`, 1200);
+      showFloating?.(`${weaponLabelShort(weapon).toUpperCase()} UPGRADE`);
+      createShockwave?.(player.pos.clone(), weapon === "bullet" ? 0x8bf0ff : weapon === "rocket" ? 0xffb36c : 0xc9ff9d, 3.8);
+    }
+    if(leveled) saveMetaProfile();
+    renderMetaPanel();
+  }
+
+  function buildMetaStyles(){
+    if(document.getElementById("ohFinalMetaStyles")) return;
+    const style = document.createElement("style");
+    style.id = "ohFinalMetaStyles";
+    style.textContent = `
+      #metaHud{
+        position:fixed; left:14px; bottom:14px; z-index:26; pointer-events:none;
+        background:linear-gradient(180deg, rgba(10,16,30,.88), rgba(10,12,22,.76));
+        border:1px solid rgba(133,211,255,.16); border-radius:18px; box-shadow:0 18px 36px rgba(0,0,0,.26);
+        padding:12px 14px; min-width:260px; backdrop-filter:blur(10px);
+      }
+      #metaHud .row{display:flex; justify-content:space-between; gap:12px; margin:4px 0; font-size:12px;}
+      #metaHud .title{font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:#dff6ff; margin-bottom:6px;}
+      #metaHud .soft{color:rgba(230,240,255,.72);}
+      #metaHud .accent{color:#8cecff; font-weight:700;}
+      #metaPanelWrap{
+        position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
+        background:rgba(2,4,10,.56); backdrop-filter:blur(8px);
+      }
+      #metaPanel{
+        width:min(980px, calc(100vw - 28px)); max-height:min(86vh, 860px); overflow:auto;
+        border-radius:24px; border:1px solid rgba(145,214,255,.14);
+        background:linear-gradient(180deg, rgba(11,18,36,.97), rgba(8,12,24,.97));
+        box-shadow:0 30px 70px rgba(0,0,0,.42); padding:22px;
+      }
+      #metaPanel h2{margin:0 0 6px; font-size:24px;}
+      #metaPanel .sub{color:rgba(227,242,255,.72); margin-bottom:16px;}
+      #metaPanel .grid{display:grid; grid-template-columns:1.2fr 1fr; gap:16px;}
+      #metaPanel .stack{display:grid; gap:14px;}
+      #metaPanel .card{border-radius:18px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04); padding:14px;}
+      #metaPanel .card h3{margin:0 0 10px; font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:#e6f6ff;}
+      #metaPanel .pill{display:inline-flex; align-items:center; gap:8px; border-radius:999px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.05); padding:8px 12px; font-size:12px; margin:4px 6px 0 0;}
+      #metaPanel .loadouts, #metaPanel .weapons{display:grid; gap:10px;}
+      #metaPanel .loadout, #metaPanel .weapon{border-radius:16px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); padding:12px;}
+      #metaPanel .loadout.active, #metaPanel .weapon.active{border-color:rgba(113,230,255,.42); box-shadow:0 0 0 1px rgba(113,230,255,.18) inset;}
+      #metaPanel .topline{display:flex; justify-content:space-between; gap:12px; align-items:flex-start;}
+      #metaPanel .name{font-weight:800; font-size:15px;}
+      #metaPanel .muted{color:rgba(226,240,255,.74); font-size:12px; line-height:1.45;}
+      #metaPanel button{border:0; cursor:pointer; border-radius:12px; padding:10px 12px; font-weight:700; color:#05101a; background:linear-gradient(180deg, #9fe8ff, #61d0ff);}
+      #metaPanel button.alt{background:rgba(255,255,255,.08); color:#e8f9ff; border:1px solid rgba(255,255,255,.08);}
+      #metaPanel .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;}
+      #metaPanel .bar{height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; margin-top:8px;}
+      #metaPanel .bar > i{display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg, #7fd8ff, #96ffd4);}
+      #bossCinematic{
+        position:fixed; inset:0; z-index:28; pointer-events:none; display:none; align-items:center; justify-content:center;
+        background:radial-gradient(circle at center, rgba(255,255,255,.04), rgba(2,4,10,.72));
+      }
+      #bossCinematic .plate{padding:18px 26px; border-radius:20px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(180deg, rgba(8,14,28,.88), rgba(8,12,22,.78)); text-align:center; box-shadow:0 16px 40px rgba(0,0,0,.35);}
+      #bossCinematic .eyebrow{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:#8cecff;}
+      #bossCinematic .name{font-size:28px; font-weight:900; letter-spacing:.05em; margin-top:6px;}
+      #bossCinematic .desc{font-size:13px; color:rgba(235,242,255,.76); margin-top:6px;}
+      @media (max-width: 980px){ #metaPanel .grid{grid-template-columns:1fr;} #metaHud{right:14px; min-width:0;} }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildMetaHud(){
+    if(document.getElementById("metaHud")) return;
+    buildMetaStyles();
+    const hud = document.createElement("div");
+    hud.id = "metaHud";
+    hud.innerHTML = `
+      <div class="title">Meta Loop / Final Build</div>
+      <div class="row"><span class="soft">Loadout</span><span id="metaHudLoadout" class="accent">Vanguard</span></div>
+      <div class="row"><span class="soft">Sector objective</span><span id="metaHudObjective">Scanning…</span></div>
+      <div class="row"><span class="soft">Contracts</span><span id="metaHudContract">None</span></div>
+      <div class="row"><span class="soft">Cores / Schematics</span><span id="metaHudRes">0 / 0</span></div>
+      <div class="row"><span class="soft">Best wave</span><span id="metaHudBest">1</span></div>
+      <div class="row"><span class="soft">Panel</span><span>Press <b>K</b></span></div>
+    `;
+    document.body.appendChild(hud);
+
+    const wrap = document.createElement("div");
+    wrap.id = "metaPanelWrap";
+    wrap.innerHTML = `<div id="metaPanel"></div>`;
+    document.body.appendChild(wrap);
+    wrap.addEventListener("click", (e) => {
+      if(e.target === wrap) toggleMetaPanel(false);
+    });
+
+    const cine = document.createElement("div");
+    cine.id = "bossCinematic";
+    cine.innerHTML = `<div class="plate"><div class="eyebrow">Boss Contract</div><div class="name">SIGNAL LOCK</div><div class="desc">Priority target op de arena radar.</div></div>`;
+    document.body.appendChild(cine);
+  }
+
+  function metaHudEls(){
+    return {
+      loadout: document.getElementById("metaHudLoadout"),
+      objective: document.getElementById("metaHudObjective"),
+      contract: document.getElementById("metaHudContract"),
+      res: document.getElementById("metaHudRes"),
+      best: document.getElementById("metaHudBest")
+    };
+  }
+
+  function renderMetaHud(){
+    const els = metaHudEls();
+    const loadout = currentLoadout();
+    const objective = meta.runtime.objective;
+    els.loadout.textContent = loadout.label;
+    els.objective.textContent = objective ? `${objective.label} ${objective.progress}/${objective.target}` : "Awaiting directive";
+    els.contract.textContent = meta.runtime.minibossAlive ? `Active · ${meta.runtime.minibossWave}` : "Idle";
+    els.res.textContent = `${meta.profile.cores} / ${meta.profile.schematics}`;
+    els.best.textContent = `${meta.profile.bestWave}`;
+  }
+
+  function renderMetaPanel(){
+    const panel = document.getElementById("metaPanel");
+    if(!panel) return;
+    const loadouts = meta.profile.loadouts;
+    const activeId = meta.profile.activeLoadout;
+    const objective = meta.runtime.objective;
+    panel.innerHTML = `
+      <h2>Final Version Command Deck</h2>
+      <div class="sub">Permanente progression, saveable loadouts, sector objectives en miniboss contracts.</div>
+      <div class="grid">
+        <div class="stack">
+          <div class="card">
+            <h3>Run resources</h3>
+            <span class="pill">Cores <b>${meta.profile.cores}</b></span>
+            <span class="pill">Schematics <b>${meta.profile.schematics}</b></span>
+            <span class="pill">Best wave <b>${meta.profile.bestWave}</b></span>
+            <span class="pill">Objectives <b>${meta.profile.completedObjectives}</b></span>
+            <span class="pill">Contracts <b>${meta.profile.completedContracts}</b></span>
+            <span class="pill">Boss contracts <b>${meta.profile.bossContracts}</b></span>
+            <span class="pill">Miniboss kills <b>${meta.profile.totalMinibossKills}</b></span>
+          </div>
+          <div class="card">
+            <h3>Loadouts</h3>
+            <div class="loadouts">
+              ${Object.entries(loadouts).map(([id, cfg]) => `
+                <div class="loadout ${id === activeId ? "active" : ""}" data-loadout="${id}">
+                  <div class="topline"><div class="name">${cfg.label}</div><div class="muted">Start: ${weaponLabelShort(cfg.startWeapon)}</div></div>
+                  <div class="muted">${cfg.perk}</div>
+                  <div class="muted">HP +${cfg.bonusHp} · Speed ${cfg.speed >= 0 ? "+" : ""}${cfg.speed.toFixed(2)} · Ammo ${cfg.ammo.bullet||0}/${cfg.ammo.rocket||0}/${cfg.ammo.grenade||0}</div>
+                  <div class="btns"><button data-set-loadout="${id}">${id === activeId ? "Actief" : "Maak actief"}</button></div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+          <div class="card">
+            <h3>Live directive</h3>
+            <div class="muted">Sector: ${meta.runtime.currentSector}</div>
+            <div class="muted">Objective: ${objective ? `${objective.label} (${objective.progress}/${objective.target})` : "Nog geen objective actief"}</div>
+            <div class="muted">Contract: ${meta.runtime.minibossAlive ? `Actief op wave ${meta.runtime.minibossWave}` : "Geen actieve miniboss contract"}</div>
+            <div class="btns"><button class="alt" data-close-meta="1">Sluiten</button></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h3>Weapon trees</h3>
+            <div class="weapons">
+              ${["bullet","rocket","grenade"].map(w => {
+                const lvl = meta.profile.weaponLevel[w] || 1;
+                const xp = meta.profile.weaponXP[w] || 0;
+                const need = xpNeeded(lvl);
+                const pct = Math.max(0, Math.min(100, (xp / need) * 100));
+                const bonus = weaponTreeBonus(w);
+                return `
+                  <div class="weapon ${player.weapon === w ? "active" : ""}">
+                    <div class="topline"><div class="name">${weaponLabelShort(w)}</div><div class="muted">Level ${lvl}</div></div>
+                    <div class="muted">DMG x${bonus.damage.toFixed(2)} · Radius x${bonus.radius.toFixed(2)} · Velocity x${bonus.speed.toFixed(2)} · Heat x${bonus.heat.toFixed(2)}</div>
+                    <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+                    <div class="muted">${xp}/${need} XP to next level</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+          <div class="card">
+            <h3>Quick controls</h3>
+            <div class="muted">K = open/close panel · J = cycle loadout · 7/8/9 = direct loadout select.</div>
+            <div class="muted">Objectives belonen cores en schematics. Boss contracts geven bonus progression en extra ammo.</div>
+            <div class="muted">Weapon trees stijgen automatisch door kills en damage-events binnen een run.</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    panel.querySelectorAll("[data-set-loadout]").forEach(btn => btn.addEventListener("click", () => {
+      meta.profile.activeLoadout = btn.getAttribute("data-set-loadout");
+      saveMetaProfile();
+      renderMetaHud();
+      renderMetaPanel();
+      flashHint?.(`Loadout active: ${currentLoadout().label}`, 1100);
+    }));
+    panel.querySelectorAll("[data-close-meta]").forEach(btn => btn.addEventListener("click", () => toggleMetaPanel(false)));
+  }
+
+  function toggleMetaPanel(force){
+    const wrap = document.getElementById("metaPanelWrap");
+    if(!wrap) return;
+    const next = typeof force === "boolean" ? force : wrap.style.display !== "flex";
+    wrap.style.display = next ? "flex" : "none";
+    if(next) renderMetaPanel();
+  }
+
+  function cycleLoadout(step=1){
+    const ids = Object.keys(meta.profile.loadouts);
+    const current = ids.indexOf(meta.profile.activeLoadout);
+    const next = ids[(current + step + ids.length) % ids.length];
+    meta.profile.activeLoadout = next;
+    saveMetaProfile();
+    renderMetaHud();
+    renderMetaPanel();
+    flashHint?.(`Loadout: ${meta.profile.loadouts[next].label}`, 900);
+  }
+
+  function applyLoadoutToCurrentRun(){
+    const loadout = currentLoadout();
+    if(!loadout || meta.runtime.loadoutApplied) return;
+    meta.runtime.loadoutApplied = true;
+    player.maxHp += loadout.bonusHp;
+    player.hp = Math.min(player.maxHp, player.hp + loadout.bonusHp);
+    player.speed += loadout.speed;
+    player.ammo.bullet += loadout.ammo.bullet || 0;
+    player.ammo.rocket += loadout.ammo.rocket || 0;
+    player.ammo.grenade += loadout.ammo.grenade || 0;
+    player.abilities.plasma += loadout.abilities.plasma || 0;
+    player.abilities.mine += loadout.abilities.mine || 0;
+    player.abilities.orbital += loadout.abilities.orbital || 0;
+    setWeapon?.(loadout.startWeapon);
+    setStat?.();
+    updateHud?.();
+    renderMetaHud();
+  }
+
+  function resetMetaRuntime(){
+    meta.runtime.currentSector = "Core Nexus";
+    meta.runtime.objective = null;
+    meta.runtime.currentBossRef = null;
+    meta.runtime.lastWaveSeen = 0;
+    meta.runtime.minibossWave = 0;
+    meta.runtime.minibossAlive = false;
+    meta.runtime.runWeaponKills = { bullet:0, rocket:0, grenade:0 };
+    meta.runtime.runDamageAmp = 1;
+    meta.runtime.cinematicTimer = 0;
+    meta.runtime.loadoutApplied = false;
+  }
+
+  function chooseObjectiveForSector(sector){
+    const waveScale = Math.max(0, Math.floor(player.wave / 2));
+    const templates = [
+      { type:"kills", label:`Purge ${sector}`, target: 4 + waveScale },
+      { type:"weapon", label:`Rifle drill · ${sector}`, weapon:"bullet", target: 3 + waveScale },
+      { type:"weapon", label:`Siege break · ${sector}`, weapon:"rocket", target: 2 + Math.floor(waveScale * 0.6) },
+      { type:"weapon", label:`Arc denial · ${sector}`, weapon:"grenade", target: 2 + Math.floor(waveScale * 0.6) }
+    ];
+    const pool = templates.filter(t => t.type !== "weapon" || t.weapon !== player.weapon || Math.random() < 0.7);
+    const pick = pool[Math.floor(Math.random() * pool.length)] || templates[0];
+    return Object.assign({ sector, progress:0, rewardCores: 1 + Math.floor(player.wave / 4), rewardSchematics: sector === "Core Nexus" ? 0 : 1 }, pick);
+  }
+
+  function updateObjective(forceNew=false){
+    const sec = typeof sectorName === "function" ? sectorName() : "Core Nexus";
+    meta.runtime.currentSector = sec;
+    if(forceNew || !meta.runtime.objective || meta.runtime.objective.sector !== sec || meta.runtime.objective.completed){
+      meta.runtime.objective = chooseObjectiveForSector(sec);
+      flashHint?.(`Objective: ${meta.runtime.objective.label}`, 1300);
+    }
+    renderMetaHud();
+  }
+
+  function completeObjective(){
+    const obj = meta.runtime.objective;
+    if(!obj || obj.completed) return;
+    obj.completed = true;
+    meta.profile.cores += obj.rewardCores;
+    meta.profile.schematics += obj.rewardSchematics;
+    meta.profile.completedObjectives += 1;
+    player.ammo.bullet += 8;
+    if(player.wave >= 4) player.ammo.rocket += 1;
+    if(player.wave >= 6) player.abilities.mine += 1;
+    createShockwave?.(player.pos.clone(), 0x96ffd4, 4.4);
+    createFlash?.(player.pos.clone().add(new THREE.Vector3(0,1.4,0)), 0x96ffd4, 2.8, 10, 0.12);
+    showFloating?.(`OBJECTIVE COMPLETE +${obj.rewardCores} CORE`);
+    saveMetaProfile();
+    setStat?.();
+    renderMetaHud();
+    renderMetaPanel();
+    setTimeout(() => updateObjective(true), 250);
+  }
+
+  function progressObjective(kind, weapon, amount=1){
+    const obj = meta.runtime.objective;
+    if(!obj || obj.completed) return;
+    if(obj.type === "kills" && kind === "kill"){
+      obj.progress += amount;
+    } else if(obj.type === "weapon" && kind === "weapon" && obj.weapon === weapon){
+      obj.progress += amount;
+    }
+    if(obj.progress >= obj.target) completeObjective();
+    renderMetaHud();
+  }
+
+  function makeMiniboss(enemy){
+    if(!enemy || enemy.isBoss || enemy.ohContractMiniBoss) return enemy;
+    enemy.ohContractMiniBoss = true;
+    enemy.maxHp *= 2.6;
+    enemy.hp = enemy.maxHp;
+    enemy.radius *= 1.18;
+    enemy.speed *= 1.08;
+    enemy.damageMul = (enemy.damageMul || 1) * 1.4;
+    enemy.fireRateMul = Math.max(0.55, (enemy.fireRateMul || 1) * 0.74);
+    enemy.contractBurstCd = 2.8;
+    enemy.contractMortarCd = 4.6;
+    enemy.contractLabel = `Contract ${player.wave}`;
+    tintMesh?.(enemy.mesh, 0x96ffd4);
+    if(enemy.groundRing?.material) enemy.groundRing.material.color.setHex(0x96ffd4);
+    const label = document.getElementById("bossBarLabel");
+    if(label && !state.boss) label.textContent = `${enemy.contractLabel}`;
+    createShockwave?.(enemy.mesh.position.clone(), 0x96ffd4, 4.6);
+    showFloating?.("MINIBOSS CONTRACT");
+    return enemy;
+  }
+
+  function spawnWaveContract(){
+    if(meta.runtime.minibossAlive || state.boss || !state.running || player.wave < 4) return;
+    if(player.wave % 4 !== 0) return;
+    const enemy = spawnEnemy?.(false);
+    if(!enemy) return;
+    makeMiniboss(enemy);
+    meta.runtime.minibossAlive = true;
+    meta.runtime.minibossWave = player.wave;
+    renderMetaHud();
+  }
+
+  function showBossCinematic(title, desc){
+    const cine = document.getElementById("bossCinematic");
+    if(!cine) return;
+    const name = cine.querySelector(".name");
+    const d = cine.querySelector(".desc");
+    if(name) name.textContent = title;
+    if(d) d.textContent = desc;
+    cine.style.display = "flex";
+    meta.runtime.cinematicTimer = 1.4;
+    player.damageCooldown = Math.max(player.damageCooldown || 0, 1.2);
+    state.cameraShake = Math.min(2.3, (state.cameraShake || 0) + 0.8);
+  }
+
+  function updateBossCinematic(dt){
+    const cine = document.getElementById("bossCinematic");
+    if(!cine) return;
+    if(meta.runtime.cinematicTimer > 0){
+      meta.runtime.cinematicTimer -= dt;
+      cine.style.opacity = Math.min(1, meta.runtime.cinematicTimer > 0.3 ? 1 : meta.runtime.cinematicTimer / 0.3);
+      if(meta.runtime.cinematicTimer <= 0){
+        cine.style.display = "none";
+      }
+    }
+  }
+
+  const _startGameFinal = startGame;
+  startGame = function(){
+    resetMetaRuntime();
+    const res = _startGameFinal();
+    applyLoadoutToCurrentRun();
+    updateObjective(true);
+    renderMetaHud();
+    renderMetaPanel();
+    return res;
+  };
+
+  const _restartGameFinal = restartGame;
+  restartGame = function(){
+    const res = _restartGameFinal();
+    resetMetaRuntime();
+    applyLoadoutToCurrentRun();
+    updateObjective(true);
+    renderMetaHud();
+    renderMetaPanel();
+    return res;
+  };
+
+  const _updateTimersFinal = updateTimers;
+  updateTimers = function(dt){
+    _updateTimersFinal(dt);
+    if(player.wave > meta.profile.bestWave){
+      meta.profile.bestWave = player.wave;
+      saveMetaProfile();
+    }
+    if(player.wave !== meta.runtime.lastWaveSeen){
+      meta.runtime.lastWaveSeen = player.wave;
+      updateObjective(true);
+      if(player.wave >= 4){
+        setTimeout(() => {
+          if(state.running && player.alive && player.wave === meta.runtime.lastWaveSeen) spawnWaveContract();
+        }, 900);
+      }
+    } else {
+      const sec = typeof sectorName === "function" ? sectorName() : "Core Nexus";
+      if(sec !== meta.runtime.currentSector) updateObjective(true);
+    }
+    updateBossCinematic(dt);
+    renderMetaHud();
+  };
+
+  const _shootWithDirectionFinal = shootWithDirection;
+  shootWithDirection = function(dirOverride=null){
+    const weaponBefore = player.weapon;
+    const before = state.bullets.length;
+    const ok = _shootWithDirectionFinal(dirOverride);
+    if(ok){
+      const bonus = weaponTreeBonus(weaponBefore);
+      for(let i=before; i<state.bullets.length; i++){
+        const b = state.bullets[i];
+        if(!b) continue;
+        if(b.v2Friendly !== false){
+          b.damage *= bonus.damage;
+          if(b.radius) b.radius *= bonus.radius;
+          if(b.vel?.multiplyScalar) b.vel.multiplyScalar(bonus.speed);
+          b.ohFinalWeapon = weaponBefore;
+        }
+      }
+    }
+    return ok;
+  };
+
+  const _updateHazardsFinal = updateHazards;
+  updateHazards = function(dt){
+    _updateHazardsFinal(dt);
+    for(const enemy of state.enemies){
+      if(enemy?.ohContractMiniBoss){
+        enemy.contractBurstCd -= dt;
+        enemy.contractMortarCd -= dt;
+        if(enemy.contractBurstCd <= 0){
+          enemy.contractBurstCd = 2.1;
+          createShockwave?.(enemy.mesh.position.clone(), 0x96ffd4, 3.3);
+          for(let i=0;i<3;i++){
+            setTimeout(() => {
+              if(state.running && enemy.hp > 0) enemyShoot?.(enemy);
+            }, i * 80);
+          }
+        }
+        if(enemy.contractMortarCd <= 0){
+          enemy.contractMortarCd = 4.2;
+          spawnBossMortarField?.(player.pos.clone(), 1, 3.0, 0x96ffd4);
+        }
+      }
+    }
+  };
+
+  const _killEnemyFinal = killEnemy;
+  killEnemy = function(enemy){
+    const weaponUsed = player.weapon;
+    if(enemy){
+      progressObjective("kill", weaponUsed, 1);
+      progressObjective("weapon", weaponUsed, 1);
+      awardWeaponXP(weaponUsed, enemy.isBoss ? 24 : enemy.ohContractMiniBoss ? 18 : enemy.type === "elite" ? 12 : 8);
+      meta.runtime.runWeaponKills[weaponUsed] = (meta.runtime.runWeaponKills[weaponUsed] || 0) + 1;
+    }
+    if(enemy?.ohContractMiniBoss){
+      meta.runtime.minibossAlive = false;
+      meta.profile.completedContracts += 1;
+      meta.profile.totalMinibossKills += 1;
+      meta.profile.cores += 3;
+      meta.profile.schematics += 2;
+      player.ammo.rocket += 2;
+      player.ammo.grenade += 1;
+      player.abilities.orbital += 1;
+      saveMetaProfile();
+      flashHint?.("Contract cleared · bonus rewards issued", 1300);
+      showFloating?.("CONTRACT CLEARED");
+      renderMetaHud();
+      renderMetaPanel();
+    }
+    if(enemy?.isBoss){
+      meta.profile.bossContracts += 1;
+      meta.profile.cores += 2;
+      meta.profile.schematics += 2;
+      saveMetaProfile();
+    }
+    return _killEnemyFinal(enemy);
+  };
+
+  const _spawnEnemyFinal = spawnEnemy;
+  spawnEnemy = function(isBoss=false){
+    const enemy = _spawnEnemyFinal(isBoss);
+    if(isBoss && enemy){
+      meta.runtime.currentBossRef = enemy;
+      const title = enemy.bossLabel || "Priority Target";
+      const desc = enemy.v2BossProfile?.desc || enemy.profile?.directive || "Sector elimination protocol active.";
+      showBossCinematic(title, desc);
+    }
+    return enemy;
+  };
+
+  const _applyDamageFinal = applyDamage;
+  applyDamage = function(amount){
+    const reduced = amount * (currentLoadout().label === "Vanguard" ? 0.96 : 1);
+    return _applyDamageFinal(reduced);
+  };
+
+  window.addEventListener("keydown", (e) => {
+    if(e.code === "KeyK" && !e.repeat){
+      e.preventDefault();
+      toggleMetaPanel();
+    }
+    if(e.code === "KeyJ" && !e.repeat){
+      e.preventDefault();
+      cycleLoadout(1);
+    }
+    if(e.code === "Digit7" && !e.repeat){ meta.profile.activeLoadout = "vanguard"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+    if(e.code === "Digit8" && !e.repeat){ meta.profile.activeLoadout = "demolisher"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+    if(e.code === "Digit9" && !e.repeat){ meta.profile.activeLoadout = "tactician"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+  }, { passive:false });
+
+  buildMetaHud();
+  renderMetaHud();
+  renderMetaPanel();
+})();
+
+
   animate(performance.now());
 })();
 
