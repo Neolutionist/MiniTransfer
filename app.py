@@ -11832,6 +11832,774 @@ onHit(enemy, damage){
 })();
 
 
+/* ===========================
+   OH V2 COMBAT POLISH PACK
+   toegevoegd voor reloads / heat / unlocks / boss archetypes
+   =========================== */
+(() => {
+  const V2_KEY = "oldehanter_combat_polish_v2";
+  const combat = {
+    profile: loadCombatProfile(),
+    shotsInMag: { bullet:0, rocket:0, grenade:0 },
+    totalShots: { bullet:0, rocket:0, grenade:0 },
+    heat: 0,
+    overheat: false,
+    overheatLock: 0,
+    reload: null,
+    arcCounter: 0,
+    runBossKills: 0,
+    hud: {}
+  };
+
+  function loadCombatProfile(){
+    try{
+      const raw = JSON.parse(localStorage.getItem(V2_KEY) || "null") || {};
+      return {
+        totalBossKills: raw.totalBossKills || 0,
+        bestWave: raw.bestWave || 1,
+        bestScore: raw.bestScore || 0,
+        totalRuns: raw.totalRuns || 0,
+        unlocks: {
+          ventedBarrel: !!raw.unlocks?.ventedBarrel,
+          expandedMags: !!raw.unlocks?.expandedMags,
+          fieldLoader: !!raw.unlocks?.fieldLoader
+        }
+      };
+    }catch{
+      return {
+        totalBossKills: 0,
+        bestWave: 1,
+        bestScore: 0,
+        totalRuns: 0,
+        unlocks: { ventedBarrel:false, expandedMags:false, fieldLoader:false }
+      };
+    }
+  }
+
+  function saveCombatProfile(){
+    try{ localStorage.setItem(V2_KEY, JSON.stringify(combat.profile)); }catch{}
+  }
+
+  function cClamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function cFmt(n){ return Math.round(n || 0).toLocaleString("nl-NL"); }
+  function weaponText(w){ return w === "bullet" ? "Bullet" : w === "rocket" ? "Rocket" : "Grenade"; }
+  function magBase(w){ return w === "bullet" ? 18 : 1; }
+  function getMagSize(w){
+    const bonus = combat.profile.unlocks.expandedMags ? (w === "bullet" ? 6 : 1) : 0;
+    return magBase(w) + bonus;
+  }
+  function getReloadTime(w){
+    const base = w === "bullet" ? 1.12 : w === "rocket" ? 1.52 : 1.42;
+    return Math.max(0.55, base - (combat.profile.unlocks.fieldLoader ? 0.18 : 0));
+  }
+
+  function finalizeCombatRun(){
+    combat.profile.bestWave = Math.max(combat.profile.bestWave || 1, player.wave || 1);
+    combat.profile.bestScore = Math.max(combat.profile.bestScore || 0, Math.floor(player.score || 0));
+    refreshUnlocks();
+    saveCombatProfile();
+    refreshCombatHud();
+  }
+
+  function refreshUnlocks(){
+    const u = combat.profile.unlocks;
+    let changed = false;
+    if(!u.ventedBarrel && combat.profile.totalBossKills >= 2){ u.ventedBarrel = true; changed = true; }
+    if(!u.expandedMags && combat.profile.totalBossKills >= 4){ u.expandedMags = true; changed = true; }
+    if(!u.fieldLoader && combat.profile.bestWave >= 8){ u.fieldLoader = true; changed = true; }
+    if(changed){
+      showFloating?.("ARSENAL UPGRADE ONLINE");
+      flashHint?.("Nieuwe combat unlock vrijgespeeld", 1800);
+    }
+  }
+
+  function addCombatStyles(){
+    if(document.getElementById("ohCombatPolishStyles")) return;
+    const style = document.createElement("style");
+    style.id = "ohCombatPolishStyles";
+    style.textContent = `
+      #combatPolishHud{
+        position:fixed;
+        left:16px;
+        top:16px;
+        z-index:28;
+        width:min(360px, calc(100vw - 32px));
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+        pointer-events:none;
+      }
+      .combat-card{
+        pointer-events:auto;
+        border-radius:18px;
+        padding:12px 14px;
+        color:#fff;
+        background:linear-gradient(180deg, rgba(6,10,20,.84), rgba(12,8,28,.74));
+        border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 16px 34px rgba(0,0,0,.30), 0 0 28px rgba(0,247,255,.10);
+        backdrop-filter:blur(14px) saturate(1.08);
+      }
+      .combat-head{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        font-weight:900;
+      }
+      .combat-kicker{
+        font-size:.76rem;
+        letter-spacing:.15em;
+        text-transform:uppercase;
+        color:rgba(255,255,255,.68);
+      }
+      .combat-badge{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        padding:.34rem .7rem;
+        border-radius:999px;
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.12);
+        font-weight:800;
+      }
+      .combat-grid{
+        display:grid;
+        grid-template-columns:1.2fr .8fr;
+        gap:12px;
+        margin-top:12px;
+      }
+      .combat-label{
+        font-size:.78rem;
+        letter-spacing:.12em;
+        text-transform:uppercase;
+        color:rgba(255,255,255,.58);
+        font-weight:900;
+      }
+      .combat-value{
+        margin-top:3px;
+        font-size:1.02rem;
+        font-weight:900;
+      }
+      .combat-meter{
+        height:12px;
+        margin-top:8px;
+        border-radius:999px;
+        overflow:hidden;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(255,255,255,.07);
+      }
+      .combat-meter > i{
+        display:block;
+        height:100%; width:0%;
+        background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600);
+        background-size:220% 220%;
+        animation:combatFlow 4s linear infinite;
+        box-shadow:0 0 18px rgba(0,247,255,.18);
+      }
+      .combat-meter.heat > i{
+        background:linear-gradient(90deg,#5cff8d,#ffe600,#ff8c55,#ff3d7d);
+      }
+      .combat-note{
+        margin-top:10px;
+        color:rgba(255,255,255,.74);
+        font-size:.84rem;
+        font-weight:700;
+        line-height:1.38;
+      }
+      .combat-note.hot{ color:#ffd166; }
+      .combat-note.warn{ color:#ff8da8; }
+      .combat-mini{
+        margin-top:10px;
+        display:grid;
+        grid-template-columns:repeat(3,minmax(0,1fr));
+        gap:8px;
+      }
+      .combat-pill{
+        border-radius:12px;
+        padding:.58rem .64rem;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+        font-size:.78rem;
+        font-weight:800;
+        line-height:1.3;
+      }
+      #bossIntroBanner{
+        position:fixed;
+        left:50%; top:20%;
+        transform:translateX(-50%);
+        z-index:58;
+        min-width:min(760px, calc(100vw - 24px));
+        max-width:calc(100vw - 24px);
+        padding:16px 18px;
+        border-radius:22px;
+        background:linear-gradient(90deg, rgba(255,0,168,.18), rgba(10,10,26,.92), rgba(0,247,255,.18));
+        border:1px solid rgba(255,255,255,.15);
+        box-shadow:0 22px 50px rgba(0,0,0,.34), 0 0 28px rgba(255,0,168,.16);
+        text-align:center;
+        color:#fff;
+        backdrop-filter:blur(14px) saturate(1.08);
+        opacity:0;
+        pointer-events:none;
+        transition:opacity .24s ease, transform .24s ease;
+      }
+      #bossIntroBanner.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+      #bossIntroBanner .sub{
+        font-size:.8rem;
+        letter-spacing:.22em;
+        text-transform:uppercase;
+        color:rgba(255,255,255,.68);
+        font-weight:900;
+      }
+      #bossIntroBanner .title{
+        margin-top:6px;
+        font-size:clamp(1.3rem, 3vw, 2.1rem);
+        font-weight:900;
+      }
+      #bossIntroBanner .desc{
+        margin-top:4px;
+        color:rgba(255,255,255,.78);
+        font-weight:700;
+      }
+      @keyframes combatFlow{ 0%{background-position:0% 50%;} 100%{background-position:220% 50%;} }
+      @media (max-width: 920px){
+        #combatPolishHud{ left:10px; top:auto; bottom:138px; width:min(310px, calc(100vw - 20px)); }
+        .combat-grid{ grid-template-columns:1fr; }
+        .combat-mini{ grid-template-columns:1fr 1fr 1fr; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function buildCombatHud(){
+    addCombatStyles();
+    let root = document.getElementById("combatPolishHud");
+    if(!root){
+      root = document.createElement("div");
+      root.id = "combatPolishHud";
+      root.innerHTML = `
+        <div class="combat-card">
+          <div class="combat-kicker">Combat polish v2</div>
+          <div class="combat-head">
+            <div class="combat-badge">Mag <b id="combatMagText">18 / 18</b></div>
+            <div class="combat-badge">Heat <b id="combatHeatText">0%</b></div>
+          </div>
+          <div class="combat-grid">
+            <div>
+              <div class="combat-label">Weapon status</div>
+              <div class="combat-value" id="combatWeaponText">Bullet · Ready</div>
+              <div class="combat-meter"><i id="combatReloadBar"></i></div>
+            </div>
+            <div>
+              <div class="combat-label">Thermal load</div>
+              <div class="combat-value" id="combatStateText">Stable</div>
+              <div class="combat-meter heat"><i id="combatHeatBar"></i></div>
+            </div>
+          </div>
+          <div class="combat-note" id="combatHint">R herlaadt · hou vuur onder controle om overheat te vermijden.</div>
+          <div class="combat-mini">
+            <div class="combat-pill">Boss kills<br><b id="combatBossKills">0</b></div>
+            <div class="combat-pill">Best wave<br><b id="combatBestWave">1</b></div>
+            <div class="combat-pill">Best score<br><b id="combatBestScore">0</b></div>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+    }
+
+    let banner = document.getElementById("bossIntroBanner");
+    if(!banner){
+      banner = document.createElement("div");
+      banner.id = "bossIntroBanner";
+      banner.innerHTML = `<div class="sub">Boss archetype</div><div class="title"></div><div class="desc"></div>`;
+      document.body.appendChild(banner);
+    }
+
+    combat.hud = {
+      root,
+      magText: root.querySelector("#combatMagText"),
+      heatText: root.querySelector("#combatHeatText"),
+      weaponText: root.querySelector("#combatWeaponText"),
+      reloadBar: root.querySelector("#combatReloadBar"),
+      heatBar: root.querySelector("#combatHeatBar"),
+      stateText: root.querySelector("#combatStateText"),
+      hint: root.querySelector("#combatHint"),
+      bossKills: root.querySelector("#combatBossKills"),
+      bestWave: root.querySelector("#combatBestWave"),
+      bestScore: root.querySelector("#combatBestScore"),
+      banner
+    };
+    refreshCombatHud();
+  }
+
+  function showBossBanner(title, desc){
+    const el = combat.hud.banner;
+    if(!el) return;
+    el.querySelector(".title").textContent = title;
+    el.querySelector(".desc").textContent = desc;
+    el.classList.add("show");
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+
+  function refreshCombatHud(){
+    if(!combat.hud.root) return;
+    const w = player.weapon || "bullet";
+    const magSize = getMagSize(w);
+    const used = cClamp(combat.shotsInMag[w] || 0, 0, magSize);
+    const left = Math.max(0, magSize - used);
+    combat.hud.magText.textContent = `${left} / ${magSize}`;
+    combat.hud.heatText.textContent = `${Math.round(combat.heat)}%`;
+    combat.hud.heatBar.style.width = `${cClamp(combat.heat, 0, 100)}%`;
+
+    let weaponState = `${weaponText(w)} · Ready`;
+    let hint = "R herlaadt · hou vuur onder controle om overheat te vermijden.";
+    combat.hud.hint.classList.remove("hot", "warn");
+
+    if(combat.reload && combat.reload.weapon === w){
+      const pct = 100 * (1 - cClamp(combat.reload.time / combat.reload.max, 0, 1));
+      combat.hud.reloadBar.style.width = `${pct}%`;
+      weaponState = `${weaponText(w)} · Reloading`;
+      hint = `${weaponText(w)} herlaadt...`; 
+    }else{
+      const pct = 100 * (1 - used / Math.max(1, magSize));
+      combat.hud.reloadBar.style.width = `${pct}%`;
+      if(left <= Math.ceil(magSize * 0.25)){
+        hint = "Laag magazijn — herlaad tussen pushes.";
+        combat.hud.hint.classList.add("hot");
+      }
+    }
+
+    let thermalState = combat.overheat ? "Overheated" : combat.heat > 72 ? "Hot" : combat.heat > 38 ? "Warming" : "Stable";
+    if(combat.overheat){
+      hint = "Overheat lock actief — repositioneer en laat heat zakken.";
+      combat.hud.hint.classList.add("warn");
+    }
+
+    combat.hud.weaponText.textContent = weaponState;
+    combat.hud.stateText.textContent = thermalState;
+    combat.hud.hint.textContent = hint;
+    combat.hud.bossKills.textContent = cFmt(combat.profile.totalBossKills);
+    combat.hud.bestWave.textContent = cFmt(combat.profile.bestWave);
+    combat.hud.bestScore.textContent = cFmt(combat.profile.bestScore);
+  }
+
+  function resetCombatRun(){
+    combat.shotsInMag = { bullet:0, rocket:0, grenade:0 };
+    combat.totalShots = { bullet:0, rocket:0, grenade:0 };
+    combat.heat = 0;
+    combat.overheat = false;
+    combat.overheatLock = 0;
+    combat.reload = null;
+    combat.arcCounter = 0;
+    combat.runBossKills = 0;
+    refreshCombatHud();
+  }
+
+  function startReload(weapon, silent=false){
+    if(!player.alive) return false;
+    if(!(weapon in combat.shotsInMag)) return false;
+    if((player.ammo[weapon] || 0) <= 0) return false;
+    if(combat.reload && combat.reload.weapon === weapon) return false;
+    if((combat.shotsInMag[weapon] || 0) <= 0 && !silent) return false;
+    combat.reload = {
+      weapon,
+      time: getReloadTime(weapon),
+      max: getReloadTime(weapon)
+    };
+    player.fireCooldown = Math.max(player.fireCooldown || 0, weapon === "bullet" ? 0.22 : 0.34);
+    if(!silent){
+      showFloating?.(`${weaponText(weapon)} reload`);
+      flashHint?.(`${weaponText(weapon)} herladen`, 900);
+    }
+    refreshCombatHud();
+    return true;
+  }
+
+  function addHeatForWeapon(weapon){
+    const add = weapon === "bullet" ? 7.8 : weapon === "rocket" ? 18 : 13;
+    const vent = combat.profile.unlocks.ventedBarrel ? 0.84 : 1;
+    combat.heat = Math.min(100, combat.heat + add * vent);
+    if(combat.heat >= 100 && !combat.overheat){
+      combat.overheat = true;
+      combat.overheatLock = combat.profile.unlocks.ventedBarrel ? 1.05 : 1.35;
+      player.fireCooldown = Math.max(player.fireCooldown || 0, combat.overheatLock);
+      state.cameraShake = Math.min(2.1, (state.cameraShake || 0) + 0.28);
+      createShockwave?.(player.pos.clone(), 0xff8c55, 2.1);
+      showFloating?.("WEAPON OVERHEAT");
+    }
+  }
+
+  function findForwardTarget(maxDist=26){
+    const from = player.pos.clone();
+    from.y = 1.52;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.normalize();
+    let best = null;
+    let bestDot = 0.94;
+    const candidates = [];
+    if(state.boss?.mesh) candidates.push(state.boss);
+    for(const e of state.enemies) candidates.push(e);
+    for(const enemy of candidates){
+      if(!enemy?.mesh) continue;
+      const target = enemy.mesh.position.clone();
+      target.y += enemy.isBoss ? 2.2 : 1.35;
+      const to = target.clone().sub(from);
+      const dist = to.length();
+      if(dist <= 0.5 || dist > maxDist) continue;
+      const nd = to.normalize();
+      const dot = dir.dot(nd);
+      if(dot > bestDot){
+        bestDot = dot;
+        best = { enemy, dir: nd, dist };
+      }
+    }
+    return best;
+  }
+
+  function applyShotPolish(weapon, dirOverride, beforeCount){
+    const added = state.bullets.slice(beforeCount);
+    for(const b of added){
+      b.v2SourceWeapon = weapon;
+      b.v2Friendly = true;
+    }
+
+    const dir = dirOverride ? dirOverride.clone().normalize() : new THREE.Vector3();
+    if(!dirOverride) camera.getWorldDirection(dir);
+    dir.normalize();
+
+    if(weapon === "bullet"){
+      combat.arcCounter += 1;
+      if(combat.arcCounter % 7 === 0){
+        const target = findForwardTarget(30);
+        const shotDir = target?.dir?.clone() || dir.clone();
+        const start = player.pos.clone();
+        start.y = 1.55;
+        start.add(shotDir.clone().multiplyScalar(0.92));
+        const arc = createProjectile(start, shotDir, {
+          speed: 34,
+          friendly: true,
+          color: 0x8bf0ff,
+          trailColor: 0xdffcff,
+          size: 0.11,
+          life: 1.35,
+          damage: 17,
+          type: "plasma",
+          radius: 1.8,
+          explosionColor: 0x8bf0ff
+        });
+        arc.v2SourceWeapon = "bullet_arc";
+        state.bullets.push(arc);
+        createFlash?.(start.clone(), 0x8bf0ff, 1.4, 4.5, 0.05);
+        flashHint?.("Arc round", 420);
+      }
+    }
+  }
+
+  function spawnNapalmHazard(position){
+    const mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(1.5, 32),
+      new THREE.MeshBasicMaterial({ color:0xff8c55, transparent:true, opacity:0.36, side:THREE.DoubleSide })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.copy(position);
+    mesh.position.y = 0.04;
+    scene.add(mesh);
+    state.hazards.push({
+      kind: "napalm",
+      mesh,
+      life: 4.8,
+      radius: 3.2,
+      dps: 18,
+      pulse: 0,
+      tick: 0
+    });
+  }
+
+  function spawnClusterBursts(position){
+    const offsets = [
+      new THREE.Vector3(2.1, 0, 0),
+      new THREE.Vector3(-2.1, 0, 0),
+      new THREE.Vector3(0, 0, 2.1),
+      new THREE.Vector3(0, 0, -2.1)
+    ];
+    offsets.forEach((off, idx) => {
+      setTimeout(() => {
+        if(!state.running) return;
+        const pos = position.clone().add(off);
+        pos.y = 0.25;
+        explodeAt(pos, 1.9, 10, 0xc9ff9d);
+      }, idx * 65);
+    });
+  }
+
+  const _updateTimers = updateTimers;
+  updateTimers = function(dt){
+    _updateTimers(dt);
+    const coolBase = combat.profile.unlocks.ventedBarrel ? 29 : 24;
+    combat.heat = Math.max(0, combat.heat - coolBase * dt * (player.weapon === "bullet" ? 1.05 : 0.92));
+    if(combat.overheatLock > 0){
+      combat.overheatLock = Math.max(0, combat.overheatLock - dt);
+    }
+    if(combat.overheat && combat.overheatLock <= 0 && combat.heat < 34){
+      combat.overheat = false;
+    }
+    if(combat.reload){
+      combat.reload.time -= dt;
+      if(combat.reload.time <= 0){
+        const w = combat.reload.weapon;
+        combat.shotsInMag[w] = 0;
+        combat.reload = null;
+        flashHint?.(`${weaponText(w)} ready`, 650);
+      }
+    }
+    refreshCombatHud();
+  };
+
+  const _shootWithDirection = shootWithDirection;
+  shootWithDirection = function(dirOverride = null){
+    const weapon = player.weapon;
+    if(weapon in combat.shotsInMag){
+      if(combat.reload && combat.reload.weapon === weapon) return false;
+      if(combat.overheat) return false;
+      if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
+        startReload(weapon, true);
+        return false;
+      }
+    }
+
+    const beforeCount = state.bullets.length;
+    const ok = _shootWithDirection(dirOverride);
+    if(ok && weapon in combat.shotsInMag){
+      combat.shotsInMag[weapon] += 1;
+      combat.totalShots[weapon] += 1;
+      addHeatForWeapon(weapon);
+      applyShotPolish(weapon, dirOverride, beforeCount);
+      if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
+        startReload(weapon, true);
+      }
+      refreshCombatHud();
+    }
+    return ok;
+  };
+
+  const _explodeAt = explodeAt;
+  explodeAt = function(position, radius, damage, color){
+    let sourceKind = "";
+    for(const b of state.bullets){
+      if(!b?.v2Friendly || !b?.mesh || !b.v2SourceWeapon) continue;
+      if(b.mesh.position.distanceTo(position) < 1.2){
+        sourceKind = b.v2SourceWeapon;
+        break;
+      }
+    }
+
+    const result = _explodeAt(position, radius, damage, color);
+
+    if(sourceKind === "rocket"){
+      spawnNapalmHazard(position.clone());
+    }else if(sourceKind === "grenade"){
+      spawnClusterBursts(position.clone());
+    }
+
+    return result;
+  };
+
+  const _updateHazards = updateHazards;
+  updateHazards = function(dt){
+    _updateHazards(dt);
+    for(let i = state.hazards.length - 1; i >= 0; i--){
+      const h = state.hazards[i];
+      if(h.kind !== "napalm") continue;
+      h.pulse += dt;
+      h.tick -= dt;
+      h.mesh.scale.setScalar(1 + Math.sin(h.pulse * 5) * 0.08);
+      h.mesh.material.opacity = 0.26 + Math.sin(h.pulse * 7) * 0.09;
+      if(h.tick <= 0){
+        h.tick = 0.18;
+        for(let j = state.enemies.length - 1; j >= 0; j--){
+          const e = state.enemies[j];
+          if(!e?.mesh) continue;
+          const dist = e.mesh.position.distanceTo(h.mesh.position);
+          if(dist < h.radius){
+            e.hp -= h.dps * h.tick;
+            createBurst?.(e.mesh.position.clone().add(new THREE.Vector3(0,1.1,0)), 0xff8c55, 3, 1.6, { minLife:.12, maxLife:.22, gravity:0.5, shrink:0.9 });
+            if(e.hp <= 0){
+              killEnemy(e);
+              state.enemies.splice(j, 1);
+            }
+          }
+        }
+        if(state.boss?.mesh){
+          const dist = state.boss.mesh.position.distanceTo(h.mesh.position);
+          if(dist < h.radius){
+            state.boss.hp -= h.dps * 0.55;
+            updateBossBar?.();
+            if(state.boss.hp <= 0) killEnemy(state.boss);
+          }
+        }
+      }
+    }
+  };
+
+  const BOSS_ARCHETYPES = [
+    {
+      id: "juggernaut",
+      title: "Juggernaut Prime",
+      desc: "Zware close-range boss met mortar pulse en front pressure.",
+      tint: 0xffb36c,
+      apply(enemy){
+        enemy.hp *= 1.28; enemy.maxHp = enemy.hp;
+        enemy.speed *= 0.94;
+        enemy.v2SpecialCd = 4.6;
+      },
+      update(enemy, dt){
+        enemy.v2SpecialCd -= dt;
+        if(enemy.v2SpecialCd <= 0){
+          enemy.v2SpecialCd = enemy.phase >= 3 ? 3.5 : 4.8;
+          spawnBossMortarField?.(enemy.mesh.position.clone(), enemy.phase >= 3 ? 4 : 3, enemy.phase >= 3 ? 7.8 : 6.2, 0xffb36c);
+          createShockwave?.(enemy.mesh.position.clone(), 0xffb36c, enemy.phase >= 3 ? 5.2 : 4.2);
+          showFloating?.("JUGGERNAUT PULSE");
+        }
+      }
+    },
+    {
+      id: "phantom",
+      title: "Phantom Lancer",
+      desc: "Mobiele boss met reposition dash en precision punish.",
+      tint: 0x8bf0ff,
+      apply(enemy){
+        enemy.hp *= 1.08; enemy.maxHp = enemy.hp;
+        enemy.speed *= 1.16;
+        enemy.v2SpecialCd = 5.2;
+      },
+      update(enemy, dt){
+        enemy.v2SpecialCd -= dt;
+        if(enemy.v2SpecialCd <= 0){
+          enemy.v2SpecialCd = enemy.phase >= 3 ? 3.2 : 4.4;
+          const offset = new THREE.Vector3(Math.random() < 0.5 ? -4.8 : 4.8, 0, Math.random() < 0.5 ? -4.8 : 4.8);
+          const target = player.pos.clone().add(offset);
+          if(!collidesAt(target.x, target.z, enemy.radius)){
+            enemy.mesh.position.x = target.x;
+            enemy.mesh.position.z = target.z;
+            createShockwave?.(enemy.mesh.position.clone(), 0x8bf0ff, 4.0);
+            for(let i=0;i<(enemy.phase >= 3 ? 3 : 2);i++){
+              setTimeout(() => {
+                if(state.running && player.alive && state.boss === enemy) enemyShoot?.(enemy);
+              }, i * 95);
+            }
+            showFloating?.("PHANTOM SHIFT");
+          }
+        }
+      }
+    },
+    {
+      id: "warlord",
+      title: "Warlord Director",
+      desc: "Command boss die escorts oproept en lanes dichtzet.",
+      tint: 0xff6ea1,
+      apply(enemy){
+        enemy.hp *= 1.18; enemy.maxHp = enemy.hp;
+        enemy.speed *= 1.02;
+        enemy.v2SpecialCd = 6.0;
+      },
+      update(enemy, dt){
+        enemy.v2SpecialCd -= dt;
+        if(enemy.v2SpecialCd <= 0){
+          enemy.v2SpecialCd = enemy.phase >= 3 ? 4.0 : 5.6;
+          for(let i = 0; i < (enemy.phase >= 3 ? 3 : 2); i++){
+            const add = spawnEnemy?.(false);
+            if(add){
+              add.hp *= 1.10;
+              add.maxHp = add.hp;
+            }
+          }
+          spawnBossMortarField?.(player.pos.clone(), enemy.phase >= 3 ? 2 : 1, enemy.phase >= 3 ? 4.4 : 3.2, 0xff6ea1);
+          createFlash?.(enemy.mesh.position.clone().add(new THREE.Vector3(0,3.2,0)), 0xff6ea1, 3.2, 12, 0.14);
+          showFloating?.("WARLORD COMMAND");
+        }
+      }
+    }
+  ];
+
+  const _spawnEnemy = spawnEnemy;
+  spawnEnemy = function(isBoss = false){
+    const enemy = _spawnEnemy(isBoss);
+    if(isBoss && enemy){
+      const profile = BOSS_ARCHETYPES[Math.floor(Math.random() * BOSS_ARCHETYPES.length)];
+      enemy.v2BossProfile = profile;
+      enemy.bossLabel = profile.title;
+      profile.apply?.(enemy);
+      if(enemy.groundRing?.material) enemy.groundRing.material.color.setHex(profile.tint);
+      const bossLabel = document.getElementById("bossBarLabel");
+      if(bossLabel) bossLabel.textContent = profile.title.toUpperCase();
+      showBossBanner(profile.title, profile.desc);
+    }
+    return enemy;
+  };
+
+  const _updateEnemies = updateEnemies;
+  updateEnemies = function(dt){
+    _updateEnemies(dt);
+    const boss = state.boss;
+    if(boss?.v2BossProfile){
+      boss.v2BossProfile.update?.(boss, dt);
+    }
+    refreshCombatHud();
+  };
+
+  const _killEnemy = killEnemy;
+  killEnemy = function(enemy){
+    if(enemy?.isBoss){
+      combat.runBossKills += 1;
+      combat.profile.totalBossKills = (combat.profile.totalBossKills || 0) + 1;
+      refreshUnlocks();
+      saveCombatProfile();
+    }
+    return _killEnemy(enemy);
+  };
+
+  const _applyDamage = applyDamage;
+  applyDamage = function(amount){
+    const wasAlive = player.alive;
+    const result = _applyDamage(amount);
+    if(wasAlive && !player.alive){
+      finalizeCombatRun();
+    }
+    return result;
+  };
+
+  const _restartGame = restartGame;
+  restartGame = function(){
+    finalizeCombatRun();
+    resetCombatRun();
+    combat.profile.totalRuns = (combat.profile.totalRuns || 0) + 1;
+    saveCombatProfile();
+    return _restartGame();
+  };
+
+  const _startGame = startGame;
+  startGame = function(){
+    resetCombatRun();
+    combat.profile.totalRuns = (combat.profile.totalRuns || 0) + 1;
+    saveCombatProfile();
+    return _startGame();
+  };
+
+  window.addEventListener("keydown", (e) => {
+    if((e.code === "KeyR" || e.key === "r" || e.key === "R") && !e.repeat){
+      if(player.weapon in combat.shotsInMag){
+        e.preventDefault();
+        startReload(player.weapon);
+      }
+    }
+  }, { passive:false });
+
+  buildCombatHud();
+  refreshUnlocks();
+  refreshCombatHud();
+})();
+
+
   animate(performance.now());
 })();
 
