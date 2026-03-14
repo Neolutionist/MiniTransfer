@@ -13234,6 +13234,721 @@ onHit(enemy, damage){
 })();
 
 
+/* ===========================
+   ULTIMATE FINAL POLISH PACK
+   Dynamic director, world mutators,
+   support turret, medals, session report,
+   tactical codex and persistent achievements.
+   =========================== */
+(() => {
+  const FINAL_SAVE_KEY = "oh_ultimate_final_v1";
+  const fClamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const fRnd = (a,b) => a + Math.random() * (b-a);
+
+  const finalState = {
+    overlay: null,
+    hud: null,
+    briefingOpen: false,
+    eventWrap: null,
+    medalsWrap: null,
+    lastWaveAnnounced: 0,
+    supportTurrets: [],
+    supportCharges: 1,
+    supportMaxCharges: 2,
+    supportCooldown: 0,
+    supportRecharge: 0,
+    streakKills: 0,
+    streakTimer: 0,
+    medals: [],
+    recentKills: [],
+    session: {
+      damageTaken: 0,
+      damageDealt: 0,
+      shotsFired: 0,
+      shotsHit: 0,
+      pickups: 0,
+      turretKills: 0,
+      bossesDefeated: 0,
+      maxStreak: 0,
+      wavesSurvived: 1,
+      eventsTriggered: 0,
+      eliteKills: 0,
+      supportDeployed: 0
+    },
+    profile: {
+      achievements: {},
+      lifetime: {
+        totalBossKills: 0,
+        totalTurretKills: 0,
+        totalEvents: 0,
+        totalRuns: 0,
+        bestWave: 1,
+        bestScore: 0,
+        objectivesPerfect: 0
+      }
+    },
+    event: {
+      key: "clear",
+      title: "Clear Sector",
+      desc: "Nominale gevechtsomstandigheden.",
+      time: 0,
+      duration: 0,
+      intensity: 1
+    },
+    objective: {
+      title: "Sweep sector",
+      desc: "Elimineer targets en behoud momentum.",
+      progress: 0,
+      target: 12,
+      bonusLabel: "+1 support charge",
+      done: false,
+      perfect: true,
+      kind: "kill"
+    }
+  };
+
+  function loadFinalProfile(){
+    try{
+      const raw = localStorage.getItem(FINAL_SAVE_KEY);
+      if(!raw) return;
+      const data = JSON.parse(raw);
+      if(data && typeof data === "object"){
+        finalState.profile = Object.assign({}, finalState.profile, data);
+        finalState.profile.lifetime = Object.assign({
+          totalBossKills: 0,
+          totalTurretKills: 0,
+          totalEvents: 0,
+          totalRuns: 0,
+          bestWave: 1,
+          bestScore: 0,
+          objectivesPerfect: 0
+        }, finalState.profile.lifetime || {});
+        finalState.profile.achievements = Object.assign({}, data.achievements || {});
+      }
+    }catch(err){ console.warn("final profile load failed", err); }
+  }
+
+  function saveFinalProfile(){
+    try{
+      localStorage.setItem(FINAL_SAVE_KEY, JSON.stringify(finalState.profile));
+    }catch(err){ console.warn("final profile save failed", err); }
+  }
+
+  function ensureFinalUi(){
+    if(finalState.hud) return;
+    const hud = document.createElement("div");
+    hud.id = "ultimateDirectorHud";
+    hud.innerHTML = `
+      <style>
+        #ultimateDirectorHud{
+          position:fixed; right:16px; bottom:16px; width:min(360px, calc(100vw - 24px));
+          z-index:42; display:flex; flex-direction:column; gap:10px; pointer-events:none;
+          font-family:inherit;
+        }
+        .ult-card{
+          background:linear-gradient(180deg, rgba(7,12,24,.88), rgba(13,20,39,.82));
+          border:1px solid rgba(123,196,255,.16); border-radius:18px;
+          box-shadow:0 16px 38px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.04);
+          backdrop-filter: blur(10px); color:#dcecff; padding:12px 14px;
+        }
+        .ult-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+        .ult-title{font-weight:900; letter-spacing:.04em; text-transform:uppercase; font-size:12px; color:#8fd4ff;}
+        .ult-main{font-size:15px; font-weight:800; color:#fff;}
+        .ult-sub{font-size:12px; opacity:.82; line-height:1.4;}
+        .ult-bar{height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; margin-top:8px;}
+        .ult-bar > i{display:block; height:100%; width:0%; background:linear-gradient(90deg, #4dd9ff, #9e6bff, #ff7bbf); box-shadow:0 0 16px rgba(77,217,255,.45);}
+        .ult-tags{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+        .ult-tag{padding:5px 8px; border-radius:999px; font-size:11px; font-weight:800; background:rgba(255,255,255,.06); color:#d8e8ff;}
+        .ult-tag.hot{background:rgba(255,107,163,.12); color:#ff9fcb;}
+        .ult-tag.good{background:rgba(72,232,180,.12); color:#9dffd6;}
+        .ult-tag.warn{background:rgba(255,195,87,.12); color:#ffd98f;}
+        #ultimateEventBanner{
+          position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:45;
+          min-width:min(520px, calc(100vw - 24px)); max-width:min(720px, calc(100vw - 24px));
+          pointer-events:none; opacity:0; transition:opacity .35s ease, transform .35s ease;
+        }
+        #ultimateEventBanner.show{opacity:1; transform:translateX(-50%) translateY(0);}
+        #ultimateEventBanner .ult-card{padding:14px 18px;}
+        #ultimateEventBanner .ult-main{font-size:18px;}
+        #ultimateMedals{display:flex; flex-direction:column; gap:8px; position:fixed; left:16px; bottom:16px; z-index:43; pointer-events:none;}
+        .ult-medal{padding:10px 12px; border-radius:14px; min-width:220px; background:rgba(10,16,28,.86); border:1px solid rgba(255,255,255,.08); color:#fff; box-shadow:0 10px 26px rgba(0,0,0,.3); animation:ultPop .38s ease;}
+        .ult-medal small{display:block; color:#9cc9ff; opacity:.86; margin-top:3px;}
+        @keyframes ultPop{from{transform:translateY(12px); opacity:0}to{transform:translateY(0); opacity:1}}
+        #ultimateBriefing{
+          position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+          background:radial-gradient(circle at top, rgba(30,48,94,.28), rgba(5,8,18,.78)); padding:16px;
+        }
+        #ultimateBriefing.show{display:flex;}
+        #ultimateBriefing .panel{
+          width:min(980px, 100%); max-height:min(86vh, 900px); overflow:auto;
+          background:linear-gradient(180deg, rgba(8,13,25,.96), rgba(12,18,34,.94)); border-radius:24px;
+          border:1px solid rgba(130,205,255,.18); box-shadow:0 30px 80px rgba(0,0,0,.5); color:#eef6ff;
+          padding:20px 20px 18px;
+        }
+        #ultimateBriefing .grid{display:grid; grid-template-columns:1.3fr 1fr; gap:14px;}
+        #ultimateBriefing h2{margin:0 0 10px; font-size:26px;}
+        #ultimateBriefing h3{margin:0 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:.08em; color:#92d9ff;}
+        #ultimateBriefing p{margin:0 0 10px; line-height:1.55; opacity:.92;}
+        .brief-box{border-radius:18px; border:1px solid rgba(255,255,255,.08); padding:14px; background:rgba(255,255,255,.03);}
+        .brief-list{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px;}
+        .brief-chip{padding:9px 10px; border-radius:14px; background:rgba(255,255,255,.04); font-size:13px;}
+        .brief-actions{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;}
+        .brief-btn{pointer-events:auto; appearance:none; border:none; border-radius:14px; padding:12px 16px; cursor:pointer; font-weight:900;}
+        .brief-btn.primary{background:linear-gradient(90deg,#4ad7ff,#8a79ff); color:#07111f;}
+        .brief-btn.secondary{background:rgba(255,255,255,.08); color:#fff;}
+        @media (max-width: 860px){ #ultimateBriefing .grid{grid-template-columns:1fr;} #ultimateDirectorHud{width:min(320px, calc(100vw - 24px));} }
+      </style>
+      <div id="ultimateEventBanner"><div class="ult-card">
+        <div class="ult-title">Combat Director</div>
+        <div class="ult-main" id="ultimateEventTitle">Clear Sector</div>
+        <div class="ult-sub" id="ultimateEventDesc">Nominale gevechtsomstandigheden.</div>
+      </div></div>
+      <div id="ultimateMedals"></div>
+      <div id="ultimateBriefing">
+        <div class="panel">
+          <div class="grid">
+            <div class="brief-box">
+              <h2>Operation Nightglass</h2>
+              <p>Deze final edition voegt een live combat director toe met wereld-events, support turrets, persistent achievements, tactische doelstellingen en een uitgebreider eindevaluatie-scherm. Gebruik het alsof het een compacte premium roguelite build is: plan je support timing, lees de director-mutators en speel objectives bewust uit.</p>
+              <div class="brief-list" id="ultimateBriefingStats"></div>
+              <div class="brief-actions">
+                <button class="brief-btn primary" id="ultimateCloseBriefing">Verder</button>
+                <button class="brief-btn secondary" id="ultimateDismissForever">Niet automatisch tonen</button>
+              </div>
+            </div>
+            <div class="brief-box">
+              <h3>Tactical Controls</h3>
+              <div class="brief-list">
+                <div class="brief-chip"><b>WASD</b><br>verplaatsen</div>
+                <div class="brief-chip"><b>1 / 2 / 3</b><br>wapens</div>
+                <div class="brief-chip"><b>4 / 5 / 6</b><br>abilities</div>
+                <div class="brief-chip"><b>R</b><br>reload</div>
+                <div class="brief-chip"><b>Shift</b><br>dash / mobility</div>
+                <div class="brief-chip"><b>T</b><br>deploy support turret</div>
+                <div class="brief-chip"><b>K</b><br>command deck</div>
+                <div class="brief-chip"><b>F1</b><br>briefing / codex</div>
+              </div>
+              <h3 style="margin-top:14px">Director Notes</h3>
+              <p>Events veranderen vijandsnelheid, accuratesse, spawn pressure en arena hazards. De objective-panel rechts onderin toont altijd het huidige bonusdoel en je support status.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="ultimateStatus" class="ult-card">
+        <div class="ult-row"><div>
+          <div class="ult-title">Objective</div>
+          <div class="ult-main" id="ultimateObjectiveTitle">Sweep sector</div>
+        </div><div class="ult-tag warn" id="ultimateSupportTag">Support 1/2</div></div>
+        <div class="ult-sub" id="ultimateObjectiveDesc">Elimineer targets en behoud momentum.</div>
+        <div class="ult-bar"><i id="ultimateObjectiveBar"></i></div>
+        <div class="ult-tags" id="ultimateStatusTags"></div>
+      </div>`;
+    document.body.appendChild(hud);
+    finalState.hud = hud;
+    finalState.eventWrap = hud.querySelector("#ultimateEventBanner");
+    finalState.medalsWrap = hud.querySelector("#ultimateMedals");
+    finalState.overlay = hud.querySelector("#ultimateBriefing");
+    hud.querySelector("#ultimateCloseBriefing").addEventListener("click", () => toggleBriefing(false));
+    hud.querySelector("#ultimateDismissForever").addEventListener("click", () => {
+      try{ localStorage.setItem(FINAL_SAVE_KEY + "_briefing_off", "1"); }catch(_){ }
+      toggleBriefing(false);
+    });
+  }
+
+  function toggleBriefing(force){
+    ensureFinalUi();
+    finalState.briefingOpen = typeof force === "boolean" ? force : !finalState.briefingOpen;
+    finalState.overlay.classList.toggle("show", finalState.briefingOpen);
+    if(finalState.briefingOpen){
+      const stats = finalState.hud.querySelector("#ultimateBriefingStats");
+      const life = finalState.profile.lifetime;
+      stats.innerHTML = `
+        <div class="brief-chip"><b>Best score</b><br>${Math.floor(life.bestScore || 0)}</div>
+        <div class="brief-chip"><b>Best wave</b><br>${Math.floor(life.bestWave || 1)}</div>
+        <div class="brief-chip"><b>Bosses verslagen</b><br>${life.totalBossKills || 0}</div>
+        <div class="brief-chip"><b>Support kills</b><br>${life.totalTurretKills || 0}</div>
+        <div class="brief-chip"><b>Perfect objectives</b><br>${life.objectivesPerfect || 0}</div>
+        <div class="brief-chip"><b>World events</b><br>${life.totalEvents || 0}</div>`;
+    }
+  }
+
+  function showDirectorEvent(title, desc){
+    ensureFinalUi();
+    finalState.hud.querySelector("#ultimateEventTitle").textContent = title;
+    finalState.hud.querySelector("#ultimateEventDesc").textContent = desc;
+    finalState.eventWrap.classList.add("show");
+    clearTimeout(showDirectorEvent._t);
+    showDirectorEvent._t = setTimeout(() => finalState.eventWrap?.classList.remove("show"), 2600);
+    flashHint?.(title, 1200);
+  }
+
+  function pushMedal(title, subtitle){
+    ensureFinalUi();
+    const card = document.createElement("div");
+    card.className = "ult-medal";
+    card.innerHTML = `<div><b>${title}</b></div><small>${subtitle}</small>`;
+    finalState.medalsWrap.appendChild(card);
+    setTimeout(() => {
+      card.style.opacity = "0";
+      card.style.transform = "translateY(8px)";
+      setTimeout(() => card.remove(), 320);
+    }, 2100);
+  }
+
+  function unlockAchievement(key, title, subtitle){
+    if(finalState.profile.achievements[key]) return;
+    finalState.profile.achievements[key] = { at: Date.now(), title };
+    saveFinalProfile();
+    pushMedal(`Achievement unlocked · ${title}`, subtitle);
+    player.score += 120;
+  }
+
+  function nearestEnemy(origin, range=24){
+    let best = null, bestD = range;
+    for(const e of state.enemies){
+      if(!e?.mesh) continue;
+      const d = origin.distanceTo(e.mesh.position);
+      if(d < bestD){ bestD = d; best = e; }
+    }
+    return best;
+  }
+
+  function registerObjective(kind, amount=1){
+    const o = finalState.objective;
+    if(o.done || o.kind !== kind) return;
+    o.progress = Math.min(o.target, o.progress + amount);
+    if(o.progress >= o.target){
+      o.done = true;
+      if(o.perfect) finalState.profile.lifetime.objectivesPerfect += 1;
+      finalState.supportCharges = Math.min(finalState.supportMaxCharges, finalState.supportCharges + 1);
+      player.score += 120 + player.wave * 10;
+      player.abilities.plasma += 1;
+      saveFinalProfile();
+      pushMedal("Objective complete", o.bonusLabel);
+      showFloating?.("OBJECTIVE COMPLETE");
+    }
+  }
+
+  function setupObjectiveForWave(wave){
+    const templates = [
+      { kind:"kill", title:"Sweep sector", desc:"Elimineer prioritaire hostiles in hoog tempo.", target: 10 + Math.floor(wave*1.4), bonusLabel:"+1 support charge" },
+      { kind:"combo", title:"Momentum chain", desc:"Bouw een killstreak zonder te lang stil te vallen.", target: 8 + Math.floor(wave*0.9), bonusLabel:"+plasma en score bonus" },
+      { kind:"pickup", title:"Field scavenger", desc:"Verzamel combat resources uit de sector.", target: 3 + Math.floor(wave/4), bonusLabel:"+utility reserve" },
+      { kind:"survive", title:"Hold the lane", desc:"Rond de wave af met minimaal 45% integrity.", target: 1, bonusLabel:"+1 support charge · perfect mark" }
+    ];
+    const base = templates[(wave - 1) % templates.length];
+    finalState.objective = Object.assign({}, base, { progress:0, done:false, perfect:true });
+  }
+
+  const worldEvents = {
+    clear: {
+      title:"Clear Sector",
+      desc:"Nominale gevechtsomstandigheden.",
+      duration:18,
+      applyEnemy(enemy){ enemy.finalMul = 1; }
+    },
+    ionstorm: {
+      title:"Ion Storm",
+      desc:"Elektrische turbulentie versnelt projectielen en verhoogt particle chaos.",
+      duration:22,
+      applyEnemy(enemy){ enemy.fireRateMul = (enemy.fireRateMul || 1) * 0.92; },
+      update(dt){
+        if(Math.random() < dt * 2.4){
+          const pos = new THREE.Vector3(fRnd(-48,48), 0.35, fRnd(-48,48));
+          createShockwave?.(pos, 0x8bf0ff, fRnd(1.4, 2.4));
+        }
+      }
+    },
+    blackout: {
+      title:"Blackout",
+      desc:"Visueel donkerder; vijanden flankeren agressiever maar supply efficiency stijgt.",
+      duration:20,
+      start(){ scene.fog.density = 0.028; },
+      end(){ scene.fog.density = 0.019; },
+      applyEnemy(enemy){ enemy.speed *= 1.08; enemy.fireRateMul = (enemy.fireRateMul || 1) * 0.96; }
+    },
+    berserk: {
+      title:"Berserk Surge",
+      desc:"Meer pressure: sneller, taaier en hoger kill tempo vereist.",
+      duration:24,
+      applyEnemy(enemy){ enemy.speed *= 1.14; enemy.hp *= 1.12; enemy.maxHp *= 1.12; }
+    },
+    payday: {
+      title:"Credit Surge",
+      desc:"Targets droppen extra resources en kills leveren bonus score op.",
+      duration:20,
+      onKill(enemy){ player.score += enemy.isBoss ? 70 : enemy.type === "elite" ? 28 : 12; }
+    }
+  };
+
+  function pickWorldEvent(wave){
+    const keys = wave < 3 ? ["clear","ionstorm"] : wave < 6 ? ["clear","ionstorm","blackout"] : ["clear","ionstorm","blackout","berserk","payday"];
+    const key = keys[Math.floor(Math.random() * keys.length)];
+    return Object.assign({ key }, worldEvents[key]);
+  }
+
+  function startWorldEvent(wave){
+    const prev = finalState.event;
+    if(prev?.end) prev.end();
+    const ev = pickWorldEvent(wave);
+    finalState.event = {
+      key: ev.key,
+      title: ev.title,
+      desc: ev.desc,
+      duration: ev.duration,
+      time: ev.duration,
+      intensity: 1 + wave * 0.03,
+      update: ev.update,
+      start: ev.start,
+      end: ev.end,
+      applyEnemy: ev.applyEnemy,
+      onKill: ev.onKill
+    };
+    finalState.session.eventsTriggered += 1;
+    finalState.profile.lifetime.totalEvents += 1;
+    saveFinalProfile();
+    ev.start?.();
+    showDirectorEvent(ev.title, ev.desc);
+  }
+
+  function deploySupportTurret(){
+    if(!state.running || !player.alive) return;
+    if(finalState.supportCharges <= 0 || finalState.supportCooldown > 0) return;
+    const group = new THREE.Group();
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.75, 0.9, 0.6, 12),
+      new THREE.MeshStandardMaterial({ color:0x2a3559, emissive:0x61d6ff, emissiveIntensity:0.28, metalness:0.35, roughness:0.45 })
+    );
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, 0.8, 1.2),
+      new THREE.MeshStandardMaterial({ color:0xdfe9ff, emissive:0x7fd7ff, emissiveIntensity:0.62, metalness:0.18, roughness:0.25 })
+    );
+    core.position.y = 0.72;
+    group.add(base, core);
+    group.position.copy(player.pos.clone()).add(new THREE.Vector3(Math.sin(lookYaw)*1.8, -1.15, Math.cos(lookYaw)*1.8));
+    scene.add(group);
+    finalState.supportTurrets.push({ mesh:group, life:24, fireCd:0, yaw:0, kills:0, ringTime:0 });
+    finalState.supportCharges -= 1;
+    finalState.supportCooldown = 2.8;
+    finalState.session.supportDeployed += 1;
+    createShockwave?.(group.position.clone(), 0x8bf0ff, 1.8);
+    flashHint?.("Support turret online", 1200);
+  }
+
+  function updateSupportTurrets(dt){
+    for(let i=finalState.supportTurrets.length-1;i>=0;i--){
+      const t = finalState.supportTurrets[i];
+      t.life -= dt;
+      t.fireCd -= dt;
+      t.ringTime += dt;
+      if(!t.mesh || t.life <= 0){
+        if(t.mesh){ createShockwave?.(t.mesh.position.clone(), 0xff7ce0, 1.6); scene.remove(t.mesh); }
+        finalState.supportTurrets.splice(i,1);
+        continue;
+      }
+      const yPulse = 0.18 + Math.sin(performance.now()*0.004 + i) * 0.04;
+      t.mesh.position.y = Math.max(0.35, t.mesh.position.y + (yPulse - t.mesh.position.y) * 0.08);
+      const target = nearestEnemy(t.mesh.position, 28);
+      if(target){
+        const dir = target.mesh.position.clone().sub(t.mesh.position);
+        t.yaw = Math.atan2(dir.x, dir.z);
+        t.mesh.rotation.y += (t.yaw - t.mesh.rotation.y) * 0.18;
+        if(t.fireCd <= 0){
+          const fireDir = dir.clone().normalize();
+          const origin = t.mesh.position.clone().add(new THREE.Vector3(0,0.55,0)).add(fireDir.clone().multiplyScalar(1.05));
+          state.bullets.push(createProjectile(origin, fireDir, {
+            speed: 31,
+            friendly: true,
+            color: 0x8bf0ff,
+            trailColor: 0xffffff,
+            size: 0.15,
+            life: 1.5,
+            damage: 13 + player.wave * 0.25,
+            type: "support"
+          }));
+          tone?.(640, 0.04, "triangle", 0.018, -80);
+          t.fireCd = 0.16;
+        }
+      }
+      if(t.ringTime >= 2.4){
+        t.ringTime = 0;
+        createShockwave?.(t.mesh.position.clone(), 0x5fe1ff, 1.25);
+      }
+    }
+    if(finalState.supportCooldown > 0) finalState.supportCooldown = Math.max(0, finalState.supportCooldown - dt);
+    if(finalState.supportCharges < finalState.supportMaxCharges){
+      finalState.supportRecharge += dt;
+      if(finalState.supportRecharge >= 19){
+        finalState.supportRecharge = 0;
+        finalState.supportCharges += 1;
+        pushMedal("Support restocked", "Automatische veldresupply ontvangen");
+      }
+    }else{
+      finalState.supportRecharge = 0;
+    }
+  }
+
+  function updateFinalHud(){
+    ensureFinalUi();
+    const o = finalState.objective;
+    finalState.hud.querySelector("#ultimateObjectiveTitle").textContent = o.title;
+    finalState.hud.querySelector("#ultimateObjectiveDesc").textContent = o.desc + (o.done ? ` · bonus: ${o.bonusLabel}` : "");
+    const pct = o.target > 0 ? (o.progress / o.target) * 100 : 0;
+    finalState.hud.querySelector("#ultimateObjectiveBar").style.width = `${fClamp(pct, 0, 100)}%`;
+    finalState.hud.querySelector("#ultimateSupportTag").textContent = `Support ${finalState.supportCharges}/${finalState.supportMaxCharges}`;
+    const tags = [];
+    const eventText = finalState.event?.key !== "clear" ? `${finalState.event.title} · ${Math.ceil(finalState.event.time)}s` : "Nominal sector";
+    tags.push(`<span class="ult-tag ${finalState.event?.key === "berserk" ? "hot" : finalState.event?.key === "payday" ? "good" : ""}">${eventText}</span>`);
+    tags.push(`<span class="ult-tag ${finalState.streakKills >= 10 ? "good" : ""}">Streak ${finalState.streakKills}</span>`);
+    tags.push(`<span class="ult-tag ${player.hp >= player.maxHp*0.5 ? "good" : "warn"}">Integrity ${Math.round(player.hp)}/${Math.round(player.maxHp)}</span>`);
+    const acc = finalState.session.shotsFired ? Math.round(finalState.session.shotsHit / finalState.session.shotsFired * 100) : 0;
+    tags.push(`<span class="ult-tag">Accuracy ${acc}%</span>`);
+    finalState.hud.querySelector("#ultimateStatusTags").innerHTML = tags.join("");
+  }
+
+  function onEnemyKilledForFinal(enemy){
+    finalState.streakKills += 1;
+    finalState.streakTimer = 4.4;
+    finalState.session.maxStreak = Math.max(finalState.session.maxStreak, finalState.streakKills);
+    registerObjective("kill", 1);
+    registerObjective("combo", 1);
+    finalState.recentKills.push(performance.now());
+    while(finalState.recentKills.length && performance.now() - finalState.recentKills[0] > 3600){ finalState.recentKills.shift(); }
+    if(finalState.recentKills.length >= 6) unlockAchievement("tempo_breaker", "Tempo Breaker", "6 kills binnen één burst-window");
+    if(finalState.streakKills === 10) pushMedal("Killstreak x10", "Director markeert je als priority hunter");
+    if(finalState.streakKills === 20) unlockAchievement("killstreak_20", "Annihilator", "20-kill streak bereikt");
+    if(enemy?.isBoss){
+      finalState.session.bossesDefeated += 1;
+      finalState.profile.lifetime.totalBossKills += 1;
+      saveFinalProfile();
+      unlockAchievement("first_boss_final", "Command Breach", "Je schakelde een final-edition boss uit");
+    }
+    if(enemy?.type === "elite") finalState.session.eliteKills += 1;
+    finalState.event?.onKill?.(enemy);
+  }
+
+  function maybeShowSessionReport(){
+    if(player.alive) return;
+    const panelId = "ultimateSessionReport";
+    let panel = document.getElementById(panelId);
+    if(!panel){
+      panel = document.createElement("div");
+      panel.id = panelId;
+      panel.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,8,16,.64);z-index:59;padding:16px;";
+      panel.innerHTML = `<div style="width:min(780px,100%);background:linear-gradient(180deg,rgba(8,13,25,.96),rgba(12,18,34,.94));border-radius:24px;border:1px solid rgba(130,205,255,.18);box-shadow:0 26px 80px rgba(0,0,0,.45);padding:18px;color:#eef6ff">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#93d7ff;font-weight:900">Run Debrief</div><div style="font-size:28px;font-weight:900;margin-top:6px">Operation Summary</div></div>
+          <button id="ultimateSessionClose" style="appearance:none;border:none;background:rgba(255,255,255,.08);color:#fff;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer">Sluiten</button>
+        </div>
+        <div id="ultimateSessionGrid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px"></div>
+      </div>`;
+      document.body.appendChild(panel);
+      panel.querySelector("#ultimateSessionClose").onclick = () => panel.remove();
+    }
+    const acc = finalState.session.shotsFired ? Math.round(finalState.session.shotsHit / finalState.session.shotsFired * 100) : 0;
+    const entries = [
+      ["Score", Math.floor(player.score)],
+      ["Wave", player.wave],
+      ["Damage dealt", Math.floor(finalState.session.damageDealt)],
+      ["Damage taken", Math.floor(finalState.session.damageTaken)],
+      ["Accuracy", `${acc}%`],
+      ["Bosses", finalState.session.bossesDefeated],
+      ["Elite kills", finalState.session.eliteKills],
+      ["Max streak", finalState.session.maxStreak],
+      ["Support kills", finalState.session.turretKills],
+      ["Pickups", finalState.session.pickups],
+      ["World events", finalState.session.eventsTriggered],
+      ["Supports deployed", finalState.session.supportDeployed]
+    ];
+    panel.querySelector("#ultimateSessionGrid").innerHTML = entries.map(([k,v]) => `<div style="border-radius:18px;border:1px solid rgba(255,255,255,.08);padding:14px;background:rgba(255,255,255,.03)"><div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9ad7ff;font-weight:800">${k}</div><div style="font-size:26px;font-weight:900;margin-top:6px">${v}</div></div>`).join("");
+  }
+
+  const _resetRunUltimate = resetRun;
+  resetRun = function(){
+    const out = _resetRunUltimate();
+    loadFinalProfile();
+    ensureFinalUi();
+    finalState.profile.lifetime.totalRuns += 1;
+    finalState.profile.lifetime.bestScore = Math.max(finalState.profile.lifetime.bestScore || 0, Math.floor(player.score || 0));
+    saveFinalProfile();
+    finalState.streakKills = 0;
+    finalState.streakTimer = 0;
+    finalState.supportCharges = 1 + (finalState.profile.achievements.commander_support ? 1 : 0);
+    finalState.supportMaxCharges = 2 + (finalState.profile.achievements.commander_support ? 1 : 0);
+    finalState.supportCooldown = 0;
+    finalState.supportRecharge = 0;
+    finalState.recentKills.length = 0;
+    finalState.session = { damageTaken:0, damageDealt:0, shotsFired:0, shotsHit:0, pickups:0, turretKills:0, bossesDefeated:0, maxStreak:0, wavesSurvived:1, eventsTriggered:0, eliteKills:0, supportDeployed:0 };
+    while(finalState.supportTurrets.length){ const t = finalState.supportTurrets.pop(); if(t.mesh) scene.remove(t.mesh); }
+    setupObjectiveForWave(player.wave || 1);
+    startWorldEvent(player.wave || 1);
+    updateFinalHud();
+    document.getElementById("ultimateSessionReport")?.remove();
+    if(!localStorage.getItem(FINAL_SAVE_KEY + "_briefing_off") && !finalState.profile.achievements.briefing_seen){
+      finalState.profile.achievements.briefing_seen = { at: Date.now() };
+      saveFinalProfile();
+      setTimeout(() => toggleBriefing(true), 180);
+    }
+    return out;
+  };
+
+  const _spawnWaveUltimate = spawnWave;
+  spawnWave = function(){
+    const res = _spawnWaveUltimate();
+    finalState.session.wavesSurvived = Math.max(finalState.session.wavesSurvived, player.wave || 1);
+    finalState.profile.lifetime.bestWave = Math.max(finalState.profile.lifetime.bestWave || 1, player.wave || 1);
+    saveFinalProfile();
+    setupObjectiveForWave(player.wave || 1);
+    startWorldEvent(player.wave || 1);
+    if((player.wave || 1) >= 8) unlockAchievement("late_game", "Deep Sector", "Wave 8 bereikt in final edition");
+    return res;
+  };
+
+  const _spawnEnemyUltimate = spawnEnemy;
+  spawnEnemy = function(isBoss=false){
+    const enemy = _spawnEnemyUltimate(isBoss);
+    if(enemy){
+      finalState.event?.applyEnemy?.(enemy);
+      if((player.wave || 1) >= 5 && !isBoss && Math.random() < 0.11){
+        enemy.hp *= 1.2; enemy.maxHp *= 1.2; enemy.speed *= 1.06; enemy.damageMul = (enemy.damageMul || 1) * 1.12;
+        enemy.namedVariant = "Vanguard";
+        if(enemy.labelEl) enemy.labelEl.textContent += " Vanguard";
+      }
+    }
+    return enemy;
+  };
+
+  const _killEnemyUltimate = killEnemy;
+  killEnemy = function(enemy){
+    onEnemyKilledForFinal(enemy);
+    if(enemy?._lastHitBySupport){
+      finalState.session.turretKills += 1;
+      finalState.profile.lifetime.totalTurretKills += 1;
+      saveFinalProfile();
+    }
+    const out = _killEnemyUltimate(enemy);
+    return out;
+  };
+
+  const _dropPickupUltimate = dropPickup;
+  dropPickup = function(position){
+    const out = _dropPickupUltimate(position);
+    if(finalState.event?.key === "payday" && Math.random() < 0.4){
+      _dropPickupUltimate(position.clone().add(new THREE.Vector3(fRnd(-1.2,1.2),0,fRnd(-1.2,1.2))));
+    }
+    return out;
+  };
+
+  const _applyDamageUltimate = applyDamage;
+  applyDamage = function(amount){
+    finalState.session.damageTaken += amount;
+    if(finalState.objective.kind === "survive" && amount > 0) finalState.objective.perfect = false;
+    return _applyDamageUltimate(amount);
+  };
+
+
+  const _damageEnemyDirectUltimate = typeof damageEnemyDirect === "function" ? damageEnemyDirect : null;
+  if(_damageEnemyDirectUltimate){
+    damageEnemyDirect = function(enemy, damage){
+      finalState.session.damageDealt += damage || 0;
+      finalState.session.shotsHit += 1;
+      if(enemy) enemy._lastHitBySupport = enemy._lastHitBySupport || false;
+      return _damageEnemyDirectUltimate(enemy, damage);
+    };
+  }
+
+  const _shootWithDirectionUltimate = shootWithDirection;
+  shootWithDirection = function(){
+    finalState.session.shotsFired += 1;
+    return _shootWithDirectionUltimate();
+  };
+
+  const _fireRocketUltimate = fireRocket;
+  fireRocket = function(){ finalState.session.shotsFired += 1; return _fireRocketUltimate(); };
+  const _fireGrenadeUltimate = fireGrenade;
+  fireGrenade = function(){ finalState.session.shotsFired += 1; return _fireGrenadeUltimate(); };
+  const _firePlasmaUltimate = firePlasmaBurst;
+  firePlasmaBurst = function(){ finalState.session.shotsFired += 1; return _firePlasmaUltimate(); };
+
+  const _updateEffectsUltimate = updateEffects;
+  updateEffects = function(dt){
+    _updateEffectsUltimate(dt);
+    if(finalState.streakTimer > 0){
+      finalState.streakTimer = Math.max(0, finalState.streakTimer - dt);
+      if(finalState.streakTimer <= 0) finalState.streakKills = 0;
+    }
+    if(finalState.event?.time > 0){
+      finalState.event.time = Math.max(0, finalState.event.time - dt);
+      finalState.event.update?.(dt);
+    }
+    updateSupportTurrets(dt);
+    updateFinalHud();
+    if(!player.alive) maybeShowSessionReport();
+    if(finalState.objective.kind === "survive" && !state.enemies.length && !state.boss && state.nextWaveQueued && !finalState.objective.done && player.hp >= player.maxHp * 0.45){
+      registerObjective("survive", 1);
+    }
+    if(finalState.session.bossesDefeated >= 3) unlockAchievement("bossbreaker", "Bossbreaker", "3 bosses in één sessie verslagen");
+    if(finalState.session.turretKills >= 20) unlockAchievement("commander_support", "Support Commander", "Support-systemen leverden 20 kills");
+    if(finalState.session.damageTaken <= 30 && (player.wave || 1) >= 5) unlockAchievement("ghost_run", "Ghost Run", "Bereikte wave 5 met minimale schade");
+  };
+
+  const _updatePickupsUltimate = updatePickups;
+  updatePickups = function(dt){
+    const before = state.pickups.length;
+    _updatePickupsUltimate(dt);
+    if(state.pickups.length < before){
+      finalState.session.pickups += before - state.pickups.length;
+      registerObjective("pickup", before - state.pickups.length);
+    }
+  };
+
+  const _updateHudUltimate = updateHud;
+  updateHud = function(){
+    const out = _updateHudUltimate();
+    updateFinalHud();
+    return out;
+  };
+
+  const _startGameUltimate = startGame;
+  startGame = function(){
+    const out = _startGameUltimate();
+    updateFinalHud();
+    return out;
+  };
+
+  const _restartGameUltimate = restartGame;
+  restartGame = function(){
+    document.getElementById("ultimateSessionReport")?.remove();
+    return _restartGameUltimate();
+  };
+
+  const _queueNextWaveUltimate = queueNextWave;
+  queueNextWave = function(delay=1.2){
+    if(finalState.objective.kind === "survive" && player.hp >= player.maxHp * 0.45){
+      registerObjective("survive", 1);
+    }
+    return _queueNextWaveUltimate(delay);
+  };
+
+  const _createProjectileUltimate = createProjectile;
+  createProjectile = function(origin, dir, opts={}){
+    const p = _createProjectileUltimate(origin, dir, opts);
+    if(opts?.type === "support") p.userData = Object.assign({}, p.userData, { supportProjectile:true });
+    return p;
+  };
+
+
+  window.addEventListener("keydown", (e) => {
+    if(e.code === "KeyT" && !e.repeat){ e.preventDefault(); deploySupportTurret(); }
+    if(e.code === "F1"){ e.preventDefault(); toggleBriefing(); }
+  }, { passive:false });
+
+  loadFinalProfile();
+  ensureFinalUi();
+  updateFinalHud();
+})();
+
+
   animate(performance.now());
 })();
 
