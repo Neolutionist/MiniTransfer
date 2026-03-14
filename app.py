@@ -5019,6 +5019,16 @@ function spawnWave(){
       hitPos.y = 1.7;
       const d = hitPos.distanceTo(position);
       if(d < radius){
+      
+    if(!Number.isFinite(e.hp)){
+          console.warn("Enemy hp corrupt before damage", e);
+          e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
+        }
+        if(!Number.isFinite(e.maxHp) || e.maxHp <= 0){
+          console.warn("Enemy maxHp corrupt", e);
+          e.maxHp = Math.max(1, Number.isFinite(e.hp) ? e.hp : 1);
+        }
+
         e.hp -= damage * (1 - d / radius);
         if(e.hp <= 0){
           killEnemy(e);
