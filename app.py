@@ -4840,7 +4840,6 @@ function spawnEnemy(isBoss=false){
     const spawnMax = 48;
 
     function enemySpawnBoxCollides(x, z, radius, height = 3){
-  const pad = Math.max(0.55, radius + 0.35);
   const box = new THREE.Box3(
     new THREE.Vector3(x - radius, 0, z - radius),
     new THREE.Vector3(x + radius, height, z + radius)
@@ -4848,15 +4847,6 @@ function spawnEnemy(isBoss=false){
 
   for(const c of colliders){
     if(box.intersectsBox(c.box)) return true;
-
-    const b = c.box;
-    const nearestX = Math.max(b.min.x, Math.min(x, b.max.x));
-    const nearestZ = Math.max(b.min.z, Math.min(z, b.max.z));
-    const dx = x - nearestX;
-    const dz = z - nearestZ;
-    if((dx * dx + dz * dz) < (pad * pad)) return true;
-
-    if(x > b.min.x - pad && x < b.max.x + pad && z > b.min.z - pad && z < b.max.z + pad) return true;
   }
   return false;
 }
@@ -4868,23 +4858,14 @@ function spawnEnemy(isBoss=false){
       if(Math.hypot(dx, dz) < minPlayerDist) return false;
 
       // extra veiligheidsmarge t.o.v. map blocks
-      if(collidesAt(x, z, r + 0.12)) return false;
-      if(collidesAt(x + r * 0.8, z, r * 0.8)) return false;
-      if(collidesAt(x - r * 0.8, z, r * 0.8)) return false;
-      if(collidesAt(x, z + r * 0.8, r * 0.8)) return false;
-      if(collidesAt(x, z - r * 0.8, r * 0.8)) return false;
+      if(collidesAt(x, z, r)) return false;
+    if(collidesAt(x + r * 0.75, z, r * 0.65)) return false;
+    if(collidesAt(x - r * 0.75, z, r * 0.65)) return false;
+    if(collidesAt(x, z + r * 0.75, r * 0.65)) return false;
+    if(collidesAt(x, z - r * 0.75, r * 0.65)) return false;
 
-      // ring-samples rondom de spawn zodat enemies niet half in blokken/kubussen komen
-      const ring = r + 0.55;
-      for(let i = 0; i < 8; i++){
-        const a = (i / 8) * Math.PI * 2;
-        const sx = x + Math.cos(a) * ring;
-        const sz = z + Math.sin(a) * ring;
-        if(collidesAt(sx, sz, Math.max(0.45, r * 0.55))) return false;
-      }
-
-      // extra harde check tegen complete collider-boxen
-      if(enemySpawnBoxCollides(x, z, r + 0.45, 3.2)) return false;
+    // extra harde check tegen complete collider-boxen
+    if(enemySpawnBoxCollides(x, z, r + 0.15, 3.2)) return false;
 
       // ook niet te dicht op andere enemies
       for(const other of state.enemies){
@@ -4955,26 +4936,6 @@ function spawnEnemy(isBoss=false){
 
   const mesh = makeEnemyMesh(type, isBoss);
   mesh.position.set(spawn.x, 0, spawn.z);
-
-  // laatste veiligheidsnet: schuif de enemy weg als hij toch te dicht op een collider staat
-  if(enemySpawnBoxCollides(mesh.position.x, mesh.position.z, radius + 0.45, 3.2)){
-    let relocated = false;
-    for(let step = 1; step <= 8 && !relocated; step++){
-      const dist = 1.6 * step;
-      for(let i = 0; i < 16; i++){
-        const a = (i / 16) * Math.PI * 2;
-        const tx = spawn.x + Math.cos(a) * dist;
-        const tz = spawn.z + Math.sin(a) * dist;
-        if(tx < -48 || tx > 48 || tz < -48 || tz > 48) continue;
-        if(collidesAt(tx, tz, radius + 0.2)) continue;
-        if(enemySpawnBoxCollides(tx, tz, radius + 0.45, 3.2)) continue;
-        mesh.position.set(tx, 0, tz);
-        relocated = true;
-        break;
-      }
-    }
-  }
-
   scene.add(mesh);
 
   const waveScale = waveRamp(player.wave);
@@ -15111,11 +15072,6 @@ def debug_dbcols():
 def index():
     if not logged_in(): return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
-
-@app.route("/arcade")
-@app.route("/p/arcade")
-def arcade_alias():
-    return redirect(url_for("index"), code=302)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
