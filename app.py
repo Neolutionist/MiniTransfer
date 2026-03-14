@@ -9510,184 +9510,421 @@ function startGame(){
     }
   }
 
+  function draftOwnedLevel(choice){
+    if(choice.levelKey) return armory.levels[choice.levelKey] || 0;
+    if(choice.id && Object.prototype.hasOwnProperty.call(armory.levels, choice.id)){
+      return armory.levels[choice.id] || 0;
+    }
+    return 0;
+  }
+
+  function draftTagline(choice){
+    if(choice.tagline) return choice.tagline;
+    if(choice.oneShot) return "Eenmalig effect";
+    const lvl = draftOwnedLevel(choice);
+    return `Level nu: ${lvl}`;
+  }
+
+  function draftResupply(mult = 1){
+    player.hp = Math.min(player.maxHp, player.hp + Math.round((12 + armory.levels.frame * 2) * mult));
+    player.ammo.bullet += Math.round((8 + armory.levels.printer * 4) * mult);
+    player.ammo.rocket += armory.levels.printer > 0 ? Math.max(1, Math.round(mult)) : 0;
+    player.ammo.grenade += armory.levels.printer > 1 ? Math.max(1, Math.round(mult)) : 0;
+
+    if(armory.levels.capacitor > 0 && Math.random() < 0.55){
+      player.abilities.plasma += 1;
+    }
+    setStat?.();
+  }
+
+  function makeRelic(def){
+    return {
+      rarity: "rare",
+      weight: 1,
+      cost: 20,
+      needsSync: false,
+      oneShot: false,
+      levelKey: def.id,
+      ...def
+    };
+  }
+
   function relicPool(){
-    return [
-      {
+    const L = armory.levels;
+    const nearBoss = (player.wave + 1) % 5 === 0;
+    const lowHp = player.hp <= player.maxHp * 0.45;
+    const lowAmmo = player.ammo.bullet <= 20 && player.ammo.rocket <= 1 && player.ammo.grenade <= 1;
+    const lowAbilities = (player.abilities.plasma + player.abilities.mine + player.abilities.orbital) <= 2;
+
+    const pool = [
+      makeRelic({
         id:"overclock",
         rarity:"rare",
-        name:"Overclock Chamber",
-        desc:"+18% projectile damage voor al je vriendelijke projectiles. Schaalbaar.",
-        cost:26 + armory.levels.overclock * 10,
+        name:"Railspire Injector",
+        desc:"+18% projectile damage. Jouw kogels, rockets en plasma slaan merkbaar harder in.",
+        cost:26 + L.overclock * 10,
+        weight: 1.15 + (L.overclock <= 1 ? 0.15 : 0),
         apply(){
-          armory.levels.overclock += 1;
+          L.overclock += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"rapidfire",
         rarity:"rare",
-        name:"Cyclone Receiver",
-        desc:"+16% snellere fire-rate. Werkt op bullet, rocket en grenade.",
-        cost:24 + armory.levels.rapidfire * 10,
+        name:"Tempest Chamber",
+        desc:"+16% fire-rate. Je gun voelt direct agressiever en strakker.",
+        cost:24 + L.rapidfire * 10,
+        weight: 1.1 + (L.echo > 0 ? 0.15 : 0),
         apply(){
-          armory.levels.rapidfire += 1;
+          L.rapidfire += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"plating",
         rarity:"rare",
-        name:"Nano Plating",
-        desc:"-14% inkomende schade. Schaalbaar.",
-        cost:24 + armory.levels.plating * 12,
+        name:"Bastion Weave",
+        desc:"-14% inkomende schade. Een no-nonsense overlevingsupgrade.",
+        cost:24 + L.plating * 12,
+        weight: lowHp ? 1.45 : 1.0,
         apply(){
-          armory.levels.plating += 1;
+          L.plating += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"frame",
         rarity:"epic",
-        name:"Reinforced Frame",
-        desc:"+25 max HP en directe heal van 25 HP.",
-        cost:32 + armory.levels.frame * 12,
+        name:"Titan Chassis",
+        desc:"+25 max HP en directe reparatie van 25 HP. Dikke frontline energy.",
+        cost:32 + L.frame * 12,
+        needsSync: true,
+        weight: lowHp ? 1.5 : 0.95,
         apply(){
-          armory.levels.frame += 1;
+          L.frame += 1;
           syncDerivedStats();
           player.hp = Math.min(player.maxHp, player.hp + 25);
           setStat?.();
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"magboots",
         rarity:"rare",
-        name:"Mag Boots",
-        desc:"+12% movespeed. Je voelt het direct op desktop én mobiel.",
-        cost:22 + armory.levels.magboots * 10,
+        name:"Slipstream Soles",
+        desc:"+12% movespeed. Goed voor kiten, dodgen en snel looten.",
+        cost:22 + L.magboots * 10,
+        needsSync: true,
+        weight: 1.05 + (player.wave >= 4 ? 0.1 : 0),
         apply(){
-          armory.levels.magboots += 1;
+          L.magboots += 1;
           syncDerivedStats();
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"vamp",
         rarity:"epic",
-        name:"Vamp Core",
-        desc:"Heal 2 HP per kill. Boss kill geeft extra sustain.",
-        cost:30 + armory.levels.vamp * 12,
+        name:"Crimson Recycler",
+        desc:"Heal 2 HP per kill. Hoe chaotischer het wordt, hoe beter dit voelt.",
+        cost:30 + L.vamp * 12,
+        weight: 1.0 + (player.wave >= 5 ? 0.15 : 0),
         apply(){
-          armory.levels.vamp += 1;
+          L.vamp += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"printer",
         rarity:"rare",
-        name:"Ammo Printer",
-        desc:"+ammo tussen waves. Ook extra bullets bij elke relic draft.",
-        cost:22 + armory.levels.printer * 10,
+        name:"Munitions Foundry",
+        desc:"Meer ammo tussen waves én meteen een verse levering bij aankoop.",
+        cost:22 + L.printer * 10,
+        weight: lowAmmo ? 1.55 : 1.05,
         apply(){
-          armory.levels.printer += 1;
+          L.printer += 1;
           player.ammo.bullet += 12;
           player.ammo.rocket += 1;
           player.ammo.grenade += 1;
           setStat?.();
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"capacitor",
         rarity:"epic",
-        name:"Plasma Capacitor",
-        desc:"+1 charge op alle skills en grotere explosies voor rocket/grenade/plasma.",
-        cost:34 + armory.levels.capacitor * 12,
+        name:"Stormglass Capacitor",
+        desc:"+1 charge op alle abilities en grotere explosieradius voor heavy shots.",
+        cost:34 + L.capacitor * 12,
+        weight: lowAbilities ? 1.4 : 1.0,
         apply(){
-          armory.levels.capacitor += 1;
+          L.capacitor += 1;
           player.abilities.plasma += 1;
           player.abilities.mine += 1;
           player.abilities.orbital += 1;
           setStat?.();
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"combo",
         rarity:"rare",
-        name:"Combo Engine",
-        desc:"Langere combo timer en +8% extra score per level.",
-        cost:24 + armory.levels.combo * 10,
+        name:"Encore Matrix",
+        desc:"Langere combo timer en een vettere score snowball per level.",
+        cost:24 + L.combo * 10,
+        weight: 1.0 + (player.score > 0 ? 0.1 : 0),
         apply(){
-          armory.levels.combo += 1;
+          L.combo += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"echo",
         rarity:"epic",
-        name:"Echo Trigger",
-        desc:"Kans op twee extra side-shots bij vuur. Sterk met bullet builds.",
-        cost:30 + armory.levels.echo * 14,
+        name:"Mirrorcoil Trigger",
+        desc:"Kans op extra side-shots. Ideaal als je een bullet blender wilt bouwen.",
+        cost:30 + L.echo * 14,
+        weight: 1.0 + (L.rapidfire > 0 ? 0.2 : 0),
         apply(){
-          armory.levels.echo += 1;
+          L.echo += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"scavenger",
         rarity:"rare",
-        name:"Scavenger Array",
-        desc:"+18% meer salvage per pickup/kill/wave.",
-        cost:20 + armory.levels.scavenger * 10,
+        name:"Graveroute Scanner",
+        desc:"+18% meer salvage uit kills, pickups en wave-beloningen.",
+        cost:20 + L.scavenger * 10,
+        weight: armory.credits < 28 ? 1.3 : 0.95,
         apply(){
-          armory.levels.scavenger += 1;
+          L.scavenger += 1;
         }
-      },
-      {
+      }),
+
+      makeRelic({
         id:"phoenix",
         rarity:"legend",
         name:"Phoenix Protocol",
         desc:"1x per run: overleef lethale schade en kom terug met 45 HP.",
-        cost:42 + armory.levels.phoenix * 18,
+        cost:42 + L.phoenix * 18,
+        weight: armory.reviveUsed ? 0.25 : 0.9,
         apply(){
-          armory.levels.phoenix += 1;
+          L.phoenix += 1;
         }
-      }
+      }),
+
+      // --- nieuwe leuke specials / bundles ---
+      makeRelic({
+        id:"fieldkit",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Field Kit Drop",
+        desc:"Directe tussenronde-push: flinke heal, ammo refill en kans op een bonus plasma charge.",
+        tagline:"Special • sustain",
+        cost:16 + Math.floor(player.wave * 1.5),
+        weight: lowHp || lowAmmo ? 1.8 : 0.85,
+        apply(){
+          player.hp = Math.min(player.maxHp, player.hp + 28);
+          player.ammo.bullet += 28;
+          player.ammo.rocket += 1;
+          player.ammo.grenade += 1;
+          if(Math.random() < 0.65) player.abilities.plasma += 1;
+          setStat?.();
+        }
+      }),
+
+      makeRelic({
+        id:"bounty",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Black Market Bounty",
+        desc:"Krijg direct een salvage-injectie en een gratis reroll. Perfect als de draft saai is.",
+        tagline:"Special • economy",
+        cost:18 + Math.floor(player.wave * 2),
+        weight: armory.rerolls <= 0 ? 1.5 : 1.0,
+        apply(){
+          armory.credits += 18 + Math.floor(player.wave * 3);
+          armory.rerolls += 1;
+        }
+      }),
+
+      makeRelic({
+        id:"fusion",
+        rarity:"epic",
+        oneShot:true,
+        levelKey:null,
+        name:"Fusion Ritual",
+        desc:"+1 Overclock én +1 Rapidfire in één pick. Minder subtiel, veel leuker.",
+        tagline:"Bundle • damage",
+        cost:40 + (L.overclock + L.rapidfire) * 10,
+        apply(){
+          L.overclock += 1;
+          L.rapidfire += 1;
+        }
+      }),
+
+      makeRelic({
+        id:"bulwark",
+        rarity:"epic",
+        oneShot:true,
+        levelKey:null,
+        name:"Bulwark Pact",
+        desc:"+1 Plating, +1 Frame en direct een dikke heal. Voor runs die net niet stabiel genoeg voelen.",
+        tagline:"Bundle • tank",
+        cost:42 + (L.plating + L.frame) * 10,
+        needsSync: true,
+        weight: lowHp ? 1.55 : 0.8,
+        apply(){
+          L.plating += 1;
+          L.frame += 1;
+          syncDerivedStats();
+          player.hp = Math.min(player.maxHp, player.hp + 30);
+          setStat?.();
+        }
+      }),
+
+      makeRelic({
+        id:"surge",
+        rarity:"epic",
+        oneShot:true,
+        levelKey:null,
+        name:"Arc Surge Cache",
+        desc:"Volledige ability-top-up: +2 plasma, +1 mine, +1 orbital. Pure chaos pick.",
+        tagline:"Bundle • abilities",
+        cost:36 + L.capacitor * 8,
+        weight: lowAbilities ? 1.55 : 0.85,
+        apply(){
+          player.abilities.plasma += 2;
+          player.abilities.mine += 1;
+          player.abilities.orbital += 1;
+          setStat?.();
+        }
+      }),
+
+      makeRelic({
+        id:"trickster",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Trickster Deal",
+        desc:"+1 Echo, +1 Mag Boots en een kleine cash refund. Sneller, gekker, speelser.",
+        tagline:"Bundle • mobility",
+        cost:31 + (L.echo + L.magboots) * 9,
+        needsSync: true,
+        weight: 1.0 + (L.echo === 0 ? 0.15 : 0),
+        apply(){
+          L.echo += 1;
+          L.magboots += 1;
+          armory.credits += 8;
+          syncDerivedStats();
+        }
+      })
     ];
+
+    if(nearBoss){
+      pool.push(
+        makeRelic({
+          id:"apex",
+          rarity:"legend",
+          oneShot:true,
+          levelKey:null,
+          name:"Apex Core",
+          desc:"+1 Overclock, +1 Capacitor, +1 Combo en een gratis resupply. Boss-prep in één kaart.",
+          tagline:"Legend bundle • boss prep",
+          cost:58 + Math.floor(player.wave * 2.5),
+          apply(){
+            L.overclock += 1;
+            L.capacitor += 1;
+            L.combo += 1;
+            player.abilities.plasma += 1;
+            player.abilities.mine += 1;
+            draftResupply(1.15);
+          }
+        })
+      );
+    }
+
+    return pool;
+  }
+
+  function draftWeightedPick(pool, usedIds){
+    let filtered = pool.filter(choice => !usedIds.has(choice.id));
+    if(!filtered.length) filtered = pool.slice();
+
+    const total = filtered.reduce((sum, item) => sum + Math.max(0.01, item.weight || 1), 0);
+    let roll = Math.random() * total;
+
+    for(const item of filtered){
+      roll -= Math.max(0.01, item.weight || 1);
+      if(roll <= 0) return item;
+    }
+    return filtered[filtered.length - 1];
   }
 
   function generateDraftChoices(){
-    const pool = aShuffle(relicPool());
-
-    const boostedLegendChance = (player.wave + 1) % 5 === 0 ? 0.45 : 0.12;
+    const pool = relicPool();
+    const used = new Set();
     const results = [];
+    const nextWave = player.wave + 1;
+    const isMajor = nextWave % 5 === 0;
 
-    while(results.length < 3 && pool.length){
-      let relic = pool.shift();
+    const legendChance = isMajor ? 0.42 : 0.12;
+    const epicChance = isMajor ? 0.72 : 0.38;
 
-      if(relic.rarity === "legend" && Math.random() > boostedLegendChance){
-        pool.push(relic);
-        continue;
-      }
+    const legendaryPool = pool.filter(x => x.rarity === "legend");
+    const epicPool = pool.filter(x => x.rarity === "epic");
+    const rarePool = pool.filter(x => x.rarity === "rare" || x.rarity === "common");
 
-      results.push(relic);
+    if(legendaryPool.length && Math.random() < legendChance){
+      const pick = draftWeightedPick(legendaryPool, used);
+      results.push(pick);
+      used.add(pick.id);
+    }
+
+    if(results.length < 3 && epicPool.length && Math.random() < epicChance){
+      const pick = draftWeightedPick(epicPool, used);
+      results.push(pick);
+      used.add(pick.id);
     }
 
     while(results.length < 3){
-      results.push(aPick(relicPool()));
+      const source = Math.random() < 0.6 ? rarePool : pool;
+      const pick = draftWeightedPick(source, used);
+      results.push(pick);
+      used.add(pick.id);
     }
 
-    armory.currentChoices = results;
+    armory.currentChoices = aShuffle(results);
     renderDraftChoices();
   }
 
   function renderDraftChoices(){
     const choices = armory.currentChoices || [];
-    armory.draft.cards.innerHTML = choices.map((choice, idx) => `
-      <div class="relic-card" data-rarity="${choice.rarity}">
-        <div class="relic-rarity">${choice.rarity}</div>
-        <div class="relic-name">${choice.name}</div>
-        <div class="relic-desc">${choice.desc}</div>
-        <div class="relic-tagline">Level nu: ${armory.levels[choice.id] || 0}</div>
-        <div class="relic-buy">
-          <span class="relic-cost">${fmt(choice.cost)} salvage</span>
-          <button class="relic-btn" type="button" data-buy="${idx}">
-            Koop
-          </button>
+
+    armory.draft.cards.innerHTML = choices.map((choice, idx) => {
+      const owned = draftOwnedLevel(choice);
+      const rarityLabel = (choice.rarity || "rare").toUpperCase();
+      const canAfford = armory.credits >= choice.cost;
+
+      return `
+        <div class="relic-card" data-rarity="${choice.rarity}">
+          <div class="relic-rarity">${rarityLabel}</div>
+          <div class="relic-name">${choice.name}</div>
+          <div class="relic-desc">${choice.desc}</div>
+          <div class="relic-tagline">${draftTagline(choice)}${owned > 0 && !choice.oneShot ? ` • Owned ${owned}` : ""}</div>
+          <div class="relic-buy">
+            <span class="relic-cost">${fmt(choice.cost)} salvage</span>
+            <button class="relic-btn" type="button" data-buy="${idx}" ${canAfford ? "" : "data-poor='1'"}>
+              ${canAfford ? "Koop" : "Te duur"}
+            </button>
+          </div>
         </div>
-      </div>
-    `).join("");
+      `;
+    }).join("");
 
     armory.draft.cards.querySelectorAll("[data-buy]").forEach(btn => {
       btn.addEventListener("click", () => buyRelic(Number(btn.dataset.buy)));
@@ -9704,6 +9941,7 @@ function startGame(){
     armory.rerolls -= 1;
     generateDraftChoices();
     updateHud();
+    flashHint?.("Nieuwe relics binnen", 850);
   }
 
   function buyRelic(idx){
@@ -9718,9 +9956,10 @@ function startGame(){
     armory.credits -= choice.cost;
     armory.relicsTaken += 1;
     armory.profile.totalRelics += 1;
-    choice.apply();
 
-    if(choice.id !== "frame" && choice.id !== "printer" && choice.id !== "capacitor"){
+    choice.apply?.();
+
+    if(choice.needsSync){
       syncDerivedStats();
     }
 
@@ -9728,23 +9967,20 @@ function startGame(){
     updateHud();
     flashHint?.(`Relic gekocht: ${choice.name}`, 1200);
 
-    // gratis tussen-wave pakket
-    player.hp = Math.min(player.maxHp, player.hp + 12 + armory.levels.frame * 2);
-    player.ammo.bullet += 8 + armory.levels.printer * 4;
-    player.ammo.rocket += armory.levels.printer > 0 ? 1 : 0;
-    player.ammo.grenade += armory.levels.printer > 1 ? 1 : 0;
-    if(armory.levels.capacitor > 0 && Math.random() < 0.55){
-      player.abilities.plasma += 1;
+    if(!choice.oneShot){
+      draftResupply(1);
+    } else {
+      player.hp = Math.min(player.maxHp, player.hp + 8);
+      setStat?.();
     }
-    setStat?.();
 
     closeDraftAndContinue();
   }
 
   function shouldOfferDraft(nextWave){
     if(nextWave <= 1) return false;
-    if(nextWave % 5 === 0) return true; // boss / major
-    if(nextWave % 2 === 0) return true; // elke 2 waves
+    if(nextWave % 5 === 0) return true;
+    if(nextWave % 3 === 0) return true;
     return false;
   }
 
@@ -9763,8 +9999,10 @@ function startGame(){
     armory.draft.title.textContent = nextWave % 5 === 0
       ? `Major Relic Draft • Wave ${nextWave}`
       : `Relic Draft • Wave ${nextWave}`;
-    armory.draft.sub.textContent =
-      `Je hebt ${fmt(armory.credits)} salvage. Kies slim: damage, sustain of controle.`;
+
+    armory.draft.sub.textContent = nextWave % 5 === 0
+      ? `Boss-wave incoming. Je hebt ${fmt(armory.credits)} salvage — kies een power spike, tank-upgrade of chaos bundle.`
+      : `Je hebt ${fmt(armory.credits)} salvage — kies een build path: damage, mobility, sustain, economy of pure gekte.`;
 
     generateDraftChoices();
     updateHud();
