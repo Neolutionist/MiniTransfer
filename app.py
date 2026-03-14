@@ -4793,6 +4793,27 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   return group;
 }
 
+function waveRamp(wave = player.wave || 1){
+  const early = Math.min(5, Math.max(0, wave - 1)) * 0.045;
+  const mid = Math.min(6, Math.max(0, wave - 6)) * 0.085;
+  const late = Math.max(0, wave - 12) * 0.13;
+  return 1 + early + mid + late;
+}
+
+function bossPressure(wave = player.wave || 1){
+  return 1 + Math.max(0, wave - 4) * 0.09 + Math.max(0, wave - 10) * 0.07;
+}
+
+function bossWaveInterval(wave = player.wave || 1){
+  if(wave >= 15) return 2;
+  if(wave >= 9) return 3;
+  return 4;
+}
+
+function isBossWave(wave = player.wave || 1){
+  return wave >= 3 && wave % bossWaveInterval(wave) === 0;
+}
+
 function spawnEnemy(isBoss=false){
   function findSafeEnemySpawn(radius){
     const minPlayerDist = isBoss ? 18 : 14;
@@ -4872,9 +4893,14 @@ function spawnEnemy(isBoss=false){
   let type = "basic";
   if(!isBoss){
     const roll = Math.random();
-    if(player.wave >= 7 && roll < 0.16) type = "elite";
-    else if(player.wave >= 4 && roll < 0.38) type = "tank";
-    else if(player.wave >= 2 && roll < 0.68) type = "runner";
+    const wave = player.wave || 1;
+    const eliteChance = wave >= 12 ? 0.28 : wave >= 8 ? 0.21 : wave >= 7 ? 0.16 : 0;
+    const tankChance = wave >= 10 ? 0.56 : wave >= 6 ? 0.46 : wave >= 4 ? 0.38 : 0;
+    const runnerChance = wave >= 14 ? 0.82 : wave >= 9 ? 0.76 : wave >= 2 ? 0.68 : 0;
+
+    if(roll < eliteChance) type = "elite";
+    else if(roll < tankChance) type = "tank";
+    else if(roll < runnerChance) type = "runner";
   }
 
   const radius =
@@ -4893,12 +4919,19 @@ function spawnEnemy(isBoss=false){
   mesh.position.set(spawn.x, 0, spawn.z);
   scene.add(mesh);
 
-  const baseHp = isBoss ? 230 + player.wave * 28 :
-    type === "runner" ? 16 + player.wave * 3 :
-    type === "tank" ? 42 + player.wave * 6 :
-    type === "elite" ? 52 + player.wave * 7 :
-    type === "logo" ? 32 + player.wave * 5 :
-    22 + player.wave * 4;
+  const waveScale = waveRamp(player.wave);
+  const bossScale = bossPressure(player.wave);
+  const baseHp = isBoss
+    ? Math.round((250 + player.wave * 34 + Math.max(0, player.wave - 8) * 22) * bossScale)
+    : type === "runner"
+    ? Math.round((16 + player.wave * 3.4 + Math.max(0, player.wave - 8) * 1.8) * (0.96 + (waveScale - 1) * 0.55))
+    : type === "tank"
+    ? Math.round((44 + player.wave * 7.5 + Math.max(0, player.wave - 7) * 3.0) * (1.02 + (waveScale - 1) * 0.82))
+    : type === "elite"
+    ? Math.round((54 + player.wave * 8.0 + Math.max(0, player.wave - 7) * 3.4) * (1.05 + (waveScale - 1) * 0.88))
+    : type === "logo"
+    ? Math.round((34 + player.wave * 5.6 + Math.max(0, player.wave - 8) * 2.1) * (1 + (waveScale - 1) * 0.65))
+    : Math.round((24 + player.wave * 4.8 + Math.max(0, player.wave - 6) * 1.8) * (1 + (waveScale - 1) * 0.72));
 
   const ringGeo = new THREE.RingGeometry(
     isBoss ? 1.8 : 0.78,
@@ -4924,11 +4957,15 @@ function spawnEnemy(isBoss=false){
     groundRing,
     hp: baseHp,
     maxHp: baseHp,
-    speed: isBoss ? 2.9 :
-      type === "runner" ? 5.3 + player.wave * 0.14 :
-      type === "tank" ? 2.2 + player.wave * 0.06 :
-      type === "elite" ? 3.9 + player.wave * 0.1 :
-      3.25 + player.wave * 0.1,
+    speed: isBoss
+      ? 3.0 + Math.min(2.0, (bossScale - 1) * 0.9)
+      : type === "runner"
+      ? 5.4 + player.wave * 0.16 + Math.max(0, player.wave - 9) * 0.05
+      : type === "tank"
+      ? 2.3 + player.wave * 0.075 + Math.max(0, player.wave - 10) * 0.03
+      : type === "elite"
+      ? 4.0 + player.wave * 0.12 + Math.max(0, player.wave - 8) * 0.04
+      : 3.3 + player.wave * 0.11 + Math.max(0, player.wave - 10) * 0.035,
     radius,
     fireCooldown: isBoss ? 0.95 : rand(0.9, 2.2),
     strafe: rand(-1, 1),
@@ -4954,28 +4991,35 @@ function spawnWave(){
   state.lastClearStamp = performance.now();
 
   const wave = player.wave;
-  const baseCount = Math.min(5 + Math.floor(wave * 1.6), 34);
+  const pressure = waveRamp(wave);
+  const bossWave = isBossWave(wave);
+  const baseCount = Math.min(5 + Math.floor(wave * 1.9 + Math.max(0, wave - 6) * 0.9), 52);
 
   const batchCount =
     wave < 3 ? 1 :
     wave < 6 ? 2 :
-    wave < 10 ? 3 : 4;
+    wave < 10 ? 3 :
+    wave < 15 ? 4 : 5;
 
-  const totalCount = Math.min(baseCount + (wave >= 8 ? 2 : 0), 38);
+  const totalCount = Math.min(
+    Math.round(baseCount + (wave >= 8 ? 2 : 0) + (bossWave ? 2 + Math.floor(Math.max(0, wave - 9) / 3) : 0) + (pressure - 1) * 4),
+    58
+  );
   const perBatch = Math.max(2, Math.ceil(totalCount / batchCount));
 
   const waveLabel =
-    wave % 8 === 0 ? `WAVE ${wave} · ANOMALY SURGE` :
-    wave % 4 === 0 ? `WAVE ${wave} · BOSS WAVE` :
+    bossWave && wave >= 12 ? `WAVE ${wave} · DIRECTOR OVERRUN` :
+    bossWave ? `WAVE ${wave} · BOSS WAVE` :
+    wave >= 10 ? `WAVE ${wave} · ARENA LOCKDOWN` :
     wave >= 6 ? `WAVE ${wave} · HEAVY CONTACT` :
     `WAVE ${wave} · ${totalCount} vijanden`;
 
   showFloating(waveLabel);
 
-  createShockwave(player.pos.clone(), wave % 4 === 0 ? 0xff6ea1 : 0x00f7ff);
+  createShockwave(player.pos.clone(), bossWave ? 0xff6ea1 : 0x00f7ff);
 
   for(let batch = 0; batch < batchCount; batch++){
-    const delay = batch * (wave >= 10 ? 650 : 900);
+    const delay = batch * (wave >= 12 ? 480 : wave >= 8 ? 620 : 900);
 
     setTimeout(() => {
       if(!state.running || !player.alive) return;
@@ -4986,19 +5030,31 @@ function spawnWave(){
       for(let i = 0; i < amount; i++){
         setTimeout(() => {
           if(state.running && player.alive) spawnEnemy(false);
-        }, i * 110);
+        }, i * (wave >= 12 ? 80 : 110));
       }
     }, delay);
   }
 
-  if(wave % 4 === 0){
+  if(bossWave){
     setTimeout(() => {
       if(!state.running || !player.alive || state.boss) return;
 
-      showFloating("BOSS INBOUND");
+      showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
       createShockwave(player.pos.clone(), 0xff2e88);
       spawnEnemy(true);
-    }, 1400);
+
+      if(wave >= 12){
+        setTimeout(() => {
+          if(state.running && player.alive && state.boss){
+            for(let i=0;i<Math.min(2 + Math.floor((wave - 12) / 4), 4); i++){
+              setTimeout(() => {
+                if(state.running && player.alive && state.boss) spawnEnemy(false);
+              }, i * 160);
+            }
+          }
+        }, 1700);
+      }
+    }, wave >= 12 ? 1050 : 1400);
   }
 
   setStat();
@@ -5450,6 +5506,9 @@ function shootWithDirection(dirOverride=null){
     const target = player.pos.clone();
     target.y = 1.45;
     const dir = target.sub(start).normalize();
+    const wave = player.wave || 1;
+    const waveScale = waveRamp(wave);
+    const bossScale = bossPressure(wave);
 
     let speed = enemy.isBoss ? 18 : 12;
     let color = enemy.isBoss ? 0xff6ea1 : 0x78d7ff;
@@ -5458,7 +5517,17 @@ function shootWithDirection(dirOverride=null){
     if(enemy.type === "tank"){ speed = 10; damage = 14; color = 0xffd166; }
     if(enemy.type === "elite"){ speed = 13; damage = 15; color = 0xffa86e; }
 
-    const burstCount = enemy.isBoss ? 2 : (enemy.type === "runner" ? 1 : enemy.type === "elite" ? 2 : 1);
+    if(enemy.isBoss){
+      speed *= Math.min(1.65, 1 + (bossScale - 1) * 0.28);
+      damage = Math.round(damage * Math.min(2.15, 1 + (bossScale - 1) * 0.42));
+    } else {
+      speed *= Math.min(1.4, 1 + (waveScale - 1) * 0.16);
+      damage = Math.round(damage * Math.min(1.9, 1 + (waveScale - 1) * 0.22));
+    }
+
+    const burstCount = enemy.isBoss
+      ? (wave >= 15 ? 4 : wave >= 9 ? 3 : 2)
+      : (enemy.type === "runner" ? 1 : enemy.type === "elite" ? (wave >= 10 ? 3 : 2) : enemy.type === "tank" && wave >= 12 ? 2 : 1);
     for(let i=0;i<burstCount;i++){
       const shotDir = dir.clone();
       shotDir.x += (Math.random()-0.5) * (enemy.isBoss ? 0.04 : 0.025);
@@ -6149,7 +6218,7 @@ function updateBullets(dt){
 
     // Melee pressure
     if(dist < (e.type === "tank" ? 2.2 : e.type === "elite" ? 1.9 : e.type === "runner" ? 1.45 : 1.6)){
-      applyDamage((e.type === "tank" ? 18 : e.type === "elite" ? 17 : e.type === "runner" ? 13 : 12) * dt * 8);
+      applyDamage((e.type === "tank" ? 20 : e.type === "elite" ? 18 : e.type === "runner" ? 14 : 13) * Math.min(2.1, waveRamp(player.wave) * 0.9) * dt * 8);
       if(Math.random() < dt * (e.type === "runner" ? 3.6 : 2.1)){
         createShockwave(
           e.mesh.position.clone(),
@@ -6172,21 +6241,21 @@ function updateBullets(dt){
           }, s * 180);
         }
         e.burstCooldown = rand(3.4, 5.2);
-        e.fireCooldown = rand(1.6, 2.2);
+        e.fireCooldown = rand(player.wave >= 12 ? 1.0 : 1.25, player.wave >= 12 ? 1.55 : 2.0);
       } else {
         enemyShoot(e);
-        e.fireCooldown = rand(1.2, 1.8);
+        e.fireCooldown = rand(player.wave >= 12 ? 0.8 : 1.0, player.wave >= 12 ? 1.25 : 1.55);
       }
     } else if(e.type === "runner" && e.fireCooldown <= 0 && dist < 12){
       if(Math.random() < 0.45) enemyShoot(e);
-      e.fireCooldown = rand(1.4, 2.1);
+      e.fireCooldown = rand(player.wave >= 12 ? 0.95 : 1.25, player.wave >= 12 ? 1.5 : 1.9);
     } else if(e.type === "tank" && e.fireCooldown <= 0 && dist < 18){
       enemyShoot(e);
       if(Math.random() < 0.35) enemyShoot(e);
-      e.fireCooldown = rand(1.9, 2.8);
+      e.fireCooldown = rand(player.wave >= 12 ? 1.2 : 1.7, player.wave >= 12 ? 1.95 : 2.45);
     } else if(e.type === "basic" && e.fireCooldown <= 0 && dist < 22){
       enemyShoot(e);
-      e.fireCooldown = rand(1.0, 1.8);
+      e.fireCooldown = rand(player.wave >= 12 ? 0.72 : 0.95, player.wave >= 12 ? 1.15 : 1.55);
     }
   }
 
@@ -6225,6 +6294,7 @@ function updateBullets(dt){
     const sideX = -dirZ;
     const sideZ = dirX;
 
+    const enrage = Math.max(0, player.wave - 8) * 0.06;
     const targetRange = e.phase === 1 ? 11 : e.phase === 2 ? 9 : 7;
 
     let forward = 0;
@@ -6243,16 +6313,16 @@ function updateBullets(dt){
 
     // Boss dash in fase 2/3
     if(e.phase >= 2 && e.dashCooldown <= 0 && dist > 5 && dist < 16){
-      const dash = (e.phase === 3 ? 6.8 : 5.2);
+      const dash = (e.phase === 3 ? 6.8 : 5.2) + Math.max(0, player.wave - 10) * 0.18;
       const tx = e.mesh.position.x + dirX * dash;
       const tz = e.mesh.position.z + dirZ * dash;
       if(!collidesAt(tx, tz, e.radius)){
         e.mesh.position.x = tx;
         e.mesh.position.z = tz;
         createShockwave(e.mesh.position.clone(), 0xff2e88, e.phase === 3 ? 5.2 : 4.3);
-        if(dist < 8) applyDamage(e.phase === 3 ? 18 : 12);
+        if(dist < 8) applyDamage((e.phase === 3 ? 18 : 12) * (1 + enrage * 0.9));
       }
-      e.dashCooldown = e.phase === 3 ? 3.2 : 4.4;
+      e.dashCooldown = Math.max(1.8, (e.phase === 3 ? 3.2 : 4.4) - Math.min(1.4, enrage * 4.0));
     }
 
     e.mesh.position.y = 0.04 + Math.sin(e.bob) * 0.07;
@@ -6265,27 +6335,42 @@ function updateBullets(dt){
     e.mesh.lookAt(player.pos.x, 2.0, player.pos.z);
 
     if(dist < 2.7){
-      applyDamage((e.phase === 3 ? 28 : 22) * dt * 8);
+      applyDamage((e.phase === 3 ? 30 : 24) * (1 + enrage) * dt * 8);
     }
 
     // Boss slam
     if(e.slamCooldown <= 0 && dist < 10){
       createShockwave(e.mesh.position.clone(), 0xff6ea1, e.phase === 3 ? 6.0 : 5.0);
-      explodeAt(player.pos.clone(), e.phase === 3 ? 3.8 : 3.1, e.phase === 3 ? 15 : 10, 0xff6ea1);
-      e.slamCooldown = e.phase === 3 ? 4.8 : 6.5;
+      explodeAt(player.pos.clone(), e.phase === 3 ? 4.2 : 3.3, (e.phase === 3 ? 17 : 12) * (1 + enrage * 0.75), 0xff6ea1);
+      e.slamCooldown = Math.max(2.8, (e.phase === 3 ? 4.8 : 6.5) - Math.min(2.0, enrage * 5.0));
+    }
+
+    if(player.wave >= 9){
+      if(e.reinforceCooldown == null) e.reinforceCooldown = Math.max(3.2, 7.0 - Math.min(2.5, Math.max(0, player.wave - 9) * 0.22));
+      e.reinforceCooldown -= dt;
+      if(e.reinforceCooldown <= 0 && state.enemies.length < Math.min(18, 6 + Math.floor(player.wave * 0.7))){
+        const reinforcements = player.wave >= 15 ? 3 : player.wave >= 11 ? 2 : 1;
+        showFloating(player.wave >= 12 ? "Boss calls reinforcements" : "Reinforcements incoming");
+        for(let r=0;r<reinforcements;r++){
+          setTimeout(() => {
+            if(state.running && player.alive && state.boss === e) spawnEnemy(false);
+          }, r * 140);
+        }
+        e.reinforceCooldown = Math.max(2.4, 6.4 - Math.min(3.1, Math.max(0, player.wave - 9) * 0.24));
+      }
     }
 
     // Boss volley
     if(e.volleyCooldown <= 0 && dist < 30){
-      const shots = e.phase === 1 ? 2 : e.phase === 2 ? 3 : 5;
+      const shots = (e.phase === 1 ? 2 : e.phase === 2 ? 3 : 5) + (player.wave >= 14 ? 1 : 0);
       for(let k=0;k<shots;k++){
         setTimeout(() => {
           if(state.running && player.alive && state.boss === e){
             enemyShoot(e);
           }
-        }, k * (e.phase === 3 ? 90 : 130));
+        }, k * Math.max(55, (e.phase === 3 ? 90 : 130) - Math.min(40, enrage * 110)));
       }
-      e.volleyCooldown = e.phase === 3 ? 1.4 : e.phase === 2 ? 1.9 : 2.4;
+      e.volleyCooldown = Math.max(0.7, (e.phase === 3 ? 1.4 : e.phase === 2 ? 1.9 : 2.4) - Math.min(0.95, enrage * 2.2));
     }
 
     updateBossBar();
