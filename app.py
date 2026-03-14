@@ -10556,16 +10556,17 @@ onHit(enemy, damage){
       }
     },
     Patrick: {
-      role: "coward",
+      role: "grenadier",
       hpMul: 1.08,
-      speedMul: 1.28,
+      speedMul: 1.06,
       color: 0x7affb7,
-      label: "Coward",
+      label: "Grenadier",
       onSpawn(enemy){
-        enemy.fireRateMul = 999;
-        enemy.damageMul = 0;
-        enemy.alwaysFlee = true;
-        enemy.neverShoot = true;
+        enemy.fireRateMul = 1.12;
+        enemy.damageMul = 1.0;
+        enemy.alwaysFlee = false;
+        enemy.neverShoot = false;
+        enemy.usesGrenades = true;
       }
     },
     Miranda: {
@@ -10766,7 +10767,42 @@ onHit(enemy, damage){
     const start = enemy.mesh.position.clone();
     start.y = enemy.isBoss ? 2.9 : 2.05;
 
-    if(name === "Patrick" || enemy.neverShoot){
+    if(name === "Patrick"){
+      const target = player.pos.clone();
+      target.y = 1.1;
+      const toTarget = target.sub(start);
+      const flatDist = Math.hypot(toTarget.x, toTarget.z) || 1;
+      const dir = toTarget.normalize();
+      dir.y = clamp(0.24 + flatDist * 0.012, 0.24, 0.48);
+      dir.x += rand(-0.025, 0.025);
+      dir.z += rand(-0.025, 0.025);
+      dir.normalize();
+
+      state.ohEnemyGrenades = state.ohEnemyGrenades || [];
+      const grenade = createProjectile(start.clone(), dir, {
+        speed: 10.5,
+        friendly: false,
+        color: 0x9dff7c,
+        trailColor: 0xd8ffca,
+        size: 0.15,
+        life: 1.55,
+        damage: 18,
+        radius: 2.7,
+        type: "enemy_grenade",
+        gravity: 9.6,
+        explosionColor: 0x9dff7c
+      });
+      grenade.enemyGrenade = true;
+      grenade.spin = rand(7, 12);
+      grenade.trailEvery = 0.05;
+      grenade.trailClock = 0;
+      state.ohEnemyGrenades.push(grenade);
+
+      createFlash?.(start.clone(), 0x9dff7c, 0.7, 2.2, 0.04);
+      return;
+    }
+
+    if(enemy.neverShoot){
       return;
     }
 
@@ -10876,7 +10912,7 @@ onHit(enemy, damage){
         }
       }
 
-      if(name === "Patrick" || enemy.alwaysFlee){
+      if(enemy.alwaysFlee){
         const dx = enemy.mesh.position.x - player.pos.x;
         const dz = enemy.mesh.position.z - player.pos.z;
         const dist = Math.hypot(dx, dz) || 1;
@@ -11264,55 +11300,7 @@ onHit(enemy, damage){
       const name = ohFindNamedEnemy(enemy);
 
       if(name === "Patrick"){
-        const dx = enemy.mesh.position.x - player.pos.x;
-        const dz = enemy.mesh.position.z - player.pos.z;
-        const dist = Math.hypot(dx, dz) || 1;
-
-        const awayX = dx / dist;
-        const awayZ = dz / dist;
-
-        const targetDist = 26;
-        let fleeMul = 1.35;
-        if(dist < 8) fleeMul = 2.25;
-        else if(dist < 14) fleeMul = 1.85;
-
-        const step = Math.max(3.2, (enemy.speed || 4)) * fleeMul * dt;
-        const nx = enemy.mesh.position.x + awayX * step;
-        const nz = enemy.mesh.position.z + awayZ * step;
-
-        if(!collidesAt(nx, nz, enemy.radius || 1)){
-          enemy.mesh.position.x = nx;
-          enemy.mesh.position.z = nz;
-        } else {
-          const sideX = -awayZ;
-          const sideZ = awayX;
-
-          const sx1 = enemy.mesh.position.x + (awayX + sideX * 0.7) * step;
-          const sz1 = enemy.mesh.position.z + (awayZ + sideZ * 0.7) * step;
-          const sx2 = enemy.mesh.position.x + (awayX - sideX * 0.7) * step;
-          const sz2 = enemy.mesh.position.z + (awayZ - sideZ * 0.7) * step;
-
-          if(!collidesAt(sx1, sz1, enemy.radius || 1)){
-            enemy.mesh.position.x = sx1;
-            enemy.mesh.position.z = sz1;
-          } else if(!collidesAt(sx2, sz2, enemy.radius || 1)){
-            enemy.mesh.position.x = sx2;
-            enemy.mesh.position.z = sz2;
-          }
-        }
-
-        enemy.preferredDistance = targetDist;
-        enemy.fireCooldown = 9999;
-        enemy.mesh.lookAt(
-          enemy.mesh.position.x + awayX * 4,
-          1.6,
-          enemy.mesh.position.z + awayZ * 4
-        );
-
-        if(enemy.groundRing){
-          enemy.groundRing.position.set(enemy.mesh.position.x, 0.03, enemy.mesh.position.z);
-          enemy.groundRing.rotation.z += dt * 2.2;
-        }
+        enemy.preferredDistance = Math.max(enemy.preferredDistance || 0, 10);
       }
     }
   };
@@ -11348,6 +11336,100 @@ onHit(enemy, damage){
 
   showFloating?.("OH extra named patch online");
 })();
+
+
+
+function ohLightGrenadeExplosion(position, radius, damage, color = 0x9dff7c){
+  createBurst(position, color, 8, 4.2, { minSize:.04, maxSize:.09, minLife:.18, maxLife:.42, maxUp:1.05, drag:0.91, gravity:3.1, shrink:0.975 });
+  createBurst(position, 0xffffff, 3, 2.8, { minSize:.025, maxSize:.05, minLife:.08, maxLife:.18, gravity:1.2, shrink:0.94 });
+  createBurst(position, 0x23301c, 5, 2.0, { minSize:.06, maxSize:.12, minLife:.22, maxLife:.52, minUp:.03, maxUp:.4, drag:0.95, gravity:0.55, shrink:0.986 });
+  createShockwave(position, color, Math.max(1.3, radius * 0.82));
+  createFlash(position, color, 1.45, radius * 2.8, 0.11);
+
+  for(let i = state.enemies.length - 1; i >= 0; i--){
+    const e = state.enemies[i];
+    if(!e?.mesh) continue;
+    const hitPos = e.mesh.position.clone();
+    hitPos.y = 1.7;
+    const d = hitPos.distanceTo(position);
+    if(d >= radius) continue;
+    e.hp -= damage * (1 - d / radius);
+    if(e.hp <= 0){
+      killEnemy(e);
+      state.enemies.splice(i, 1);
+    }
+  }
+
+  if(state.boss?.mesh){
+    const bp = state.boss.mesh.position.clone();
+    bp.y = 2.2;
+    const d = bp.distanceTo(position);
+    if(d < radius){
+      state.boss.hp -= damage * (1 - d / radius);
+      updateBossBar?.();
+      if(state.boss.hp <= 0) killEnemy(state.boss);
+    }
+  }
+}
+
+const _explodeAt_ohLight = explodeAt;
+explodeAt = function(position, radius, damage, color){
+  const grenadeColors = new Set([0x9dff7c, 0xc9ff9d, 0xd8ffca]);
+  if(grenadeColors.has(color)){
+    return ohLightGrenadeExplosion(position, radius, damage, color);
+  }
+  return _explodeAt_ohLight(position, radius, damage, color);
+};
+
+state.ohEnemyGrenades = state.ohEnemyGrenades || [];
+const _updateBullets_ohGrenades = updateBullets;
+updateBullets = function(dt){
+  _updateBullets_ohGrenades(dt);
+
+  for(let i = state.ohEnemyGrenades.length - 1; i >= 0; i--){
+    const g = state.ohEnemyGrenades[i];
+    if(!g?.mesh){
+      state.ohEnemyGrenades.splice(i, 1);
+      continue;
+    }
+
+    g.mesh.position.addScaledVector(g.vel, dt);
+    g.vel.y -= (g.gravity || 9.6) * dt;
+    g.life -= dt;
+    g.mesh.rotation.x += (g.spin || 0) * dt;
+    g.mesh.rotation.z += (g.spin || 0) * dt * 0.7;
+
+    g.trailClock = (g.trailClock || 0) + dt;
+    if(g.trailClock >= (g.trailEvery || 0.05)){
+      g.trailClock = 0;
+      createBurst(g.mesh.position.clone(), g.trailColor || g.explosionColor || 0x9dff7c, 1, 0.9, {
+        minSize:.025, maxSize:.045, minLife:.06, maxLife:.12, minUp:.02, maxUp:.18, drag:0.88, gravity:0.4, shrink:0.93
+      });
+    }
+
+    let explode = g.life <= 0 || g.mesh.position.y <= 0.2 || collidesAt(g.mesh.position.x, g.mesh.position.z, 0.14);
+
+    const playerHit = new THREE.Vector3(player.pos.x, 1.0, player.pos.z);
+    const distToPlayer = g.mesh.position.distanceTo(playerHit);
+    if(!explode && distToPlayer < 1.1){
+      explode = true;
+    }
+
+    if(explode){
+      const pos = g.mesh.position.clone();
+      const radius = g.radius || 2.7;
+      const damage = g.damage || 18;
+      const playerDist = player.pos.distanceTo(pos);
+      if(playerDist < radius + 0.25){
+        const scale = Math.max(0.35, 1 - (playerDist / Math.max(radius, 0.001)));
+        applyDamage(Math.round(damage * scale));
+      }
+      ohLightGrenadeExplosion(pos, radius, damage, g.explosionColor || 0x9dff7c);
+      scene.remove(g.mesh);
+      state.ohEnemyGrenades.splice(i, 1);
+    }
+  }
+};
 
 /* ==========================================
    OH WEAPON SCROLL + 6 SLOT LOADOUT PATCH
