@@ -5433,7 +5433,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.18,
       life: 2.6,
-      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
+      damage: 140 + Math.min(50, Math.floor(combo * 11)),
       radius: 4.2 + Math.min(1.2, combo * 0.22),
       type: "rocket",
       explosionColor: 0xff7b7b
@@ -5451,7 +5451,7 @@ function shootWithDirection(dirOverride=null){
         smoke: true,
         size: 0.12,
         life: 1.8,
-        damage: 12 + Math.min(5, Math.floor(combo)),
+        damage: 60 + Math.min(25, Math.floor(combo * 5)),
         radius: 2.2,
         type: "rocket",
         explosionColor: 0xffd166
@@ -5471,7 +5471,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.16,
       life: 1.6,
-      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
+      damage: 110 + Math.min(40, Math.floor(combo * 8.5)),
       radius: 3.6 + Math.min(1.2, combo * 0.24),
       type: "grenade",
       gravity: 10,
@@ -5631,7 +5631,7 @@ function shootWithDirection(dirOverride=null){
     aura.position.copy(group.position);
     aura.position.y = 0.03;
     scene.add(aura);
-    state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:58, pulse:0, tick:0 });
+    state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:290, pulse:0, tick:0 });
     createShockwave(group.position.clone(), 0x8bf0ff, 1.6);
     flashHint("Shock Mine geplaatst");
     setStat();
@@ -5658,7 +5658,7 @@ function shootWithDirection(dirOverride=null){
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
     beam.position.set(pos.x, 20, pos.z);
     scene.add(marker, inner, beam);
-    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
+    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:410, pulse:0, strikes:0, tick:0 });
     flashHint("Orbital lock bevestigd");
     setStat();
   }
@@ -5685,7 +5685,7 @@ function shootWithDirection(dirOverride=null){
         trailColor: 0xc9fbff,
         size: 0.16,
         life: 2.0,
-        damage: 14,
+        damage: 70,
         radius: 2.8,
         type: "plasma",
         explosionColor: 0x8bf0ff
@@ -11484,7 +11484,7 @@ onHit(enemy, damage){
       color: 0x6f4328,
       size: 0.16,
       life: 3.2,
-      damage: 14,
+      damage: 70,
       type: "enemy_book"
     });
 
@@ -11910,8 +11910,18 @@ updateBullets = function(dt){
     }
   };
 
-  ensureUsableWeapon = function(){
+  ensureUsableWeapon = function(preferred = "bullet"){
     if(slotAvailable(player.weapon)) return;
+
+    if(preferred && slotAvailable(preferred)){
+      setWeapon(preferred);
+      return;
+    }
+
+    if(slotAvailable("bullet")){
+      setWeapon("bullet");
+      return;
+    }
 
     const currentIndex = slotIndex(player.weapon);
 
@@ -11939,10 +11949,12 @@ updateBullets = function(dt){
     if(player.weapon === "plasma"){
       if(player.abilities.plasma <= 0){
         flashHint?.("Geen plasma charges");
-        ensureUsableWeapon();
+        ensureUsableWeapon("bullet");
         return false;
       }
       firePlasmaBurst();
+      if(slotAvailable("bullet")) setWeapon("bullet");
+      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
@@ -11950,10 +11962,12 @@ updateBullets = function(dt){
     if(player.weapon === "mine"){
       if(player.abilities.mine <= 0){
         flashHint?.("Geen mines over");
-        ensureUsableWeapon();
+        ensureUsableWeapon("bullet");
         return false;
       }
       deployShockMine();
+      if(slotAvailable("bullet")) setWeapon("bullet");
+      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
@@ -11961,10 +11975,12 @@ updateBullets = function(dt){
     if(player.weapon === "orbital"){
       if(player.abilities.orbital <= 0){
         flashHint?.("Geen orbital charges");
-        ensureUsableWeapon();
+        ensureUsableWeapon("bullet");
         return false;
       }
       deployOrbital();
+      if(slotAvailable("bullet")) setWeapon("bullet");
+      else ensureUsableWeapon();
       updateSelectedWeaponUI();
       return true;
     }
