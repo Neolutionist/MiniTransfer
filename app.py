@@ -2954,7 +2954,7 @@ canvas{ display:block; }
   <p>Speel ondertussen de vernieuwde arcade challenge met rijkere arena, professionelere effecten, sector-based arena layout, uitgebreidere wapensystemen en een online leaderboard.</p>
 
   <div id="nameRow">
-    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="Speler"/>
+    <input id="playerName" maxlength="18" placeholder="Jouw naam" value="" autocomplete="off" spellcheck="false"/>
   </div>
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
@@ -3049,7 +3049,35 @@ function escapeHtml(s){
 }
 
 function getPlayerName(){
-  return (ui.playerName.value || "Speler").trim().slice(0,18) || "Speler";
+  return (ui.playerName?.value || "").trim().slice(0,18);
+}
+
+function isValidPlayerName(name = getPlayerName()){
+  return /^[A-Za-z0-9 ]+$/.test(name) && /[A-Za-z0-9]/.test(name);
+}
+
+function validatePlayerName(showFeedback = false){
+  const name = getPlayerName();
+  const valid = isValidPlayerName(name);
+
+  if(ui.startBtn){
+    ui.startBtn.disabled = !valid;
+  }
+
+  if(ui.playerName){
+    ui.playerName.setCustomValidity(valid ? "" : "Gebruik alleen letters, cijfers en spaties in je naam.");
+  }
+
+  if(showFeedback && !valid && ui.playerName){
+    ui.playerName.reportValidity?.();
+    ui.playerName.focus?.();
+  }
+
+  return valid;
+}
+
+function isTypingInPlayerName(){
+  return document.activeElement === ui.playerName;
 }
 
 async function renderBoard(){
@@ -7161,6 +7189,10 @@ function animate(now){
 }
 
 function startGame(){
+  if(!validatePlayerName(true)){
+    return;
+  }
+
   ensureAudio?.();
 
   if(audioCtx && state.songClock < audioCtx.currentTime){
@@ -7191,6 +7223,24 @@ function startGame(){
   ui.startBtn.addEventListener("click", startGame);
   ui.restartBtn.addEventListener("click", restartGame);
 
+  validatePlayerName();
+  ui.playerName?.addEventListener("input", () => {
+    const cleaned = ui.playerName.value.replace(/[^A-Za-z0-9 ]+/g, "").slice(0, 18);
+    if(ui.playerName.value !== cleaned){
+      ui.playerName.value = cleaned;
+    }
+    validatePlayerName();
+  });
+  ui.playerName?.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if(e.key === "Enter"){
+      e.preventDefault();
+      if(validatePlayerName(true)){
+        startGame();
+      }
+    }
+  });
+
   document.addEventListener("pointerlockchange", () => {
     state.pointerLocked = document.pointerLockElement === renderer.domElement;
   });
@@ -7205,6 +7255,8 @@ function startGame(){
   });
 
   window.addEventListener("keydown", e => {
+    if(isTypingInPlayerName()) return;
+
     input.keyboard[e.code] = true;
 
     if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
@@ -7231,6 +7283,8 @@ function startGame(){
   }, { passive:false });
 
   window.addEventListener("keyup", e => {
+    if(isTypingInPlayerName()) return;
+
     input.keyboard[e.code] = false;
     if(e.code === "Space" || e.code === "Enter"){
       state.fireHeld = false;
@@ -8007,6 +8061,8 @@ function startGame(){
 
   /* extra inputlaag: lost 4/5/6 issues op + nieuwe controls */
   function handleApocHotkeys(e){
+    if(typeof isTypingInPlayerName === "function" && isTypingInPlayerName()) return;
+
     const code = e.code || "";
     const key = (e.key || "").toLowerCase();
 
@@ -10776,6 +10832,8 @@ function startGame(){
 
   /* ---------- hotkeys ---------- */
   function onArmoryHotkeys(e){
+    if(typeof isTypingInPlayerName === "function" && isTypingInPlayerName()) return;
+
     const code = e.code || "";
     if(code === "Tab"){
       if(!armory.awaitingWaveStart && !armory.draftOpen) return;
