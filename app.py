@@ -15112,6 +15112,11 @@ def index():
     if not logged_in(): return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
+@app.route("/arcade")
+@app.route("/p/arcade")
+def arcade_alias():
+    return redirect(url_for("index"), code=302)
+
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
