@@ -3649,6 +3649,13 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     const bodyMat = new THREE.MeshStandardMaterial({ color:0x30374c, metalness:0.72, roughness:0.28 });
     const trimMat = new THREE.MeshStandardMaterial({ color:0x7de7ff, emissive:0x1d7e91, emissiveIntensity:0.7, metalness:0.52, roughness:0.24 });
     const woodMat = new THREE.MeshStandardMaterial({ color:0x6d4a2e, roughness:0.72, metalness:0.08 });
+    weaponRig.userData.bodyMat = bodyMat;
+    weaponRig.userData.trimMat = trimMat;
+    weaponRig.userData.woodMat = woodMat;
+    weaponRig.userData.healthLowColor = new THREE.Color(0xff4f6d);
+    weaponRig.userData.healthHighColor = new THREE.Color(0x7de7ff);
+    weaponRig.userData.healthBodyLowColor = new THREE.Color(0x5a222c);
+    weaponRig.userData.healthBodyHighColor = new THREE.Color(0x30374c);
 
     const root = new THREE.Group();
     root.position.set(0.36, -0.35, -0.68);
@@ -3699,9 +3706,27 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   }
   buildViewWeapon();
 
+  function updateWeaponHealthTint(){
+    const bodyMat = weaponRig.userData.bodyMat;
+    const trimMat = weaponRig.userData.trimMat;
+    const woodMat = weaponRig.userData.woodMat;
+    if(!bodyMat || !trimMat || !woodMat) return;
+
+    const hpRatio = clamp(player.hp / Math.max(1, player.maxHp || 100), 0, 1);
+    const pulse = hpRatio < 0.35 ? (0.82 + Math.sin(performance.now() * 0.01) * 0.18) : 1;
+
+    bodyMat.color.copy(weaponRig.userData.healthBodyLowColor).lerp(weaponRig.userData.healthBodyHighColor, hpRatio);
+    trimMat.color.copy(weaponRig.userData.healthLowColor).lerp(weaponRig.userData.healthHighColor, hpRatio);
+    trimMat.emissive.copy(trimMat.color).multiplyScalar(0.26 * pulse);
+    trimMat.emissiveIntensity = 0.55 + (1 - hpRatio) * 0.9;
+
+    woodMat.color.setHSL(0.075, 0.42, 0.27 + hpRatio * 0.08);
+  }
+
   function updateViewWeapon(dt){
     const root = weaponRig.userData.root;
     if(!root) return;
+    updateWeaponHealthTint();
     const moving = Math.hypot(input.forward, input.strafe) > 0.01;
     state.walkTime += dt * (moving ? 8.5 : 3.2);
     state.viewKick = Math.max(0, state.viewKick - dt * 4.2);
@@ -4229,6 +4254,7 @@ function updateMusic(){
     ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
   }
   setStat();
+  updateWeaponHealthTint();
   resetPlayerPosition();
 
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
