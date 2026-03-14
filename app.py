@@ -4156,6 +4156,7 @@ function updateMusic(){
     firedAbility: "",
     abilityFlashTimers: { plasma:null, mine:null, orbital:null },
     moonNukeWave: 0,
+    waveSpawnToken: 0,
     preBossRelief: false
   };
 
@@ -4999,6 +5000,7 @@ function spawnWave(){
   const wave = player.wave;
   const pressure = waveRamp(wave);
   const bossWave = isBossWave(wave);
+  const spawnToken = ++state.waveSpawnToken;
   const baseCount = Math.min(5 + Math.floor(wave * 1.9 + Math.max(0, wave - 6) * 0.9), 52);
 
   const batchCount =
@@ -5035,7 +5037,7 @@ function spawnWave(){
 
       for(let i = 0; i < amount; i++){
         setTimeout(() => {
-          if(state.running && player.alive) spawnEnemy(false);
+          if(state.running && player.alive && state.waveSpawnToken === spawnToken) spawnEnemy(false);
         }, i * (wave >= 12 ? 80 : 110));
       }
     }, delay);
@@ -5043,7 +5045,7 @@ function spawnWave(){
 
   if(bossWave){
     setTimeout(() => {
-      if(!state.running || !player.alive || state.boss) return;
+      if(!state.running || !player.alive || state.boss || state.waveSpawnToken !== spawnToken) return;
 
       showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
       createShockwave(player.pos.clone(), 0xff2e88);
@@ -5948,17 +5950,21 @@ function updateBullets(dt){
   function triggerMoonNuke(hitPosition=null){
     if(state.moonNukeWave === player.wave) return false;
     state.moonNukeWave = player.wave;
+    state.waveSpawnToken += 1;
+    state.nextWaveQueued = false;
 
-    createFlash?.(moon.position.clone(), 0xdbe9ff, 3.4, 18, 0.24);
-    createShockwave?.(moon.position.clone(), 0xc8dcff, 6.8);
-    createShockwave?.(player.pos.clone(), 0xc8dcff, 4.6);
+    const epicenter = moon.position.clone();
+    createFlash?.(epicenter.clone(), 0xdbe9ff, 4.8, 26, 0.34);
+    createShockwave?.(epicenter.clone(), 0xc8dcff, 8.6);
+    createShockwave?.(player.pos.clone(), 0xc8dcff, 5.8);
+    createBurst?.(epicenter.clone(), 0xe7f1ff, 20, 5.8, { minLife:.16, maxLife:.34, minSize:.10, maxSize:.22 });
 
     if(hitPosition){
-      createBurst?.(hitPosition.clone(), 0xffd8b0, 10, 3.2, { minLife:.12, maxLife:.22, minSize:.05, maxSize:.11 });
+      createBurst?.(hitPosition.clone(), 0xffd8b0, 14, 3.8, { minLife:.12, maxLife:.24, minSize:.05, maxSize:.12 });
     }
 
-    const targets = state.enemies.slice();
-    for(const enemy of targets){
+    const allEnemies = state.enemies.slice();
+    for(const enemy of allEnemies){
       damageEnemyDirect?.(enemy, 999999);
     }
     if(state.boss){
@@ -5968,9 +5974,24 @@ function updateBullets(dt){
     for(let i = state.enemyBullets.length - 1; i >= 0; i--){
       removeEnemyBullet?.(i);
     }
+    for(let i = state.bullets.length - 1; i >= 0; i--){
+      const bullet = state.bullets[i];
+      if(bullet?.mesh && bullet.type !== "rocket") scene.remove(bullet.mesh);
+      if(bullet?.type !== "rocket") state.bullets.splice(i, 1);
+    }
 
-    flashHint?.("MAANRAAKET: wave gewist", 1500);
+    state.enemies.length = 0;
+    if(state.boss?.mesh){
+      scene.remove(state.boss.mesh);
+    }
+    state.boss = null;
+    ui.bossBarWrap?.classList.remove("show");
+    updateBossBar?.();
+
+    state.lastClearStamp = performance.now();
+    flashHint?.("Moon nuke geactiveerd — volgende wave", 1800);
     apocToast?.("MOON NUKE");
+    queueNextWave?.(0.3);
     return true;
   }
 
@@ -10262,6 +10283,73 @@ function startGame(){
       })
     ];
 
+    pool.push(
+      makeRelic({
+        id:"surveyDrone",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Survey Drone",
+        desc:"Scant de arena en betaalt direct 14 salvage uit. Daarnaast ontvang je 1 gratis reroll.",
+        tagline:"Utility • informatie en economie",
+        cost:15 + Math.floor(wave * 1.1),
+        weight: armory.rerolls <= 0 ? 1.35 : 0.95,
+        apply(){
+          armory.credits += 14;
+          armory.rerolls += 1;
+          flashHint?.("Survey Drone leverde salvage op");
+        }
+      }),
+      makeRelic({
+        id:"afterburner",
+        rarity:"rare",
+        oneShot:true,
+        levelKey:null,
+        name:"Afterburner Capsule",
+        desc:"Voor de volgende wave: extra bewegingssnelheid, +1 rocket en +1 grenade.",
+        tagline:"Mobiliteit • tijdelijke boost",
+        cost:18 + Math.floor(wave * 1.3),
+        weight: 1.0,
+        apply(){
+          player.speedBoost = Math.max(player.speedBoost || 0, 0.12);
+          player.speedBoostTimer = Math.max(player.speedBoostTimer || 0, 55);
+          player.ammo.rocket += 1;
+          player.ammo.grenade += 1;
+          setStat?.();
+        }
+      }),
+      makeRelic({
+        id:"paperwork",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Approved Paperwork",
+        desc:"Volledig nutteloze arena-administratie. Geeft wel 9 salvage en een verrassend goed gevoel van orde.",
+        tagline:"Curiositeit • lichte economie",
+        cost:5 + Math.floor(wave * 0.5),
+        weight: 0.7,
+        apply(){
+          armory.credits += 9;
+          flashHint?.("Papierwerk verwerkt");
+        }
+      }),
+      makeRelic({
+        id:"confettiWarhead",
+        rarity:"common",
+        oneShot:true,
+        levelKey:null,
+        name:"Confetti Warhead",
+        desc:"+1 rocket. De explosie is volgens de handleiding 'feestelijk verantwoord'.",
+        tagline:"Grappig • extra rocket",
+        cost:10 + Math.floor(wave),
+        weight: lowAmmo ? 1.2 : 0.85,
+        apply(){
+          player.ammo.rocket += 1;
+          setStat?.();
+        }
+      })
+    );
+
     if(nearBoss){
       pool.push(
         makeRelic({
@@ -10455,8 +10543,8 @@ function startGame(){
       : `Relic Draft • Wave ${nextWave}`;
 
     armory.draft.sub.textContent = nextWave % 5 === 0
-      ? `Boss-wave incoming. Je hebt ${fmt(armory.credits)} salvage — kies een power spike, tank-upgrade of chaos bundle.`
-      : `Je hebt ${fmt(armory.credits)} salvage — kies een build path: damage, mobility, sustain, economy of pure gekte.`;
+      ? `Boss-wave in aantocht. Je hebt ${fmt(armory.credits)} salvage — kies een duidelijke upgrade voor schade, overleving of crowd control.`
+      : `Je hebt ${fmt(armory.credits)} salvage — kies een upgrade die past bij je build: schade, mobiliteit, sustain, abilities of economie.`;
 
     generateDraftChoices();
     updateHud();
