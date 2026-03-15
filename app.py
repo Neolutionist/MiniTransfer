@@ -8020,52 +8020,78 @@ window.addEventListener("keydown", e => {
     updateApocHud();
   }
 
-  function getMoveVector(){
-    const v = new THREE.Vector3();
-    if(input.forward || input.strafe){
-      const forward = new THREE.Vector3(Math.sin(lookYaw), 0, Math.cos(lookYaw));
-      const right = new THREE.Vector3(Math.cos(lookYaw), 0, -Math.sin(lookYaw));
-      v.addScaledVector(forward, input.forward);
-      v.addScaledVector(right, input.strafe);
-    }else{
-      camera.getWorldDirection(v);
-      v.y = 0;
-    }
-    if(v.lengthSq() < 0.0001){
-      v.set(Math.sin(lookYaw), 0, Math.cos(lookYaw));
-    }
-    return v.normalize();
+function getMoveVector(){
+  const v = new THREE.Vector3();
+
+  if(input.forward || input.strafe){
+    const len = Math.hypot(input.forward, input.strafe) || 1;
+    const f = input.forward / len;
+    const s = input.strafe / len;
+
+    const sin = Math.sin(lookYaw);
+    const cos = Math.cos(lookYaw);
+
+    // exact dezelfde richting als updateMovement()
+    v.set(
+      (-sin * f + cos * s),
+      0,
+      (-cos * f - sin * s)
+    );
+  } else {
+    camera.getWorldDirection(v);
+    v.y = 0;
   }
 
-  function doDash(){
-    if(!state.running || !player.alive || apoc.dashCd > 0) return;
-
-    const dir = getMoveVector();
-    const old = player.pos.clone();
-    let moved = false;
-
-    for(let step = 1; step <= 10; step++){
-      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
-      const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
-      if(blocked) break;
-      player.pos.copy(test);
-      moved = true;
-    }
-
-    if(!moved) return;
-
-    apoc.dashCd = 3.5;
-    player.damageCooldown = Math.max(player.damageCooldown, 0.35);
-    state.cameraShake = Math.min(1.8, state.cameraShake + 0.42);
-
-    for(let i=0;i<5;i++){
-      const p = old.clone().lerp(player.pos, i / 4);
-      createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
-    }
-    createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
-    flashHint?.("Dash");
-    updateApocHud();
+  if(v.lengthSq() < 0.0001){
+    v.set(-Math.sin(lookYaw), 0, -Math.cos(lookYaw));
   }
+
+  return v.normalize();
+}
+
+function doDash(){
+  if(!state.running || !player.alive || apoc.dashCd > 0) return;
+
+  const dir = getMoveVector();
+  const old = player.pos.clone();
+
+  const dashDistance = 7.5;
+  const stepSize = 0.5;
+  const steps = Math.ceil(dashDistance / stepSize);
+
+  let moved = false;
+
+  for(let step = 1; step <= steps; step++){
+    const test = old.clone().addScaledVector(dir, step * stepSize);
+    const blocked = (typeof collidesAt === "function")
+      ? collidesAt(test.x, test.z, player.radius * 0.82)
+      : false;
+
+    if(blocked) break;
+
+    player.pos.copy(test);
+    moved = true;
+  }
+
+  if(!moved) return;
+
+  camera.position.copy(player.pos);
+  camera.position.y = 1.7;
+  applyCameraLook();
+
+  apoc.dashCd = 3.5;
+  player.damageCooldown = Math.max(player.damageCooldown, 0.35);
+  state.cameraShake = Math.min(1.8, state.cameraShake + 0.42);
+
+  for(let i = 0; i < 6; i++){
+    const p = old.clone().lerp(player.pos, i / 5);
+    createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
+  }
+
+  createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
+  flashHint?.("Dash");
+  updateApocHud();
+}
 
   function furySideShots(dirOverride=null){
     if(!apoc.furyActive || !state.running || !player.alive) return;
