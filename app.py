@@ -10890,11 +10890,15 @@ function startGame(){
   };
 
   const _startGame = startGame;
-  startGame = function(){
-    armory.profile.runs = armory.profile.runs || 0;
-    updateHud();
-    return _startGame();
-  };
+startGame = function(){
+  armory.profile.runs = armory.profile.runs || 0;
+  try{
+    updateHud?.();
+  }catch(err){
+    console.error("updateHud failed during startGame", err);
+  }
+  return _startGame();
+};
 
   /* ---------- hotkeys ---------- */
   function onArmoryHotkeys(e){
