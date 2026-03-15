@@ -5156,15 +5156,21 @@ function spawnWave(){
   }
 
   function createShockwave(position, color, radius){
-    const mesh = new THREE.Mesh(
-      new THREE.TorusGeometry(0.45, 0.06, 10, 28),
-      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.9 })
-    );
-    mesh.position.copy(position);
-    mesh.rotation.x = Math.PI / 2;
-    scene.add(mesh);
-    state.rings.push({ mesh, life:0.45, maxLife:0.45, grow:radius * 1.55 });
-  }
+  const mesh = new THREE.Mesh(
+    new THREE.TorusGeometry(0.45, 0.08, 12, 40),
+    new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.9 })
+  );
+  mesh.position.copy(position);
+  mesh.rotation.x = Math.PI / 2;
+  scene.add(mesh);
+
+  state.rings.push({
+    mesh,
+    life: 0.55,
+    maxLife: 0.55,
+    grow: radius
+  });
+}
 
   function createFlash(position, color, intensity=2.8, distance=9, life=0.15){
     const light = new THREE.PointLight(color, intensity, distance, 2);
@@ -5512,18 +5518,18 @@ function shootWithDirection(dirOverride=null){
     player.ammo.grenade -= 1;
 
     spawnFriendly(start.clone(), makeDir(0, 0.04), {
-      speed: 14 + Math.min(1.6, combo * 0.25),
-      color: 0x9dff7c,
-      trailColor: 0xd8ffca,
-      smoke: true,
-      size: 0.16,
-      life: 1.6,
-      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
-      radius: 3.6 + Math.min(1.2, combo * 0.24),
-      type: "grenade",
-      gravity: 10,
-      explosionColor: 0x9dff7c
-    });
+  speed: 14 + Math.min(1.6, combo * 0.25),
+  color: 0x9dff7c,
+  trailColor: 0xd8ffca,
+  smoke: true,
+  size: 0.22,
+  life: 1.6,
+  damage: (22 + Math.min(8, Math.floor(combo * 1.7))) * 1.5,
+  radius: (3.6 + Math.min(1.2, combo * 0.24)) * 2,
+  type: "grenade",
+  gravity: 10,
+  explosionColor: 0x9dff7c
+});
 
     // grenade krijgt shrapnel-support op combo
     if(combo >= 2.0){
@@ -5705,7 +5711,7 @@ function shootWithDirection(dirOverride=null){
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
     beam.position.set(pos.x, 20, pos.z);
     scene.add(marker, inner, beam);
-    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
+    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:22.2, damage:100, pulse:0, strikes:0, tick:0 });
     flashHint("Orbital lock bevestigd");
     setStat();
   }
