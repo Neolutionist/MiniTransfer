@@ -6922,7 +6922,11 @@ function coreFlushHud(force = false){
   if(force || (CORE_LOOP.hudDirty && now - CORE_LOOP.lastHudAt >= 50)){
     CORE_LOOP.hudDirty = false;
     CORE_LOOP.lastHudAt = now;
-    updateHud();
+    try{
+      updateHud();
+    }catch(err){
+      console.error("updateHud failed", err);
+    }
   }
 }
 
@@ -10890,15 +10894,11 @@ function startGame(){
   };
 
   const _startGame = startGame;
-startGame = function(){
-  armory.profile.runs = armory.profile.runs || 0;
-  try{
-    updateHud?.();
-  }catch(err){
-    console.error("updateHud failed during startGame", err);
-  }
-  return _startGame();
-};
+  startGame = function(){
+    armory.profile.runs = armory.profile.runs || 0;
+    updateHud();
+    return _startGame();
+  };
 
   /* ---------- hotkeys ---------- */
   function onArmoryHotkeys(e){
@@ -14977,6 +14977,36 @@ updateBullets = function(dt){
     }
     return ok;
   };
+})();
+
+
+(function(){
+  function rebindGameButton(button, handler){
+    if(!button || typeof handler !== "function" || !button.parentNode) return button;
+
+    const clone = button.cloneNode(true);
+    button.parentNode.replaceChild(clone, button);
+
+    clone.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      try{
+        handler();
+      }catch(err){
+        console.error("Game button handler failed", err);
+        flashHint?.("Er ging iets mis bij het starten van het spel.", 2600);
+        if(ui?.center){
+          ui.center.classList.remove("hidden");
+        }
+      }
+    });
+
+    return clone;
+  }
+
+  ui.startBtn = rebindGameButton(ui.startBtn, startGame);
+  ui.restartBtn = rebindGameButton(ui.restartBtn, restartGame);
+
+  if(typeof validateStartButton === "function") validateStartButton();
 })();
 
   animate(performance.now());
