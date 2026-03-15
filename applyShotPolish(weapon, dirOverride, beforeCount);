@@ -4169,39 +4169,42 @@ function updateMusic(){
   };
 
   const state = {
-    running:false,
-    pointerLocked:false,
-    lastTime: performance.now(),
-    enemies: [],
-    boss: null,
-    bullets: [],
-    enemyBullets: [],
-    particles: [],
-    pickups: [],
-    rings: [],
-    flashes: [],
-    fireHeld:false,
-    nextWaveQueued:false,
-    viewKick:0,
-    walkTime:0,
-    cameraShake:0,
-    songClock:0,
-    songStep:-1,
-    ambientPulse:0,
-    combo:1,
-    comboTimer:0,
-    comboBest:1,
-    emergencyAmmoTimer:0,
-    ammoHintTimer:0,
-    lastClearStamp:performance.now(),
-    ragdolls: [],
-    hazards: [],
-    firedAbility: "",
-    abilityFlashTimers: { plasma:null, mine:null, orbital:null },
-    moonNukeWave: 0,
-    waveSpawnToken: 0,
-    preBossRelief: false
-  };
+  running:false,
+  pointerLocked:false,
+  lastTime: performance.now(),
+  enemies: [],
+  boss: null,
+  bullets: [],
+  enemyBullets: [],
+  particles: [],
+  pickups: [],
+  rings: [],
+  flashes: [],
+  fireHeld:false,
+  nextWaveQueued:false,
+  viewKick:0,
+  walkTime:0,
+  cameraShake:0,
+  songClock:0,
+  songStep:-1,
+  ambientPulse:0,
+  combo:1,
+  comboTimer:0,
+  comboBest:1,
+  emergencyAmmoTimer:0,
+  ammoHintTimer:0,
+  lastClearStamp:performance.now(),
+  ragdolls: [],
+  hazards: [],
+  firedAbility: "",
+  abilityFlashTimers: { plasma:null, mine:null, orbital:null },
+  moonNukeWave: 0,
+  waveSpawnToken: 0,
+  preBossRelief: false,
+
+  cheatBuffer: "",
+  cheatGodAmmo: false
+};
 
   const input = {
     keyboard:{},
@@ -4316,31 +4319,6 @@ function updateMusic(){
     const h = 0.42 * scale;
     const oW = 0.28 * scale;
     const gap = 0.28 * scale;
-
-    function makeShoulderEmblem(material){
-  const g = new THREE.Group();
-
-  const plate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.22, 0.03),
-    material
-  );
-  plate.position.z = 0.01;
-
-  const inset = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.12, 0.02),
-    new THREE.MeshStandardMaterial({
-      color: 0xe6edf7,
-      emissive: 0x7f8ea3,
-      emissiveIntensity: 0.08,
-      roughness: 0.34,
-      metalness: 0.28
-    })
-  );
-  inset.position.z = 0.03;
-
-  g.add(plate, inset);
-  return g;
-}
 
     function addBar(w, hh, x, y){
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hh, depth), mat);
@@ -4619,12 +4597,12 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   );
   chestPlate.position.set(0, 1.88, 0.24);
 
-  const chestLogo = makeLogoGlyph(type === "tank" ? 0.78 : 0.62);
-chestLogo.position.set(0, 1.80, 0.31);
+  const chestLogo = makeLogoGlyph(type === "tank" ? 0.84 : 0.70);
+  chestLogo.position.set(0, 1.88, 0.35);
 
-const backLogo = makeLogoGlyph(type === "tank" ? 0.58 : 0.48);
-backLogo.position.set(0, 1.78, -0.26);
-backLogo.rotation.y = Math.PI;
+  const backLogo = makeLogoGlyph(type === "tank" ? 0.72 : 0.60);
+  backLogo.position.set(0, 1.80, -0.30);
+  backLogo.rotation.y = Math.PI;
 
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
   neck.position.y = 2.40 * heightMul;
@@ -4668,59 +4646,48 @@ backLogo.rotation.y = Math.PI;
   upperArmR.position.set( 0.64*shoulderMul, 1.62*heightMul, 0.02);
 
   const foreArmL = new THREE.Mesh(
-  new THREE.BoxGeometry(0.22, 0.64 * heightMul, 0.22),
-  bodysuitMat
-);
-const foreArmR = foreArmL.clone();
-foreArmL.position.set(-0.64 * shoulderMul, 0.92 * heightMul, 0.05);
-foreArmR.position.set( 0.64 * shoulderMul, 0.92 * heightMul, 0.05);
+    new THREE.BoxGeometry(0.22, 0.78*heightMul, 0.22),
+    bodysuitMat
+  );
+  const foreArmR = foreArmL.clone();
+  foreArmL.position.set(-0.64*shoulderMul, 0.88*heightMul, 0.05);
+  foreArmR.position.set( 0.64*shoulderMul, 0.88*heightMul, 0.05);
 
-const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.24), glowMat);
-const gauntletR = gauntletL.clone();
+  const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.22,0.26), glowMat);
+  const gauntletR = gauntletL.clone();
+  gauntletL.position.set(-0.64*shoulderMul, 0.52*heightMul, 0.06);
+  gauntletR.position.set( 0.64*shoulderMul, 0.52*heightMul, 0.06);
 
-const handL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), skinMat);
-const handR = handL.clone();
+  const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
+  const handR = handL.clone();
+  handL.position.set(-0.64*shoulderMul, 0.38*heightMul, 0.06);
+  handR.position.set( 0.64*shoulderMul, 0.38*heightMul, 0.06);
 
-/* koppel hands/gauntlets aan onderarm */
-gauntletL.position.set(0, -0.24 * heightMul, 0.01);
-gauntletR.position.set(0, -0.24 * heightMul, 0.01);
+  const thighL = new THREE.Mesh(
+    new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.86*legMul, 0.28),
+    bodysuitMat
+  );
+  const thighR = thighL.clone();
+  thighL.position.set(-0.24, 0.46, 0.03);
+  thighR.position.set( 0.24, 0.46, 0.03);
 
-handL.position.set(0, -0.36 * heightMul, 0.01);
-handR.position.set(0, -0.36 * heightMul, 0.01);
+  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.15,0.30), glowMat);
+  const kneeR = kneeL.clone();
+  kneeL.position.set(-0.24, 0.06, 0.08);
+  kneeR.position.set( 0.24, 0.06, 0.08);
 
-foreArmL.add(gauntletL, handL);
-foreArmR.add(gauntletR, handR);
+  const shinL = new THREE.Mesh(
+    new THREE.BoxGeometry(0.23, 0.78*legMul, 0.26),
+    suitMat
+  );
+  const shinR = shinL.clone();
+  shinL.position.set(-0.24, -0.28, 0.03);
+  shinR.position.set( 0.24, -0.28, 0.03);
 
-const thighL = new THREE.Mesh(
-  new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.82 * legMul, 0.28),
-  bodysuitMat
-);
-const thighR = thighL.clone();
-thighL.position.set(-0.24, 0.48, 0.03);
-thighR.position.set( 0.24, 0.48, 0.03);
-
-const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.28), glowMat);
-const kneeR = kneeL.clone();
-kneeL.position.set(-0.24, 0.08, 0.07);
-kneeR.position.set( 0.24, 0.08, 0.07);
-
-const shinL = new THREE.Mesh(
-  new THREE.BoxGeometry(0.22, 0.68 * legMul, 0.24),
-  suitMat
-);
-const shinR = shinL.clone();
-shinL.position.set(-0.24, -0.24, 0.03);
-shinR.position.set( 0.24, -0.24, 0.03);
-
-const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.18, 0.42), bodysuitMat);
-const bootR = bootL.clone();
-
-/* koppel boots aan scheen */
-bootL.position.set(0, -0.42 * legMul, 0.07);
-bootR.position.set(0, -0.42 * legMul, 0.07);
-
-shinL.add(bootL);
-shinR.add(bootR);
+  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.20,0.50), bodysuitMat);
+  const bootR = bootL.clone();
+  bootL.position.set(-0.24,-0.76,0.10);
+  bootR.position.set( 0.24,-0.76,0.10);
 
   const capeWidth =
     isBoss ? 1.24 :
@@ -4810,48 +4777,21 @@ shinR.add(bootR);
   const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), glowMat);
   antennaTip.position.set(0.18, 3.20 * heightMul, -0.08);
 
-  function makeShoulderEmblem(material){
-  const g = new THREE.Group();
-
-  const plate = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.22, 0.03),
-    material
-  );
-  plate.position.z = 0.01;
-
-  const inset = new THREE.Mesh(
-    new THREE.BoxGeometry(0.14, 0.14, 0.02),
-    new THREE.MeshStandardMaterial({
-      color: 0xe8eef7,
-      emissive: 0x7a8798,
-      emissiveIntensity: 0.08,
-      roughness: 0.35,
-      metalness: 0.35
-    })
-  );
-  inset.position.z = 0.03;
-
-  g.add(plate, inset);
-  return g;
-}
-
-const shoulderBadgeL = makeShoulderEmblem(trimMat);
-const shoulderBadgeR = makeShoulderEmblem(trimMat);
-
-shoulderBadgeL.position.set(-0.64 * shoulderMul, 2.08 * heightMul, 0.19);
-shoulderBadgeL.rotation.set(0, -0.18, 0.08);
-
-shoulderBadgeR.position.set( 0.64 * shoulderMul, 2.08 * heightMul, 0.19);
-shoulderBadgeR.rotation.set(0,  0.18, -0.08);
+  const shoulderBadgeL = makeLogoGlyph(0.24);
+  const shoulderBadgeR = makeLogoGlyph(0.24);
+  shoulderBadgeL.position.set(-0.64*shoulderMul, 2.08*heightMul, 0.18);
+  shoulderBadgeL.rotation.y = -0.35;
+  shoulderBadgeR.position.set(0.64*shoulderMul, 2.08*heightMul, 0.18);
+  shoulderBadgeR.rotation.y = 0.35;
 
   const spineLight = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.74,0.08), glowMat);
   spineLight.position.set(0,1.64,-0.18);
 
   [
-pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
-shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR,
-thighL, thighR, kneeL, kneeR, shinL, shinR, cape,
-shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
+  pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
+  shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
+  handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
+  shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
 ].forEach(m => {
     m.castShadow = true;
     m.receiveShadow = true;
@@ -6403,28 +6343,21 @@ if(b.gravity){
     e.bob += dt * (e.type === "runner" ? 7.2 : e.type === "tank" ? 3.2 : e.type === "elite" ? 5.2 : 4.4);
 
     if(e.mesh.userData.parts){
-  const swing = Math.sin(e.bob) * (
-    e.type === "runner" ? 0.62 :
-    e.type === "tank" ? 0.14 :
-    e.type === "elite" ? 0.36 : 0.26
-  );
-
-  e.mesh.userData.parts.armL.rotation.x = swing * 0.42;
-  e.mesh.userData.parts.armR.rotation.x = -swing * 0.42;
-
-  e.mesh.userData.parts.legL.rotation.x = -swing * 0.72;
-  e.mesh.userData.parts.legR.rotation.x = swing * 0.72;
-
-  if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.16;
-  if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.16;
-
-  if(e.mesh.userData.parts.shinL) e.mesh.userData.parts.shinL.rotation.x = -swing * 0.10;
-  if(e.mesh.userData.parts.shinR) e.mesh.userData.parts.shinR.rotation.x = swing * 0.10;
-
-  if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.05;
-  if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.08;
-  if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.02;
-}
+      const swing = Math.sin(e.bob) * (
+        e.type === "runner" ? 0.75 :
+        e.type === "tank" ? 0.18 :
+        e.type === "elite" ? 0.46 : 0.34
+      );
+      e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
+      e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
+      e.mesh.userData.parts.legL.rotation.x = -swing;
+      e.mesh.userData.parts.legR.rotation.x = swing;
+      if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
+      if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
+      if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.07;
+      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.1;
+      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
+    }
 
     const dx = player.pos.x - e.mesh.position.x;
     const dz = player.pos.z - e.mesh.position.z;
@@ -6587,20 +6520,14 @@ if(b.gravity){
     e.phase = hpRatio < 0.33 ? 3 : hpRatio < 0.66 ? 2 : 1;
 
     if(e.mesh.userData.parts){
-  const swing = Math.sin(e.bob) * (e.phase === 3 ? 0.26 : 0.18);
-
-  e.mesh.userData.parts.armL.rotation.x = swing * 0.46;
-  e.mesh.userData.parts.armR.rotation.x = -swing * 0.46;
-
-  e.mesh.userData.parts.legL.rotation.x = -swing * 0.68;
-  e.mesh.userData.parts.legR.rotation.x = swing * 0.68;
-
-  if(e.mesh.userData.parts.shinL) e.mesh.userData.parts.shinL.rotation.x = -swing * 0.08;
-  if(e.mesh.userData.parts.shinR) e.mesh.userData.parts.shinR.rotation.x = swing * 0.08;
-
-  if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.52)) * 0.10;
-  if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.03;
-}
+      const swing = Math.sin(e.bob) * (e.phase === 3 ? 0.34 : 0.24);
+      e.mesh.userData.parts.armL.rotation.x = swing * 0.55;
+      e.mesh.userData.parts.armR.rotation.x = -swing * 0.55;
+      e.mesh.userData.parts.legL.rotation.x = -swing * 0.8;
+      e.mesh.userData.parts.legR.rotation.x = swing * 0.8;
+      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.52)) * 0.13;
+      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.05;
+    }
 
     const dx = player.pos.x - e.mesh.position.x;
     const dz = player.pos.z - e.mesh.position.z;
@@ -7028,6 +6955,81 @@ if(b.gravity){
     drawMinimap();
     renderer.render(scene, camera);
   }
+
+  function clearCurrentWaveForCheat(){
+  state.waveSpawnToken++;
+
+  for(const e of state.enemies){
+    if(e?.mesh) scene.remove(e.mesh);
+    if(e?.groundRing) scene.remove(e.groundRing);
+  }
+  state.enemies.length = 0;
+
+  if(state.boss){
+    if(state.boss.mesh) scene.remove(state.boss.mesh);
+    if(state.boss.groundRing) scene.remove(state.boss.groundRing);
+    state.boss = null;
+    ui.bossBarWrap?.classList.remove("show");
+  }
+
+  state.enemyBullets.forEach(b => b?.mesh && scene.remove(b.mesh));
+  state.enemyBullets.length = 0;
+}
+
+function forceNextWaveCheat(){
+  if(!state.running || !player.alive) return;
+
+  clearCurrentWaveForCheat();
+
+  player.wave += 1;
+  state.moonNukeWave = 0;
+  state.lastClearStamp = performance.now();
+  state.running = true;
+
+  showFloating?.(`CHEAT · WAVE ${player.wave}`);
+  flashHint?.(`Next wave: ${player.wave}`, 900);
+
+  setStat?.();
+  updateHud?.();
+  spawnWave?.();
+}
+
+function toggleGodAmmoCheat(){
+  state.cheatGodAmmo = !state.cheatGodAmmo;
+  flashHint?.(
+    state.cheatGodAmmo ? "GOD ammo: AAN" : "GOD ammo: UIT",
+    1000
+  );
+  updateHud?.();
+}
+
+function handleTypedCheatKey(e){
+  const typingInField =
+    document.activeElement &&
+    (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA" ||
+      document.activeElement.isContentEditable
+    );
+
+  if(typingInField) return;
+  if(!e.key || e.key.length !== 1) return;
+
+  state.cheatBuffer = (state.cheatBuffer + e.key.toLowerCase())
+    .replace(/[^a-z]/g, "")
+    .slice(-12);
+
+  if(state.cheatBuffer.endsWith("next")){
+    state.cheatBuffer = "";
+    forceNextWaveCheat();
+    return;
+  }
+
+  if(state.cheatBuffer.endsWith("god")){
+    state.cheatBuffer = "";
+    toggleGodAmmoCheat();
+  }
+}
 
   function startGame(){
     ensureAudio();
@@ -7460,6 +7462,7 @@ function startGame(){
 
 window.addEventListener("keydown", e => {
   input.keyboard[e.code] = true;
+    handleTypedCheatKey(e);
 
   const typingInField =
     document.activeElement &&
@@ -14058,32 +14061,52 @@ setWeapon = function(w){
     refreshCombatHud();
   };
 
-  const _shootWithDirection = shootWithDirection;
-  shootWithDirection = function(dirOverride = null){
-    const weapon = player.weapon;
-    if(weapon in combat.shotsInMag){
-      if(combat.reload && combat.reload.weapon === weapon) return false;
-      if(combat.overheat) return false;
-      if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
-        startReload(weapon, true);
-        return false;
-      }
-    }
+const _shootWithDirection = shootWithDirection;
+shootWithDirection = function(dirOverride = null){
+  const weapon = player.weapon;
 
-    const beforeCount = state.bullets.length;
-    const ok = _shootWithDirection(dirOverride);
-    if(ok && weapon in combat.shotsInMag){
-      combat.shotsInMag[weapon] += 1;
-      combat.totalShots[weapon] += 1;
-      addHeatForWeapon(weapon);
-      applyShotPolish(weapon, dirOverride, beforeCount);
-      if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
-        startReload(weapon, true);
-      }
-      refreshCombatHud();
-    }
-    return ok;
+  const ammoBefore = {
+    bullet: player.ammo.bullet,
+    rocket: player.ammo.rocket,
+    grenade: player.ammo.grenade
   };
+
+  if(weapon in combat.shotsInMag){
+    if(combat.reload && combat.reload.weapon === weapon) return false;
+    if(combat.overheat) return false;
+    if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
+      startReload(weapon, true);
+      return false;
+    }
+  }
+
+  const beforeCount = state.bullets.length;
+  const ok = _shootWithDirection(dirOverride);
+
+  if(ok && state.cheatGodAmmo){
+    player.ammo.bullet = ammoBefore.bullet;
+    player.ammo.rocket = ammoBefore.rocket;
+    player.ammo.grenade = ammoBefore.grenade;
+  }
+
+  if(ok && weapon in combat.shotsInMag){
+    combat.shotsInMag[weapon] += 1;
+    combat.totalShots[weapon] += 1;
+    addHeatForWeapon(weapon);
+    applyShotPolish(weapon, dirOverride, beforeCount);
+    if((combat.shotsInMag[weapon] || 0) >= getMagSize(weapon) && (player.ammo[weapon] || 0) > 0){
+      startReload(weapon, true);
+    }
+    refreshCombatHud();
+  }
+
+  if(ok){
+    updateHud?.();
+    setStat?.();
+  }
+
+  return ok;
+};
 
   const _explodeAt = explodeAt;
   explodeAt = function(position, radius, damage, color){
