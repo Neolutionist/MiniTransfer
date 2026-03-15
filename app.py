@@ -3755,48 +3755,60 @@ function drawMinimap(){
   const ox = w / 2 - player.pos.x * scale;
   const oy = h / 2 - player.pos.z * scale;
 
-  // obstakels = neutraal
+  // obstakels
   for(const obs of colliders){
     const b = obs.box;
     const x = ox + b.min.x * scale;
     const y = oy + b.min.z * scale;
     const ww = (b.max.x - b.min.x) * scale;
     const hh = (b.max.z - b.min.z) * scale;
+
     ctx.fillStyle = "rgba(120,135,155,.22)";
     ctx.fillRect(x, y, ww, hh);
   }
 
-  // pickups = positief / bruikbaar
+  // pickups / boosters
   for(const p of state.pickups){
     const x = ox + p.mesh.position.x * scale;
     const y = oy + p.mesh.position.z * scale;
 
-    ctx.fillStyle =
-      p.kind === "heal"    ? "#35d07f" :
-      p.kind === "shield"  ? "#4da3ff" :
-      p.kind === "rocket"  ? "#ff9f43" :
-      p.kind === "grenade" ? "#ffd93d" :
-      "#ffffff";
+    const color =
+      p.kind === "heal"    ? "#34d399" : // groen
+      p.kind === "shield"  ? "#60a5fa" : // blauw
+      p.kind === "rocket"  ? "#f59e0b" : // oranje
+      p.kind === "grenade" ? "#facc15" : // geel
+      p.kind === "plasma"  ? "#6ee7ff" : // cyaan
+      p.kind === "mine"    ? "#a78bfa" : // paars
+      p.kind === "orbital" ? "#fde047" : // goudgeel
+                            "#d1d5db";   // fallback lichtgrijs
 
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "rgba(255,255,255,.35)";
+    ctx.lineWidth = 1;
+
+    // ruitvorm voor boosters/pickups
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-3, -3, 6, 6);
+    ctx.strokeRect(-3, -3, 6, 6);
+    ctx.restore();
   }
 
-  // hazards = gevaar
+  // hazards
   for(const hzd of state.hazards){
     const x = ox + hzd.mesh.position.x * scale;
     const y = oy + hzd.mesh.position.z * scale;
 
     ctx.fillStyle =
-      hzd.kind === "mine" ? "#ff4d4f" : "#ff7a45";
+      hzd.kind === "mine" ? "#fb923c" : "#ff7a45";
 
     ctx.beginPath();
     ctx.arc(x, y, 3.6, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // enemies = altijd roodtinten
+  // enemies
   for(const e of state.enemies){
     const x = ox + e.mesh.position.x * scale;
     const y = oy + e.mesh.position.z * scale;
@@ -3804,7 +3816,7 @@ function drawMinimap(){
     ctx.fillStyle =
       e.type === "elite"  ? "#ff7a45" :
       e.type === "logo"   ? "#ffb347" :
-      e.type === "tank"   ? "#c92a2a" :
+      e.type === "tank"   ? "#b91c1c" :
       e.type === "runner" ? "#ff5c5c" :
                             "#ff3b30";
 
@@ -3813,7 +3825,7 @@ function drawMinimap(){
     ctx.fill();
   }
 
-  // boss = extra opvallend
+  // boss
   if(state.boss){
     const x = ox + state.boss.mesh.position.x * scale;
     const y = oy + state.boss.mesh.position.z * scale;
@@ -3826,7 +3838,7 @@ function drawMinimap(){
 
     ctx.fillStyle = "#ff2d55";
     ctx.beginPath();
-    ctx.arc(x, y, 3.8, 0, Math.PI * 2);
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -3834,7 +3846,7 @@ function drawMinimap(){
   ctx.save();
   ctx.translate(w / 2, h / 2);
   ctx.rotate(-lookYaw);
-  ctx.fillStyle = "#3ddc97";
+  ctx.fillStyle = "#22c55e";
   ctx.beginPath();
   ctx.moveTo(0, -8);
   ctx.lineTo(6, 6);
@@ -3843,7 +3855,6 @@ function drawMinimap(){
   ctx.fill();
   ctx.restore();
 }
-
 
   function queueNextWave(delay=1.2){
     if(state.nextWaveQueued || !player.alive) return;
