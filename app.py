@@ -3189,7 +3189,11 @@ renderBoard();
     camera.rotation.x = lookPitch;
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  powerPreference: "high-performance",
+  precision: "highp"
+});
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
@@ -5081,7 +5085,12 @@ function spawnWave(){
 }
 
   function createProjectile(pos, dir, config){
-    const material = new THREE.MeshBasicMaterial({ color: config.color });
+    const material = new THREE.MeshBasicMaterial({
+  color: opts.color,
+  transparent: true,
+  opacity: 1,
+  depthWrite: false
+});
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(config.size, 10, 10), material);
     mesh.position.copy(pos);
     scene.add(mesh);
@@ -5396,7 +5405,7 @@ function shootWithDirection(dirOverride=null){
       speed: 31 + Math.min(4, combo * 0.7),
       color: 0xffec7d,
       trailColor: 0xfff7bf,
-      size: 0.12,
+      size: 0.20,
       life: lifeMain,
       damage: damageMain,
       type: "bullet"
@@ -5470,7 +5479,7 @@ function shootWithDirection(dirOverride=null){
         color: 0xffd166,
         trailColor: 0xffefb0,
         smoke: true,
-        size: 0.12,
+        size: 0.20,
         life: 1.8,
         damage: loadoutDamage(12 + Math.min(5, Math.floor(combo))),
         radius: 2.2,
