@@ -3788,9 +3788,9 @@ function drawMinimap(){
     ctx.fillStyle =
       e.type==="elite" ? "#ff9b5f" :
       e.type==="logo" ? "#ffd24d" :
-      e.type==="tank" ? "#ff799f" :
-      e.type==="runner" ? "#a7ff52" :
-      "#7fe7ff";
+      e.type==="tank" ? "#ff5c5c" :
+      e.type==="runner" ? "#ff8746" :
+      "#ff6fae";
     ctx.beginPath();
     ctx.arc(x,y,e.type==="tank"?4.5:3.3,0,Math.PI*2);
     ctx.fill();
@@ -7863,19 +7863,25 @@ function startGame(){
   function doDash(){
     if(!state.running || !player.alive || apoc.dashCd > 0) return;
 
+    const DASH_DISTANCE = 7.5;
+    const DASH_STEP = 0.3;
     const dir = getMoveVector();
     const old = player.pos.clone();
+    const steps = Math.max(1, Math.ceil(DASH_DISTANCE / DASH_STEP));
+    let travelled = 0;
     let moved = false;
 
-    for(let step = 1; step <= 10; step++){
-      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
+    for(let step = 1; step <= steps; step++){
+      const dist = Math.min(DASH_DISTANCE, step * DASH_STEP);
+      const test = old.clone().add(dir.clone().multiplyScalar(dist));
       const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
       if(blocked) break;
       player.pos.copy(test);
+      travelled = dist;
       moved = true;
     }
 
-    if(!moved) return;
+    if(!moved || travelled < 0.05) return;
 
     apoc.dashCd = 3.5;
     player.damageCooldown = Math.max(player.damageCooldown, 0.35);
@@ -7885,8 +7891,8 @@ function startGame(){
       const p = old.clone().lerp(player.pos, i / 4);
       createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
     }
-    createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
-    flashHint?.("Dash");
+    createShockwave?.(player.pos.clone(), 0x8bf0ff, Math.max(2.6, travelled * 0.5));
+    flashHint?.(`Dash ${travelled.toFixed(1)}m`);
     updateApocHud();
   }
 
