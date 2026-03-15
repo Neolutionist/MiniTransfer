@@ -4168,6 +4168,17 @@ function updateMusic(){
     speedBoostTimer: 0
   };
 
+const PERF = {
+  MAX_ENEMIES_SOFT: 18,
+  MAX_ENEMIES_HARD: 24,
+  MAX_PLAYER_BULLETS: 90,
+  MAX_ENEMY_BULLETS: 60,
+  MAX_PARTICLES: 220,
+  MAX_RINGS: 24,
+  MAX_FLASHES: 10,
+  MAX_HAZARDS: 10
+};
+
   const state = {
   running:false,
   pointerLocked:false,
