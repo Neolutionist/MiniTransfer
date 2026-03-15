@@ -4317,6 +4317,31 @@ function updateMusic(){
     const oW = 0.28 * scale;
     const gap = 0.28 * scale;
 
+    function makeShoulderEmblem(material){
+  const g = new THREE.Group();
+
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.22, 0.03),
+    material
+  );
+  plate.position.z = 0.01;
+
+  const inset = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.12, 0.02),
+    new THREE.MeshStandardMaterial({
+      color: 0xe6edf7,
+      emissive: 0x7f8ea3,
+      emissiveIntensity: 0.08,
+      roughness: 0.34,
+      metalness: 0.28
+    })
+  );
+  inset.position.z = 0.03;
+
+  g.add(plate, inset);
+  return g;
+}
+
     function addBar(w, hh, x, y){
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, hh, depth), mat);
       mesh.position.set(x,y,0);
@@ -4594,12 +4619,12 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   );
   chestPlate.position.set(0, 1.88, 0.24);
 
-  const chestLogo = makeLogoGlyph(type === "tank" ? 0.84 : 0.70);
-  chestLogo.position.set(0, 1.88, 0.35);
+  const chestLogo = makeLogoGlyph(type === "tank" ? 0.78 : 0.62);
+chestLogo.position.set(0, 1.80, 0.31);
 
-  const backLogo = makeLogoGlyph(type === "tank" ? 0.72 : 0.60);
-  backLogo.position.set(0, 1.80, -0.30);
-  backLogo.rotation.y = Math.PI;
+const backLogo = makeLogoGlyph(type === "tank" ? 0.58 : 0.48);
+backLogo.position.set(0, 1.78, -0.26);
+backLogo.rotation.y = Math.PI;
 
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
   neck.position.y = 2.40 * heightMul;
@@ -4643,48 +4668,59 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   upperArmR.position.set( 0.64*shoulderMul, 1.62*heightMul, 0.02);
 
   const foreArmL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.78*heightMul, 0.22),
-    bodysuitMat
-  );
-  const foreArmR = foreArmL.clone();
-  foreArmL.position.set(-0.64*shoulderMul, 0.88*heightMul, 0.05);
-  foreArmR.position.set( 0.64*shoulderMul, 0.88*heightMul, 0.05);
+  new THREE.BoxGeometry(0.22, 0.64 * heightMul, 0.22),
+  bodysuitMat
+);
+const foreArmR = foreArmL.clone();
+foreArmL.position.set(-0.64 * shoulderMul, 0.92 * heightMul, 0.05);
+foreArmR.position.set( 0.64 * shoulderMul, 0.92 * heightMul, 0.05);
 
-  const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.22,0.26), glowMat);
-  const gauntletR = gauntletL.clone();
-  gauntletL.position.set(-0.64*shoulderMul, 0.52*heightMul, 0.06);
-  gauntletR.position.set( 0.64*shoulderMul, 0.52*heightMul, 0.06);
+const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.24), glowMat);
+const gauntletR = gauntletL.clone();
 
-  const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
-  const handR = handL.clone();
-  handL.position.set(-0.64*shoulderMul, 0.38*heightMul, 0.06);
-  handR.position.set( 0.64*shoulderMul, 0.38*heightMul, 0.06);
+const handL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), skinMat);
+const handR = handL.clone();
 
-  const thighL = new THREE.Mesh(
-    new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.86*legMul, 0.28),
-    bodysuitMat
-  );
-  const thighR = thighL.clone();
-  thighL.position.set(-0.24, 0.46, 0.03);
-  thighR.position.set( 0.24, 0.46, 0.03);
+/* koppel hands/gauntlets aan onderarm */
+gauntletL.position.set(0, -0.24 * heightMul, 0.01);
+gauntletR.position.set(0, -0.24 * heightMul, 0.01);
 
-  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.15,0.30), glowMat);
-  const kneeR = kneeL.clone();
-  kneeL.position.set(-0.24, 0.06, 0.08);
-  kneeR.position.set( 0.24, 0.06, 0.08);
+handL.position.set(0, -0.36 * heightMul, 0.01);
+handR.position.set(0, -0.36 * heightMul, 0.01);
 
-  const shinL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.23, 0.78*legMul, 0.26),
-    suitMat
-  );
-  const shinR = shinL.clone();
-  shinL.position.set(-0.24, -0.28, 0.03);
-  shinR.position.set( 0.24, -0.28, 0.03);
+foreArmL.add(gauntletL, handL);
+foreArmR.add(gauntletR, handR);
 
-  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.20,0.50), bodysuitMat);
-  const bootR = bootL.clone();
-  bootL.position.set(-0.24,-0.76,0.10);
-  bootR.position.set( 0.24,-0.76,0.10);
+const thighL = new THREE.Mesh(
+  new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.82 * legMul, 0.28),
+  bodysuitMat
+);
+const thighR = thighL.clone();
+thighL.position.set(-0.24, 0.48, 0.03);
+thighR.position.set( 0.24, 0.48, 0.03);
+
+const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.28), glowMat);
+const kneeR = kneeL.clone();
+kneeL.position.set(-0.24, 0.08, 0.07);
+kneeR.position.set( 0.24, 0.08, 0.07);
+
+const shinL = new THREE.Mesh(
+  new THREE.BoxGeometry(0.22, 0.68 * legMul, 0.24),
+  suitMat
+);
+const shinR = shinL.clone();
+shinL.position.set(-0.24, -0.24, 0.03);
+shinR.position.set( 0.24, -0.24, 0.03);
+
+const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.18, 0.42), bodysuitMat);
+const bootR = bootL.clone();
+
+/* koppel boots aan scheen */
+bootL.position.set(0, -0.42 * legMul, 0.07);
+bootR.position.set(0, -0.42 * legMul, 0.07);
+
+shinL.add(bootL);
+shinR.add(bootR);
 
   const capeWidth =
     isBoss ? 1.24 :
@@ -4774,21 +4810,48 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), glowMat);
   antennaTip.position.set(0.18, 3.20 * heightMul, -0.08);
 
-  const shoulderBadgeL = makeLogoGlyph(0.24);
-  const shoulderBadgeR = makeLogoGlyph(0.24);
-  shoulderBadgeL.position.set(-0.64*shoulderMul, 2.08*heightMul, 0.18);
-  shoulderBadgeL.rotation.y = -0.35;
-  shoulderBadgeR.position.set(0.64*shoulderMul, 2.08*heightMul, 0.18);
-  shoulderBadgeR.rotation.y = 0.35;
+  function makeShoulderEmblem(material){
+  const g = new THREE.Group();
+
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.22, 0.03),
+    material
+  );
+  plate.position.z = 0.01;
+
+  const inset = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.14, 0.02),
+    new THREE.MeshStandardMaterial({
+      color: 0xe8eef7,
+      emissive: 0x7a8798,
+      emissiveIntensity: 0.08,
+      roughness: 0.35,
+      metalness: 0.35
+    })
+  );
+  inset.position.z = 0.03;
+
+  g.add(plate, inset);
+  return g;
+}
+
+const shoulderBadgeL = makeShoulderEmblem(trimMat);
+const shoulderBadgeR = makeShoulderEmblem(trimMat);
+
+shoulderBadgeL.position.set(-0.64 * shoulderMul, 2.08 * heightMul, 0.19);
+shoulderBadgeL.rotation.set(0, -0.18, 0.08);
+
+shoulderBadgeR.position.set( 0.64 * shoulderMul, 2.08 * heightMul, 0.19);
+shoulderBadgeR.rotation.set(0,  0.18, -0.08);
 
   const spineLight = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.74,0.08), glowMat);
   spineLight.position.set(0,1.64,-0.18);
 
   [
-  pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
-  shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
-  handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
-  shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
+pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
+shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR,
+thighL, thighR, kneeL, kneeR, shinL, shinR, cape,
+shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
 ].forEach(m => {
     m.castShadow = true;
     m.receiveShadow = true;
@@ -6340,21 +6403,28 @@ if(b.gravity){
     e.bob += dt * (e.type === "runner" ? 7.2 : e.type === "tank" ? 3.2 : e.type === "elite" ? 5.2 : 4.4);
 
     if(e.mesh.userData.parts){
-      const swing = Math.sin(e.bob) * (
-        e.type === "runner" ? 0.75 :
-        e.type === "tank" ? 0.18 :
-        e.type === "elite" ? 0.46 : 0.34
-      );
-      e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
-      e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
-      e.mesh.userData.parts.legL.rotation.x = -swing;
-      e.mesh.userData.parts.legR.rotation.x = swing;
-      if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
-      if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
-      if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.07;
-      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.1;
-      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
-    }
+  const swing = Math.sin(e.bob) * (
+    e.type === "runner" ? 0.62 :
+    e.type === "tank" ? 0.14 :
+    e.type === "elite" ? 0.36 : 0.26
+  );
+
+  e.mesh.userData.parts.armL.rotation.x = swing * 0.42;
+  e.mesh.userData.parts.armR.rotation.x = -swing * 0.42;
+
+  e.mesh.userData.parts.legL.rotation.x = -swing * 0.72;
+  e.mesh.userData.parts.legR.rotation.x = swing * 0.72;
+
+  if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.16;
+  if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.16;
+
+  if(e.mesh.userData.parts.shinL) e.mesh.userData.parts.shinL.rotation.x = -swing * 0.10;
+  if(e.mesh.userData.parts.shinR) e.mesh.userData.parts.shinR.rotation.x = swing * 0.10;
+
+  if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.05;
+  if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.08;
+  if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.02;
+}
 
     const dx = player.pos.x - e.mesh.position.x;
     const dz = player.pos.z - e.mesh.position.z;
@@ -6517,14 +6587,20 @@ if(b.gravity){
     e.phase = hpRatio < 0.33 ? 3 : hpRatio < 0.66 ? 2 : 1;
 
     if(e.mesh.userData.parts){
-      const swing = Math.sin(e.bob) * (e.phase === 3 ? 0.34 : 0.24);
-      e.mesh.userData.parts.armL.rotation.x = swing * 0.55;
-      e.mesh.userData.parts.armR.rotation.x = -swing * 0.55;
-      e.mesh.userData.parts.legL.rotation.x = -swing * 0.8;
-      e.mesh.userData.parts.legR.rotation.x = swing * 0.8;
-      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.52)) * 0.13;
-      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.05;
-    }
+  const swing = Math.sin(e.bob) * (e.phase === 3 ? 0.26 : 0.18);
+
+  e.mesh.userData.parts.armL.rotation.x = swing * 0.46;
+  e.mesh.userData.parts.armR.rotation.x = -swing * 0.46;
+
+  e.mesh.userData.parts.legL.rotation.x = -swing * 0.68;
+  e.mesh.userData.parts.legR.rotation.x = swing * 0.68;
+
+  if(e.mesh.userData.parts.shinL) e.mesh.userData.parts.shinL.rotation.x = -swing * 0.08;
+  if(e.mesh.userData.parts.shinR) e.mesh.userData.parts.shinR.rotation.x = swing * 0.08;
+
+  if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.1 + Math.abs(Math.sin(e.bob * 0.52)) * 0.10;
+  if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.35) * 0.03;
+}
 
     const dx = player.pos.x - e.mesh.position.x;
     const dz = player.pos.z - e.mesh.position.z;
