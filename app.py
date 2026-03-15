@@ -13966,6 +13966,38 @@ updateBullets = function(dt){
   };
 
   function loadMetaProfile(){
+  const DEFAULT_LOADOUTS = {
+  vanguard: {
+    label: "Vanguard",
+    startWeapon: "bullet",
+    bonusHp: 14,
+    speed: 0.15,
+    ammo: { bullet:18, rocket:0, grenade:0 },
+    abilities: { plasma:1, mine:0, orbital:0 },
+    perk: "Stabiele opener met extra HP en rifle momentum"
+  },
+
+  demolisher: {
+    label: "Demolisher",
+    startWeapon: "rocket",
+    bonusHp: 6,
+    speed: -0.1,
+    ammo: { bullet:0, rocket:2, grenade:1 },
+    abilities: { plasma:0, mine:1, orbital:0 },
+    perk: "Explosieve start met rocket pressure en area denial"
+  },
+
+  tactician: {
+    label: "Tactician",
+    startWeapon: "grenade",
+    bonusHp: 8,
+    speed: 0.08,
+    ammo: { bullet:8, rocket:1, grenade:2 },
+    abilities: { plasma:0, mine:1, orbital:1 },
+    perk: "Utility-heavy run met crowd control en orbital follow-up"
+  }
+};
+
     try{
       const saved = JSON.parse(localStorage.getItem(FINAL_META_KEY) || "null") || {};
       return {
@@ -13979,7 +14011,8 @@ updateBullets = function(dt){
         bossContracts: saved.bossContracts || 0,
         totalMinibossKills: saved.totalMinibossKills || 0,
         activeLoadout: saved.activeLoadout || "vanguard",
-        loadouts: Object.assign({
+        loadouts: Object.assign({loadouts: Object.assign({}, DEFAULT_LOADOUTS, saved.loadouts || {})
+        const DEFAULT_LOADOUTS = {
           vanguard: {
             label: "Vanguard",
             startWeapon: "bullet",
@@ -14021,11 +14054,7 @@ updateBullets = function(dt){
         bossContracts: 0,
         totalMinibossKills: 0,
         activeLoadout: "vanguard",
-        loadouts: {
-          vanguard: { label:"Vanguard", startWeapon:"bullet", bonusHp:14, speed:0.15, ammo:{ bullet:18, rocket:0, grenade:0 }, abilities:{ plasma:1, mine:0, orbital:0 }, perk:"Stabiele opener met extra HP en rifle momentum" },
-          demolisher: { label:"Demolisher", startWeapon:"rocket", bonusHp:6, speed:-0.1, ammo:{ bullet:0, rocket:2, grenade:1 }, abilities:{ plasma:0, mine:1, orbital:0 }, perk:"Explosieve start met rocket pressure en area denial" },
-          tactician: { label:"Tactician", startWeapon:"grenade", bonusHp:8, speed:0.08, ammo:{ bullet:8, rocket:1, grenade:2 }, abilities:{ plasma:0, mine:1, orbital:1 }, perk:"Utility-heavy run met crowd control en orbital follow-up" }
-        }
+        loadouts: DEFAULT_LOADOUTS
       };
     }
   }
