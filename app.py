@@ -5476,45 +5476,45 @@ function shootWithDirection(dirOverride=null){
     player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
     sfxRocket();
 
-  } else if(weapon === "grenade"){
-    player.ammo.grenade -= 1;
+} else if(weapon === "grenade"){
+  player.ammo.grenade -= 1;
 
-    spawnFriendly(start.clone(), makeDir(0, 0.04), {
-      speed: 14 + Math.min(1.6, combo * 0.25),
-      color: 0x9dff7c,
-      trailColor: 0xd8ffca,
-      smoke: true,
-      size: 0.16,
-      life: 1.6,
-      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
-      radius: 3.6 + Math.min(1.2, combo * 0.24),
-      type: "grenade",
-      gravity: 10,
-      explosionColor: 0x9dff7c
-    });
+  spawnFriendly(start.clone(), makeDir(0, 0.04), {
+    speed: 14 + Math.min(1.6, combo * 0.25),
+    color: 0x9dff7c,
+    trailColor: 0xd8ffca,
+    smoke: true,
+    size: 0.16,
+    life: 1.6,
+    damage: 44 + Math.min(16, Math.floor(combo * 3.4)),
+    radius: 5.8 + Math.min(1.8, combo * 0.36),
+    type: "grenade",
+    gravity: 10,
+    explosionColor: 0x9dff7c
+  });
 
-    // grenade krijgt shrapnel-support op combo
-    if(combo >= 2.0){
-      const shardDamage = 5 + Math.min(4, Math.floor(combo));
-      [-0.12, 0.12].forEach(offset => {
-        const shardDir = makeDir(offset, 0.02);
-        const shardStart = start.clone().addScaledVector(right, offset * 1.3);
+  // grenade krijgt shrapnel-support op combo
+  if(combo >= 2.0){
+    const shardDamage = 5 + Math.min(4, Math.floor(combo));
+    [-0.12, 0.12].forEach(offset => {
+      const shardDir = makeDir(offset, 0.02);
+      const shardStart = start.clone().addScaledVector(right, offset * 1.3);
 
-        spawnFriendly(shardStart, shardDir, {
-          speed: 24,
-          color: 0xcaff9d,
-          trailColor: 0xf0ffd8,
-          size: 0.08,
-          life: 1.0,
-          damage: shardDamage,
-          type: "bullet"
-        });
+      spawnFriendly(shardStart, shardDir, {
+        speed: 24,
+        color: 0xcaff9d,
+        trailColor: 0xf0ffd8,
+        size: 0.08,
+        life: 1.0,
+        damage: shardDamage,
+        type: "bullet"
       });
-    }
-
-    player.fireCooldown = Math.max(0.5, 0.65 - Math.min(0.1, combo * 0.02));
-    sfxGrenade();
+    });
   }
+
+  player.fireCooldown = Math.max(0.5, 0.65 - Math.min(0.1, combo * 0.02));
+  sfxGrenade();
+}
 
   setStat();
   return true;
@@ -5652,31 +5652,58 @@ function shootWithDirection(dirOverride=null){
     setStat();
   }
 
-  function deployOrbital(){
-    if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
-    player.abilities.orbital -= 1;
-    state.firedAbility = "orbital";
-    pulseAbilityUI("orbital");
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
-    pos.x = clamp(pos.x, -54, 54);
-    pos.z = clamp(pos.z, -54, 54);
-    pos.y = 0.2;
-    const marker = new THREE.Mesh(new THREE.RingGeometry(1.25,1.9,36), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.86, side:THREE.DoubleSide }));
-    marker.rotation.x = -Math.PI/2;
-    marker.position.copy(pos);
-    const inner = new THREE.Mesh(new THREE.CircleGeometry(1.1, 28), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.18, side:THREE.DoubleSide }));
-    inner.rotation.x = -Math.PI/2;
-    inner.position.copy(pos);
-    inner.position.y = 0.02;
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
-    beam.position.set(pos.x, 20, pos.z);
-    scene.add(marker, inner, beam);
-    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
-    flashHint("Orbital lock bevestigd");
-    setStat();
-  }
+function deployOrbital(){
+  if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
+  player.abilities.orbital -= 1;
+  state.firedAbility = "orbital";
+  pulseAbilityUI("orbital");
+
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
+  pos.x = clamp(pos.x, -54, 54);
+  pos.z = clamp(pos.z, -54, 54);
+  pos.y = 0.2;
+
+  const marker = new THREE.Mesh(
+    new THREE.RingGeometry(3.75, 5.7, 48),
+    new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.86, side:THREE.DoubleSide })
+  );
+  marker.rotation.x = -Math.PI/2;
+  marker.position.copy(pos);
+
+  const inner = new THREE.Mesh(
+    new THREE.CircleGeometry(3.3, 36),
+    new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.18, side:THREE.DoubleSide })
+  );
+  inner.rotation.x = -Math.PI/2;
+  inner.position.copy(pos);
+  inner.position.y = 0.02;
+
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.1, 4.8, 40, 24, 1, true),
+    new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false })
+  );
+  beam.position.set(pos.x, 20, pos.z);
+
+  scene.add(marker, inner, beam);
+  state.hazards.push({
+    kind:"orbital",
+    mesh:marker,
+    inner,
+    beam,
+    life:1.6,
+    radius:22.2,
+    damage:82,
+    pulse:0,
+    strikes:0,
+    tick:0
+  });
+
+  flashHint("Orbital lock bevestigd");
+  setStat();
+}
 
   function firePlasmaBurst(){
     if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
