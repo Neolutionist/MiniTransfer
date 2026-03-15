@@ -5861,7 +5861,6 @@ function killEnemy(enemy){
 function restartGame(){
   clearPieterFreeze();
   state.waveEnemiesRemaining = 0;
-  state.pointerLocked = false;
 
   coreDrainArray(state.bullets);
   coreDrainArray(state.enemyBullets);
@@ -5881,17 +5880,18 @@ function restartGame(){
 
   for(const e of state.enemies){
     if(e?.mesh) scene.remove(e.mesh);
-    if(e.groundRing) scene.remove(e.groundRing);
+    if(e?.groundRing) scene.remove(e.groundRing);
   }
   state.enemies.length = 0;
 
   if(state.boss){
-    scene.remove(state.boss.mesh);
+    if(state.boss.mesh) scene.remove(state.boss.mesh);
     if(state.boss.groundRing) scene.remove(state.boss.groundRing);
     state.boss = null;
   }
 
   resetPlayerPosition();
+
   player.hp = 100;
   player.score = 0;
   player.wave = 1;
@@ -5899,6 +5899,7 @@ function restartGame(){
   player.fireCooldown = 0;
   player.damageCooldown = 0;
   player.alive = true;
+
   player.ammo.bullet = 64;
   player.ammo.rocket = 4;
   player.ammo.grenade = 3;
@@ -5919,41 +5920,43 @@ function restartGame(){
   state.combo = 1;
   state.comboTimer = 0;
   state.comboBest = 1;
-
-  setWeapon("bullet");
-
   state.emergencyAmmoTimer = 0;
   state.ammoHintTimer = 0;
-
-  while(state.flashes.length){
-    const flash = state.flashes.pop();
-    if(flash.light) scene.remove(flash.light);
-  }
-
-  restoreDefaultHint();
-
-  state.running = true;
   state.fireHeld = false;
   state.nextWaveQueued = false;
-  state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
-  state.songStep = -1;
+  state.running = true;
   state.viewKick = 0;
   state.cameraShake = 0;
   state.lastClearStamp = performance.now();
+
+  while(state.flashes.length){
+    const flash = state.flashes.pop();
+    if(flash?.light) scene.remove(flash.light);
+  }
+
+  setWeapon("bullet");
+  restoreDefaultHint();
+
+  if(audioCtx){
+    state.songClock = audioCtx.currentTime + 0.05;
+    state.songStep = -1;
+  }
 
   lookYaw = 0;
   lookPitch = 0;
   input.lookX = 0;
   input.lookY = 0;
-  applyCameraLook();
+  applyCameraLook?.();
 
-  ui.center.classList.add("hidden");
-  ui.startBtn.style.display = "";
-  ui.restartBtn.style.display = "none";
-  ui.bossBarWrap.classList.remove("show");
+  ui.center?.classList.add("hidden");
+  if(ui.startBtn) ui.startBtn.style.display = "";
+  if(ui.restartBtn) ui.restartBtn.style.display = "none";
+  ui.bossBarWrap?.classList.remove("show");
 
-  setStat();
-  spawnWave();
+  setStat?.();
+  coreMarkHudDirty?.();
+  coreFlushHud?.(true);
+  spawnWave?.();
 }
 
   function tryAdvanceWave(){
