@@ -2923,20 +2923,19 @@ canvas{ display:block; }
   </div>
 
   <div id="hud">
-  <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
-  <div class="stat"><div class="label">Wave</div><div class="value" id="wave">1</div></div>
-  <div class="stat"><div class="label">Enemies</div><div class="value" id="enemiesLeft">0</div></div>
-  <div class="stat"><div class="label">HP</div><div class="value" id="hp">100</div></div>
-  <div class="stat"><div class="label">Kills</div><div class="value" id="kills">0</div></div>
-  <div class="stat"><div class="label">Bullets</div><div class="value" id="ammoBullets">50</div></div>
-  <div class="stat"><div class="label">Rockets</div><div class="value" id="ammoRockets">0</div></div>
-  <div class="stat"><div class="label">Grenades</div><div class="value" id="ammoGrenades">0</div></div>
-  <div class="stat"><div class="label">Weapon</div><div class="value" id="weaponName">Bullet</div></div>
-  <div class="stat"><div class="label">Plasma</div><div class="value" id="ammoPlasma">3</div></div>
-  <div class="stat"><div class="label">Mines</div><div class="value" id="ammoMine">3</div></div>
-  <div class="stat"><div class="label">Orbital</div><div class="value" id="ammoOrbital">2</div></div>
-  <div class="stat"><div class="label">Combo</div><div class="value" id="combo">x1.0</div></div>
-</div>
+    <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
+    <div class="stat"><div class="label">Wave</div><div class="value" id="wave">1</div></div>
+    <div class="stat"><div class="label">HP</div><div class="value" id="hp">100</div></div>
+    <div class="stat"><div class="label">Kills</div><div class="value" id="kills">0</div></div>
+    <div class="stat"><div class="label">Bullets</div><div class="value" id="ammoBullets">50</div></div>
+    <div class="stat"><div class="label">Rockets</div><div class="value" id="ammoRockets">0</div></div>
+    <div class="stat"><div class="label">Grenades</div><div class="value" id="ammoGrenades">0</div></div>
+    <div class="stat"><div class="label">Weapon</div><div class="value" id="weaponName">Bullet</div></div>
+    <div class="stat"><div class="label">Plasma</div><div class="value" id="ammoPlasma">3</div></div>
+    <div class="stat"><div class="label">Mines</div><div class="value" id="ammoMine">2</div></div>
+    <div class="stat"><div class="label">Orbital</div><div class="value" id="ammoOrbital">1</div></div>
+    <div class="stat"><div class="label">Combo</div><div class="value" id="combo">x1.0</div></div>
+  </div>
 
   <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik om te schieten en gebruik rechts de skillknoppen.</div>
 </div>
@@ -3006,7 +3005,6 @@ canvas{ display:block; }
   const ui = {
     score: document.getElementById("score"),
     wave: document.getElementById("wave"),
-    enemiesLeft: document.getElementById("enemiesLeft"),
     hp: document.getElementById("hp"),
     kills: document.getElementById("kills"),
     ammoBullets: document.getElementById("ammoBullets"),
@@ -3729,124 +3727,99 @@ function drawMinimap(){
   const c = ui.minimapCanvas;
   const ctx = minimapCtx;
   if(!c || !ctx) return;
+  const w = c.width, h = c.height;
+  ctx.clearRect(0,0,w,h);
 
-  const w = c.width;
-  const h = c.height;
-  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "rgba(5,10,20,.92)";
+  ctx.fillRect(0,0,w,h);
 
-  ctx.fillStyle = "rgba(6,10,18,.94)";
-  ctx.fillRect(0, 0, w, h);
-
-  ctx.strokeStyle = "rgba(120,160,210,.16)";
+  ctx.strokeStyle = "rgba(0,247,255,.18)";
   ctx.lineWidth = 1;
-  for(let i = 1; i < 4; i++){
+  for(let i=1;i<4;i++){
     ctx.beginPath();
-    ctx.arc(w / 2, h / 2, (w * 0.16) * i, 0, Math.PI * 2);
+    ctx.arc(w/2,h/2,(w*0.16)*i,0,Math.PI*2);
     ctx.stroke();
   }
   ctx.beginPath();
-  ctx.moveTo(w / 2, 0);
-  ctx.lineTo(w / 2, h);
-  ctx.moveTo(0, h / 2);
-  ctx.lineTo(w, h / 2);
+  ctx.moveTo(w/2,0); ctx.lineTo(w/2,h);
+  ctx.moveTo(0,h/2); ctx.lineTo(w,h/2);
   ctx.stroke();
 
   const scale = 3.2;
-  const ox = w / 2 - player.pos.x * scale;
-  const oy = h / 2 - player.pos.z * scale;
+  const ox = w/2 - player.pos.x*scale;
+  const oy = h/2 - player.pos.z*scale;
 
-  // obstakels: neutraal
   for(const obs of colliders){
     const b = obs.box;
-    const x = ox + b.min.x * scale;
-    const y = oy + b.min.z * scale;
-    const ww = (b.max.x - b.min.x) * scale;
-    const hh = (b.max.z - b.min.z) * scale;
-    ctx.fillStyle = "rgba(120,135,155,.22)";
-    ctx.fillRect(x, y, ww, hh);
+    const x = ox + b.min.x*scale;
+    const y = oy + b.min.z*scale;
+    const ww = (b.max.x-b.min.x)*scale;
+    const hh = (b.max.z-b.min.z)*scale;
+    ctx.fillStyle = "rgba(140,170,220,.16)";
+    ctx.fillRect(x,y,ww,hh);
   }
 
-  // pickups: positief / bruikbaar
   for(const p of state.pickups){
-    const x = ox + p.mesh.position.x * scale;
-    const y = oy + p.mesh.position.z * scale;
-
+    const x = ox + p.mesh.position.x*scale;
+    const y = oy + p.mesh.position.z*scale;
     ctx.fillStyle =
-      p.kind === "heal"    ? "#35d07f" :
-      p.kind === "shield"  ? "#4da3ff" :
-      p.kind === "rocket"  ? "#ff9f43" :
-      p.kind === "grenade" ? "#ffd93d" :
-      "#ffffff";
-
+      p.kind==="heal" ? "#39ff9c" :
+      p.kind==="shield" ? "#7db7ff" :
+      p.kind==="rocket" ? "#ff6b6b" :
+      p.kind==="grenade" ? "#9cff57" :
+      "#ffd24d";
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.arc(x,y,3,0,Math.PI*2);
     ctx.fill();
   }
 
-  // hazards: gevaar
   for(const hzd of state.hazards){
-    const x = ox + hzd.mesh.position.x * scale;
-    const y = oy + hzd.mesh.position.z * scale;
-
-    ctx.fillStyle =
-      hzd.kind === "mine" ? "#ff4d4f" : "#ff7a45";
-
+    const x = ox + hzd.mesh.position.x*scale;
+    const y = oy + hzd.mesh.position.z*scale;
+    ctx.fillStyle = hzd.kind === "mine" ? "#8cf7ff" : "#ff5555";
     ctx.beginPath();
-    ctx.arc(x, y, 3.6, 0, Math.PI * 2);
+    ctx.arc(x,y,3.5,0,Math.PI*2);
     ctx.fill();
   }
 
-  // enemies: altijd roodtinten
   for(const e of state.enemies){
-    const x = ox + e.mesh.position.x * scale;
-    const y = oy + e.mesh.position.z * scale;
-
+    const x = ox + e.mesh.position.x*scale;
+    const y = oy + e.mesh.position.z*scale;
     ctx.fillStyle =
-      e.type === "elite"  ? "#ff7a45" :
-      e.type === "logo"   ? "#ffb347" :
-      e.type === "tank"   ? "#c92a2a" :
-      e.type === "runner" ? "#ff5c5c" :
-                            "#ff3b30";
-
+      e.type==="elite" ? "#ff9b5f" :
+      e.type==="logo" ? "#ffd24d" :
+      e.type==="tank" ? "#ff799f" :
+      e.type==="runner" ? "#a7ff52" :
+      "#7fe7ff";
     ctx.beginPath();
-    ctx.arc(x, y, e.type === "tank" ? 4.8 : 3.5, 0, Math.PI * 2);
+    ctx.arc(x,y,e.type==="tank"?4.5:3.3,0,Math.PI*2);
     ctx.fill();
   }
 
-  // boss: extra duidelijk
   if(state.boss){
-    const x = ox + state.boss.mesh.position.x * scale;
-    const y = oy + state.boss.mesh.position.z * scale;
-
-    ctx.strokeStyle = "#ff2d55";
-    ctx.lineWidth = 2.5;
+    const x = ox + state.boss.mesh.position.x*scale;
+    const y = oy + state.boss.mesh.position.z*scale;
+    ctx.strokeStyle = "#ff2b80";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.arc(x,y,7,0,Math.PI*2);
     ctx.stroke();
-
-    ctx.fillStyle = "#ff2d55";
-    ctx.beginPath();
-    ctx.arc(x, y, 3.8, 0, Math.PI * 2);
-    ctx.fill();
   }
 
-  // speler
   ctx.save();
-  ctx.translate(w / 2, h / 2);
+  ctx.translate(w/2,h/2);
   ctx.rotate(-lookYaw);
-  ctx.fillStyle = "#3ddc97";
+  ctx.fillStyle = "#ffffff";
   ctx.beginPath();
-  ctx.moveTo(0, -8);
-  ctx.lineTo(6, 6);
-  ctx.lineTo(-6, 6);
+  ctx.moveTo(0,-8);
+  ctx.lineTo(6,6);
+  ctx.lineTo(-6,6);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
 
   if(ui.minimapLabel){
-    ui.minimapLabel.textContent = state.boss
-      ? `BOSS • ${getEnemiesLeft()} left`
-      : `Enemies left ${getEnemiesLeft()}`;
+    ui.minimapLabel.textContent = state.boss ? "BOSS IN ARENA" : `Hostiles ${state.enemies.length}`;
   }
 }
 
@@ -4164,41 +4137,39 @@ function updateMusic(){
   };
 
   const state = {
-  running:false,
-  pointerLocked:false,
-  lastTime: performance.now(),
-  enemies: [],
-  boss: null,
-  bullets: [],
-  enemyBullets: [],
-  particles: [],
-  pickups: [],
-  rings: [],
-  flashes: [],
-  fireHeld:false,
-  nextWaveQueued:false,
-  viewKick:0,
-  walkTime:0,
-  cameraShake:0,
-  songClock:0,
-  songStep:-1,
-  ambientPulse:0,
-  combo:1,
-  comboTimer:0,
-  comboBest:1,
-  emergencyAmmoTimer:0,
-  ammoHintTimer:0,
-  lastClearStamp:performance.now(),
-  ragdolls: [],
-  hazards: [],
-  firedAbility: "",
-  abilityFlashTimers: { plasma:null, mine:null, orbital:null },
-  moonNukeWave: 0,
-  waveSpawnToken: 0,
-  preBossRelief: false,
-  waveEnemiesRemaining: 0,
-  ohFreezeUntil: 0
-};
+    running:false,
+    pointerLocked:false,
+    lastTime: performance.now(),
+    enemies: [],
+    boss: null,
+    bullets: [],
+    enemyBullets: [],
+    particles: [],
+    pickups: [],
+    rings: [],
+    flashes: [],
+    fireHeld:false,
+    nextWaveQueued:false,
+    viewKick:0,
+    walkTime:0,
+    cameraShake:0,
+    songClock:0,
+    songStep:-1,
+    ambientPulse:0,
+    combo:1,
+    comboTimer:0,
+    comboBest:1,
+    emergencyAmmoTimer:0,
+    ammoHintTimer:0,
+    lastClearStamp:performance.now(),
+    ragdolls: [],
+    hazards: [],
+    firedAbility: "",
+    abilityFlashTimers: { plasma:null, mine:null, orbital:null },
+    moonNukeWave: 0,
+    waveSpawnToken: 0,
+    preBossRelief: false
+  };
 
   const input = {
     keyboard:{},
@@ -4237,44 +4208,30 @@ function updateMusic(){
     ui.chipOrbital.classList.remove("active");
   }
 
-  function getEnemiesLeft(){
-  return (state.enemies?.length || 0) + (state.boss ? 1 : 0);
-}
-
-function clearPieterFreeze(){
-  state.ohFreezeUntil = 0;
-  const overlay = document.getElementById("ohFreezeOverlay");
-  if(overlay) overlay.style.display = "none";
-}
-
   function setStat(){
-  ui.score.textContent = Math.floor(player.score);
-  ui.wave.textContent = player.wave;
-  if(ui.enemiesLeft) ui.enemiesLeft.textContent = getEnemiesLeft();
-  ui.hp.textContent = Math.max(0, Math.floor(player.hp));
-  if(typeof updateHealthWeaponTheme === "function") updateHealthWeaponTheme();
-  ui.kills.textContent = player.kills;
-  ui.ammoBullets.textContent = player.ammo.bullet;
-  ui.ammoRockets.textContent = player.ammo.rocket;
-  ui.ammoGrenades.textContent = player.ammo.grenade;
-  ui.ammoPlasma.textContent = player.abilities.plasma;
-  ui.ammoMine.textContent = player.abilities.mine;
-  ui.ammoOrbital.textContent = player.abilities.orbital;
-  ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
-  ui.weaponName.textContent = weaponLabel(player.weapon);
-
-  ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
-  ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
-  ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
-
-  ui.abilityPlasmaCount.textContent = `${player.abilities.plasma} charges`;
-  ui.abilityMineCount.textContent = `${player.abilities.mine} charges`;
-  ui.abilityOrbitalCount.textContent = `${player.abilities.orbital} charges`;
-
-  ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
-  ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
-  ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
-}
+    ui.score.textContent = Math.floor(player.score);
+    ui.wave.textContent = player.wave;
+    ui.hp.textContent = Math.max(0, Math.floor(player.hp));
+    if(typeof updateHealthWeaponTheme === "function") updateHealthWeaponTheme();
+    ui.kills.textContent = player.kills;
+    ui.ammoBullets.textContent = player.ammo.bullet;
+    ui.ammoRockets.textContent = player.ammo.rocket;
+    ui.ammoGrenades.textContent = player.ammo.grenade;
+    ui.ammoPlasma.textContent = player.abilities.plasma;
+    ui.ammoMine.textContent = player.abilities.mine;
+    ui.ammoOrbital.textContent = player.abilities.orbital;
+    ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
+    ui.weaponName.textContent = weaponLabel(player.weapon);
+    ui.chipBullet.classList.toggle("active", player.weapon === "bullet");
+    ui.chipRocket.classList.toggle("active", player.weapon === "rocket");
+    ui.chipGrenade.classList.toggle("active", player.weapon === "grenade");
+    ui.abilityPlasmaCount.textContent = `${player.abilities.plasma} charges`;
+    ui.abilityMineCount.textContent = `${player.abilities.mine} charges`;
+    ui.abilityOrbitalCount.textContent = `${player.abilities.orbital} charges`;
+    ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
+    ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
+    ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
+  }
   setStat();
   resetPlayerPosition();
 
@@ -5078,6 +5035,7 @@ function spawnWave(){
     `WAVE ${wave} · ${totalCount} vijanden`;
 
   showFloating(waveLabel);
+
   createShockwave(player.pos.clone(), bossWave ? 0xff6ea1 : 0x00f7ff);
 
   for(let batch = 0; batch < batchCount; batch++){
@@ -5091,9 +5049,7 @@ function spawnWave(){
 
       for(let i = 0; i < amount; i++){
         setTimeout(() => {
-          if(state.running && player.alive && state.waveSpawnToken === spawnToken){
-            spawnEnemy(false);
-          }
+          if(state.running && player.alive && state.waveSpawnToken === spawnToken) spawnEnemy(false);
         }, i * (wave >= 12 ? 80 : 110));
       }
     }, delay);
@@ -5780,56 +5736,30 @@ function shootWithDirection(dirOverride=null){
     }
   }
 
-function killEnemy(enemy){
-  if(!enemy) return;
+  function killEnemy(enemy){
+    spawnRagdoll(enemy);
+    scene.remove(enemy.mesh);
+    if(enemy.groundRing) scene.remove(enemy.groundRing);
+    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 28 : 16, enemy.isBoss ? 8 : 5);
 
-  spawnRagdoll?.(enemy);
-  scene.remove(enemy.mesh);
-  if(enemy.groundRing) scene.remove(enemy.groundRing);
+    if(enemy.isBoss){
+      registerKill(150);
+      state.boss = null;
+      ui.bossBarWrap.classList.remove("show");
+      dropPickup(enemy.mesh.position.clone());
+      dropPickup(enemy.mesh.position.clone().add(new THREE.Vector3(1,0,0)));
+      dropPickup(enemy.mesh.position.clone().add(new THREE.Vector3(-1,0,0)));
+      sfxBoss();
+      queueNextWave(1.1);
+    } else {
+      registerKill(enemy.type === "elite" ? 24 : enemy.type === "tank" ? 18 : enemy.type === "runner" ? 12 : 10);
+      dropPickup(enemy.mesh.position.clone());
+      if(state.enemies.length <= 1 && !state.boss) queueNextWave(1.0);
+    }
 
-  createBurst?.(
-    enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.8, 0)),
-    enemy.isBoss
-      ? 0xff6ea1
-      : enemy.type === "elite"
-      ? 0xffa86e
-      : enemy.type === "runner"
-      ? 0xff6b6b
-      : enemy.type === "tank"
-      ? 0xff8c42
-      : 0xff3b30,
-    enemy.isBoss ? 28 : 16,
-    enemy.isBoss ? 8 : 5
-  );
-
-  if(enemy.isBoss){
-    registerKill(150);
-    state.boss = null;
-    ui.bossBarWrap?.classList.remove("show");
-    dropPickup?.(enemy.mesh.position.clone());
-    dropPickup?.(enemy.mesh.position.clone().add(new THREE.Vector3(1, 0, 0)));
-    dropPickup?.(enemy.mesh.position.clone().add(new THREE.Vector3(-1, 0, 0)));
-    sfxBoss?.();
-    queueNextWave(1.1);
-  } else {
-    registerKill(
-      enemy.type === "elite"
-        ? 24
-        : enemy.type === "tank"
-        ? 18
-        : enemy.type === "runner"
-        ? 12
-        : 10
-    );
-    dropPickup?.(enemy.mesh.position.clone());
-    if(state.enemies.length <= 1 && !state.boss) queueNextWave(1.0);
+    state.lastClearStamp = performance.now();
+    sfxEnemyDown();
   }
-
-  state.lastClearStamp = performance.now();
-  sfxEnemyDown?.();
-  coreMarkHudDirty();
-  setStat();
-}
 
   function updateBossBar(){
     if(state.boss){
@@ -5838,106 +5768,83 @@ function killEnemy(enemy){
     }
   }
 
-function restartGame(){
-  clearPieterFreeze();
-  state.waveEnemiesRemaining = 0;
-
-  coreDrainArray(state.bullets);
-  coreDrainArray(state.enemyBullets);
-  coreDrainArray(state.particles);
-  coreDrainArray(state.pickups);
-  coreDrainArray(state.rings);
-  coreDrainArray(state.hazards);
-
-  while(state.ragdolls.length){
-    const rag = state.ragdolls.pop();
-    if(rag?.pieces){
-      for(const piece of rag.pieces){
-        if(piece?.mesh) scene.remove(piece.mesh);
+  function restartGame(){
+    for(const arr of [state.bullets, state.enemyBullets, state.particles, state.pickups, state.rings, state.hazards]){
+      while(arr.length){
+        const item = arr.pop();
+        if(item.mesh) scene.remove(item.mesh);
+        if(item.aura) scene.remove(item.aura);
+        if(item.inner) scene.remove(item.inner);
+        if(item.beam) scene.remove(item.beam);
       }
     }
-  }
+    while(state.ragdolls.length){
+      const rag = state.ragdolls.pop();
+      for(const piece of rag.pieces) scene.remove(piece.mesh);
+    }
 
-  for(const e of state.enemies){
-    if(e?.mesh) scene.remove(e.mesh);
-    if(e?.groundRing) scene.remove(e.groundRing);
-  }
-  state.enemies.length = 0;
+    for(const e of state.enemies){ scene.remove(e.mesh); if(e.groundRing) scene.remove(e.groundRing); }
+    state.enemies.length = 0;
+    if(state.boss){
+      scene.remove(state.boss.mesh);
+      if(state.boss.groundRing) scene.remove(state.boss.groundRing);
+      state.boss = null;
+    }
 
-  if(state.boss){
-    if(state.boss.mesh) scene.remove(state.boss.mesh);
-    if(state.boss.groundRing) scene.remove(state.boss.groundRing);
-    state.boss = null;
-  }
+    resetPlayerPosition();
+    player.hp = 100;
+    player.score = 0;
+    player.wave = 1;
+    player.kills = 0;
+    player.fireCooldown = 0;
+    player.damageCooldown = 0;
+    player.alive = true;
+    player.ammo.bullet = 64;
+    player.ammo.rocket = 4;
+    player.ammo.grenade = 3;
+    player.abilities.plasma = 3;
+    player.abilities.mine = 2;
+    player.abilities.orbital = 1;
+    state.firedAbility = "";
+    Object.keys(state.abilityFlashTimers).forEach(key => {
+      if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
+      state.abilityFlashTimers[key] = null;
+    });
+    [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital].forEach(el => el?.classList.remove("active", "fired"));
+    state.combo = 1;
+    state.comboTimer = 0;
+    state.comboBest = 1;
+    setWeapon("bullet");
+    state.emergencyAmmoTimer = 0;
+    state.ammoHintTimer = 0;
+    while(state.flashes.length){
+      const flash = state.flashes.pop();
+      if(flash.light) scene.remove(flash.light);
+    }
+    restoreDefaultHint();
 
-  resetPlayerPosition();
-
-  player.hp = 100;
-  player.score = 0;
-  player.wave = 1;
-  player.kills = 0;
-  player.fireCooldown = 0;
-  player.damageCooldown = 0;
-  player.alive = true;
-
-  player.ammo.bullet = 64;
-  player.ammo.rocket = 4;
-  player.ammo.grenade = 3;
-  player.abilities.plasma = 3;
-  player.abilities.mine = 2;
-  player.abilities.orbital = 1;
-
-  state.firedAbility = "";
-
-  Object.keys(state.abilityFlashTimers).forEach(key => {
-    if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
-    state.abilityFlashTimers[key] = null;
-  });
-
-  [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital]
-    .forEach(el => el?.classList.remove("active", "fired"));
-
-  state.combo = 1;
-  state.comboTimer = 0;
-  state.comboBest = 1;
-  state.emergencyAmmoTimer = 0;
-  state.ammoHintTimer = 0;
-  state.fireHeld = false;
-  state.nextWaveQueued = false;
-  state.running = true;
-  state.viewKick = 0;
-  state.cameraShake = 0;
-  state.lastClearStamp = performance.now();
-
-  while(state.flashes.length){
-    const flash = state.flashes.pop();
-    if(flash?.light) scene.remove(flash.light);
-  }
-
-  setWeapon("bullet");
-  restoreDefaultHint();
-
-  if(audioCtx){
+    state.running = true;
+    state.fireHeld = false;
+    state.nextWaveQueued = false;
     state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
     state.songStep = -1;
+    state.viewKick = 0;
+    state.cameraShake = 0;
+    state.lastClearStamp = performance.now();
+
+    lookYaw = 0;
+    lookPitch = 0;
+    input.lookX = 0;
+    input.lookY = 0;
+    applyCameraLook();
+
+    ui.center.classList.add("hidden");
+    ui.startBtn.style.display = "";
+    ui.restartBtn.style.display = "none";
+    ui.bossBarWrap.classList.remove("show");
+    setStat();
+    spawnWave();
   }
-
-  lookYaw = 0;
-  lookPitch = 0;
-  input.lookX = 0;
-  input.lookY = 0;
-  applyCameraLook?.();
-
-  ui.center?.classList.add("hidden");
-  if(ui.startBtn) ui.startBtn.style.display = "";
-  if(ui.restartBtn) ui.restartBtn.style.display = "none";
-  ui.bossBarWrap?.classList.remove("show");
-
-  setStat?.();
-  coreMarkHudDirty?.();
-  coreFlushHud?.(true);
-  spawnWave?.();
-}
 
   function tryAdvanceWave(){
     if(state.enemies.length === 0 && !state.boss){
@@ -10632,74 +10539,60 @@ function startGame(){
   }
 
   function openDraft(nextWave, continueFn){
-  clearPieterFreeze();
+    armory.draftOpen = true;
+    armory.awaitingWaveStart = true;
+    armory.continueFn = continueFn;
 
-  armory.draftOpen = true;
-  armory.awaitingWaveStart = true;
-  armory.continueFn = continueFn;
+    state.running = false;
+    state.fireHeld = false;
+    if(document.pointerLockElement === renderer.domElement){
+      document.exitPointerLock?.();
+    }
 
-  state.running = false;
-  state.fireHeld = false;
+    armory.draft.root.classList.add("show");
+    armory.draft.title.textContent = nextWave % 5 === 0
+      ? `Major Relic Draft • Wave ${nextWave}`
+      : `Relic Draft • Wave ${nextWave}`;
 
-  if(document.pointerLockElement === renderer.domElement){
-    document.exitPointerLock?.();
+    armory.draft.sub.textContent = nextWave % 5 === 0
+      ? `Boss-wave in aantocht. Je hebt ${fmt(armory.credits)} salvage — kies een duidelijke upgrade voor schade, overleving of crowd control.`
+      : `Je hebt ${fmt(armory.credits)} salvage — kies een upgrade die past bij je build: schade, mobiliteit, sustain, abilities of economie.`;
+
+    generateDraftChoices();
+    updateHud();
   }
-
-  armory.draft.root.classList.add("show");
-  armory.draft.title.textContent = nextWave % 5 === 0
-    ? `Major Relic Draft • Wave ${nextWave}`
-    : `Relic Draft • Wave ${nextWave}`;
-
-  armory.draft.sub.textContent = nextWave % 5 === 0
-    ? `Boss-wave in aantocht. Je hebt ${fmt(armory.credits)} salvage — kies een duidelijke upgrade voor schade, overleving of crowd control.`
-    : `Je hebt ${fmt(armory.credits)} salvage — kies een upgrade die past bij je build: schade, mobiliteit, sustain, abilities of economie.`;
-
-  generateDraftChoices();
-  updateHud();
-  setStat();
-}
 
   function closeDraftAndContinue(){
-  clearPieterFreeze();
+    armory.draftOpen = false;
+    armory.awaitingWaveStart = false;
+    armory.draft.root.classList.remove("show");
 
-  armory.draftOpen = false;
-  armory.awaitingWaveStart = false;
-  armory.draft.root.classList.remove("show");
+    const fn = armory.continueFn;
+    armory.continueFn = null;
+    updateHud();
 
-  const fn = armory.continueFn;
-  armory.continueFn = null;
+    if(typeof fn === "function"){
+      fn();
+    }
 
-  updateHud();
-  setStat();
-
-  if(typeof fn === "function"){
-    fn();
+    if(!isTouch && state.running){
+      setTimeout(() => renderer.domElement.requestPointerLock?.(), 60);
+    }
   }
 
-  if(!isTouch && state.running){
-    setTimeout(() => renderer.domElement.requestPointerLock?.(), 60);
+  function resetRun(){
+    armory.credits = 0;
+    armory.earnedThisRun = 0;
+    armory.relicsTaken = 0;
+    armory.rerolls = 1;
+    armory.awaitingWaveStart = false;
+    armory.draftOpen = false;
+    armory.continueFn = null;
+    armory.reviveUsed = false;
+    Object.keys(armory.levels).forEach(k => armory.levels[k] = 0);
+    syncDerivedStats();
+    updateHud();
   }
-}
-
- function resetRun(){
-  clearPieterFreeze();
-
-  armory.credits = 0;
-  armory.earnedThisRun = 0;
-  armory.relicsTaken = 0;
-  armory.rerolls = 1;
-  armory.awaitingWaveStart = false;
-  armory.draftOpen = false;
-  armory.continueFn = null;
-  armory.reviveUsed = false;
-
-  state.waveEnemiesRemaining = 0;
-
-  Object.keys(armory.levels).forEach(k => armory.levels[k] = 0);
-  syncDerivedStats();
-  updateHud();
-  setStat();
-}
 
   function finishRunSnapshot(){
     armory.profile.runs += 1;
@@ -11554,25 +11447,17 @@ onHit(enemy, damage){
   }
 
   function ohFreezeGame(seconds = 3){
-  if(armory?.draftOpen || armory?.awaitingWaveStart) return;
-
-  state.ohFreezeUntil = performance.now() + seconds * 1000;
-  ohSetFreeze(true);
-  flashHint?.(`Pieter down — ${seconds} sec pauze`, seconds * 1000);
-  createShockwave?.(player.pos.clone(), 0xffd166, 2.8);
-}
-
-function ohFreezeActive(){
-  if(armory?.draftOpen || armory?.awaitingWaveStart || !state.running){
-    clearPieterFreeze();
-    ohSetFreeze(false);
-    return false;
+    state.ohFreezeUntil = performance.now() + seconds * 1000;
+    ohSetFreeze(true);
+    flashHint?.(`Pieter down — ${seconds} sec pauze`, seconds * 1000);
+    createShockwave?.(player.pos.clone(), 0xffd166, 2.8);
   }
 
-  const active = (state.ohFreezeUntil || 0) > performance.now();
-  if(!active) ohSetFreeze(false);
-  return active;
-}
+  function ohFreezeActive(){
+    const active = (state.ohFreezeUntil || 0) > performance.now();
+    if(!active) ohSetFreeze(false);
+    return active;
+  }
 
   function ohPieterSting(){
     if(typeof audioCtx === "undefined" || !audioCtx) return;
@@ -14976,414 +14861,6 @@ updateBullets = function(dt){
 })();
 
   animate(performance.now());
-})();
-
-
-
-/* =========================
-   CONSOLIDATED FINAL GAME BOOTSTRAP
-   ========================= */
-(() => {
-  function finalGetEnemiesLeft(){
-    return (state?.enemies?.length || 0) + (state?.boss ? 1 : 0);
-  }
-
-  function finalClearPieterFreeze(){
-    state.ohFreezeUntil = 0;
-    const overlay = document.getElementById("ohFreezeOverlay");
-    if(overlay) overlay.style.display = "none";
-  }
-
-  getEnemiesLeft = finalGetEnemiesLeft;
-  clearPieterFreeze = finalClearPieterFreeze;
-
-  setStat = function(){
-    if(ui.score) ui.score.textContent = Math.floor(player.score || 0);
-    if(ui.wave) ui.wave.textContent = player.wave || 1;
-    if(ui.enemiesLeft) ui.enemiesLeft.textContent = String(finalGetEnemiesLeft());
-    if(ui.hp) ui.hp.textContent = Math.max(0, Math.floor(player.hp || 0));
-    if(typeof updateHealthWeaponTheme === "function") updateHealthWeaponTheme();
-    if(ui.kills) ui.kills.textContent = player.kills || 0;
-    if(ui.ammoBullets) ui.ammoBullets.textContent = player.ammo?.bullet ?? 0;
-    if(ui.ammoRockets) ui.ammoRockets.textContent = player.ammo?.rocket ?? 0;
-    if(ui.ammoGrenades) ui.ammoGrenades.textContent = player.ammo?.grenade ?? 0;
-    if(ui.ammoPlasma) ui.ammoPlasma.textContent = player.abilities?.plasma ?? 0;
-    if(ui.ammoMine) ui.ammoMine.textContent = player.abilities?.mine ?? 0;
-    if(ui.ammoOrbital) ui.ammoOrbital.textContent = player.abilities?.orbital ?? 0;
-    if(ui.combo) ui.combo.textContent = state.combo > 1 ? `x${state.combo.toFixed(1)}` : "x1.0";
-    if(ui.weaponName) ui.weaponName.textContent = weaponLabel(player.weapon);
-
-    ui.chipBullet?.classList.toggle("active", player.weapon === "bullet");
-    ui.chipRocket?.classList.toggle("active", player.weapon === "rocket");
-    ui.chipGrenade?.classList.toggle("active", player.weapon === "grenade");
-
-    if(ui.abilityPlasmaCount) ui.abilityPlasmaCount.textContent = `${player.abilities?.plasma ?? 0} charges`;
-    if(ui.abilityMineCount) ui.abilityMineCount.textContent = `${player.abilities?.mine ?? 0} charges`;
-    if(ui.abilityOrbitalCount) ui.abilityOrbitalCount.textContent = `${player.abilities?.orbital ?? 0} charges`;
-
-    ui.abilityPlasma?.classList.toggle("empty", (player.abilities?.plasma ?? 0) <= 0);
-    ui.abilityMine?.classList.toggle("empty", (player.abilities?.mine ?? 0) <= 0);
-    ui.abilityOrbital?.classList.toggle("empty", (player.abilities?.orbital ?? 0) <= 0);
-
-    if(ui.minimapLabel){
-      ui.minimapLabel.textContent = state.boss
-        ? `BOSS • ${finalGetEnemiesLeft()} left`
-        : `Enemies left ${finalGetEnemiesLeft()}`;
-    }
-  };
-
-  drawMinimap = function(){
-    const c = ui.minimapCanvas;
-    const ctx = minimapCtx;
-    if(!c || !ctx) return;
-
-    const w = c.width;
-    const h = c.height;
-    ctx.clearRect(0, 0, w, h);
-
-    ctx.fillStyle = "rgba(6,10,18,.94)";
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.strokeStyle = "rgba(120,160,210,.16)";
-    ctx.lineWidth = 1;
-    for(let i = 1; i < 4; i++){
-      ctx.beginPath();
-      ctx.arc(w / 2, h / 2, (w * 0.16) * i, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.moveTo(w / 2, 0);
-    ctx.lineTo(w / 2, h);
-    ctx.moveTo(0, h / 2);
-    ctx.lineTo(w, h / 2);
-    ctx.stroke();
-
-    const scale = 3.2;
-    const ox = w / 2 - player.pos.x * scale;
-    const oy = h / 2 - player.pos.z * scale;
-
-    for(const obs of colliders || []){
-      const b = obs.box;
-      if(!b) continue;
-      const x = ox + b.min.x * scale;
-      const y = oy + b.min.z * scale;
-      const ww = (b.max.x - b.min.x) * scale;
-      const hh = (b.max.z - b.min.z) * scale;
-      ctx.fillStyle = "rgba(120,135,155,.22)";
-      ctx.fillRect(x, y, ww, hh);
-    }
-
-    for(const p of state.pickups || []){
-      const x = ox + p.mesh.position.x * scale;
-      const y = oy + p.mesh.position.z * scale;
-      ctx.fillStyle =
-        p.kind === "heal"    ? "#35d07f" :
-        p.kind === "shield"  ? "#4da3ff" :
-        p.kind === "rocket"  ? "#ff9f43" :
-        p.kind === "grenade" ? "#ffd93d" :
-        "#ffffff";
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for(const hzd of state.hazards || []){
-      const x = ox + hzd.mesh.position.x * scale;
-      const y = oy + hzd.mesh.position.z * scale;
-      ctx.fillStyle = hzd.kind === "mine" ? "#ff4d4f" : "#ff7a45";
-      ctx.beginPath();
-      ctx.arc(x, y, 3.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for(const e of state.enemies || []){
-      const x = ox + e.mesh.position.x * scale;
-      const y = oy + e.mesh.position.z * scale;
-      ctx.fillStyle =
-        e.type === "elite"  ? "#ff7a45" :
-        e.type === "logo"   ? "#ffb347" :
-        e.type === "tank"   ? "#c92a2a" :
-        e.type === "runner" ? "#ff5c5c" :
-                               "#ff3b30";
-      ctx.beginPath();
-      ctx.arc(x, y, e.type === "tank" ? 4.8 : 3.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    if(state.boss?.mesh){
-      const x = ox + state.boss.mesh.position.x * scale;
-      const y = oy + state.boss.mesh.position.z * scale;
-      ctx.strokeStyle = "#ff2d55";
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#ff2d55";
-      ctx.beginPath();
-      ctx.arc(x, y, 3.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.save();
-    ctx.translate(w / 2, h / 2);
-    ctx.rotate(-lookYaw);
-    ctx.fillStyle = "#3ddc97";
-    ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(6, 6);
-    ctx.lineTo(-6, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  };
-
-  if(typeof ohFreezeGame === "function"){
-    ohFreezeGame = function(seconds = 3){
-      if(armory?.draftOpen || armory?.awaitingWaveStart) return;
-      state.ohFreezeUntil = performance.now() + seconds * 1000;
-      if(typeof ohSetFreeze === "function") ohSetFreeze(true);
-      flashHint?.(`Pieter down — ${seconds} sec pauze`, seconds * 1000);
-      createShockwave?.(player.pos.clone(), 0xffd166, 2.8);
-    };
-  }
-
-  if(typeof ohFreezeActive === "function"){
-    ohFreezeActive = function(){
-      if(armory?.draftOpen || armory?.awaitingWaveStart || !state.running){
-        finalClearPieterFreeze();
-        if(typeof ohSetFreeze === "function") ohSetFreeze(false);
-        return false;
-      }
-      const active = (state.ohFreezeUntil || 0) > performance.now();
-      if(!active && typeof ohSetFreeze === "function") ohSetFreeze(false);
-      return active;
-    };
-  }
-
-  if(typeof openDraft === "function"){
-    openDraft = function(nextWave, continueFn){
-      finalClearPieterFreeze();
-      armory.draftOpen = true;
-      armory.awaitingWaveStart = true;
-      armory.continueFn = continueFn;
-      state.running = false;
-      state.fireHeld = false;
-      if(document.pointerLockElement === renderer.domElement){
-        document.exitPointerLock?.();
-      }
-      armory.draft.root.classList.add("show");
-      armory.draft.title.textContent = nextWave % 5 === 0
-        ? `Major Relic Draft • Wave ${nextWave}`
-        : `Relic Draft • Wave ${nextWave}`;
-      armory.draft.sub.textContent = nextWave % 5 === 0
-        ? `Boss-wave in aantocht. Je hebt ${fmt(armory.credits)} salvage — kies een duidelijke upgrade voor schade, overleving of crowd control.`
-        : `Je hebt ${fmt(armory.credits)} salvage — kies een upgrade die past bij je build: schade, mobiliteit, sustain, abilities of economie.`;
-      generateDraftChoices();
-      updateHud?.();
-      setStat?.();
-    };
-  }
-
-  if(typeof closeDraftAndContinue === "function"){
-    closeDraftAndContinue = function(){
-      finalClearPieterFreeze();
-      armory.draftOpen = false;
-      armory.awaitingWaveStart = false;
-      armory.draft.root.classList.remove("show");
-      const fn = armory.continueFn;
-      armory.continueFn = null;
-      updateHud?.();
-      setStat?.();
-      if(typeof fn === "function") fn();
-      if(!isTouch && state.running){
-        setTimeout(() => renderer.domElement.requestPointerLock?.(), 60);
-      }
-    };
-  }
-
-  if(typeof resetRun === "function"){
-    resetRun = function(){
-      finalClearPieterFreeze();
-      armory.credits = 0;
-      armory.earnedThisRun = 0;
-      armory.relicsTaken = 0;
-      armory.rerolls = 1;
-      armory.awaitingWaveStart = false;
-      armory.draftOpen = false;
-      armory.continueFn = null;
-      armory.reviveUsed = false;
-      Object.keys(armory.levels).forEach(k => armory.levels[k] = 0);
-      syncDerivedStats();
-      updateHud?.();
-      setStat?.();
-    };
-  }
-
-  restartGame = function(){
-    finalClearPieterFreeze();
-    coreDrainArray(state.bullets);
-    coreDrainArray(state.enemyBullets);
-    coreDrainArray(state.particles);
-    coreDrainArray(state.pickups);
-    coreDrainArray(state.rings);
-    coreDrainArray(state.hazards);
-
-    while(state.ragdolls.length){
-      const rag = state.ragdolls.pop();
-      if(rag?.pieces){
-        for(const piece of rag.pieces){
-          if(piece?.mesh) scene.remove(piece.mesh);
-        }
-      }
-    }
-
-    for(const e of state.enemies){
-      if(e?.mesh) scene.remove(e.mesh);
-      if(e?.groundRing) scene.remove(e.groundRing);
-    }
-    state.enemies.length = 0;
-
-    if(state.boss){
-      if(state.boss.mesh) scene.remove(state.boss.mesh);
-      if(state.boss.groundRing) scene.remove(state.boss.groundRing);
-      state.boss = null;
-    }
-
-    finalizeCombatRun?.();
-    resetCombatRun?.();
-    if(typeof combat !== "undefined" && combat?.profile){
-      combat.profile.totalRuns = (combat.profile.totalRuns || 0) + 1;
-      saveCombatProfile?.();
-    }
-
-    player._ohSpeedBoostUntil = 0;
-    player._ohBaseSpeed = player.speed || 10.2;
-
-    resetPlayerPosition();
-    player.hp = 100;
-    player.score = 0;
-    player.wave = 1;
-    player.kills = 0;
-    player.fireCooldown = 0;
-    player.damageCooldown = 0;
-    player.alive = true;
-    player.ammo.bullet = 64;
-    player.ammo.rocket = 4;
-    player.ammo.grenade = 3;
-    player.abilities.plasma = 3;
-    player.abilities.mine = 2;
-    player.abilities.orbital = 1;
-    state.firedAbility = "";
-
-    Object.keys(state.abilityFlashTimers).forEach(key => {
-      if(state.abilityFlashTimers[key]) clearTimeout(state.abilityFlashTimers[key]);
-      state.abilityFlashTimers[key] = null;
-    });
-
-    [ui.chipPlasma, ui.chipMine, ui.chipOrbital, ui.abilityPlasma, ui.abilityMine, ui.abilityOrbital]
-      .forEach(el => el?.classList.remove("active", "fired"));
-
-    state.combo = 1;
-    state.comboTimer = 0;
-    state.comboBest = 1;
-    state.emergencyAmmoTimer = 0;
-    state.ammoHintTimer = 0;
-    state.fireHeld = false;
-    state.nextWaveQueued = false;
-    state.running = true;
-    state.viewKick = 0;
-    state.cameraShake = 0;
-    state.lastClearStamp = performance.now();
-    state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
-    state.songStep = -1;
-
-    while(state.flashes.length){
-      const flash = state.flashes.pop();
-      if(flash?.light) scene.remove(flash.light);
-    }
-
-    setWeapon("bullet");
-    restoreDefaultHint();
-
-    lookYaw = 0;
-    lookPitch = 0;
-    input.lookX = 0;
-    input.lookY = 0;
-    applyCameraLook?.();
-
-    ui.center?.classList.add("hidden");
-    if(ui.startBtn) ui.startBtn.style.display = "";
-    if(ui.restartBtn) ui.restartBtn.style.display = "none";
-    ui.bossBarWrap?.classList.remove("show");
-
-    updateHud?.();
-    setStat?.();
-    coreMarkHudDirty?.();
-    try{ coreFlushHud?.(true); }catch(err){ console.error("coreFlushHud restart failed", err); }
-    spawnWave?.();
-  };
-
-  startGame = function(){
-    ensureAudio?.();
-    armory.profile.runs = armory.profile.runs || 0;
-    updateHud?.();
-
-    if(audioCtx && state.songClock < audioCtx.currentTime){
-      state.songClock = audioCtx.currentTime + 0.05;
-      state.songStep = -1;
-    }
-
-    if(collidesAt(player.pos.x, player.pos.z, player.radius)){
-      resetPlayerPosition();
-    }
-
-    resetCombatRun?.();
-    if(typeof combat !== "undefined" && combat?.profile){
-      combat.profile.totalRuns = (combat.profile.totalRuns || 0) + 1;
-      saveCombatProfile?.();
-    }
-
-    state.running = true;
-    player.alive = true;
-    ui.center?.classList.add("hidden");
-
-    if(!state.enemies.length && !state.boss){
-      spawnWave?.();
-    }
-
-    if(!isTouch){
-      renderer.domElement.requestPointerLock?.();
-    }
-
-    coreMarkHudDirty?.();
-    try{ coreFlushHud?.(true); }catch(err){ console.error("coreFlushHud start failed", err); }
-  };
-
-  if(typeof coreFlushHud === "function"){
-    const _coreFlushHud = coreFlushHud;
-    coreFlushHud = function(force = false){
-      try{
-        return _coreFlushHud(force);
-      }catch(err){
-        console.error("coreFlushHud failed", err);
-        try{ setStat?.(); }catch(inner){ console.error("setStat fallback failed", inner); }
-      }
-    };
-  }
-
-  function rebindButton(el, handler){
-    if(!el) return el;
-    const clone = el.cloneNode(true);
-    el.replaceWith(clone);
-    clone.addEventListener("click", handler);
-    return clone;
-  }
-
-  ui.startBtn = rebindButton(ui.startBtn, startGame);
-  ui.restartBtn = rebindButton(ui.restartBtn, restartGame);
-
-  setStat?.();
-  updateHud?.();
 })();
 
 </script>
