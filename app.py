@@ -5380,9 +5380,7 @@ function shootWithDirection(dirOverride=null){
     player.ammo.bullet -= 1;
 
     const spread = Math.max(0.004, 0.018 - combo * 0.0025);
-    const damageMain = loadoutDamage(
-  10 + Math.min(6, Math.floor(combo * 1.4))
-);
+    const damageMain = 10 + Math.min(6, Math.floor(combo * 1.4));
     const lifeMain = 2.2 + Math.min(0.4, combo * 0.06);
 
     spawnFriendly(start.clone(), makeDir(
@@ -5450,9 +5448,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.18,
       life: 2.6,
-      damage: loadoutDamage(
-      28 + Math.min(10, Math.floor(combo * 2.2))
-    ),
+      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
       radius: 4.2 + Math.min(1.2, combo * 0.22),
       type: "rocket",
       explosionColor: 0xff7b7b
@@ -5470,9 +5466,7 @@ function shootWithDirection(dirOverride=null){
         smoke: true,
         size: 0.12,
         life: 1.8,
-        damage: loadoutDamage(
-        12 + Math.min(5, Math.floor(combo))
-    ),
+        damage: 12 + Math.min(5, Math.floor(combo)),
         radius: 2.2,
         type: "rocket",
         explosionColor: 0xffd166
@@ -5482,47 +5476,45 @@ function shootWithDirection(dirOverride=null){
     player.fireCooldown = Math.max(0.42, 0.55 - Math.min(0.09, combo * 0.018));
     sfxRocket();
 
-} else if(weapon === "grenade"){
-  player.ammo.grenade -= 1;
+  } else if(weapon === "grenade"){
+    player.ammo.grenade -= 1;
 
-  spawnFriendly(start.clone(), makeDir(0, 0.04), {
-    speed: 14 + Math.min(1.6, combo * 0.25),
-    color: 0x9dff7c,
-    trailColor: 0xd8ffca,
-    smoke: true,
-    size: 0.16,
-    life: 1.6,
-    damage: 44 + Math.min(16, Math.floor(combo * 3.4)),
-    radius: 5.8 + Math.min(1.8, combo * 0.36),
-    type: "grenade",
-    gravity: 10,
-    explosionColor: 0x9dff7c
-  });
-
-  // grenade krijgt shrapnel-support op combo
-  if(combo >= 2.0){
-    const shardDamage = loadoutDamage(
-    5 + Math.min(4, Math.floor(combo))
-    );
-    [-0.12, 0.12].forEach(offset => {
-      const shardDir = makeDir(offset, 0.02);
-      const shardStart = start.clone().addScaledVector(right, offset * 1.3);
-
-      spawnFriendly(shardStart, shardDir, {
-        speed: 24,
-        color: 0xcaff9d,
-        trailColor: 0xf0ffd8,
-        size: 0.08,
-        life: 1.0,
-        damage: shardDamage,
-        type: "bullet"
-      });
+    spawnFriendly(start.clone(), makeDir(0, 0.04), {
+      speed: 14 + Math.min(1.6, combo * 0.25),
+      color: 0x9dff7c,
+      trailColor: 0xd8ffca,
+      smoke: true,
+      size: 0.16,
+      life: 1.6,
+      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
+      radius: 3.6 + Math.min(1.2, combo * 0.24),
+      type: "grenade",
+      gravity: 10,
+      explosionColor: 0x9dff7c
     });
-  }
 
-  player.fireCooldown = Math.max(0.5, 0.65 - Math.min(0.1, combo * 0.02));
-  sfxGrenade();
-}
+    // grenade krijgt shrapnel-support op combo
+    if(combo >= 2.0){
+      const shardDamage = 5 + Math.min(4, Math.floor(combo));
+      [-0.12, 0.12].forEach(offset => {
+        const shardDir = makeDir(offset, 0.02);
+        const shardStart = start.clone().addScaledVector(right, offset * 1.3);
+
+        spawnFriendly(shardStart, shardDir, {
+          speed: 24,
+          color: 0xcaff9d,
+          trailColor: 0xf0ffd8,
+          size: 0.08,
+          life: 1.0,
+          damage: shardDamage,
+          type: "bullet"
+        });
+      });
+    }
+
+    player.fireCooldown = Math.max(0.5, 0.65 - Math.min(0.1, combo * 0.02));
+    sfxGrenade();
+  }
 
   setStat();
   return true;
@@ -5660,58 +5652,31 @@ function shootWithDirection(dirOverride=null){
     setStat();
   }
 
-function deployOrbital(){
-  if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
-  player.abilities.orbital -= 1;
-  state.firedAbility = "orbital";
-  pulseAbilityUI("orbital");
-
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
-
-  const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
-  pos.x = clamp(pos.x, -54, 54);
-  pos.z = clamp(pos.z, -54, 54);
-  pos.y = 0.2;
-
-  const marker = new THREE.Mesh(
-    new THREE.RingGeometry(3.75, 5.7, 48),
-    new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.86, side:THREE.DoubleSide })
-  );
-  marker.rotation.x = -Math.PI/2;
-  marker.position.copy(pos);
-
-  const inner = new THREE.Mesh(
-    new THREE.CircleGeometry(3.3, 36),
-    new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.18, side:THREE.DoubleSide })
-  );
-  inner.rotation.x = -Math.PI/2;
-  inner.position.copy(pos);
-  inner.position.y = 0.02;
-
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.1, 4.8, 40, 24, 1, true),
-    new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false })
-  );
-  beam.position.set(pos.x, 20, pos.z);
-
-  scene.add(marker, inner, beam);
-  state.hazards.push({
-    kind:"orbital",
-    mesh:marker,
-    inner,
-    beam,
-    life:1.6,
-    radius:22.2,
-    damage:82,
-    pulse:0,
-    strikes:0,
-    tick:0
-  });
-
-  flashHint("Orbital lock bevestigd");
-  setStat();
-}
+  function deployOrbital(){
+    if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
+    player.abilities.orbital -= 1;
+    state.firedAbility = "orbital";
+    pulseAbilityUI("orbital");
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const pos = player.pos.clone().add(dir.setY(0).normalize().multiplyScalar(12));
+    pos.x = clamp(pos.x, -54, 54);
+    pos.z = clamp(pos.z, -54, 54);
+    pos.y = 0.2;
+    const marker = new THREE.Mesh(new THREE.RingGeometry(1.25,1.9,36), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.86, side:THREE.DoubleSide }));
+    marker.rotation.x = -Math.PI/2;
+    marker.position.copy(pos);
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(1.1, 28), new THREE.MeshBasicMaterial({ color:0xff6ea1, transparent:true, opacity:.18, side:THREE.DoubleSide }));
+    inner.rotation.x = -Math.PI/2;
+    inner.position.copy(pos);
+    inner.position.y = 0.02;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.6,40,18,1,true), new THREE.MeshBasicMaterial({ color:0xff8cc0, transparent:true, opacity:.18, depthWrite:false }));
+    beam.position.set(pos.x, 20, pos.z);
+    scene.add(marker, inner, beam);
+    state.hazards.push({ kind:"orbital", mesh:marker, inner, beam, life:1.6, radius:7.4, damage:82, pulse:0, strikes:0, tick:0 });
+    flashHint("Orbital lock bevestigd");
+    setStat();
+  }
 
   function firePlasmaBurst(){
     if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
@@ -13639,10 +13604,6 @@ updateBullets = function(dt){
     if(!dirOverride) camera.getWorldDirection(dir);
     dir.normalize();
 
-function loadoutDamage(value){
-  return Math.round(value * (meta?.runtime?.loadoutDamageMul || 1));
-}
-
     if(weapon === "bullet"){
       combat.arcCounter += 1;
       if(combat.arcCounter % 7 === 0){
@@ -14012,47 +13973,34 @@ function loadoutDamage(value){
         bossContracts: saved.bossContracts || 0,
         totalMinibossKills: saved.totalMinibossKills || 0,
         activeLoadout: saved.activeLoadout || "vanguard",
-        
         loadouts: Object.assign({
           vanguard: {
-loadouts: {
-  striker: {
-    label: "Striker",
-    startWeapon: "bullet",
-    bonusHp: -10,
-    speed: 0.34,
-    damageMul: 0.92,
-    ammoLootMul: 0.9,
-    salvageMul: 1.0,
-    ammo: { bullet: 20, rocket: 0, grenade: 0 },
-    abilities: { plasma: 2, mine: 0, orbital: 0 },
-    perk: "Razendsnel en agressief, maar fragiel. Beste keuze voor mobility en combo play."
-  },
-  scavenger: {
-    label: "Scavenger",
-    startWeapon: "grenade",
-    bonusHp: 2,
-    speed: 0.08,
-    damageMul: 0.95,
-    ammoLootMul: 1.75,
-    salvageMul: 1.2,
-    ammo: { bullet: 14, rocket: 1, grenade: 3 },
-    abilities: { plasma: 1, mine: 1, orbital: 0 },
-    perk: "Haalt veel meer uit crates, drops en resupplies. Langere runs met meer ammo-economie."
-  },
-  juggernaut: {
-    label: "Juggernaut",
-    startWeapon: "rocket",
-    bonusHp: 24,
-    speed: -0.18,
-    damageMul: 1.38,
-    ammoLootMul: 0.8,
-    salvageMul: 0.95,
-    ammo: { bullet: 8, rocket: 3, grenade: 2 },
-    abilities: { plasma: 0, mine: 1, orbital: 1 },
-    perk: "Veel harder raak, veel taaier, maar duidelijk trager. Heavy-pressure variant."
-  }
-}
+            label: "Vanguard",
+            startWeapon: "bullet",
+            bonusHp: 14,
+            speed: 0.15,
+            ammo: { bullet: 18, rocket: 0, grenade: 0 },
+            abilities: { plasma: 1, mine: 0, orbital: 0 },
+            perk: "Stabiele opener met extra HP en rifle momentum"
+          },
+          demolisher: {
+            label: "Demolisher",
+            startWeapon: "rocket",
+            bonusHp: 6,
+            speed: -0.1,
+            ammo: { bullet: 0, rocket: 2, grenade: 1 },
+            abilities: { plasma: 0, mine: 1, orbital: 0 },
+            perk: "Explosieve start met rocket pressure en area denial"
+          },
+          tactician: {
+            label: "Tactician",
+            startWeapon: "grenade",
+            bonusHp: 8,
+            speed: 0.08,
+            ammo: { bullet: 8, rocket: 1, grenade: 2 },
+            abilities: { plasma: 0, mine: 1, orbital: 1 },
+            perk: "Utility-heavy run met crowd control en orbital follow-up"
+          }
         }, saved.loadouts || {})
       };
     }catch(err){
@@ -14319,33 +14267,24 @@ loadouts: {
     flashHint?.(`Loadout: ${meta.profile.loadouts[next].label}`, 900);
   }
 
-function applyLoadoutToCurrentRun(){
-  const loadout = currentLoadout();
-  if(!loadout || meta.runtime.loadoutApplied) return;
-
-  meta.runtime.loadoutApplied = true;
-
-  player.maxHp += loadout.bonusHp || 0;
-  player.hp = Math.min(player.maxHp, player.hp + Math.max(0, loadout.bonusHp || 0));
-  player.speed += loadout.speed || 0;
-
-  player.ammo.bullet += loadout.ammo?.bullet || 0;
-  player.ammo.rocket += loadout.ammo?.rocket || 0;
-  player.ammo.grenade += loadout.ammo?.grenade || 0;
-
-  player.abilities.plasma += loadout.abilities?.plasma || 0;
-  player.abilities.mine += loadout.abilities?.mine || 0;
-  player.abilities.orbital += loadout.abilities?.orbital || 0;
-
-  meta.runtime.loadoutDamageMul = loadout.damageMul || 1;
-  meta.runtime.loadoutAmmoLootMul = loadout.ammoLootMul || 1;
-  meta.runtime.loadoutSalvageMul = loadout.salvageMul || 1;
-
-  setWeapon?.(loadout.startWeapon);
-  setStat?.();
-  updateHud?.();
-  renderMetaHud();
-}
+  function applyLoadoutToCurrentRun(){
+    const loadout = currentLoadout();
+    if(!loadout || meta.runtime.loadoutApplied) return;
+    meta.runtime.loadoutApplied = true;
+    player.maxHp += loadout.bonusHp;
+    player.hp = Math.min(player.maxHp, player.hp + loadout.bonusHp);
+    player.speed += loadout.speed;
+    player.ammo.bullet += loadout.ammo.bullet || 0;
+    player.ammo.rocket += loadout.ammo.rocket || 0;
+    player.ammo.grenade += loadout.ammo.grenade || 0;
+    player.abilities.plasma += loadout.abilities.plasma || 0;
+    player.abilities.mine += loadout.abilities.mine || 0;
+    player.abilities.orbital += loadout.abilities.orbital || 0;
+    setWeapon?.(loadout.startWeapon);
+    setStat?.();
+    updateHud?.();
+    renderMetaHud();
+  }
 
   function resetMetaRuntime(){
     meta.runtime.currentSector = "Core Nexus";
@@ -14358,9 +14297,6 @@ function applyLoadoutToCurrentRun(){
     meta.runtime.runDamageAmp = 1;
     meta.runtime.cinematicTimer = 0;
     meta.runtime.loadoutApplied = false;
-    meta.runtime.loadoutDamageMul = 1;
-    meta.runtime.loadoutAmmoLootMul = 1;
-    meta.runtime.loadoutSalvageMul = 1;
   }
 
   function chooseObjectiveForSector(sector){
