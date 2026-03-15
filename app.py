@@ -5163,6 +5163,9 @@ function spawnWave(){
     state.flashes.push({ light, life, maxLife:life });
   }
 
+const TMP_V1 = new THREE.Vector3();
+const TMP_V2 = new THREE.Vector3();
+
   function explodeAt(position, radius, damage, color){
   createBurst(position, color, 10, 5.5, {
     minSize:.06,
@@ -5188,11 +5191,11 @@ function spawnWave(){
   createFlash(position, color, 2.4, radius * 3.2, 0.12);
 
     for(let i=state.enemies.length-1;i>=0;i--){
-      const e = state.enemies[i];
-      const hitPos = e.mesh.position.clone();
-      hitPos.y = 1.7;
-      const d = hitPos.distanceTo(position);
-      if(d < radius){
+    const e = state.enemies[i];
+    TMP_V1.copy(e.mesh.position);
+    TMP_V1.y = 1.7;
+    const d = TMP_V1.distanceTo(position);
+    if(d < radius){
       
     if(!Number.isFinite(e.hp)){
           console.warn("Enemy hp corrupt before damage", e);
