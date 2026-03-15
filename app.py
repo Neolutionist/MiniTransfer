@@ -5349,6 +5349,12 @@ function shootWithDirection(dirOverride=null){
     }));
   };
 
+  const loadoutDamage = (value) => {
+    const mult = meta?.runtime?.loadoutDamageMul || 1;
+    return Math.max(1, Math.round(value * mult));
+  };
+
+
   const recoilBase =
     weapon === "bullet" ? 0.34 :
     weapon === "rocket" ? 0.85 : 0.62;
@@ -5380,7 +5386,7 @@ function shootWithDirection(dirOverride=null){
     player.ammo.bullet -= 1;
 
     const spread = Math.max(0.004, 0.018 - combo * 0.0025);
-    const damageMain = 10 + Math.min(6, Math.floor(combo * 1.4));
+    const damageMain = loadoutDamage(10 + Math.min(6, Math.floor(combo * 1.4)));
     const lifeMain = 2.2 + Math.min(0.4, combo * 0.06);
 
     spawnFriendly(start.clone(), makeDir(
@@ -5429,7 +5435,7 @@ function shootWithDirection(dirOverride=null){
         trailColor: 0xff9af2,
         size: 0.14,
         life: 1.9,
-        damage: damageMain + 5,
+        damage: loadoutDamage(damageMain + 5),
         type: "bullet"
       });
       state.cameraShake = Math.min(2.0, state.cameraShake + 0.08);
@@ -5448,7 +5454,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.18,
       life: 2.6,
-      damage: 28 + Math.min(10, Math.floor(combo * 2.2)),
+      damage: loadoutDamage(28 + Math.min(10, Math.floor(combo * 2.2))),
       radius: 4.2 + Math.min(1.2, combo * 0.22),
       type: "rocket",
       explosionColor: 0xff7b7b
@@ -5466,7 +5472,7 @@ function shootWithDirection(dirOverride=null){
         smoke: true,
         size: 0.12,
         life: 1.8,
-        damage: 12 + Math.min(5, Math.floor(combo)),
+        damage: loadoutDamage(12 + Math.min(5, Math.floor(combo))),
         radius: 2.2,
         type: "rocket",
         explosionColor: 0xffd166
@@ -5486,7 +5492,7 @@ function shootWithDirection(dirOverride=null){
       smoke: true,
       size: 0.16,
       life: 1.6,
-      damage: 22 + Math.min(8, Math.floor(combo * 1.7)),
+      damage: loadoutDamage(22 + Math.min(8, Math.floor(combo * 1.7))),
       radius: 3.6 + Math.min(1.2, combo * 0.24),
       type: "grenade",
       gravity: 10,
@@ -5495,7 +5501,7 @@ function shootWithDirection(dirOverride=null){
 
     // grenade krijgt shrapnel-support op combo
     if(combo >= 2.0){
-      const shardDamage = 5 + Math.min(4, Math.floor(combo));
+      const shardDamage = loadoutDamage(5 + Math.min(4, Math.floor(combo)));
       [-0.12, 0.12].forEach(offset => {
         const shardDir = makeDir(offset, 0.02);
         const shardStart = start.clone().addScaledVector(right, offset * 1.3);
@@ -8623,10 +8629,11 @@ function startGame(){
       player.hp = Math.min(player.maxHp, player.hp + 35);
       flashHint?.("Crate: HP boost");
     }else if(roll < 0.4){
-      player.ammo.bullet += 50;
-      player.ammo.rocket += 2;
-      player.ammo.grenade += 1;
-      flashHint?.("Crate: ammo cache");
+      const ammoMul = meta?.runtime?.loadoutLootMul || 1;
+      player.ammo.bullet += Math.round(50 * ammoMul);
+      player.ammo.rocket += Math.max(1, Math.round(2 * ammoMul));
+      player.ammo.grenade += Math.max(1, Math.round(1 * ammoMul));
+      flashHint?.(ammoMul > 1.05 ? "Crate: enhanced ammo cache" : "Crate: ammo cache");
     }else if(roll < 0.6){
       player.abilities.plasma += 2;
       player.abilities.mine += 1;
@@ -13943,6 +13950,81 @@ updateBullets = function(dt){
    ========================= */
 (() => {
   const FINAL_META_KEY = "oldehanter_final_v3_meta";
+
+  function defaultLoadouts(){
+    return {
+      striker: {
+        label: "Striker",
+        startWeapon: "bullet",
+        bonusHp: -12,
+        speed: 0.34,
+        damageMul: 0.92,
+        lootMul: 0.9,
+        incomingMul: 1.18,
+        ammo: { bullet: 24, rocket: 0, grenade: 0 },
+        abilities: { plasma: 2, mine: 0, orbital: 0 },
+        perk: "Razendsnel en agressief, maar fragiel. Beste keuze voor mobility en combo play."
+      },
+      scavenger: {
+        label: "Scavenger",
+        startWeapon: "grenade",
+        bonusHp: 2,
+        speed: 0.08,
+        damageMul: 0.98,
+        lootMul: 1.75,
+        incomingMul: 1.0,
+        ammo: { bullet: 18, rocket: 1, grenade: 3 },
+        abilities: { plasma: 1, mine: 1, orbital: 0 },
+        perk: "Trekt meer ammo uit crates en pickups. Sterk in sustain en langere runs."
+      },
+      juggernaut: {
+        label: "Juggernaut",
+        startWeapon: "rocket",
+        bonusHp: 22,
+        speed: -0.18,
+        damageMul: 1.38,
+        lootMul: 0.85,
+        incomingMul: 0.92,
+        ammo: { bullet: 10, rocket: 3, grenade: 2 },
+        abilities: { plasma: 0, mine: 1, orbital: 1 },
+        perk: "Veel harder raak, taaier onder druk, maar duidelijk trager in positionering."
+      }
+    };
+  }
+
+  function normalizeActiveLoadout(id){
+    if(id === "vanguard") return "striker";
+    if(id === "demolisher") return "juggernaut";
+    if(id === "tactician") return "scavenger";
+    return id || "striker";
+  }
+
+  function mergeSavedLoadouts(savedLoadouts){
+    const defaults = defaultLoadouts();
+    const legacyMap = { vanguard: "striker", demolisher: "juggernaut", tactician: "scavenger" };
+    const result = {};
+    for(const [id, cfg] of Object.entries(defaults)){
+      result[id] = {
+        ...cfg,
+        ammo: { ...cfg.ammo },
+        abilities: { ...cfg.abilities }
+      };
+    }
+    if(savedLoadouts && typeof savedLoadouts === "object"){
+      for(const [rawId, rawCfg] of Object.entries(savedLoadouts)){
+        const id = legacyMap[rawId] || rawId;
+        if(!result[id] || !rawCfg || typeof rawCfg !== "object") continue;
+        result[id] = {
+          ...result[id],
+          ...rawCfg,
+          ammo: { ...result[id].ammo, ...(rawCfg.ammo || {}) },
+          abilities: { ...result[id].abilities, ...(rawCfg.abilities || {}) }
+        };
+      }
+    }
+    return result;
+  }
+
   const meta = {
     profile: loadMetaProfile(),
     runtime: {
@@ -13955,7 +14037,10 @@ updateBullets = function(dt){
       runWeaponKills: { bullet:0, rocket:0, grenade:0 },
       runDamageAmp: 1,
       cinematicTimer: 0,
-      loadoutApplied: false
+      loadoutApplied: false,
+      loadoutDamageMul: 1,
+      loadoutLootMul: 1,
+      loadoutIncomingMul: 1
     }
   };
 
@@ -13972,36 +14057,8 @@ updateBullets = function(dt){
         completedObjectives: saved.completedObjectives || 0,
         bossContracts: saved.bossContracts || 0,
         totalMinibossKills: saved.totalMinibossKills || 0,
-        activeLoadout: saved.activeLoadout || "vanguard",
-        loadouts: Object.assign({
-          vanguard: {
-            label: "Vanguard",
-            startWeapon: "bullet",
-            bonusHp: 14,
-            speed: 0.15,
-            ammo: { bullet: 18, rocket: 0, grenade: 0 },
-            abilities: { plasma: 1, mine: 0, orbital: 0 },
-            perk: "Stabiele opener met extra HP en rifle momentum"
-          },
-          demolisher: {
-            label: "Demolisher",
-            startWeapon: "rocket",
-            bonusHp: 6,
-            speed: -0.1,
-            ammo: { bullet: 0, rocket: 2, grenade: 1 },
-            abilities: { plasma: 0, mine: 1, orbital: 0 },
-            perk: "Explosieve start met rocket pressure en area denial"
-          },
-          tactician: {
-            label: "Tactician",
-            startWeapon: "grenade",
-            bonusHp: 8,
-            speed: 0.08,
-            ammo: { bullet: 8, rocket: 1, grenade: 2 },
-            abilities: { plasma: 0, mine: 1, orbital: 1 },
-            perk: "Utility-heavy run met crowd control en orbital follow-up"
-          }
-        }, saved.loadouts || {})
+        activeLoadout: normalizeActiveLoadout(saved.activeLoadout),
+        loadouts: mergeSavedLoadouts(saved.loadouts)
       };
     }catch(err){
       return {
@@ -14014,12 +14071,8 @@ updateBullets = function(dt){
         completedObjectives: 0,
         bossContracts: 0,
         totalMinibossKills: 0,
-        activeLoadout: "vanguard",
-        loadouts: {
-          vanguard: { label:"Vanguard", startWeapon:"bullet", bonusHp:14, speed:0.15, ammo:{ bullet:18, rocket:0, grenade:0 }, abilities:{ plasma:1, mine:0, orbital:0 }, perk:"Stabiele opener met extra HP en rifle momentum" },
-          demolisher: { label:"Demolisher", startWeapon:"rocket", bonusHp:6, speed:-0.1, ammo:{ bullet:0, rocket:2, grenade:1 }, abilities:{ plasma:0, mine:1, orbital:0 }, perk:"Explosieve start met rocket pressure en area denial" },
-          tactician: { label:"Tactician", startWeapon:"grenade", bonusHp:8, speed:0.08, ammo:{ bullet:8, rocket:1, grenade:2 }, abilities:{ plasma:0, mine:1, orbital:1 }, perk:"Utility-heavy run met crowd control en orbital follow-up" }
-        }
+        activeLoadout: "striker",
+        loadouts: defaultLoadouts()
       };
     }
   }
@@ -14030,7 +14083,7 @@ updateBullets = function(dt){
 
   function xpNeeded(level){ return 70 + (level - 1) * 55; }
   function weaponLabelShort(w){ return w === "bullet" ? "Rifle" : w === "rocket" ? "Rocket" : "Grenade"; }
-  function currentLoadout(){ return meta.profile.loadouts[meta.profile.activeLoadout] || meta.profile.loadouts.vanguard; }
+  function currentLoadout(){ return meta.profile.loadouts[meta.profile.activeLoadout] || meta.profile.loadouts.striker; }
   function weaponTreeBonus(weapon){
     const lvl = meta.profile.weaponLevel[weapon] || 1;
     return {
@@ -14119,7 +14172,7 @@ updateBullets = function(dt){
     const hud = document.createElement("div");
     hud.id = "metaHud";
     hud.innerHTML = `
-      <div class="title">Meta Loop / Final Build</div>
+      <div class="title">Command Deck / Final Version</div>
       <div class="row"><span class="soft">Loadout</span><span id="metaHudLoadout" class="accent">Vanguard</span></div>
       <div class="row"><span class="soft">Sector objective</span><span id="metaHudObjective">Scanning…</span></div>
       <div class="row"><span class="soft">Contracts</span><span id="metaHudContract">None</span></div>
@@ -14173,7 +14226,7 @@ updateBullets = function(dt){
     const objective = meta.runtime.objective;
     panel.innerHTML = `
       <h2>Final Version Command Deck</h2>
-      <div class="sub">Permanente progression, saveable loadouts, sector objectives en miniboss contracts.</div>
+      <div class="sub">Command Deck met specialist-loadouts, sector directives, weapon trees en run-defining archetypes.</div>
       <div class="grid">
         <div class="stack">
           <div class="card">
@@ -14193,7 +14246,7 @@ updateBullets = function(dt){
                 <div class="loadout ${id === activeId ? "active" : ""}" data-loadout="${id}">
                   <div class="topline"><div class="name">${cfg.label}</div><div class="muted">Start: ${weaponLabelShort(cfg.startWeapon)}</div></div>
                   <div class="muted">${cfg.perk}</div>
-                  <div class="muted">HP +${cfg.bonusHp} · Speed ${cfg.speed >= 0 ? "+" : ""}${cfg.speed.toFixed(2)} · Ammo ${cfg.ammo.bullet||0}/${cfg.ammo.rocket||0}/${cfg.ammo.grenade||0}</div>
+                  <div class="muted">HP ${cfg.bonusHp >= 0 ? "+" : ""}${cfg.bonusHp} · Speed ${cfg.speed >= 0 ? "+" : ""}${cfg.speed.toFixed(2)} · DMG x${(cfg.damageMul || 1).toFixed(2)} · Loot x${(cfg.lootMul || 1).toFixed(2)} · Inkomende DMG x${(cfg.incomingMul || 1).toFixed(2)}</div>\n                  <div class="muted">Start ammo ${cfg.ammo.bullet||0}/${cfg.ammo.rocket||0}/${cfg.ammo.grenade||0} · Skills ${cfg.abilities.plasma||0}/${cfg.abilities.mine||0}/${cfg.abilities.orbital||0}</div>
                   <div class="btns"><button data-set-loadout="${id}">${id === activeId ? "Actief" : "Maak actief"}</button></div>
                 </div>
               `).join("")}
@@ -14230,9 +14283,7 @@ updateBullets = function(dt){
           </div>
           <div class="card">
             <h3>Quick controls</h3>
-            <div class="muted">K = open/close panel · J = cycle loadout · 7/8/9 = direct loadout select.</div>
-            <div class="muted">Objectives belonen cores en schematics. Boss contracts geven bonus progression en extra ammo.</div>
-            <div class="muted">Weapon trees stijgen automatisch door kills en damage-events binnen een run.</div>
+            <div class="muted">K = open/close panel · J = cycle loadout · 7 = Striker · 8 = Scavenger · 9 = Juggernaut.</div>\n            <div class="muted">Striker is sneller maar fragieler. Scavenger trekt meer ammo uit loot. Juggernaut doet meer damage maar beweegt merkbaar trager.</div>\n            <div class="muted">Objectives belonen cores en schematics. Weapon trees stijgen automatisch door kills en damage-events binnen een run.</div>
           </div>
         </div>
       </div>
@@ -14271,15 +14322,18 @@ updateBullets = function(dt){
     const loadout = currentLoadout();
     if(!loadout || meta.runtime.loadoutApplied) return;
     meta.runtime.loadoutApplied = true;
-    player.maxHp += loadout.bonusHp;
-    player.hp = Math.min(player.maxHp, player.hp + loadout.bonusHp);
-    player.speed += loadout.speed;
-    player.ammo.bullet += loadout.ammo.bullet || 0;
-    player.ammo.rocket += loadout.ammo.rocket || 0;
-    player.ammo.grenade += loadout.ammo.grenade || 0;
-    player.abilities.plasma += loadout.abilities.plasma || 0;
-    player.abilities.mine += loadout.abilities.mine || 0;
-    player.abilities.orbital += loadout.abilities.orbital || 0;
+    meta.runtime.loadoutDamageMul = loadout.damageMul || 1;
+    meta.runtime.loadoutLootMul = loadout.lootMul || 1;
+    meta.runtime.loadoutIncomingMul = loadout.incomingMul || 1;
+    player.maxHp += loadout.bonusHp || 0;
+    player.hp = Math.min(player.maxHp, player.hp + Math.max(0, loadout.bonusHp || 0));
+    player.speed += loadout.speed || 0;
+    player.ammo.bullet += loadout.ammo?.bullet || 0;
+    player.ammo.rocket += loadout.ammo?.rocket || 0;
+    player.ammo.grenade += loadout.ammo?.grenade || 0;
+    player.abilities.plasma += loadout.abilities?.plasma || 0;
+    player.abilities.mine += loadout.abilities?.mine || 0;
+    player.abilities.orbital += loadout.abilities?.orbital || 0;
     setWeapon?.(loadout.startWeapon);
     setStat?.();
     updateHud?.();
@@ -14297,6 +14351,9 @@ updateBullets = function(dt){
     meta.runtime.runDamageAmp = 1;
     meta.runtime.cinematicTimer = 0;
     meta.runtime.loadoutApplied = false;
+    meta.runtime.loadoutDamageMul = 1;
+    meta.runtime.loadoutLootMul = 1;
+    meta.runtime.loadoutIncomingMul = 1;
   }
 
   function chooseObjectiveForSector(sector){
@@ -14548,8 +14605,8 @@ updateBullets = function(dt){
 
   const _applyDamageFinal = applyDamage;
   applyDamage = function(amount){
-    const reduced = amount * (currentLoadout().label === "Vanguard" ? 0.96 : 1);
-    return _applyDamageFinal(reduced);
+    const incomingMul = meta?.runtime?.loadoutIncomingMul || 1;
+    return _applyDamageFinal(Math.max(1, Math.round(amount * incomingMul)));
   };
 
   window.addEventListener("keydown", (e) => {
@@ -14561,9 +14618,9 @@ updateBullets = function(dt){
       e.preventDefault();
       cycleLoadout(1);
     }
-    if(e.code === "Digit7" && !e.repeat){ meta.profile.activeLoadout = "vanguard"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
-    if(e.code === "Digit8" && !e.repeat){ meta.profile.activeLoadout = "demolisher"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
-    if(e.code === "Digit9" && !e.repeat){ meta.profile.activeLoadout = "tactician"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+    if(e.code === "Digit7" && !e.repeat){ meta.profile.activeLoadout = "striker"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+    if(e.code === "Digit8" && !e.repeat){ meta.profile.activeLoadout = "scavenger"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
+    if(e.code === "Digit9" && !e.repeat){ meta.profile.activeLoadout = "juggernaut"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
   }, { passive:false });
 
   buildMetaHud();
@@ -15278,10 +15335,6 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
-@app.route("/p/arcade")
-def arcade_redirect():
-    return redirect("/arcade", code=302)
-
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
     token = (token or "").strip()
