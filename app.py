@@ -5952,6 +5952,35 @@ function shootWithDirection(dirOverride=null){
     updateViewWeapon(dt);
   }
 
+function findPlasmaTarget(plasma){
+  let best = null;
+  let bestDist = plasma.homingRange || 24;
+
+  for(const e of state.enemies){
+    if(!e?.mesh) continue;
+
+    const hitPos = e.mesh.position.clone();
+    hitPos.y = e.isBoss ? 2.5 : 1.9;
+
+    const d = plasma.mesh.position.distanceTo(hitPos);
+    if(d < bestDist){
+      bestDist = d;
+      best = e;
+    }
+  }
+
+  if(state.boss?.mesh){
+    const bossHitPos = state.boss.mesh.position.clone();
+    bossHitPos.y = 2.5;
+    const d = plasma.mesh.position.distanceTo(bossHitPos);
+    if(d < bestDist){
+      best = state.boss;
+    }
+  }
+
+  return best;
+}
+
 function updateBullets(dt){
   const BULLET_WALL_RADIUS = 0.14;
   const PLAYER_HIT_RADIUS = 1.15;
@@ -6091,11 +6120,35 @@ function updateBullets(dt){
       continue;
     }
 
-    b.mesh.position.addScaledVector(b.vel, dt);
+    if(b.type === "plasma"){
+  if(
+    !b.target ||
+    !b.target.mesh ||
+    (b.target.hp !== undefined && b.target.hp <= 0)
+  ){
+    b.target = findPlasmaTarget(b);
+  }
 
-    if(b.gravity){
-      b.vel.y -= b.gravity * dt;
-    }
+  if(b.target?.mesh){
+    const targetPos = b.target.mesh.position.clone();
+    targetPos.y = b.target.isBoss ? 2.5 : 1.9;
+
+    const desired = targetPos.sub(b.mesh.position).normalize();
+    const current = b.vel.clone().normalize();
+
+    const steer = Math.min(1, (b.homingTurnRate || 10) * dt * 0.35);
+    current.lerp(desired, steer).normalize();
+
+    const speed = b.vel.length();
+    b.vel.copy(current.multiplyScalar(speed));
+  }
+}
+
+b.mesh.position.addScaledVector(b.vel, dt);
+
+if(b.gravity){
+  b.vel.y -= b.gravity * dt;
+}
 
     b.life -= dt;
     let remove = b.life <= 0;
