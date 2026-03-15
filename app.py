@@ -3069,7 +3069,7 @@ async function renderBoard(){
   ui.leaderboard.innerHTML = "<li>Leaderboard laden...</li>";
 
   try{
-    const res = await fetch("/api/leaderboard/top?limit=10");
+    const res = await fetch("/api/leaderboard/top?limit=20");
     if(!res.ok) throw new Error("HTTP error");
 
     const data = await res.json();
@@ -5717,37 +5717,49 @@ function shootWithDirection(dirOverride=null){
   }
 
   function firePlasmaBurst(){
-    if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
-    player.abilities.plasma -= 1;
-    state.firedAbility = "plasma";
-    pulseAbilityUI("plasma");
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    for(let i=-2;i<=2;i++){
-      const d = dir.clone();
-      d.x += i * 0.03;
-      d.y += Math.abs(i) * 0.005;
-      d.normalize();
-      const start = player.pos.clone();
-      start.y = 1.52;
-      start.add(d.clone().multiplyScalar(.9));
-      state.bullets.push(createProjectile(start, d, {
-        speed: 26,
-        friendly: true,
-        color: 0x8bf0ff,
-        trailColor: 0xc9fbff,
-        size: 0.16,
-        life: 2.0,
-        damage: 14,
-        radius: 2.8,
-        type: "plasma",
-        explosionColor: 0x8bf0ff
-      }));
-    }
-    state.cameraShake = Math.min(1.6, state.cameraShake + 0.25);
-    createShockwave(player.pos.clone(), 0x8bf0ff, 1.6);
-    setStat();
+  if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
+  player.abilities.plasma -= 1;
+  state.firedAbility = "plasma";
+  pulseAbilityUI("plasma");
+
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  for(let i = -2; i <= 2; i++){
+    const d = dir.clone();
+    d.x += i * 0.03;
+    d.y += Math.abs(i) * 0.005;
+    d.normalize();
+
+    const start = player.pos.clone();
+    start.y = 1.52;
+    start.add(d.clone().multiplyScalar(.9));
+
+    const plasma = createProjectile(start, d, {
+      speed: 26,
+      friendly: true,
+      color: 0x8bf0ff,
+      trailColor: 0xc9fbff,
+      size: 0.16,
+      life: 2.0,
+      damage: 14,
+      radius: 2.8,
+      type: "plasma",
+      explosionColor: 0x8bf0ff
+    });
+
+    plasma.homingStrength = 7.5;
+    plasma.homingRange = 24;
+    plasma.homingTurnRate = 10;
+    plasma.target = null;
+
+    state.bullets.push(plasma);
   }
+
+  state.cameraShake = Math.min(1.6, state.cameraShake + 0.25);
+  createShockwave(player.pos.clone(), 0x8bf0ff, 1.6);
+  setStat();
+}
 
   function applyDamage(amount){
     if(!player.alive) return;
