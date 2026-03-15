@@ -12334,11 +12334,24 @@ window.addEventListener("keydown", e => {
   };
 
   const _setWeaponFinal = setWeapon;
-  setWeapon = function(w){
-    const allowed = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
-    _setWeaponFinal(allowed.includes(w) ? w : "bullet");
-    updateHealthWeaponTheme?.();
-  };
+setWeapon = function(w){
+  const allowed = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
+  const next = allowed.includes(w) ? w : "bullet";
+
+  const typingInField =
+    document.activeElement &&
+    (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA" ||
+      document.activeElement.isContentEditable
+    );
+
+  if(typingInField) return;
+  if(!state.running || !player.alive) return;
+
+  _setWeaponFinal(next);
+  updateHealthWeaponTheme?.();
+};
 
   ensureUsableWeapon = function(){
     if(player.weapon === "bullet" && player.ammo.bullet > 0) return;
