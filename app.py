@@ -11056,7 +11056,7 @@ function doDash(){
    plak dit HELE blok onderin je game-code
    =========================== */
 (() => {
-  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin"];
+  const OH_NAMED_ENEMIES = ["Pieter","Jos","Lisa","Joost","Jan","Patrick","Miranda","Jad","Kevin","Thymen"];
 
   const NAMED_TRAITS = {
     Pieter: {
@@ -11185,24 +11185,60 @@ onHit(enemy, damage){
         enemy.usesGrenades = true;
       }
     },
-    Miranda: {
-      role: "adrenaline",
-      hpMul: 1.02,
-      speedMul: 1.06,
-      color: 0x8eb8ff,
-      label: "Adrenaline",
-      onSpawn(enemy){
-        enemy.fireRateMul = 0.95;
-        enemy.damageMul = 1.00;
-      },
-      onHit(enemy){
-        const now = performance.now() * 0.001;
-        player._ohSpeedBoostUntil = Math.max(player._ohSpeedBoostUntil || 0, now + 2.5);
-        showFloating("MIRANDA BOOST");
-        createShockwave?.(player.pos.clone(), 0x8eb8ff, 2.2);
-      }
-    },
-    Jad: {
+   Miranda: {
+  role: "adrenaline",
+  hpMul: 1.02,
+  speedMul: 1.06,
+  color: 0x8eb8ff,
+  label: "Adrenaline",
+  onSpawn(enemy){
+    enemy.fireRateMul = 0.95;
+    enemy.damageMul = 1.00;
+  },
+  onHit(enemy){
+    const now = performance.now() * 0.001;
+    player._ohSpeedBoostUntil = Math.max(player._ohSpeedBoostUntil || 0, now + 10.0);
+
+    showFloating("MIRANDA BOOST!");
+    flashHint?.("Speed boost actief");
+    state.cameraShake = Math.max(state.cameraShake || 0, 0.7);
+
+    createShockwave?.(player.pos.clone(), 0x8eb8ff, 3.8);
+    createFlash?.(
+      player.pos.clone().add(new THREE.Vector3(0, 1.2, 0)),
+      0x8eb8ff,
+      2.2,
+      6.8,
+      0.12
+    );
+
+    for(let i = 0; i < 3; i++){
+      setTimeout(() => {
+        if(!player.alive) return;
+        createFlash?.(
+          player.pos.clone().add(new THREE.Vector3(0, 1.0 + i * 0.08, 0)),
+          0xb9d4ff,
+          1.2,
+          3.2,
+          0.05
+        );
+      }, i * 70);
+    }
+  }
+},
+Thymen: {
+  role: "sprinter",
+  hpMul: 0.96,
+  speedMul: 1.5,
+  color: 0xff8cf5,
+  label: "Sprinter",
+  onSpawn(enemy){
+    enemy.fireRateMul = 1.04;
+    enemy.damageMul = 0.94;
+    enemy.alwaysFlee = false;
+  }
+},
+Jad: {
       role: "glitch",
       hpMul: 1.00,
       speedMul: 1.04,
