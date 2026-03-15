@@ -4594,12 +4594,6 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   );
   chestPlate.position.set(0, 1.88, 0.24);
 
-  const waistBelt = new THREE.Mesh(
-    new THREE.BoxGeometry((type==="tank"?1.04:0.86)*shoulderMul, 0.13, 0.22),
-    glowMat
-  );
-  waistBelt.position.set(0, 1.26, 0.24);
-
   const chestLogo = makeLogoGlyph(type === "tank" ? 0.84 : 0.70);
   chestLogo.position.set(0, 1.88, 0.35);
 
@@ -4791,11 +4785,11 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   spineLight.position.set(0,1.64,-0.18);
 
   [
-    pelvis, torso, chestPlate, waistBelt, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
-    shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
-    handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
-    shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
-  ].forEach(m => {
+  pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
+  shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
+  handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
+  shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
+].forEach(m => {
     m.castShadow = true;
     m.receiveShadow = true;
     group.add(m);
