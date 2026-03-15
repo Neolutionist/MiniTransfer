@@ -5664,10 +5664,9 @@ function shootWithDirection(dirOverride=null){
     state.ragdolls.push({ pieces, constraints, life:6.6, fade:1.8 });
   }
 
- function deployShockMine(){
-    if(!state.running || !player.alive) return;
-    if(!state.cheatGodAmmo && player.abilities.mine <= 0) return;
-    if(!state.cheatGodAmmo) player.abilities.mine -= 1;
+  function deployShockMine(){
+    if(!state.running || !player.alive || player.abilities.mine <= 0) return;
+    player.abilities.mine -= 1;
     state.firedAbility = "mine";
     pulseAbilityUI("mine");
     const group = new THREE.Group();
@@ -5689,9 +5688,8 @@ function shootWithDirection(dirOverride=null){
   }
 
   function deployOrbital(){
-    if(!state.running || !player.alive) return;
-    if(!state.cheatGodAmmo && player.abilities.orbital <= 0) return;
-    if(!state.cheatGodAmmo) player.abilities.orbital -= 1;
+    if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
+    player.abilities.orbital -= 1;
     state.firedAbility = "orbital";
     pulseAbilityUI("orbital");
     const dir = new THREE.Vector3();
@@ -5716,9 +5714,8 @@ function shootWithDirection(dirOverride=null){
   }
 
   function firePlasmaBurst(){
-  if(!state.running || !player.alive) return;
-  if(!state.cheatGodAmmo && player.abilities.plasma <= 0) return;
-  if(!state.cheatGodAmmo) player.abilities.plasma -= 1;
+  if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
+  player.abilities.plasma -= 1;
   state.firedAbility = "plasma";
   pulseAbilityUI("plasma");
 
@@ -12409,108 +12406,61 @@ window.addEventListener("keydown", e => {
   updateSelectedWeaponUI();
 })();
 
-/* === FINAL UX / THERMAL WEAPON + LOW HP FX PATCH === */
+/* === FINAL UX / BULLET DEFAULT / HP THEME PATCH === */
 (() => {
   function clamp01(v){ return Math.max(0, Math.min(1, v)); }
 
-  function ensureLowHpOverlay(){
-    let el = document.getElementById("lowHpFx");
-    if(el) return el;
-
-    el = document.createElement("div");
-    el.id = "lowHpFx";
-    el.style.position = "fixed";
-    el.style.inset = "0";
-    el.style.pointerEvents = "none";
-    el.style.zIndex = "40";
-    el.style.opacity = "0";
-    el.style.transition = "opacity 120ms linear";
-    el.style.background = [
-      "radial-gradient(circle at center, rgba(255,255,255,0) 46%, rgba(255,30,30,0.10) 68%, rgba(120,0,0,0.34) 100%)",
-      "linear-gradient(180deg, rgba(255,0,0,0.05), rgba(80,0,0,0.14))"
-    ].join(",");
-    document.body.appendChild(el);
-    return el;
-  }
-
   window.updateHealthWeaponTheme = function(){
     if(typeof player === "undefined" || typeof ui === "undefined") return;
+    const ratio = clamp01((player.hp || 0) / Math.max(1, player.maxHp || 100));
+    const hue = Math.round(ratio * 200);
+    const color = `hsl(${hue} 95% 60%)`;
+    const glow = `hsl(${hue} 100% ${ratio < 0.28 ? 72 : 64}%)`;
+    const danger = ratio < 0.28;
 
-    const hpRatio = clamp01((player.hp || 0) / Math.max(1, player.maxHp || 100));
-    const heatRatio = clamp01((combat?.heat || 0) / 100);
-    const overheat = !!combat?.overheat;
-
-    const hpDanger = hpRatio < 0.35;
-    const hpColor = hpDanger ? "hsl(0 95% 66%)" : "hsl(145 70% 68%)";
-    const hpGlow = hpDanger ? "rgba(255,70,70,.85)" : "rgba(120,255,180,.35)";
-
-    if(ui.hp){
-      ui.hp.style.color = hpColor;
-      ui.hp.style.textShadow = hpDanger ? `0 0 12px ${hpGlow}` : "";
-    }
-
+    if(ui.hp) ui.hp.style.color = color;
     if(ui.weaponName){
-      ui.weaponName.style.color = "";
-      ui.weaponName.style.textShadow = "";
+      ui.weaponName.style.color = color;
+      ui.weaponName.style.textShadow = `0 0 10px ${glow}`;
     }
 
     [ui.chipBullet, ui.chipRocket, ui.chipGrenade, ui.chipPlasma, ui.chipMine, ui.chipOrbital].forEach(chip => {
       if(!chip) return;
-      chip.style.borderColor = "";
-      chip.style.boxShadow = chip.classList.contains("active") ? "0 0 16px rgba(255,255,255,.18)" : "";
-      chip.style.color = chip.classList.contains("active") ? "#fff" : "";
+      chip.style.borderColor = color;
+      chip.style.boxShadow = chip.classList.contains("active") ? `0 0 18px ${glow}` : `0 0 8px color-mix(in srgb, ${glow} 45%, transparent)`;
+      chip.style.color = chip.classList.contains("active") ? color : "";
     });
 
     const mats = weaponRig?.userData?.weaponMats;
     if(mats?.trimMat){
-      const thermalHue =
-        overheat ? 0.02 :
-        0.58 - heatRatio * 0.58; // koel blauw -> heet rood/oranje
-
-      const thermalSat = overheat ? 1.0 : 0.90;
-      const thermalLight = overheat ? 0.58 : (0.56 - heatRatio * 0.08);
-      const thermalEmissive = overheat ? 0.42 : (0.12 + heatRatio * 0.20);
-
-      mats.trimMat.color.setHSL(thermalHue, thermalSat, thermalLight);
-      mats.trimMat.emissive.setHSL(thermalHue, thermalSat, thermalEmissive);
-      mats.trimMat.emissiveIntensity = overheat ? 1.75 : (0.55 + heatRatio * 0.85);
+      mats.trimMat.color.setHSL(hue / 360, 0.92, 0.60);
+      mats.trimMat.emissive.setHSL(hue / 360, 0.92, danger ? 0.34 : 0.22);
+      mats.trimMat.emissiveIntensity = danger ? 1.35 : 0.82;
     }
-
     if(mats?.bodyMat){
-      mats.bodyMat.color.setHSL(0.60 - heatRatio * 0.10, 0.22 + heatRatio * 0.10, 0.22 + heatRatio * 0.05);
+      mats.bodyMat.color.setHSL(hue / 360, 0.28, 0.22 + ratio * 0.1);
     }
-
-    const lowHpFx = ensureLowHpOverlay();
-    const lowHpAmount = clamp01((0.42 - hpRatio) / 0.42);
-    lowHpFx.style.opacity = String(lowHpAmount * 0.92);
-
-    const pulse = hpDanger ? (0.72 + Math.sin(performance.now() * 0.0105) * 0.16) : 0.72;
-    lowHpFx.style.filter = `saturate(${1 - lowHpAmount * 0.32}) blur(${lowHpAmount * 1.2}px) brightness(${1 - lowHpAmount * 0.08})`;
-    lowHpFx.style.background = [
-      `radial-gradient(circle at center, rgba(255,255,255,0) ${48 - lowHpAmount * 4}%, rgba(255,40,40,${0.08 + lowHpAmount * 0.18}) ${70 - lowHpAmount * 2}%, rgba(90,0,0,${(0.24 + lowHpAmount * 0.28) * pulse}) 100%)`,
-      `linear-gradient(180deg, rgba(255,0,0,${lowHpAmount * 0.05}), rgba(70,0,0,${lowHpAmount * 0.12}))`
-    ].join(",");
   };
 
   const _setWeaponFinal = setWeapon;
-  setWeapon = function(w){
-    const allowed = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
-    const next = allowed.includes(w) ? w : "bullet";
+setWeapon = function(w){
+  const allowed = ["bullet", "rocket", "grenade", "plasma", "mine", "orbital"];
+  const next = allowed.includes(w) ? w : "bullet";
 
-    const typingInField =
-      document.activeElement &&
-      (
-        document.activeElement.tagName === "INPUT" ||
-        document.activeElement.tagName === "TEXTAREA" ||
-        document.activeElement.isContentEditable
-      );
+  const typingInField =
+    document.activeElement &&
+    (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA" ||
+      document.activeElement.isContentEditable
+    );
 
-    if(typingInField) return;
-    if(!state.running || !player.alive) return;
+  if(typingInField) return;
+  if(!state.running || !player.alive) return;
 
-    _setWeaponFinal(next);
-    updateHealthWeaponTheme?.();
-  };
+  _setWeaponFinal(next);
+  updateHealthWeaponTheme?.();
+};
 
   ensureUsableWeapon = function(){
     if(player.weapon === "bullet" && player.ammo.bullet > 0) return;
@@ -12526,7 +12476,6 @@ window.addEventListener("keydown", e => {
   firePlasmaBurst = function(){
     const res = _firePlasmaBurstFinal();
     setWeapon("bullet");
-    updateHealthWeaponTheme?.();
     return res;
   };
 
@@ -12534,7 +12483,6 @@ window.addEventListener("keydown", e => {
   deployShockMine = function(){
     const res = _deployShockMineFinal();
     setWeapon("bullet");
-    updateHealthWeaponTheme?.();
     return res;
   };
 
@@ -12542,7 +12490,6 @@ window.addEventListener("keydown", e => {
   deployOrbital = function(){
     const res = _deployOrbitalFinal();
     setWeapon("bullet");
-    updateHealthWeaponTheme?.();
     return res;
   };
 
@@ -12555,9 +12502,7 @@ window.addEventListener("keydown", e => {
       flashHint?.(!name ? "Vul eerst een naam in" : "Gebruik alleen letters, cijfers en spaties in je naam");
       return false;
     }
-    const res = _startGameFinalPatch();
-    updateHealthWeaponTheme?.();
-    return res;
+    return _startGameFinalPatch();
   };
 
   if(ui.playerName){
@@ -12589,17 +12534,11 @@ window.addEventListener("keydown", e => {
     return res;
   };
 
-  const _setStatFinalPatch = setStat;
-  setStat = function(){
-    _setStatFinalPatch();
-    updateSelectedWeaponUI?.();
-    updateHealthWeaponTheme?.();
-  };
-
   syncStartNameState?.();
   updateHealthWeaponTheme?.();
   if(player.weapon !== "bullet") setWeapon("bullet");
 })();
+
 /* ==========================================
    OH JOOST SMOKE PATCH
    Plak dit HELE blok onderaan je code
