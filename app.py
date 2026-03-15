@@ -6153,14 +6153,6 @@ if(b.gravity){
     b.life -= dt;
     let remove = b.life <= 0;
 
-    // maan-hit met rocket = wave skip / nuke
-    if(!remove && b.type === "rocket" && state.moonNukeWave !== player.wave){
-      const moonHitRadius = 8.4;
-      if(b.mesh.position.distanceTo(moon.position) <= moonHitRadius){
-        triggerMoonNuke(b.mesh.position.clone());
-        remove = true;
-      }
-    }
 
     // muur / arena collision
     if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
@@ -14945,21 +14937,38 @@ window.addEventListener("keydown", e => {
   }
 
   function tryMoonAimNuke(dir){
-    if(player.weapon !== "rocket") return false;
-    if(state.moonNukeWave === player.wave) return false;
-    const info = getMoonAimData(dir);
-    if(!info) return false;
-    const strictEnough = info.dot > 0.9962 && dir.y > 0.16;
-    if(!strictEnough) return false;
+  if(player.weapon !== "rocket") return false;
+  if(state.moonNukeWave === player.wave) return false;
+  if(!moon?.position || !dir) return false;
 
-    const hitPos = info.from.clone().addScaledVector(info.moonDir, Math.min(info.dist * 0.72, 36));
-    setTimeout(() => {
-      if(state.running && player.alive && state.moonNukeWave !== player.wave){
-        triggerMoonNuke?.(hitPos);
-      }
-    }, 30);
-    return true;
-  }
+  const from = player.pos.clone();
+  from.y = 1.52;
+
+  const rayDir = dir.clone().normalize();
+  const toMoon = moon.position.clone().sub(from);
+
+  // projectie op kijkrichting
+  const t = toMoon.dot(rayDir);
+  if(t <= 0) return false;
+
+  // dichtste punt van kijklijn naar maan-middelpunt
+  const closest = from.clone().addScaledVector(rayDir, t);
+  const missDistance = closest.distanceTo(moon.position);
+
+  // maanradius 5.2 + mikmarge
+  const hitRadius = 7.5;
+  if(missDistance > hitRadius) return false;
+
+  const hitPos = closest.clone();
+
+  setTimeout(() => {
+    if(state.running && player.alive && state.moonNukeWave !== player.wave){
+      triggerMoonNuke?.(hitPos);
+    }
+  }, 30);
+
+  return true;
+}
 
   const _shootWithDirectionMoonHotfix = shootWithDirection;
   shootWithDirection = function(dirOverride=null){
