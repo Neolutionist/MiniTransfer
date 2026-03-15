@@ -7554,36 +7554,58 @@ window.addEventListener("keydown", e => {
   lookJoy.addEventListener("pointercancel", releaseLookJoy);
 
 
-  [
-    [ui.chipBullet, () => setWeapon("bullet")],
-    [ui.chipRocket, () => setWeapon("rocket")],
-    [ui.chipGrenade, () => setWeapon("grenade")],
-    [ui.chipPlasma, firePlasmaBurst],
-    [ui.chipMine, deployShockMine],
-    [ui.chipOrbital, deployOrbital]
-  ].forEach(([btn, fn]) => {
-    btn?.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio();
-      if(!state.running) startGame();
-      fn();
-    });
-  });
+[
+  [ui.chipBullet, () => setWeapon("bullet")],
+  [ui.chipRocket, () => setWeapon("rocket")],
+  [ui.chipGrenade, () => setWeapon("grenade")],
+  [ui.chipPlasma, () => setWeapon("plasma")],
+  [ui.chipMine, () => setWeapon("mine")],
+  [ui.chipOrbital, () => setWeapon("orbital")]
+].forEach(([btn, fn]) => {
+  btn?.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    e.stopPropagation();
 
-  [
-    [ui.abilityPlasma, firePlasmaBurst],
-    [ui.abilityMine, deployShockMine],
-    [ui.abilityOrbital, deployOrbital]
-  ].forEach(([btn, fn]) => {
-    btn?.addEventListener("pointerdown", e => {
-      e.preventDefault();
-      e.stopPropagation();
-      ensureAudio();
-      if(!state.running) startGame();
-      fn();
-    });
+    const typingInField =
+      document.activeElement &&
+      (
+        document.activeElement.tagName === "INPUT" ||
+        document.activeElement.tagName === "TEXTAREA" ||
+        document.activeElement.isContentEditable
+      );
+
+    if(typingInField) return;
+    if(!state.running || !player.alive) return;
+
+    ensureAudio();
+    fn();
   });
+});
+
+[
+  [ui.abilityPlasma, firePlasmaBurst],
+  [ui.abilityMine, deployShockMine],
+  [ui.abilityOrbital, deployOrbital]
+].forEach(([btn, fn]) => {
+  btn?.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const typingInField =
+      document.activeElement &&
+      (
+        document.activeElement.tagName === "INPUT" ||
+        document.activeElement.tagName === "TEXTAREA" ||
+        document.activeElement.isContentEditable
+      );
+
+    if(typingInField) return;
+    if(!state.running || !player.alive) return;
+
+    ensureAudio();
+    fn();
+  });
+});
 
   window.addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
