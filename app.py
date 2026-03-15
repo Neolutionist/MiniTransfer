@@ -5085,13 +5085,26 @@ function spawnWave(){
   }
 
   if(bossWave){
-  state.pendingBossSpawnAt = performance.now() + (wave >= 12 ? 1050 : 1400);
-  state.pendingBossExtras = wave >= 12 ? Math.min(2 + Math.floor((wave - 12) / 4), 4) : 0;
-  state.pendingBossSpawnToken = spawnToken;
+    setTimeout(() => {
+      if(!state.running || !player.alive || state.boss || state.waveSpawnToken !== spawnToken) return;
 
-  showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
-  createShockwave(player.pos, 0xff2e88, 2.4);
-}
+      showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
+      createShockwave(player.pos.clone(), 0xff2e88);
+      spawnEnemy(true);
+
+      if(wave >= 12){
+        setTimeout(() => {
+          if(state.running && player.alive && state.boss){
+            for(let i=0;i<Math.min(2 + Math.floor((wave - 12) / 4), 4); i++){
+              setTimeout(() => {
+                if(state.running && player.alive && state.boss) spawnEnemy(false);
+              }, i * 160);
+            }
+          }
+        }, 1700);
+      }
+    }, wave >= 12 ? 1050 : 1400);
+  }
 
   setStat();
 }
@@ -5163,39 +5176,19 @@ function spawnWave(){
     state.flashes.push({ light, life, maxLife:life });
   }
 
-const TMP_V1 = new THREE.Vector3();
-const TMP_V2 = new THREE.Vector3();
-
   function explodeAt(position, radius, damage, color){
-  createBurst(position, color, 10, 5.5, {
-    minSize:.06,
-    maxSize:.12,
-    minLife:.22,
-    maxLife:.55,
-    maxUp:1.3,
-    drag:0.91,
-    gravity:4.0,
-    shrink:0.975
-  });
-
-  createBurst(position, 0xffffff, 4, 3.0, {
-    minSize:.03,
-    maxSize:.06,
-    minLife:.10,
-    maxLife:.20,
-    gravity:1.2,
-    shrink:0.94
-  });
-
-  createShockwave(position, color, radius);
-  createFlash(position, color, 2.4, radius * 3.2, 0.12);
+    createBurst(position, color, 24, 7, { minSize:.06, maxSize:.14, minLife:.35, maxLife:1.0, maxUp:1.8, drag:0.9, gravity:4.4, shrink:0.972 });
+    createBurst(position, 0xffffff, 10, 5, { minSize:.03, maxSize:.08, minLife:.12, maxLife:.32, gravity:1.5, shrink:0.95 });
+    createBurst(position, 0x1e2438, 16, 3.2, { minSize:.09, maxSize:.18, minLife:.55, maxLife:1.3, minUp:.05, maxUp:.65, drag:0.96, gravity:0.7, shrink:0.985 });
+    createShockwave(position, color, radius);
+    createFlash(position, color, 4.2, radius * 5.2, 0.22);
 
     for(let i=state.enemies.length-1;i>=0;i--){
-    const e = state.enemies[i];
-    TMP_V1.copy(e.mesh.position);
-    TMP_V1.y = 1.7;
-    const d = TMP_V1.distanceTo(position);
-    if(d < radius){
+      const e = state.enemies[i];
+      const hitPos = e.mesh.position.clone();
+      hitPos.y = 1.7;
+      const d = hitPos.distanceTo(position);
+      if(d < radius){
       
     if(!Number.isFinite(e.hp)){
           console.warn("Enemy hp corrupt before damage", e);
@@ -6070,11 +6063,10 @@ function updateBullets(dt){
       removeEnemyBullet?.(i);
     }
     for(let i = state.bullets.length - 1; i >= 0; i--){
-  const bullet = state.bullets[i];
-  if(!bullet || bullet.type === "rocket") continue;
-  releaseBulletToPool(bullet);
-  state.bullets.splice(i, 1);
-}
+      const bullet = state.bullets[i];
+      if(bullet?.mesh && bullet.type !== "rocket") scene.remove(bullet.mesh);
+      if(bullet?.type !== "rocket") state.bullets.splice(i, 1);
+    }
 
     state.enemies.length = 0;
     if(state.boss?.mesh){
@@ -6178,37 +6170,19 @@ function updateBullets(dt){
     return bullet.type === "rocket" || bullet.type === "grenade" || bullet.type === "plasma";
   }
 
-const BULLET_POOL = [];
-
-function releaseBulletToPool(bullet){
-  if(!bullet?.mesh) return;
-
-  bullet.mesh.visible = false;
-  bullet.mesh.position.set(0, -9999, 0);
-
-  if(bullet.vel) bullet.vel.set(0, 0, 0);
-
-  bullet.life = 0;
-  bullet.maxLife = 0;
-  bullet.target = null;
-  bullet.trailTimer = 0;
-
-  BULLET_POOL.push(bullet);
-}
-
   function removePlayerBullet(index){
-  const bullet = state.bullets[index];
-  if(!bullet) return;
-  releaseBulletToPool(bullet);
-  state.bullets.splice(index, 1);
-}
+    const bullet = state.bullets[index];
+    if(!bullet) return;
+    if(bullet.mesh) scene.remove(bullet.mesh);
+    state.bullets.splice(index, 1);
+  }
 
-function removeEnemyBullet(index){
-  const bullet = state.enemyBullets[index];
-  if(!bullet) return;
-  releaseBulletToPool(bullet);
-  state.enemyBullets.splice(index, 1);
-}
+  function removeEnemyBullet(index){
+    const bullet = state.enemyBullets[index];
+    if(!bullet) return;
+    if(bullet.mesh) scene.remove(bullet.mesh);
+    state.enemyBullets.splice(index, 1);
+  }
 
   for(let i = state.bullets.length - 1; i >= 0; i--){
     const b = state.bullets[i];
@@ -7080,8 +7054,8 @@ const CORE_LOOP = {
   lastMinimapAt: 0,
   lastHudAt: 0,
   hudDirty: true,
-  decorEveryMs: isTouch ? 90 : 66,
-  minimapEveryMs: isTouch ? 180 : 120,
+  decorEveryMs: isTouch ? 50 : 33,
+  minimapEveryMs: isTouch ? 125 : 83,
 };
 
 const CORE_TMP_SEARCH_DIR = new THREE.Vector3(0, -1, -1);
