@@ -7251,31 +7251,39 @@ function startGame(){
     }
   });
 
-  window.addEventListener("keydown", e => {
-    input.keyboard[e.code] = true;
+window.addEventListener("keydown", e => {
+  input.keyboard[e.code] = true;
 
-    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
-      e.preventDefault();
-    }
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
+    e.preventDefault();
+  }
 
-    if(e.code === "Digit1") setWeapon("bullet");
-    if(e.code === "Digit2") setWeapon("rocket");
-    if(e.code === "Digit3") setWeapon("grenade");
-    if(e.code === "Digit4") firePlasmaBurst();
-    if(e.code === "Digit5") deployShockMine();
-    if(e.code === "Digit6") deployOrbital();
-
-    if(e.code === "Space" || e.code === "Enter"){
-      if(player.weapon === "bullet"){
-        state.fireHeld = true;
-      }
-      shootWithDirection();
-    }
-
+  // vóór start alleen restart toestaan als speler dood is
+  if(!state.running){
     if(e.code === "KeyR" && !player.alive){
       restartGame();
     }
-  }, { passive:false });
+    return;
+  }
+
+  if(e.code === "Digit1") setWeapon("bullet");
+  if(e.code === "Digit2") setWeapon("rocket");
+  if(e.code === "Digit3") setWeapon("grenade");
+  if(e.code === "Digit4") firePlasmaBurst();
+  if(e.code === "Digit5") deployShockMine();
+  if(e.code === "Digit6") deployOrbital();
+
+  if(e.code === "Space" || e.code === "Enter"){
+    if(player.weapon === "bullet"){
+      state.fireHeld = true;
+    }
+    shootWithDirection();
+  }
+
+  if(e.code === "KeyR" && !player.alive){
+    restartGame();
+  }
+}, { passive:false });
 
   window.addEventListener("keyup", e => {
     input.keyboard[e.code] = false;
@@ -12022,6 +12030,19 @@ function handleDirectSlotSelect(slot){
   if(!state.running || !player.alive) return;
   setWeapon(slot);
 }
+
+function handleDirectSlotSelect(slot){
+  if(!state.running || !player.alive) return;
+  setWeapon(slot);
+}
+
+window.addEventListener("wheel", e => {
+  if(!state.running || !player.alive) return;
+  if(Math.abs(e.deltaY) < 4) return;
+
+  e.preventDefault();
+  cycleWeapon(e.deltaY > 0 ? 1 : -1);
+}, { passive:false });
 
 window.addEventListener("keydown", e => {
   if(!state.running || !player.alive) return;
