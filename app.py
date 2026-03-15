@@ -4238,7 +4238,7 @@ function updateMusic(){
   }
 
   function getEnemiesLeft(){
-  return Math.max(0, state.waveEnemiesRemaining || 0);
+  return (state.enemies?.length || 0) + (state.boss ? 1 : 0);
 }
 
 function clearPieterFreeze(){
@@ -5056,11 +5056,7 @@ function spawnWave(){
   const pressure = waveRamp(wave);
   const bossWave = isBossWave(wave);
   const spawnToken = ++state.waveSpawnToken;
-
-  const baseCount = Math.min(
-    5 + Math.floor(wave * 1.9 + Math.max(0, wave - 6) * 0.9),
-    52
-  );
+  const baseCount = Math.min(5 + Math.floor(wave * 1.9 + Math.max(0, wave - 6) * 0.9), 52);
 
   const batchCount =
     wave < 3 ? 1 :
@@ -5069,18 +5065,10 @@ function spawnWave(){
     wave < 15 ? 4 : 5;
 
   const totalCount = Math.min(
-    Math.round(
-      baseCount +
-      (wave >= 8 ? 2 : 0) +
-      (bossWave ? 2 + Math.floor(Math.max(0, wave - 9) / 3) : 0) +
-      (pressure - 1) * 4
-    ),
+    Math.round(baseCount + (wave >= 8 ? 2 : 0) + (bossWave ? 2 + Math.floor(Math.max(0, wave - 9) / 3) : 0) + (pressure - 1) * 4),
     58
   );
-
   const perBatch = Math.max(2, Math.ceil(totalCount / batchCount));
-
-  state.waveEnemiesRemaining = totalCount + (bossWave ? 1 : 0);
 
   const waveLabel =
     bossWave && wave >= 12 ? `WAVE ${wave} · DIRECTOR OVERRUN` :
@@ -5105,7 +5093,6 @@ function spawnWave(){
         setTimeout(() => {
           if(state.running && player.alive && state.waveSpawnToken === spawnToken){
             spawnEnemy(false);
-            setStat();
           }
         }, i * (wave >= 12 ? 80 : 110));
       }
@@ -5119,18 +5106,13 @@ function spawnWave(){
       showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
       createShockwave(player.pos.clone(), 0xff2e88);
       spawnEnemy(true);
-      setStat();
 
       if(wave >= 12){
         setTimeout(() => {
           if(state.running && player.alive && state.boss){
-            for(let i = 0; i < Math.min(2 + Math.floor((wave - 12) / 4), 4); i++){
+            for(let i=0;i<Math.min(2 + Math.floor((wave - 12) / 4), 4); i++){
               setTimeout(() => {
-                if(state.running && player.alive && state.boss){
-                  state.waveEnemiesRemaining += 1;
-                  spawnEnemy(false);
-                  setStat();
-                }
+                if(state.running && player.alive && state.boss) spawnEnemy(false);
               }, i * 160);
             }
           }
@@ -5801,8 +5783,6 @@ function shootWithDirection(dirOverride=null){
 function killEnemy(enemy){
   if(!enemy) return;
 
-  state.waveEnemiesRemaining = Math.max(0, (state.waveEnemiesRemaining || 0) - 1);
-
   spawnRagdoll?.(enemy);
   scene.remove(enemy.mesh);
   if(enemy.groundRing) scene.remove(enemy.groundRing);
@@ -5938,7 +5918,7 @@ function restartGame(){
   restoreDefaultHint();
 
   if(audioCtx){
-    state.songClock = audioCtx.currentTime + 0.05;
+    state.songClock = audioCtx ? audioCtx.currentTime + 0.05 : 0;
     state.songStep = -1;
   }
 
