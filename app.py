@@ -3727,100 +3727,121 @@ function drawMinimap(){
   const c = ui.minimapCanvas;
   const ctx = minimapCtx;
   if(!c || !ctx) return;
-  const w = c.width, h = c.height;
-  ctx.clearRect(0,0,w,h);
 
-  ctx.fillStyle = "rgba(5,10,20,.92)";
-  ctx.fillRect(0,0,w,h);
+  const w = c.width;
+  const h = c.height;
+  ctx.clearRect(0, 0, w, h);
 
-  ctx.strokeStyle = "rgba(0,247,255,.18)";
+  // achtergrond
+  ctx.fillStyle = "rgba(6,10,18,.94)";
+  ctx.fillRect(0, 0, w, h);
+
+  // grid
+  ctx.strokeStyle = "rgba(120,160,210,.16)";
   ctx.lineWidth = 1;
-  for(let i=1;i<4;i++){
+  for(let i = 1; i < 4; i++){
     ctx.beginPath();
-    ctx.arc(w/2,h/2,(w*0.16)*i,0,Math.PI*2);
+    ctx.arc(w / 2, h / 2, (w * 0.16) * i, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.beginPath();
-  ctx.moveTo(w/2,0); ctx.lineTo(w/2,h);
-  ctx.moveTo(0,h/2); ctx.lineTo(w,h/2);
+  ctx.moveTo(w / 2, 0);
+  ctx.lineTo(w / 2, h);
+  ctx.moveTo(0, h / 2);
+  ctx.lineTo(w, h / 2);
   ctx.stroke();
 
   const scale = 3.2;
-  const ox = w/2 - player.pos.x*scale;
-  const oy = h/2 - player.pos.z*scale;
+  const ox = w / 2 - player.pos.x * scale;
+  const oy = h / 2 - player.pos.z * scale;
 
+  // obstakels = neutraal
   for(const obs of colliders){
     const b = obs.box;
-    const x = ox + b.min.x*scale;
-    const y = oy + b.min.z*scale;
-    const ww = (b.max.x-b.min.x)*scale;
-    const hh = (b.max.z-b.min.z)*scale;
-    ctx.fillStyle = "rgba(140,170,220,.16)";
-    ctx.fillRect(x,y,ww,hh);
+    const x = ox + b.min.x * scale;
+    const y = oy + b.min.z * scale;
+    const ww = (b.max.x - b.min.x) * scale;
+    const hh = (b.max.z - b.min.z) * scale;
+    ctx.fillStyle = "rgba(120,135,155,.22)";
+    ctx.fillRect(x, y, ww, hh);
   }
 
+  // pickups = positief / bruikbaar
   for(const p of state.pickups){
-    const x = ox + p.mesh.position.x*scale;
-    const y = oy + p.mesh.position.z*scale;
+    const x = ox + p.mesh.position.x * scale;
+    const y = oy + p.mesh.position.z * scale;
+
     ctx.fillStyle =
-      p.kind==="heal" ? "#39ff9c" :
-      p.kind==="shield" ? "#7db7ff" :
-      p.kind==="rocket" ? "#ff6b6b" :
-      p.kind==="grenade" ? "#9cff57" :
-      "#ffd24d";
+      p.kind === "heal"    ? "#35d07f" :
+      p.kind === "shield"  ? "#4da3ff" :
+      p.kind === "rocket"  ? "#ff9f43" :
+      p.kind === "grenade" ? "#ffd93d" :
+      "#ffffff";
+
     ctx.beginPath();
-    ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
   }
 
+  // hazards = gevaar
   for(const hzd of state.hazards){
-    const x = ox + hzd.mesh.position.x*scale;
-    const y = oy + hzd.mesh.position.z*scale;
-    ctx.fillStyle = hzd.kind === "mine" ? "#8cf7ff" : "#ff5555";
-    ctx.beginPath();
-    ctx.arc(x,y,3.5,0,Math.PI*2);
-    ctx.fill();
-  }
+    const x = ox + hzd.mesh.position.x * scale;
+    const y = oy + hzd.mesh.position.z * scale;
 
-  for(const e of state.enemies){
-    const x = ox + e.mesh.position.x*scale;
-    const y = oy + e.mesh.position.z*scale;
     ctx.fillStyle =
-      e.type==="elite" ? "#ff9b5f" :
-      e.type==="logo" ? "#ffd24d" :
-      e.type==="tank" ? "#ff799f" :
-      e.type==="runner" ? "#a7ff52" :
-      "#7fe7ff";
+      hzd.kind === "mine" ? "#ff4d4f" : "#ff7a45";
+
     ctx.beginPath();
-    ctx.arc(x,y,e.type==="tank"?4.5:3.3,0,Math.PI*2);
+    ctx.arc(x, y, 3.6, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  if(state.boss){
-    const x = ox + state.boss.mesh.position.x*scale;
-    const y = oy + state.boss.mesh.position.z*scale;
-    ctx.strokeStyle = "#ff2b80";
-    ctx.lineWidth = 2;
+  // enemies = altijd roodtinten
+  for(const e of state.enemies){
+    const x = ox + e.mesh.position.x * scale;
+    const y = oy + e.mesh.position.z * scale;
+
+    ctx.fillStyle =
+      e.type === "elite"  ? "#ff7a45" :
+      e.type === "logo"   ? "#ffb347" :
+      e.type === "tank"   ? "#c92a2a" :
+      e.type === "runner" ? "#ff5c5c" :
+                            "#ff3b30";
+
     ctx.beginPath();
-    ctx.arc(x,y,7,0,Math.PI*2);
-    ctx.stroke();
+    ctx.arc(x, y, e.type === "tank" ? 4.8 : 3.5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
+  // boss = extra opvallend
+  if(state.boss){
+    const x = ox + state.boss.mesh.position.x * scale;
+    const y = oy + state.boss.mesh.position.z * scale;
+
+    ctx.strokeStyle = "#ff2d55";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "#ff2d55";
+    ctx.beginPath();
+    ctx.arc(x, y, 3.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // speler
   ctx.save();
-  ctx.translate(w/2,h/2);
+  ctx.translate(w / 2, h / 2);
   ctx.rotate(-lookYaw);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#3ddc97";
   ctx.beginPath();
-  ctx.moveTo(0,-8);
-  ctx.lineTo(6,6);
-  ctx.lineTo(-6,6);
+  ctx.moveTo(0, -8);
+  ctx.lineTo(6, 6);
+  ctx.lineTo(-6, 6);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-
-  if(ui.minimapLabel){
-    ui.minimapLabel.textContent = state.boss ? "BOSS IN ARENA" : `Hostiles ${state.enemies.length}`;
-  }
 }
 
 
