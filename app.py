@@ -12007,57 +12007,51 @@ updateBullets = function(dt){
     return ok;
   };
 
-  function handleDirectSlotSelect(slot){
-    setWeapon(slot);
-  }
+function handleDirectSlotSelect(slot){
+  if(!state.running || !player.alive) return;
+  setWeapon(slot);
+}
 
-  window.addEventListener("wheel", e => {
-    if(!state.running) return;
-    if(Math.abs(e.deltaY) < 4) return;
+window.addEventListener("keydown", e => {
+  if(!state.running || !player.alive) return;
 
+  if(e.code === "Digit1"){
     e.preventDefault();
-    cycleWeapon(e.deltaY > 0 ? 1 : -1);
-  }, { passive:false });
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("bullet");
+  } else if(e.code === "Digit2"){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("rocket");
+  } else if(e.code === "Digit3"){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("grenade");
+  } else if(e.code === "Digit4"){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("plasma");
+  } else if(e.code === "Digit5"){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("mine");
+  } else if(e.code === "Digit6"){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleDirectSlotSelect("orbital");
+  }
+}, true);
 
-  window.addEventListener("keydown", e => {
-    if(!state.running && !["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6"].includes(e.code)) return;
-
-    if(e.code === "Digit1"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("bullet");
-    } else if(e.code === "Digit2"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("rocket");
-    } else if(e.code === "Digit3"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("grenade");
-    } else if(e.code === "Digit4"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("plasma");
-    } else if(e.code === "Digit5"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("mine");
-    } else if(e.code === "Digit6"){
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      handleDirectSlotSelect("orbital");
-    }
-  }, true);
-
-  [ui.chipBullet, ui.chipRocket, ui.chipGrenade, ui.chipPlasma, ui.chipMine, ui.chipOrbital].forEach((chip, i) => {
-    if(!chip || chip.dataset.ohScrollBound) return;
-    chip.dataset.ohScrollBound = "1";
-    chip.style.pointerEvents = "auto";
-    chip.style.cursor = "pointer";
-    chip.addEventListener("click", () => {
-      setWeapon(LOADOUT_ORDER[i]);
-    });
+[ui.chipBullet, ui.chipRocket, ui.chipGrenade, ui.chipPlasma, ui.chipMine, ui.chipOrbital].forEach((chip, i) => {
+  if(!chip || chip.dataset.ohScrollBound) return;
+  chip.dataset.ohScrollBound = "1";
+  chip.style.pointerEvents = "auto";
+  chip.style.cursor = "pointer";
+  chip.addEventListener("click", () => {
+    if(!state.running || !player.alive) return;
+    setWeapon(LOADOUT_ORDER[i]);
   });
+});
 
   if(!state.weaponScrollHintShown){
     state.weaponScrollHintShown = true;
