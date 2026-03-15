@@ -6086,14 +6086,88 @@ function updateBullets(dt){
     return true;
   }
 
+  function explodePlasmaAt(position, radius, damage, color){
+  createBurst(position, color, 8, 4.6, {
+    minSize: .04,
+    maxSize: .09,
+    minLife: .14,
+    maxLife: .32,
+    maxUp: 1.1,
+    drag: 0.91,
+    gravity: 2.2,
+    shrink: 0.965
+  });
+
+  createBurst(position, 0xffffff, 3, 2.6, {
+    minSize: .02,
+    maxSize: .05,
+    minLife: .06,
+    maxLife: .14,
+    gravity: 0.8,
+    shrink: 0.93
+  });
+
+  createShockwave(position, color, Math.max(0.9, radius * 0.72));
+  createFlash(position, color, 1.4, radius * 2.2, 0.08);
+
+  for(let i = state.enemies.length - 1; i >= 0; i--){
+    const e = state.enemies[i];
+    if(!e?.mesh) continue;
+
+    const hitPos = e.mesh.position.clone();
+    hitPos.y = 1.7;
+    const d = hitPos.distanceTo(position);
+
+    if(d < radius){
+      if(!Number.isFinite(e.hp)){
+        e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
+      }
+      if(!Number.isFinite(e.maxHp) || e.maxHp <= 0){
+        e.maxHp = Math.max(1, Number.isFinite(e.hp) ? e.hp : 1);
+      }
+
+      e.hp -= damage * (1 - d / radius);
+
+      if(e.hp <= 0){
+        killEnemy(e);
+        state.enemies.splice(i, 1);
+      }
+    }
+  }
+
+  if(state.boss){
+    const bp = state.boss.mesh.position.clone();
+    bp.y = 2.2;
+    const d = bp.distanceTo(position);
+
+    if(d < radius){
+      state.boss.hp -= damage * (1 - d / radius);
+      updateBossBar();
+      if(state.boss.hp <= 0){
+        killEnemy(state.boss);
+      }
+    }
+  }
+}
+
   function explodeProjectile(bullet){
-    explodeAt(
+  if(bullet.type === "plasma"){
+    explodePlasmaAt(
       bullet.mesh.position.clone(),
       bullet.radius,
       bullet.damage,
       bullet.explosionColor
     );
+    return;
   }
+
+  explodeAt(
+    bullet.mesh.position.clone(),
+    bullet.radius,
+    bullet.damage,
+    bullet.explosionColor
+  );
+}
 
   function isExplosiveBullet(bullet){
     return bullet.type === "rocket" || bullet.type === "grenade" || bullet.type === "plasma";
