@@ -7391,11 +7391,22 @@ function startGame(){
 window.addEventListener("keydown", e => {
   input.keyboard[e.code] = true;
 
+  const typingInField =
+    document.activeElement &&
+    (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA" ||
+      document.activeElement.isContentEditable
+    );
+
+  if(typingInField){
+    return;
+  }
+
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space","Enter"].includes(e.code)){
     e.preventDefault();
   }
 
-  // vóór start alleen restart toestaan als speler dood is
   if(!state.running){
     if(e.code === "KeyR" && !player.alive){
       restartGame();
@@ -12194,11 +12205,6 @@ function handleDirectSlotSelect(slot){
   setWeapon(slot);
 }
 
-function handleDirectSlotSelect(slot){
-  if(!state.running || !player.alive) return;
-  setWeapon(slot);
-}
-
 window.addEventListener("wheel", e => {
   if(!state.running || !player.alive) return;
   if(Math.abs(e.deltaY) < 4) return;
@@ -12208,6 +12214,15 @@ window.addEventListener("wheel", e => {
 }, { passive:false });
 
 window.addEventListener("keydown", e => {
+  const typingInField =
+    document.activeElement &&
+    (
+      document.activeElement.tagName === "INPUT" ||
+      document.activeElement.tagName === "TEXTAREA" ||
+      document.activeElement.isContentEditable
+    );
+
+  if(typingInField) return;
   if(!state.running || !player.alive) return;
 
   if(e.code === "Digit1"){
