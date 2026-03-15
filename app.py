@@ -3788,9 +3788,9 @@ function drawMinimap(){
     ctx.fillStyle =
       e.type==="elite" ? "#ff9b5f" :
       e.type==="logo" ? "#ffd24d" :
-      e.type==="tank" ? "#ff5c5c" :
-      e.type==="runner" ? "#ff8746" :
-      "#ff6fae";
+      e.type==="tank" ? "#ff799f" :
+      e.type==="runner" ? "#a7ff52" :
+      "#7fe7ff";
     ctx.beginPath();
     ctx.arc(x,y,e.type==="tank"?4.5:3.3,0,Math.PI*2);
     ctx.fill();
@@ -7863,25 +7863,19 @@ function startGame(){
   function doDash(){
     if(!state.running || !player.alive || apoc.dashCd > 0) return;
 
-    const DASH_DISTANCE = 7.5;
-    const DASH_STEP = 0.3;
     const dir = getMoveVector();
     const old = player.pos.clone();
-    const steps = Math.max(1, Math.ceil(DASH_DISTANCE / DASH_STEP));
-    let travelled = 0;
     let moved = false;
 
-    for(let step = 1; step <= steps; step++){
-      const dist = Math.min(DASH_DISTANCE, step * DASH_STEP);
-      const test = old.clone().add(dir.clone().multiplyScalar(dist));
+    for(let step = 1; step <= 10; step++){
+      const test = old.clone().add(dir.clone().multiplyScalar(step * 0.55));
       const blocked = (typeof collidesAt === "function") ? collidesAt(test.x, test.z, player.radius * 0.86) : false;
       if(blocked) break;
       player.pos.copy(test);
-      travelled = dist;
       moved = true;
     }
 
-    if(!moved || travelled < 0.05) return;
+    if(!moved) return;
 
     apoc.dashCd = 3.5;
     player.damageCooldown = Math.max(player.damageCooldown, 0.35);
@@ -7891,8 +7885,8 @@ function startGame(){
       const p = old.clone().lerp(player.pos, i / 4);
       createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
     }
-    createShockwave?.(player.pos.clone(), 0x8bf0ff, Math.max(2.6, travelled * 0.5));
-    flashHint?.(`Dash ${travelled.toFixed(1)}m`);
+    createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
+    flashHint?.("Dash");
     updateApocHud();
   }
 
@@ -13966,38 +13960,6 @@ updateBullets = function(dt){
   };
 
   function loadMetaProfile(){
-  const DEFAULT_LOADOUTS = {
-  vanguard: {
-    label: "Vanguard",
-    startWeapon: "bullet",
-    bonusHp: 14,
-    speed: 0.15,
-    ammo: { bullet:18, rocket:0, grenade:0 },
-    abilities: { plasma:1, mine:0, orbital:0 },
-    perk: "Stabiele opener met extra HP en rifle momentum"
-  },
-
-  demolisher: {
-    label: "Demolisher",
-    startWeapon: "rocket",
-    bonusHp: 6,
-    speed: -0.1,
-    ammo: { bullet:0, rocket:2, grenade:1 },
-    abilities: { plasma:0, mine:1, orbital:0 },
-    perk: "Explosieve start met rocket pressure en area denial"
-  },
-
-  tactician: {
-    label: "Tactician",
-    startWeapon: "grenade",
-    bonusHp: 8,
-    speed: 0.08,
-    ammo: { bullet:8, rocket:1, grenade:2 },
-    abilities: { plasma:0, mine:1, orbital:1 },
-    perk: "Utility-heavy run met crowd control en orbital follow-up"
-  }
-};
-
     try{
       const saved = JSON.parse(localStorage.getItem(FINAL_META_KEY) || "null") || {};
       return {
@@ -14011,8 +13973,7 @@ updateBullets = function(dt){
         bossContracts: saved.bossContracts || 0,
         totalMinibossKills: saved.totalMinibossKills || 0,
         activeLoadout: saved.activeLoadout || "vanguard",
-        loadouts: Object.assign({loadouts: Object.assign({}, DEFAULT_LOADOUTS, saved.loadouts || {})
-        const DEFAULT_LOADOUTS = {
+        loadouts: Object.assign({
           vanguard: {
             label: "Vanguard",
             startWeapon: "bullet",
@@ -14054,7 +14015,11 @@ updateBullets = function(dt){
         bossContracts: 0,
         totalMinibossKills: 0,
         activeLoadout: "vanguard",
-        loadouts: DEFAULT_LOADOUTS
+        loadouts: {
+          vanguard: { label:"Vanguard", startWeapon:"bullet", bonusHp:14, speed:0.15, ammo:{ bullet:18, rocket:0, grenade:0 }, abilities:{ plasma:1, mine:0, orbital:0 }, perk:"Stabiele opener met extra HP en rifle momentum" },
+          demolisher: { label:"Demolisher", startWeapon:"rocket", bonusHp:6, speed:-0.1, ammo:{ bullet:0, rocket:2, grenade:1 }, abilities:{ plasma:0, mine:1, orbital:0 }, perk:"Explosieve start met rocket pressure en area denial" },
+          tactician: { label:"Tactician", startWeapon:"grenade", bonusHp:8, speed:0.08, ammo:{ bullet:8, rocket:1, grenade:2 }, abilities:{ plasma:0, mine:1, orbital:1 }, perk:"Utility-heavy run met crowd control en orbital follow-up" }
+        }
       };
     }
   }
