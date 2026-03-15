@@ -4168,17 +4168,6 @@ function updateMusic(){
     speedBoostTimer: 0
   };
 
-const PERF = {
-  MAX_ENEMIES_SOFT: 18,
-  MAX_ENEMIES_HARD: 24,
-  MAX_PLAYER_BULLETS: 90,
-  MAX_ENEMY_BULLETS: 60,
-  MAX_PARTICLES: 220,
-  MAX_RINGS: 24,
-  MAX_FLASHES: 10,
-  MAX_HAZARDS: 10
-};
-
   const state = {
   running:false,
   pointerLocked:false,
@@ -5675,9 +5664,10 @@ function shootWithDirection(dirOverride=null){
     state.ragdolls.push({ pieces, constraints, life:6.6, fade:1.8 });
   }
 
-  function deployShockMine(){
-    if(!state.running || !player.alive || player.abilities.mine <= 0) return;
-    player.abilities.mine -= 1;
+ function deployShockMine(){
+    if(!state.running || !player.alive) return;
+    if(!state.cheatGodAmmo && player.abilities.mine <= 0) return;
+    if(!state.cheatGodAmmo) player.abilities.mine -= 1;
     state.firedAbility = "mine";
     pulseAbilityUI("mine");
     const group = new THREE.Group();
@@ -5699,8 +5689,9 @@ function shootWithDirection(dirOverride=null){
   }
 
   function deployOrbital(){
-    if(!state.running || !player.alive || player.abilities.orbital <= 0) return;
-    player.abilities.orbital -= 1;
+    if(!state.running || !player.alive) return;
+    if(!state.cheatGodAmmo && player.abilities.orbital <= 0) return;
+    if(!state.cheatGodAmmo) player.abilities.orbital -= 1;
     state.firedAbility = "orbital";
     pulseAbilityUI("orbital");
     const dir = new THREE.Vector3();
@@ -5725,8 +5716,9 @@ function shootWithDirection(dirOverride=null){
   }
 
   function firePlasmaBurst(){
-  if(!state.running || !player.alive || player.abilities.plasma <= 0) return;
-  player.abilities.plasma -= 1;
+  if(!state.running || !player.alive) return;
+  if(!state.cheatGodAmmo && player.abilities.plasma <= 0) return;
+  if(!state.cheatGodAmmo) player.abilities.plasma -= 1;
   state.firedAbility = "plasma";
   pulseAbilityUI("plasma");
 
