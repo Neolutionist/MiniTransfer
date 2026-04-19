@@ -5784,9 +5784,25 @@ function spawnWave(){
   setStat();
 }
 
+  // Gedeelde geometrieën voor projectielen. We gebruiken 2 maten (normaal & boss/rocket)
+  // en schalen via mesh.scale voor andere grootten. Materialen worden gecached per kleur.
+  const SHARED_BULLET_GEO = new THREE.SphereGeometry(0.12, 8, 6);  // lagere segment-count ook goed voor perf
+  const BULLET_MAT_CACHE = new Map();
+  function getBulletMaterial(color){
+    let m = BULLET_MAT_CACHE.get(color);
+    if(!m){
+      m = new THREE.MeshBasicMaterial({ color });
+      BULLET_MAT_CACHE.set(color, m);
+    }
+    return m;
+  }
+
   function createProjectile(pos, dir, config){
-    const material = new THREE.MeshBasicMaterial({ color: config.color });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(config.size, 10, 10), material);
+    // Hergebruik gedeelde geometrie; scale via mesh.scale (bijna gratis op GPU).
+    // Materiaal wordt gedeeld per kleur — bullets met dezelfde kleur delen één material.
+    const mesh = new THREE.Mesh(SHARED_BULLET_GEO, getBulletMaterial(config.color));
+    const s = (config.size || 0.12) / 0.12;
+    if(s !== 1) mesh.scale.setScalar(s);
     mesh.position.copy(pos);
     scene.add(mesh);
     return {
@@ -5803,7 +5819,9 @@ function spawnWave(){
       trailColor: config.trailColor || config.color,
       trailTimer: 0,
       smoke: !!config.smoke,
-      spin: rand(-12, 12)
+      spin: rand(-12, 12),
+      // Vlag zodat cleanup-code weet: material NIET disposen (gedeeld).
+      _sharedMat: true
     };
   }
 
@@ -5883,11 +5901,43 @@ function spawnWave(){
   });
 }
 
-  function createFlash(position, color, intensity=2.8, distance=9, life=0.15){
-    const light = new THREE.PointLight(color, intensity, distance, 2);
-    light.position.copy(position);
+  // PointLight pool: three.js hercompileert materials wanneer het aantal lights
+  // in de scene verandert. Door 6 point-lights één keer aan te maken en te
+  // hergebruiken (intensity=0 als "vrij"), vermijden we dure shader-recompiles
+  // bij elke explosie of muzzle-flash.
+  const FLASH_POOL_SIZE = 6;
+  const _flashPool = [];
+  for(let i=0;i<FLASH_POOL_SIZE;i++){
+    const light = new THREE.PointLight(0xffffff, 0, 1, 2);
+    light.position.set(0, -1000, 0); // buiten beeld tot gebruik
     scene.add(light);
-    state.flashes.push({ light, life, maxLife:life });
+    _flashPool.push({ light, busy:false });
+  }
+
+  function createFlash(position, color, intensity=2.8, distance=9, life=0.15){
+    // Zoek een vrije slot in de pool. Als alle slots bezig zijn: vervang de
+    // slot met de kleinste resterende levensduur (nieuwe flash is belangrijker).
+    let slot = null;
+    for(const s of _flashPool){
+      if(!s.busy){ slot = s; break; }
+    }
+    if(!slot){
+      // Alle 6 bezig — overschrijf de slot met de laagste life.
+      let minLife = Infinity;
+      for(const s of _flashPool){
+        if(s.life < minLife){ minLife = s.life; slot = s; }
+      }
+    }
+    if(!slot) return;
+
+    slot.light.color.setHex(color);
+    slot.light.distance = distance;
+    slot.light.intensity = intensity;
+    slot.light.position.copy(position);
+    slot.busy = true;
+    slot.life = life;
+    slot.maxLife = life;
+    state.flashes.push(slot);
   }
 
   function explodeAt(position, radius, damage, color){
@@ -6299,15 +6349,16 @@ function shootWithDirection(dirOverride=null){
       : (enemy.type === "runner" ? 1 : enemy.type === "elite" ? (wave >= 10 ? 3 : 2) : enemy.type === "tank" && wave >= 12 ? 2 : 1);
     const spread = enemy.isBoss ? 0.04 : 0.025;
     for(let i=0;i<burstCount;i++){
-      // shotDir as new Vector3 (createProjectile keeps a ref, we can't reuse)
-      const shotDir = new THREE.Vector3(
+      // Hergebruik tmp-vectors. createProjectile kopieert pos met mesh.position.copy
+      // en cloned dir met .clone().multiplyScalar, dus we hoeven geen nieuwe
+      // Vector3's te alloceren per burst-shot.
+      _tmpB.set(
         dirX + (Math.random()-0.5) * spread,
         dirY + (Math.random()-0.5) * 0.02,
         dirZ + (Math.random()-0.5) * spread
       ).normalize();
-      // start: new Vector3 per projectile (projectile owns its position)
-      const start = new THREE.Vector3(ePos.x, startY, ePos.z);
-      state.enemyBullets.push(createProjectile(start, shotDir, {
+      _tmpC.set(ePos.x, startY, ePos.z);
+      state.enemyBullets.push(createProjectile(_tmpC, _tmpB, {
         speed,
         friendly:false,
         color,
@@ -6609,7 +6660,12 @@ function shootWithDirection(dirOverride=null){
     state.ammoHintTimer = 0;
     while(state.flashes.length){
       const flash = state.flashes.pop();
-      if(flash.light) scene.remove(flash.light);
+      // Pool-entries niet removen uit scene — alleen vrijgeven.
+      if(flash && flash.light){
+        flash.light.intensity = 0;
+        flash.light.position.set(0, -1000, 0);
+        flash.busy = false;
+      }
     }
     restoreDefaultHint();
 
@@ -7086,8 +7142,15 @@ if(b.gravity){
       const dz = bPos.z - player.pos.z;
       const distSq = dx*dx + dy*dy + dz*dz;
       if(distSq < PLAYER_HIT_RADIUS * PLAYER_HIT_RADIUS){
+        // Alleen visuele feedback als damage daadwerkelijk wordt toegepast.
+        // Zonder deze check spawnt elke hit tijdens i-frames (damageCooldown)
+        // toch een particle-burst — en als er 5 bullets tegelijk inkomen worden
+        // er 5 bursts afgevuurd terwijl de speler er maar 1 ziet registreren.
+        const hadCooldown = player.damageCooldown > 0 || !player.alive;
         applyDamage(b.damage);
-        createBurst(bPos, 0xff6ea1, 7, 2.8);
+        if(!hadCooldown){
+          createBurst(bPos, 0xff6ea1, 4, 2.8);
+        }
         remove = true;
       }
     }
@@ -7594,7 +7657,11 @@ if(b.gravity){
       f.life -= dt;
       f.light.intensity = clamp(f.life / f.maxLife, 0, 1) * 4.0;
       if(f.life <= 0){
-        scene.remove(f.light);
+        // Vrijgeven in de pool — light blijft in scene staan (intensity=0)
+        // zodat three.js geen shader-recompile triggert.
+        f.light.intensity = 0;
+        f.light.position.set(0, -1000, 0);
+        f.busy = false;
         state.flashes.splice(i,1);
       }
     }
@@ -7877,9 +7944,10 @@ function coreCleanupItem(item){
   if(!item) return;
   if(item.mesh){
     scene.remove(item.mesh);
-    // Dispose gecloneerde material (particles, tijdelijke effects).
-    // Shared geometries/materials blijven staan in three.js' cache.
-    if(item.mesh.material && typeof item.mesh.material.dispose === "function"){
+    // Dispose alleen materials die NIET gedeeld zijn. Bullets/particles die een
+    // gedeeld material gebruiken hebben _sharedMat=true en blijven behouden
+    // in hun cache voor hergebruik.
+    if(!item._sharedMat && item.mesh.material && typeof item.mesh.material.dispose === "function"){
       item.mesh.material.dispose();
     }
   }
@@ -8145,7 +8213,11 @@ function restartGame(){
 
   while(state.flashes.length){
     const flash = state.flashes.pop();
-    if(flash?.light) scene.remove(flash.light);
+    if(flash?.light){
+      flash.light.intensity = 0;
+      flash.light.position.set(0, -1000, 0);
+      flash.busy = false;
+    }
   }
 
   restoreDefaultHint?.();
@@ -12944,9 +13016,13 @@ updateBullets = function(dt){
 
     let explode = g.life <= 0 || g.mesh.position.y <= 0.2 || collidesAt(g.mesh.position.x, g.mesh.position.z, 0.14);
 
-    const playerHit = new THREE.Vector3(player.pos.x, 1.0, player.pos.z);
-    const distToPlayer = g.mesh.position.distanceTo(playerHit);
-    if(!explode && distToPlayer < 1.1){
+    // Squared distance — vermijdt Vector3 allocatie en sqrt elke frame per grenade.
+    const gPos = g.mesh.position;
+    const gdx = gPos.x - player.pos.x;
+    const gdy = gPos.y - 1.0;
+    const gdz = gPos.z - player.pos.z;
+    const distToPlayerSq = gdx*gdx + gdy*gdy + gdz*gdz;
+    if(!explode && distToPlayerSq < 1.21){ // 1.1^2
       explode = true;
     }
 
