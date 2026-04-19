@@ -10,7 +10,7 @@
 # - Domeinen: ondersteunt minitransfer.onrender.com én downloadlink.nl in get_base_host()
 # ======================================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request, hmac, time
+import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,19 +36,8 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 DB_PATH  = DATA_DIR / "files_multi.db"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "").strip().lower()
-AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "").strip()
-# Backward compat: accepteer ook plaintext env var, maar waarschuw. Nieuwe installs horen AUTH_PASSWORD_HASH te gebruiken.
-_AUTH_PASSWORD_PLAIN = os.environ.get("AUTH_PASSWORD", "").strip()
-
-if not AUTH_EMAIL:
-    raise RuntimeError(
-        "❌ AUTH_EMAIL ontbreekt! Zet AUTH_EMAIL in Render → Environment."
-    )
-if not AUTH_PASSWORD_HASH and not _AUTH_PASSWORD_PLAIN:
-    raise RuntimeError(
-        "❌ Auth-configuratie mist! Zet AUTH_PASSWORD_HASH (aanbevolen) of AUTH_PASSWORD in Render → Environment."
-    )
+AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")  
 
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_REGION = os.getenv("S3_REGION", "eu-central-003")
@@ -65,17 +54,17 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
-MAIL_TO   = os.environ.get("MAIL_TO", "").strip()
+MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
 
 # PayPal Subscriptions
 PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
 PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
 PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
 
-PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "").strip()  # 0,5 TB – €12/mnd
-PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "").strip()  # 1 TB   – €15/mnd
-PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "").strip()  # 2 TB   – €20/mnd
-PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "").strip()  # 5 TB   – €30/mnd
+PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
+PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
+PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
+PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
 
 PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID")  # vanuit Developer Dashboard → My Apps & Credentials → jouw app → Webhooks
 
@@ -95,13 +84,7 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-_secret = os.environ.get("SECRET_KEY")
-if not _secret:
-    raise RuntimeError(
-        "❌ SECRET_KEY ontbreekt! Zet SECRET_KEY in Render → Environment. "
-        "Tip: render.yaml kan met generateValue: true een willekeurige waarde aanmaken."
-    )
-app.config["SECRET_KEY"] = _secret
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "olde-hanter-simple-secret")
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -124,33 +107,16 @@ def allow_health():
         return  # Geen redirect of blokkade; laat de route doorgaan
 
 # ---- Multi-tenant configuratie (HOST -> tenant) ----
-# Je kunt TENANT_HOST + TENANT_SLUG expliciet zetten, maar als ze ontbreken
-# wordt er afgeleid uit CANONICAL_HOST. Bijvoorbeeld 'oldehanter.downloadlink.nl'
-# => host=oldehanter.downloadlink.nl, slug=oldehanter.
-_tenant_host = os.environ.get("TENANT_HOST", "").strip().lower()
-_tenant_slug = os.environ.get("TENANT_SLUG", "").strip().lower()
-
-if not _tenant_host:
-    _tenant_host = os.environ.get("CANONICAL_HOST", "").strip().lower()
-if not _tenant_slug and _tenant_host:
-    _tenant_slug = _tenant_host.split(".", 1)[0]
-
-if not _tenant_host or not _tenant_slug:
-    raise RuntimeError(
-        "❌ Tenant-configuratie mist! Zet CANONICAL_HOST (of TENANT_HOST + TENANT_SLUG) in Render → Environment."
-    )
-
 TENANTS = {
-    _tenant_host: {
-        "slug": _tenant_slug,
-        "mail_to": MAIL_TO,
+    "oldehanter.downloadlink.nl": {
+        "slug": "oldehanter",
+        "mail_to": os.environ.get("MAIL_TO", "Patrick@oldehanter.nl"),
     }
 }
-_DEFAULT_TENANT_HOST = _tenant_host
 
 def current_tenant():
     host = (request.headers.get("Host") or "").lower()
-    return TENANTS.get(host) or TENANTS[_DEFAULT_TENANT_HOST]
+    return TENANTS.get(host) or TENANTS["oldehanter.downloadlink.nl"]
 # ----------------------------------------------------
 
 # --- Redirect config toevoegen ---
@@ -160,13 +126,11 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config.update(PREFERRED_URL_SCHEME="https", SESSION_COOKIE_SECURE=True)
 
 import os
-CANONICAL_HOST = os.environ.get("CANONICAL_HOST", _tenant_host).lower()
-OLD_HOST = os.environ.get("OLD_HOST", "").strip().lower()
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "oldehanter.downloadlink.nl").lower()
+OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
 
 @app.before_request
 def _redirect_old_host():
-    if not OLD_HOST:
-        return
     host = (request.headers.get("Host") or "").lower()
     if host == OLD_HOST:
         new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
@@ -187,20 +151,6 @@ def db():
 
 def init_db():
     c = db()
-
-    c.execute("""
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        is_admin INTEGER NOT NULL DEFAULT 0,
-        tenant_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        disabled INTEGER NOT NULL DEFAULT 0
-      )
-    """)
-    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)")
 
     c.execute("""
       CREATE TABLE IF NOT EXISTS packages (
@@ -262,79 +212,24 @@ def _col_exists(conn, table, col):
 def migrate_add_tenant_columns():
     conn = db()
     try:
-        default_slug = _tenant_slug
         # packages
         if not _col_exists(conn, "packages", "tenant_id"):
             conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE packages SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
+            conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
         # items
         if not _col_exists(conn, "items", "tenant_id"):
             conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE items SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
+            conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
         # subscriptions
         if not _col_exists(conn, "subscriptions", "tenant_id"):
             conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE subscriptions SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
+            conn.execute("UPDATE subscriptions SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
 
         conn.commit()
     finally:
         conn.close()
 
 migrate_add_tenant_columns()
-
-def migrate_add_owner_columns():
-    """Voeg owner_user_id toe aan packages (per-user scoping)."""
-    conn = db()
-    try:
-        if not _col_exists(conn, "packages", "owner_user_id"):
-            conn.execute("ALTER TABLE packages ADD COLUMN owner_user_id INTEGER")
-        conn.commit()
-    finally:
-        conn.close()
-
-migrate_add_owner_columns()
-
-def seed_admin_from_env():
-    """
-    Bij eerste start (of wanneer de admin nog niet bestaat): maak admin-user aan
-    op basis van AUTH_EMAIL + AUTH_PASSWORD_HASH (of AUTH_PASSWORD als legacy).
-    Koppel bestaande packages zonder eigenaar aan deze admin.
-    """
-    if not AUTH_EMAIL:
-        return
-    # Bepaal wachtwoord-hash
-    pw_hash = AUTH_PASSWORD_HASH
-    if not pw_hash and _AUTH_PASSWORD_PLAIN:
-        pw_hash = generate_password_hash(_AUTH_PASSWORD_PLAIN)
-    if not pw_hash:
-        return
-
-    conn = db()
-    try:
-        existing = conn.execute("SELECT id, is_admin FROM users WHERE email = ?", (AUTH_EMAIL,)).fetchone()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        if existing is None:
-            conn.execute(
-                "INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled) VALUES(?,?,?,?,?,0)",
-                (AUTH_EMAIL, pw_hash, 1, _tenant_slug, now_iso)
-            )
-            admin_id = conn.execute("SELECT id FROM users WHERE email = ?", (AUTH_EMAIL,)).fetchone()["id"]
-            log.info("Seeded admin user %s (id=%s)", AUTH_EMAIL, admin_id)
-        else:
-            admin_id = existing["id"]
-            # Zorg dat admin-flag staat
-            if not existing["is_admin"]:
-                conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (admin_id,))
-        # Koppel losgekoppelde packages aan admin
-        conn.execute(
-            "UPDATE packages SET owner_user_id = ? WHERE owner_user_id IS NULL AND tenant_id = ?",
-            (admin_id, _tenant_slug)
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-seed_admin_from_env()
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -1194,7 +1089,7 @@ INDEX_HTML = """
     <h1 class="brand">Psychedelische Upload</h1>
 
     <div class="right">
-      <div class="who">Ingelogd als <strong>{{ user }}</strong>{% if is_admin %} • <a href="/admin/users">Beheer</a>{% endif %} • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+      <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
     </div>
   </div>
 
@@ -15517,32 +15412,7 @@ def apply_default_headers(resp):
 
 # -------------- Helpers --------------
 def logged_in() -> bool:
-    return bool(session.get("authed") and session.get("user_id"))
-
-def current_user():
-    """Haal de huidige user op (uit DB), of None."""
-    uid = session.get("user_id")
-    if not uid:
-        return None
-    conn = db()
-    try:
-        row = conn.execute(
-            "SELECT id, email, is_admin, tenant_id, disabled FROM users WHERE id = ?",
-            (uid,)
-        ).fetchone()
-        if row is None or row["disabled"]:
-            return None
-        return row
-    finally:
-        conn.close()
-
-def current_user_id():
-    u = current_user()
-    return u["id"] if u else None
-
-def is_admin() -> bool:
-    u = current_user()
-    return bool(u and u["is_admin"])
+    return session.get("authed", False)
 
 def human(n: int) -> str:
     x = float(n)
@@ -15577,16 +15447,8 @@ def paypal_access_token():
 
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
-    # Bepaal basisdomein voor voorbeeldlinks. Configureerbaar via BASE_HOST env.
-    # Fallback: strip de subdomein-prefix van de canonical host.
-    explicit = os.environ.get("BASE_HOST", "").strip().lower()
-    if explicit:
-        return explicit
-    host = CANONICAL_HOST
-    parts = host.split(".")
-    if len(parts) > 2:
-        return ".".join(parts[-2:])
-    return host
+    # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
+    return "downloadlink.nl"
 
 
 # ------------- Favicon -------------
@@ -15602,10 +15464,6 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" 
 
 @app.route("/debug/dbcols")
 def debug_dbcols():
-    if not logged_in():
-        abort(404)
-    if not app.debug and os.environ.get("ENABLE_DEBUG_ROUTES") != "1":
-        abort(404)
     c = db()
     out = {}
     for table in ["packages", "items", "subscriptions"]:
@@ -15619,106 +15477,27 @@ def debug_dbcols():
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
-    return render_template_string(INDEX_HTML, user=session.get("user"), is_admin=is_admin(), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
-
-# -------- Login rate limiting (brute-force bescherming) --------
-_LOGIN_ATTEMPTS: dict = {}  # key=ip -> (count, first_ts, blocked_until)
-LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
-LOGIN_WINDOW_SECONDS = int(os.environ.get("LOGIN_WINDOW_SECONDS", "300"))        # 5 minuten
-LOGIN_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_SECONDS", "900"))      # 15 minuten
-
-def _login_client_ip() -> str:
-    fwd = request.headers.get("X-Forwarded-For", "")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()[:64]
-    return (request.remote_addr or "")[:64]
-
-def _login_is_blocked(ip: str) -> float:
-    """Return seconds tot unblock, of 0 als niet geblokkeerd."""
-    rec = _LOGIN_ATTEMPTS.get(ip)
-    if not rec:
-        return 0.0
-    _count, _first_ts, blocked_until = rec
-    now = time.time()
-    if blocked_until and now < blocked_until:
-        return blocked_until - now
-    return 0.0
-
-def _login_register_failure(ip: str) -> None:
-    now = time.time()
-    rec = _LOGIN_ATTEMPTS.get(ip)
-    if not rec or (now - rec[1]) > LOGIN_WINDOW_SECONDS:
-        _LOGIN_ATTEMPTS[ip] = (1, now, 0.0)
-        return
-    count = rec[0] + 1
-    blocked_until = now + LOGIN_LOCKOUT_SECONDS if count >= LOGIN_MAX_ATTEMPTS else 0.0
-    _LOGIN_ATTEMPTS[ip] = (count, rec[1], blocked_until)
-
-def _login_reset(ip: str) -> None:
-    _LOGIN_ATTEMPTS.pop(ip, None)
-
-def _verify_password(stored_hash: str, submitted: str) -> bool:
-    """Controleer wachtwoord tegen stored hash. Constant-time."""
-    if not stored_hash:
-        return False
-    try:
-        return check_password_hash(stored_hash, submitted)
-    except Exception:
-        return False
+    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
-        ip = _login_client_ip()
-        wait = _login_is_blocked(ip)
-        if wait > 0:
-            return render_template_string(
-                LOGIN_HTML,
-                error=f"Te veel mislukte pogingen. Probeer het over {int(wait//60)+1} minuten opnieuw.",
-                base_css=BASE_CSS, bg=BG_DIV,
-                auth_email="",
-                head_icon=HTML_HEAD_ICON
-            ), 429
-
         email = (request.form.get("email") or "").lower().strip()
         # accept either the hidden 'password' or the UI field 'pw_ui'
         pw    = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
 
-        # Zoek user in DB
-        conn = db()
-        try:
-            row = conn.execute(
-                "SELECT id, email, password_hash, is_admin, tenant_id, disabled FROM users WHERE email = ?",
-                (email,)
-            ).fetchone()
-        finally:
-            conn.close()
-
-        # Altijd een dummy-hash checken als user niet bestaat, om timing te normaliseren
-        pw_ok = False
-        if row is not None and not row["disabled"]:
-            pw_ok = _verify_password(row["password_hash"], pw)
-        else:
-            # Dummy compute zodat response-tijd niet verraadt of user bestaat
-            check_password_hash("pbkdf2:sha256:600000$x$" + "0"*64, pw)
-
-        if row is not None and not row["disabled"] and pw_ok:
-            _login_reset(ip)
+        if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
             session.clear()
             session.permanent = True
             session["authed"] = True
-            session["user_id"] = row["id"]
-            session["user"] = row["email"]
-            session["is_admin"] = bool(row["is_admin"])
+            session["user"] = AUTH_EMAIL
             return redirect(url_for("index"))
 
-        _login_register_failure(ip)
-        time.sleep(0.3)
         return render_template_string(
             LOGIN_HTML,
             error="Onjuiste inloggegevens.",
             base_css=BASE_CSS, bg=BG_DIV,
-            auth_email="",
+            auth_email=AUTH_EMAIL,
             head_icon=HTML_HEAD_ICON
         )
 
@@ -15726,7 +15505,7 @@ def login():
         LOGIN_HTML,
         error=None,
         base_css=BASE_CSS, bg=BG_DIV,
-        auth_email="",
+        auth_email=AUTH_EMAIL,
         head_icon=HTML_HEAD_ICON
     )
 
@@ -15738,8 +15517,6 @@ def logout():
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     days = clamp_expiry_days(data.get("expiry_days") or 24)
     pw   = (data.get("password") or "")[:200]
@@ -15750,46 +15527,21 @@ def package_init():
     pw_hash = generate_password_hash(pw) if pw else None
     t = current_tenant()["slug"]
     c = db()
-    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id,owner_user_id)
-                 VALUES(?,?,?,?,?,?,?)""",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t, uid))
+    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id)
+                 VALUES(?,?,?,?,?,?)""",
+              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t))
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
     
-def _user_owns_package(conn, token: str, user_id: int, tenant_slug: str) -> bool:
-    """Return True als het pakket van deze user is (admin mag alles binnen tenant)."""
-    row = conn.execute(
-        "SELECT owner_user_id FROM packages WHERE token = ? AND tenant_id = ?",
-        (token, tenant_slug)
-    ).fetchone()
-    if row is None:
-        return False
-    if row["owner_user_id"] == user_id:
-        return True
-    # Admin-fallback: admin mag in eigen tenant alles
-    u = current_user()
-    if u and u["is_admin"] and u["tenant_id"] == tenant_slug:
-        return True
-    return False
-
 @app.route("/put-init", methods=["POST"])
 def put_init():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     d = request.get_json(force=True, silent=True) or {}
     token = (d.get("token") or "").strip(); filename = secure_filename(d.get("filename") or "")
     content_type = (d.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
     t = current_tenant()["slug"]
-    # Verifieer ownership
-    conn = db()
-    try:
-        if not _user_owns_package(conn, token, uid, t):
-            return jsonify(ok=False, error="forbidden"), 403
-    finally:
-        conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         url = s3.generate_presigned_url(
@@ -15805,43 +15557,28 @@ def put_init():
 @app.route("/put-complete", methods=["POST"])
 def put_complete():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     d = request.get_json(force=True, silent=True) or {}
     token = (d.get("token") or "").strip(); key = (d.get("key") or "").strip(); name = (d.get("name") or "").strip()
     path  = normalize_rel_path(d.get("path") or name, name)
     if not (is_valid_token(token) and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
-    t = current_tenant()["slug"]
-    # Verifieer ownership + key-prefix matcht
-    if not key.startswith(f"uploads/{t}/{token}/"):
-        return jsonify(ok=False, error="invalid_key"), 400
-    conn = db()
-    try:
-        if not _user_owns_package(conn, token, uid, t):
-            conn.close()
-            return jsonify(ok=False, error="forbidden"), 403
-    except Exception:
-        conn.close()
-        raise
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
-        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+        t = current_tenant()["slug"]
+        c = db()
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                      VALUES(?,?,?,?,?,?)""",
                   (token, key, name, path, size, t))
-        conn.commit(); conn.close()
+        c.commit(); c.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
-        conn.close()
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token = (data.get("token") or "").strip()
     filename = secure_filename(data.get("filename") or "")
@@ -15849,12 +15586,6 @@ def mpu_init():
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     t = current_tenant()["slug"]
-    conn = db()
-    try:
-        if not _user_owns_package(conn, token, uid, t):
-            return jsonify(ok=False, error="forbidden"), 403
-    finally:
-        conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
@@ -15866,28 +15597,11 @@ def mpu_init():
 @app.route("/mpu-sign", methods=["POST"])
 def mpu_sign():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     key = data.get("key"); upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
     if not key or not upload_id or part_no<=0:
         return jsonify(ok=False, error="Onvolledig sign"), 400
-    # Key moet binnen tenant zijn en token eruit halen om ownership te checken
-    t = current_tenant()["slug"]
-    prefix = f"uploads/{t}/"
-    if not key.startswith(prefix):
-        return jsonify(ok=False, error="invalid_key"), 400
-    rest = key[len(prefix):]
-    token_from_key = rest.split("/", 1)[0] if "/" in rest else ""
-    if not is_valid_token(token_from_key):
-        return jsonify(ok=False, error="invalid_key"), 400
-    conn = db()
-    try:
-        if not _user_owns_package(conn, token_from_key, uid, t):
-            return jsonify(ok=False, error="forbidden"), 403
-    finally:
-        conn.close()
     try:
         url = s3.generate_presigned_url(
             "upload_part",
@@ -15902,8 +15616,6 @@ def mpu_sign():
 @app.route("/mpu-complete", methods=["POST"])
 def mpu_complete():
     if not logged_in(): abort(401)
-    uid = current_user_id()
-    if not uid: abort(401)
     data      = request.get_json(force=True, silent=True) or {}
     token     = (data.get("token") or "").strip(); key = (data.get("key") or "").strip()
     name      = (data.get("name") or "").strip();  path = normalize_rel_path(data.get("path") or name, name)
@@ -15911,17 +15623,6 @@ def mpu_complete():
     client_size = int(data.get("clientSize") or 0)
     if not (is_valid_token(token) and key and name and parts_in and upload_id):
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
-    t = current_tenant()["slug"]
-    if not key.startswith(f"uploads/{t}/{token}/"):
-        return jsonify(ok=False, error="invalid_key"), 400
-    conn = db()
-    try:
-        if not _user_owns_package(conn, token, uid, t):
-            conn.close()
-            return jsonify(ok=False, error="forbidden"), 403
-    except Exception:
-        conn.close()
-        raise
     try:
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET, Key=key,
@@ -15935,17 +15636,17 @@ def mpu_complete():
         except Exception:
             if client_size>0: size = client_size
             else: raise
-        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+        t = current_tenant()["slug"]
+        c = db()
+        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                      VALUES(?,?,?,?,?,?)""",
                   (token, key, name, path, size, t))
-        conn.commit(); conn.close()
+        c.commit(); c.close()
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
-        conn.close()
+    except (ClientError, BotoCoreError) as e:
         log.exception("mpu_complete failed")
-        return jsonify(ok=False, error="mpu_complete_failed"), 500
+        return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
     except Exception:
-        conn.close()
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
         
@@ -15960,8 +15661,7 @@ def internal_cleanup():
       - ?verbose=1 -> extra logging in response
     """
     task_token = os.environ.get("TASK_TOKEN")
-    supplied = request.headers.get("X-Task-Token", "")
-    if not task_token or not hmac.compare_digest(supplied, task_token):
+    if not task_token or request.headers.get("X-Task-Token") != task_token:
         return ("Forbidden", 403)
 
     dry = request.args.get("dry") in {"1", "true", "yes"}
@@ -16191,18 +15891,13 @@ def _send_contact_email(form):
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
-    # Wachtwoord NIET in plaintext mailen. We mailen alleen of er een is ingesteld;
-    # het echte wachtwoord hash je bij livegang of laat je de klant zelf instellen
-    # via een link met tijdelijke token.
-    pw_marker = "ingesteld door klant" if form.get("desired_password") else "(niet ingevuld)"
-
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\n\n"
         f"- Gewenste inlog-e-mail: {form['login_email']}\n"
         f"{storage_line}"
         f"- Bedrijfsnaam: {form['company']}\n"
         f"- Telefoonnummer: {form['phone']}\n"
-        f"- Wachtwoord: {pw_marker}\n"
+        f"- Wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
         f"- Subdomein voorbeeld: {example_link}\n"
         f"- Opmerking: {form.get('notes') or '-'}\n\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
@@ -16486,7 +16181,7 @@ def paypal_webhook():
 @app.route("/health")
 @app.route("/__health")
 def health_basic():
-    return {"ok": True, "service": "minitransfer", "tenant": _tenant_slug}
+    return {"ok": True, "service": "minitransfer", "tenant": "oldehanter"}
 
 @app.route("/health-s3")
 def health():
@@ -16502,215 +16197,6 @@ def package_alias(token): return redirect(url_for("package_page", token=token))
 def stream_file_alias(token, item_id): return redirect(url_for("stream_file", token=token, item_id=item_id))
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
-
-
-# ============================================================
-# ADMIN: User management
-# ============================================================
-EMAIL_SIMPLE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-ADMIN_USERS_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Gebruikersbeheer – Admin</title>{{ head_icon|safe }}
-<style>{{ base_css }}</style></head><body>
-{{ bg|safe }}
-<div class="wrap"><div class="card" style="max-width:900px;margin:auto">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
-    <h1 style="color:var(--brand);margin:0">Gebruikersbeheer</h1>
-    <div>
-      <a class="btn secondary" href="/">← Terug</a>
-      <a class="btn secondary" href="/logout">Uitloggen</a>
-    </div>
-  </div>
-  <p style="color:var(--muted)">Ingelogd als <strong>{{ me }}</strong> (admin)</p>
-
-  {% if msg %}<div style="background:#dcfce7;color:#14532d;padding:.6rem .8rem;border-radius:10px;margin:.6rem 0">{{ msg }}</div>{% endif %}
-  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin:.6rem 0">{{ error }}</div>{% endif %}
-
-  <h2 style="margin-top:1.5rem">Nieuwe gebruiker aanmaken</h2>
-  <form method="post" action="/admin/users/create" style="display:grid;grid-template-columns:1fr 1fr auto;gap:.5rem;align-items:end">
-    <div><label for="new_email">E-mail</label>
-      <input id="new_email" class="input" type="email" name="email" required></div>
-    <div><label for="new_pw">Tijdelijk wachtwoord</label>
-      <input id="new_pw" class="input" type="text" name="password" minlength="8" required
-             placeholder="min. 8 tekens"></div>
-    <div><button class="btn" type="submit">Aanmaken</button></div>
-    <div style="grid-column:1/-1;display:flex;gap:1rem;align-items:center">
-      <label style="display:flex;gap:.4rem;align-items:center">
-        <input type="checkbox" name="is_admin" value="1"> Maak admin
-      </label>
-      <span style="color:var(--muted);font-size:.9em">
-        De gebruiker kan zelf later wachtwoord wijzigen (nog niet geïmplementeerd).
-      </span>
-    </div>
-  </form>
-
-  <h2 style="margin-top:2rem">Bestaande gebruikers</h2>
-  <table class="table">
-    <thead><tr>
-      <th>E-mail</th><th>Rol</th><th>Status</th><th>Aangemaakt</th><th>Acties</th>
-    </tr></thead>
-    <tbody>
-      {% for u in users %}
-      <tr>
-        <td>{{ u.email }}{% if u.id == my_id %} <em style="color:var(--muted)">(jij)</em>{% endif %}</td>
-        <td>{{ 'Admin' if u.is_admin else 'Gebruiker' }}</td>
-        <td>{{ 'Uitgeschakeld' if u.disabled else 'Actief' }}</td>
-        <td style="font-size:.85em;color:var(--muted)">{{ u.created_at[:10] }}</td>
-        <td>
-          {% if u.id != my_id %}
-          <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
-            <button class="btn secondary" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
-          </form>
-          <form method="post" action="/admin/users/{{ u.id }}/reset" style="display:inline;margin-left:.3rem">
-            <input type="text" name="password" minlength="8" placeholder="nieuw pw" required
-                   style="padding:.35rem .5rem;border:1px solid var(--line);border-radius:8px;width:140px">
-            <button class="btn secondary" type="submit">Reset PW</button>
-          </form>
-          <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;margin-left:.3rem"
-                onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
-            <button class="btn secondary" type="submit" style="background:#b91c1c">Verwijderen</button>
-          </form>
-          {% else %}
-          <em style="color:var(--muted)">eigen account</em>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div></div></body></html>
-"""
-
-def _require_admin():
-    if not logged_in():
-        abort(401)
-    if not is_admin():
-        abort(403)
-
-def _flash(msg=None, error=None):
-    """Simpele flash via session (one-shot)."""
-    if msg:
-        session["_flash_msg"] = msg
-    if error:
-        session["_flash_err"] = error
-
-def _pop_flash():
-    return session.pop("_flash_msg", None), session.pop("_flash_err", None)
-
-@app.route("/admin/users")
-def admin_users():
-    _require_admin()
-    me = current_user()
-    conn = db()
-    try:
-        rows = conn.execute(
-            "SELECT id, email, is_admin, disabled, created_at FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
-            (me["tenant_id"],)
-        ).fetchall()
-    finally:
-        conn.close()
-    msg, err = _pop_flash()
-    return render_template_string(
-        ADMIN_USERS_HTML,
-        users=[dict(r) for r in rows],
-        me=me["email"],
-        my_id=me["id"],
-        msg=msg, error=err,
-        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
-    )
-
-@app.route("/admin/users/create", methods=["POST"])
-def admin_users_create():
-    _require_admin()
-    me = current_user()
-    email = (request.form.get("email") or "").strip().lower()
-    pw = (request.form.get("password") or "").strip()
-    mk_admin = (request.form.get("is_admin") == "1")
-
-    if not EMAIL_SIMPLE_RE.match(email):
-        _flash(error="Ongeldig e-mailadres.")
-        return redirect(url_for("admin_users"))
-    if len(pw) < 8:
-        _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
-        return redirect(url_for("admin_users"))
-
-    conn = db()
-    try:
-        exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
-        if exists:
-            _flash(error=f"Gebruiker {email} bestaat al.")
-            return redirect(url_for("admin_users"))
-        conn.execute(
-            "INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled) VALUES(?,?,?,?,?,0)",
-            (email, generate_password_hash(pw), 1 if mk_admin else 0, me["tenant_id"], datetime.now(timezone.utc).isoformat())
-        )
-        conn.commit()
-        _flash(msg=f"Gebruiker {email} aangemaakt.")
-    finally:
-        conn.close()
-    return redirect(url_for("admin_users"))
-
-@app.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
-def admin_users_toggle(user_id):
-    _require_admin()
-    me = current_user()
-    if user_id == me["id"]:
-        _flash(error="Je kunt je eigen account niet uitschakelen.")
-        return redirect(url_for("admin_users"))
-    conn = db()
-    try:
-        row = conn.execute("SELECT disabled FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
-        if not row:
-            abort(404)
-        new_val = 0 if row["disabled"] else 1
-        conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (new_val, user_id))
-        conn.commit()
-        _flash(msg="Status gewijzigd.")
-    finally:
-        conn.close()
-    return redirect(url_for("admin_users"))
-
-@app.route("/admin/users/<int:user_id>/reset", methods=["POST"])
-def admin_users_reset(user_id):
-    _require_admin()
-    me = current_user()
-    pw = (request.form.get("password") or "").strip()
-    if len(pw) < 8:
-        _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
-        return redirect(url_for("admin_users"))
-    conn = db()
-    try:
-        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
-        if not row:
-            abort(404)
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(pw), user_id))
-        conn.commit()
-        _flash(msg="Wachtwoord gereset.")
-    finally:
-        conn.close()
-    return redirect(url_for("admin_users"))
-
-@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
-def admin_users_delete(user_id):
-    _require_admin()
-    me = current_user()
-    if user_id == me["id"]:
-        _flash(error="Je kunt je eigen account niet verwijderen.")
-        return redirect(url_for("admin_users"))
-    conn = db()
-    try:
-        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
-        if not row:
-            abort(404)
-        # We verwijderen alleen de user; packages blijven bestaan (owner_user_id wordt wees)
-        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-        _flash(msg="Gebruiker verwijderd.")
-    finally:
-        conn.close()
-    return redirect(url_for("admin_users"))
 
 
 
