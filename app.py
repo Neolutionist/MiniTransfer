@@ -908,26 +908,35 @@ INDEX_HTML = """
       font-size: 12px;
       color: var(--oh-muted);
     }
-    .oh-userbar {
-      display: flex; align-items: center; gap: 12px;
-      font-size: 13px;
-      color: var(--oh-muted);
-    }
-    .oh-userbar strong {
-      color: var(--oh-text);
-      font-weight: 600;
-    }
-    .oh-userbar a {
-      color: var(--oh-brand-2);
-      text-decoration: none;
-      padding: 6px 10px;
-      border-radius: var(--oh-radius-sm);
-      transition: background .15s;
-    }
-    .oh-userbar a:hover {
-      background: var(--oh-surface-2);
-      color: var(--oh-brand);
-    }
+.oh-userbar {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-size:13px;
+  color:rgba(255,255,255,.95);
+  flex-wrap:wrap;
+}
+
+.oh-userbar strong{
+  color:#ffffff;
+  font-weight:700;
+}
+
+.oh-userbar a{
+  color:#f8fafc;
+  text-decoration:none;
+  padding:7px 12px;
+  border-radius:var(--oh-radius-sm);
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.20);
+  transition:background .15s, color .15s, border-color .15s;
+}
+
+.oh-userbar a:hover{
+  background:rgba(255,255,255,.18);
+  color:#ffffff;
+  border-color:rgba(255,255,255,.32);
+}
 
     /* ============ Deck / layout ============ */
     .oh-deck {
