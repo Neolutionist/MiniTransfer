@@ -10,10 +10,12 @@
 # - Domeinen: ondersteunt minitransfer.onrender.com én downloadlink.nl in get_base_host()
 # ======================================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request, hmac, time
+import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request, hmac, time, secrets, threading
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
@@ -109,7 +111,10 @@ app.config.update(
     MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024 * 20))),
 )
 
-TOKEN_RE = re.compile(r"^[a-f0-9]{10}$")
+# 16 hex tekens (64 bits) voor nieuwe tokens. Oude 10-hex tokens blijven geaccepteerd
+# voor terugwaartse compatibiliteit met reeds gedeelde links.
+TOKEN_RE = re.compile(r"^[a-f0-9]{10}$|^[a-f0-9]{16}$")
+NEW_TOKEN_BYTES = 8  # 8 bytes = 16 hex = 64 bits
 MIN_EXPIRY_DAYS = float(os.environ.get("MIN_EXPIRY_DAYS", "0.04"))  # ~1 uur
 MAX_EXPIRY_DAYS = float(os.environ.get("MAX_EXPIRY_DAYS", "365"))
 MAX_TITLE_LENGTH = int(os.environ.get("MAX_TITLE_LENGTH", "120"))
@@ -233,6 +238,19 @@ def init_db():
         created_at TEXT NOT NULL
       )
     """)
+
+    # ===== RATE LIMITING (login + package views) =====
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        scope TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        first_ts REAL NOT NULL,
+        blocked_until REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (scope, ip)
+      )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_rate_limits_first_ts ON rate_limits(first_ts)")
 
     # ===== ONLINE LEADERBOARD =====
     c.execute("""
@@ -553,16 +571,10 @@ LOGIN_HTML = """
 <div class="wrap"><div class="card" style="max-width:460px;margin:auto">
   <h1 style="color:var(--brand)">Inloggen</h1>
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
-<style>
-/* Masker een tekstveld als een wachtwoordveld */
-.input.pw-mask {
-  -webkit-text-security: disc;    /* Chrome/Safari */
-  text-security: disc;            /* sommige browsers */
-}
-</style>
 
 <form method="post" autocomplete="off">
-  <!-- honeypots tegen autofill -->
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <!-- honeypots tegen automated bots -->
   <input type="text" name="x" style="display:none">
   <input type="password" name="y" style="display:none" autocomplete="new-password">
 
@@ -570,41 +582,16 @@ LOGIN_HTML = """
   <input id="email" class="input" name="email" type="email"
          value="{{ auth_email }}" autocomplete="username" required>
 
-  <label for="pw_ui">Wachtwoord</label>
-  <!-- Zichtbaar veld is GEEN password-type -> geen generator/autofill -->
-  <input id="pw_ui"
-         class="input pw-mask"
-         type="text"
-         name="pw_ui"
-         placeholder="Wachtwoord"
-         autocomplete="off"
+  <label for="password">Wachtwoord</label>
+  <input id="password" class="input" type="password" name="password"
+         placeholder="Wachtwoord" required
+         autocomplete="current-password"
          autocapitalize="off"
          autocorrect="off"
-         spellcheck="false"
-         inputmode="text"
-         data-lpignore="true"
-         data-1p-ignore="true">
-
-  <!-- Echt verborgen password-veld voor submit naar server -->
-  <input id="pw_real" type="password" name="password" style="display:none" tabindex="-1" autocomplete="off">
+         spellcheck="false">
 
   <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
 </form>
-
-<script>
-(function(){
-  const form   = document.currentScript.previousElementSibling;
-  const pwUI   = document.getElementById('pw_ui');
-  const pwReal = document.getElementById('pw_real');
-
-  // extra defensie
-  setTimeout(()=>{ try{ pwUI.value=''; }catch(e){} }, 0);
-
-  form.addEventListener('submit', function(){
-    pwReal.value = pwUI.value || '';
-  }, {passive:true});
-})();
-</script>
 
   <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
@@ -694,6 +681,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   {% if error %}<div class="pw-err">{{ error }}</div>{% endif %}
 
   <form method="post" autocomplete="off">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <input type="text" name="a" style="display:none"><input type="password" name="b" style="display:none">
     <label class="pw-label" for="pw">Wachtwoord</label>
     <input id="pw" class="pw-input" type="password" name="password" placeholder="Voer wachtwoord in"
@@ -712,6 +700,7 @@ INDEX_HTML = """
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="csrf-token" content="{{ csrf_token() }}"/>
   <title>Uploaden • Olde Hanter</title>
   {{ head_icon|safe }}
   <style>
@@ -1508,6 +1497,10 @@ INDEX_HTML = """
 const FILE_PAR = 3;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
+/* CSRF token uit <meta name="csrf-token"> */
+const CSRF_TOKEN = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+function jsonHeaders(){ return {"Content-Type":"application/json","X-CSRF-Token":CSRF_TOKEN}; }
+
 /* Elements */
 const folderLabel=document.getElementById('folderLabel');
 const fileRow=document.getElementById('fileRow'), folderRow=document.getElementById('folderRow');
@@ -1539,15 +1532,15 @@ function setTotal(p,label){
 
 /* API */
 async function packageInit(expiry,password,title){
-  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expiry_days:expiry,password,title})});
+  const r=await fetch("{{ url_for('package_init') }}",{method:"POST",headers:jsonHeaders(),body:JSON.stringify({expiry_days:expiry,password,title})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'init'); return j.token;
 }
 async function putInit(token,filename,type){
-  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
+  const r=await fetch("{{ url_for('put_init') }}",{method:"POST",headers:jsonHeaders(),body:JSON.stringify({token,filename,contentType:type||'application/octet-stream'})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_init'); return j;
 }
 async function putComplete(token,key,name,path){
-  const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,key,name,path})});
+  const r=await fetch("{{ url_for('put_complete') }}",{method:"POST",headers:jsonHeaders(),body:JSON.stringify({token,key,name,path})});
   const j=await r.json(); if(!j.ok) throw new Error(j.error||'put_complete'); return j;
 }
 function putWithProgress(url,blob,onProgress){
@@ -2166,6 +2159,7 @@ if(btn){
 
 CONTACT_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="csrf-token" content="{{ csrf_token() }}"/>
 <title>Eigen transfer-oplossing – downloadlink.nl</title>{{ head_icon|safe }}
 
 <style>
@@ -2280,6 +2274,7 @@ CONTACT_HTML = r"""
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
 
   <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
@@ -2466,9 +2461,10 @@ function renderPaypalConditional(){
     },
     onApprove: async function(data, actions) {
       try{
+        const csrf = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
         await fetch("{{ url_for('paypal_store_subscription') }}", {
           method: "POST",
-          headers: {"Content-Type":"application/json"},
+          headers: {"Content-Type":"application/json","X-CSRF-Token":csrf},
           body: JSON.stringify({
             subscription_id: data.subscriptionID,
             plan_value: (document.getElementById('storage_tb')?.value || "")
@@ -15952,6 +15948,51 @@ def normalize_rel_path(value: str, fallback: str) -> str:
 def attach_request_context():
     g.request_id = uuid.uuid4().hex[:12]
 
+# -------- CSRF bescherming --------
+# Alle state-changing verzoeken (POST/PUT/PATCH/DELETE) moeten een token meesturen.
+# HTML-forms: <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+# JSON fetch: header 'X-CSRF-Token: <token>' (in HTML via <meta name="csrf-token" ...>).
+# Uitgezonderd: webhooks (externe callers), de interne cleanup-route (gescheiden auth)
+# en de publieke leaderboard-submit (eigen IP-rate-limit).
+CSRF_EXEMPT_PREFIXES = ("/webhook/", "/internal/", "/health", "/__health", "/api/leaderboard")
+
+def _get_csrf_token() -> str:
+    tok = session.get("_csrf")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["_csrf"] = tok
+    return tok
+
+@app.context_processor
+def _inject_csrf():
+    """Maakt csrf_token() beschikbaar in alle Jinja-templates."""
+    return {"csrf_token": _get_csrf_token}
+
+@app.before_request
+def _csrf_protect():
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    path = request.path or ""
+    if any(path.startswith(p) for p in CSRF_EXEMPT_PREFIXES):
+        return
+    expected = session.get("_csrf") or ""
+    submitted = (
+        request.headers.get("X-CSRF-Token")
+        or request.form.get("_csrf")
+        or ""
+    )
+    # Voor JSON-endpoints die via fetch() worden aangeroepen maar waar de body
+    # niet eerst door get_json() hoeft: check ook of token in JSON body zit.
+    if not submitted and request.is_json:
+        try:
+            body = request.get_json(silent=True) or {}
+            submitted = body.get("_csrf") or ""
+        except Exception:
+            submitted = ""
+    if not expected or not submitted or not hmac.compare_digest(expected, submitted):
+        log.warning("CSRF rejected: path=%s ip=%s", path, (request.remote_addr or ""))
+        abort(400, description="CSRF token missing or invalid")
+
 @app.after_request
 def apply_default_headers(resp):
     resp.headers.setdefault("X-Request-ID", getattr(g, "request_id", "-"))
@@ -15959,6 +16000,17 @@ def apply_default_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # Content Security Policy: strict-ish maar ruimte voor PayPal SDK en inline styles/scripts
+    # die door deze app worden gebruikt. Pas aan als je externe hosts toevoegt.
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://www.paypal.com https://www.paypalobjects.com; "
+        "frame-src 'self' https://www.paypal.com; "
+        "connect-src 'self' https://*.paypal.com https://*.backblazeb2.com https://*.s3.eu-central-003.backblazeb2.com"
+    )
     if request.path.startswith(("/login", "/logout")):
         resp.headers.setdefault("Cache-Control", "no-store")
     return resp
@@ -15968,9 +16020,13 @@ def logged_in() -> bool:
     return bool(session.get("authed") and session.get("user_id"))
 
 def current_user():
-    """Haal de huidige user op (uit DB), of None."""
+    """Haal de huidige user op (uit DB), of None. Gecached per request op g."""
+    cached = getattr(g, "_cached_user", "__unset__")
+    if cached != "__unset__":
+        return cached
     uid = session.get("user_id")
     if not uid:
+        g._cached_user = None
         return None
     conn = db()
     try:
@@ -15979,7 +16035,9 @@ def current_user():
             (uid,)
         ).fetchone()
         if row is None or row["disabled"]:
+            g._cached_user = None
             return None
+        g._cached_user = row
         return row
     finally:
         conn.close()
@@ -15993,11 +16051,17 @@ def is_admin() -> bool:
     return bool(u and u["is_admin"])
 
 def human(n: int) -> str:
-    x = float(n)
+    try:
+        x = float(n)
+    except (TypeError, ValueError):
+        x = 0.0
+    if x < 0:
+        x = 0.0
     for u in ["B","KB","MB","GB","TB"]:
         if x < 1024 or u == "TB":
             return f"{x:.1f} {u}" if u!="B" else f"{int(x)} {u}"
         x /= 1024
+    return f"{x:.1f} TB"
 
 def send_email(to_addr: str, subject: str, body: str):
     if not to_addr or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
@@ -16011,17 +16075,33 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
+_paypal_token_cache = {"token": None, "exp": 0.0}
+_paypal_token_lock = threading.Lock()
+
 def paypal_access_token():
     if not PAYPAL_CLIENT_ID or not PAYPAL_CLIENT_SECRET:
         raise RuntimeError("PAYPAL_CLIENT_ID/SECRET ontbreekt")
-    req = urllib.request.Request(PAYPAL_API_BASE + "/v1/oauth2/token", method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    creds = f"{PAYPAL_CLIENT_ID}:{PAYPAL_CLIENT_SECRET}".encode()
-    req.add_header("Authorization", "Basic " + base64.b64encode(creds).decode())
-    data = "grant_type=client_credentials".encode()
-    with urllib.request.urlopen(req, data=data, timeout=20) as resp:
-        j = json.loads(resp.read().decode())
-        return j["access_token"]
+    now = time.time()
+    # Snelle pad zonder lock als cache nog geldig is
+    if _paypal_token_cache["token"] and _paypal_token_cache["exp"] > now + 60:
+        return _paypal_token_cache["token"]
+    with _paypal_token_lock:
+        # Double-check binnen de lock (andere thread kan al ververst hebben)
+        now = time.time()
+        if _paypal_token_cache["token"] and _paypal_token_cache["exp"] > now + 60:
+            return _paypal_token_cache["token"]
+        req = urllib.request.Request(PAYPAL_API_BASE + "/v1/oauth2/token", method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        creds = f"{PAYPAL_CLIENT_ID}:{PAYPAL_CLIENT_SECRET}".encode()
+        req.add_header("Authorization", "Basic " + base64.b64encode(creds).decode())
+        data = "grant_type=client_credentials".encode()
+        with urllib.request.urlopen(req, data=data, timeout=20) as resp:
+            j = json.loads(resp.read().decode())
+            tok = j["access_token"]
+            expires_in = int(j.get("expires_in", 32000))
+            _paypal_token_cache["token"] = tok
+            _paypal_token_cache["exp"] = now + max(60, expires_in - 60)
+            return tok
 
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
@@ -16036,14 +16116,6 @@ def get_base_host():
         return ".".join(parts[-2:])
     return host
 
-
-# ------------- Favicon -------------
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
-  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
-        font-family="Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700"
-        fill="white">OH</text>
-</svg>"""
 
 # -------------- Routes (core) --------------
 # Opgeschoond: dubbele routeblokken verwijderd en configuratie iets robuuster gemaakt.
@@ -16069,41 +16141,103 @@ def index():
     if not logged_in(): return redirect(url_for("login"))
     return render_template_string(INDEX_HTML, user=session.get("user"), is_admin=is_admin(), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
 
-# -------- Login rate limiting (brute-force bescherming) --------
-_LOGIN_ATTEMPTS: dict = {}  # key=ip -> (count, first_ts, blocked_until)
+# -------- Rate limiting (brute-force bescherming) --------
+# Backend: SQLite-tabel rate_limits. Werkt over meerdere gunicorn-workers heen
+# en lekt niet geheugen. Scope-veld ondersteunt aparte buckets (login, pkgview, ...).
 LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
 LOGIN_WINDOW_SECONDS = int(os.environ.get("LOGIN_WINDOW_SECONDS", "300"))        # 5 minuten
 LOGIN_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_SECONDS", "900"))      # 15 minuten
 
-def _login_client_ip() -> str:
-    fwd = request.headers.get("X-Forwarded-For", "")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()[:64]
+PKGVIEW_MAX_ATTEMPTS = int(os.environ.get("PKGVIEW_MAX_ATTEMPTS", "30"))
+PKGVIEW_WINDOW_SECONDS = int(os.environ.get("PKGVIEW_WINDOW_SECONDS", "60"))     # 1 minuut
+PKGVIEW_LOCKOUT_SECONDS = int(os.environ.get("PKGVIEW_LOCKOUT_SECONDS", "300"))  # 5 minuten
+
+def _client_ip() -> str:
+    """Client-IP via ProxyFix (request.remote_addr is al gecorrigeerd)."""
     return (request.remote_addr or "")[:64]
 
-def _login_is_blocked(ip: str) -> float:
+def _login_client_ip() -> str:
+    """Backwards-compatible alias."""
+    return _client_ip()
+
+def _rate_is_blocked(scope: str, ip: str) -> float:
     """Return seconds tot unblock, of 0 als niet geblokkeerd."""
-    rec = _LOGIN_ATTEMPTS.get(ip)
-    if not rec:
+    if not ip:
         return 0.0
-    _count, _first_ts, blocked_until = rec
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT blocked_until FROM rate_limits WHERE scope = ? AND ip = ?",
+            (scope, ip)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return 0.0
     now = time.time()
-    if blocked_until and now < blocked_until:
-        return blocked_until - now
+    bu = float(row["blocked_until"] or 0)
+    if bu and now < bu:
+        return bu - now
     return 0.0
 
-def _login_register_failure(ip: str) -> None:
-    now = time.time()
-    rec = _LOGIN_ATTEMPTS.get(ip)
-    if not rec or (now - rec[1]) > LOGIN_WINDOW_SECONDS:
-        _LOGIN_ATTEMPTS[ip] = (1, now, 0.0)
+def _rate_register_failure(scope: str, ip: str, max_attempts: int, window: int, lockout: int) -> None:
+    if not ip:
         return
-    count = rec[0] + 1
-    blocked_until = now + LOGIN_LOCKOUT_SECONDS if count >= LOGIN_MAX_ATTEMPTS else 0.0
-    _LOGIN_ATTEMPTS[ip] = (count, rec[1], blocked_until)
+    now = time.time()
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT count, first_ts, blocked_until FROM rate_limits WHERE scope = ? AND ip = ?",
+            (scope, ip)
+        ).fetchone()
+        if row is None or (now - float(row["first_ts"] or 0)) > window:
+            conn.execute(
+                "INSERT OR REPLACE INTO rate_limits(scope, ip, count, first_ts, blocked_until) VALUES(?,?,?,?,?)",
+                (scope, ip, 1, now, 0.0)
+            )
+        else:
+            count = int(row["count"]) + 1
+            blocked_until = now + lockout if count >= max_attempts else 0.0
+            conn.execute(
+                "UPDATE rate_limits SET count = ?, blocked_until = ? WHERE scope = ? AND ip = ?",
+                (count, blocked_until, scope, ip)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+def _rate_reset(scope: str, ip: str) -> None:
+    if not ip:
+        return
+    conn = db()
+    try:
+        conn.execute("DELETE FROM rate_limits WHERE scope = ? AND ip = ?", (scope, ip))
+        conn.commit()
+    finally:
+        conn.close()
+
+def _rate_cleanup_periodic() -> None:
+    """Ruim oude rate-limit records op. Wordt periodiek door healthcheck aangeroepen."""
+    cutoff = time.time() - max(LOGIN_LOCKOUT_SECONDS, PKGVIEW_LOCKOUT_SECONDS) - 3600
+    conn = db()
+    try:
+        conn.execute(
+            "DELETE FROM rate_limits WHERE blocked_until < ? AND first_ts < ?",
+            (time.time(), cutoff)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+# Specifieke login-wrappers (backwards compat met bestaande code)
+def _login_is_blocked(ip: str) -> float:
+    return _rate_is_blocked("login", ip)
+
+def _login_register_failure(ip: str) -> None:
+    _rate_register_failure("login", ip, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_SECONDS, LOGIN_LOCKOUT_SECONDS)
 
 def _login_reset(ip: str) -> None:
-    _LOGIN_ATTEMPTS.pop(ip, None)
+    _rate_reset("login", ip)
 
 def _verify_password(stored_hash: str, submitted: str) -> bool:
     """Controleer wachtwoord tegen stored hash. Constant-time."""
@@ -16129,8 +16263,7 @@ def login():
             ), 429
 
         email = (request.form.get("email") or "").lower().strip()
-        # accept either the hidden 'password' or the UI field 'pw_ui'
-        pw    = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
+        pw    = (request.form.get("password") or "").strip()
 
         # Zoek user in DB
         conn = db()
@@ -16193,7 +16326,7 @@ def package_init():
     pw   = (data.get("password") or "")[:200]
     title_raw = (data.get("title") or "").strip()
     title = title_raw[:MAX_TITLE_LENGTH] if title_raw else None
-    token = uuid.uuid4().hex[:10]
+    token = secrets.token_hex(NEW_TOKEN_BYTES)  # 16 hex = 64 bits entropie
     expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
     t = current_tenant()["slug"]
@@ -16275,10 +16408,20 @@ def put_complete():
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
-        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
-                     VALUES(?,?,?,?,?,?)""",
-                  (token, key, name, path, size, t))
-        conn.commit(); conn.close()
+        try:
+            conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+                         VALUES(?,?,?,?,?,?)""",
+                      (token, key, name, path, size, t))
+            conn.commit()
+        except Exception:
+            # DB-insert gefaald: ruim S3-object op om wees-object te voorkomen.
+            log.exception("put_complete DB insert failed, deleting orphan S3 object: %s", key)
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=key)
+            except Exception:
+                log.exception("orphan delete failed: %s", key)
+            raise
+        conn.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
         conn.close()
@@ -16370,12 +16513,23 @@ def mpu_complete():
     except Exception:
         conn.close()
         raise
+    # Stap 1: MPU afronden. Als dit faalt, abort de MPU zodat er geen weeszones overblijven.
     try:
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET, Key=key,
             MultipartUpload={"Parts": sorted(parts_in, key=lambda p: p["PartNumber"])},
             UploadId=upload_id
         )
+    except (ClientError, BotoCoreError):
+        log.exception("mpu_complete failed")
+        try:
+            s3.abort_multipart_upload(Bucket=S3_BUCKET, Key=key, UploadId=upload_id)
+        except Exception:
+            log.exception("mpu abort after complete-fail failed: %s", key)
+        conn.close()
+        return jsonify(ok=False, error="mpu_complete_failed"), 500
+    # Stap 2: head_object voor groottebepaling.
+    try:
         size = 0
         try:
             head = s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -16383,15 +16537,21 @@ def mpu_complete():
         except Exception:
             if client_size>0: size = client_size
             else: raise
-        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
-                     VALUES(?,?,?,?,?,?)""",
-                  (token, key, name, path, size, t))
-        conn.commit(); conn.close()
-        return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
+        # Stap 3: DB insert. Als deze faalt, ruim het S3-object op anders wees-object in B2.
+        try:
+            conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+                         VALUES(?,?,?,?,?,?)""",
+                      (token, key, name, path, size, t))
+            conn.commit()
+        except Exception:
+            log.exception("mpu_complete DB insert failed, deleting orphan S3 object: %s", key)
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=key)
+            except Exception:
+                log.exception("orphan delete failed: %s", key)
+            raise
         conn.close()
-        log.exception("mpu_complete failed")
-        return jsonify(ok=False, error="mpu_complete_failed"), 500
+        return jsonify(ok=True)
     except Exception:
         conn.close()
         log.exception("mpu_complete failed (generic)")
@@ -16432,6 +16592,40 @@ def internal_cleanup():
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
 
 # -------------- Download Pages --------------
+# Background executor voor niet-blokkerende S3 cleanup bij expired packages
+_bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bg")
+
+# TTL voor pakket-wachtwoord sessies (seconden).
+PKG_ALLOW_TTL = int(os.environ.get("PKG_ALLOW_TTL", "3600"))  # 1 uur
+
+def _pkg_allow_is_valid(token: str) -> bool:
+    rec = session.get(f"allow_{token}")
+    if not rec:
+        return False
+    # Backwards-compat: oude sessies hadden gewoon True
+    if rec is True:
+        session.pop(f"allow_{token}", None)
+        return False
+    if not isinstance(rec, dict):
+        return False
+    return rec.get("ok") is True and float(rec.get("exp") or 0) > time.time()
+
+def _pkg_allow_set(token: str) -> None:
+    session[f"allow_{token}"] = {"ok": True, "exp": time.time() + PKG_ALLOW_TTL}
+
+def _async_delete_s3_keys(keys: list) -> None:
+    """Delete objecten op achtergrond (niet in request-thread)."""
+    def _do():
+        for k in keys:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=k)
+            except Exception:
+                log.exception("bg delete failed: %s", k)
+    try:
+        _bg_executor.submit(_do)
+    except Exception:
+        log.exception("bg submit failed")
+
 @app.route("/p/arcade")
 def arcade_redirect():
     return redirect("/arcade", code=302)
@@ -16440,40 +16634,51 @@ def arcade_redirect():
 def package_page(token):
     token = (token or "").strip()
     if not is_valid_token(token): abort(404)
+
+    # Rate limit op pakket-views per IP (voorkomt brute-force op tokens)
+    ip = _client_ip()
+    wait = _rate_is_blocked("pkgview", ip)
+    if wait > 0:
+        abort(429)
+
     c = db()
-    t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg:
-        return render_template_string(
-            EXPIRED_HTML,
-            base_css=BASE_CSS,
-            bg=BG_DIV,
-            head_icon=HTML_HEAD_ICON
-        ), 404
+    try:
+        t = current_tenant()["slug"]
+        pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+        if not pkg:
+            _rate_register_failure("pkgview", ip, PKGVIEW_MAX_ATTEMPTS, PKGVIEW_WINDOW_SECONDS, PKGVIEW_LOCKOUT_SECONDS)
+            return render_template_string(
+                EXPIRED_HTML,
+                base_css=BASE_CSS,
+                bg=BG_DIV,
+                head_icon=HTML_HEAD_ICON
+            ), 404
 
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-        rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-        for r in rows:
-            try: s3.delete_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except Exception: pass
-        c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-        c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-        c.commit(); c.close(); abort(410)
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
+            # Verzamel keys, verwijder DB-rows, start S3-cleanup async.
+            rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
+            s3_keys = [r["s3_key"] for r in rows]
+            c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+            c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+            c.commit()
+            if s3_keys:
+                _async_delete_s3_keys(s3_keys)
+            abort(410)
 
-    if pkg["password_hash"]:
-        if request.method == "GET" and not session.get(f"allow_{token}", False):
-            c.close()
-            return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
-        if request.method == "POST":
-            if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
-                c.close()
-                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
-            session[f"allow_{token}"] = True
+        if pkg["password_hash"]:
+            if request.method == "GET" and not _pkg_allow_is_valid(token):
+                return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
+            if request.method == "POST":
+                if not check_password_hash(pkg["password_hash"], request.form.get("password","")):
+                    _rate_register_failure("pkgview", ip, PKGVIEW_MAX_ATTEMPTS, PKGVIEW_WINDOW_SECONDS, PKGVIEW_LOCKOUT_SECONDS)
+                    return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error="Onjuist wachtwoord. Probeer opnieuw.", head_icon=HTML_HEAD_ICON)
+                _pkg_allow_set(token)
 
-    items = c.execute("""SELECT id,name,path,size_bytes FROM items
-                         WHERE token=? AND tenant_id=?
-                         ORDER BY path""", (token, t)).fetchall()
-    c.close()
+        items = c.execute("""SELECT id,name,path,size_bytes FROM items
+                             WHERE token=? AND tenant_id=?
+                             ORDER BY path""", (token, t)).fetchall()
+    finally:
+        c.close()
 
     total_bytes = sum(int(r["size_bytes"]) for r in items)
     total_h = human(total_bytes)
@@ -16494,31 +16699,34 @@ def stream_file(token, item_id):
     token = (token or "").strip()
     if not is_valid_token(token): abort(404)
     c = db()
-    t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
-    c.close()
+    try:
+        t = current_tenant()["slug"]
+        pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+        if not pkg: abort(404)
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): abort(410)
+        if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
+        it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
+    finally:
+        c.close()
     if not it: abort(404)
 
+    # Presigned GET: browser praat direct met B2/S3. Scheelt bandbreedte en voorkomt
+    # dat request-tijd de Render-timeout raakt bij grote bestanden.
     try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-        length = int(head.get("ContentLength", 0))
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=it["s3_key"])
-
-        def gen():
-            for chunk in obj["Body"].iter_chunks(1024*512):
-                if chunk: yield chunk
-
-        resp = Response(stream_with_context(gen()), mimetype="application/octet-stream")
-        resp.headers["Content-Disposition"] = f'attachment; filename="{it["name"]}"'
-        if length: resp.headers["Content-Length"] = str(length)
-        resp.headers["X-Filename"] = it["name"]
-        return resp
+        # Sanitize filename voor Content-Disposition header
+        safe_name = (it["name"] or "download").replace('"', '').replace('\r','').replace('\n','')
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": S3_BUCKET,
+                "Key": it["s3_key"],
+                "ResponseContentDisposition": f'attachment; filename="{safe_name}"',
+            },
+            ExpiresIn=3600, HttpMethod="GET",
+        )
+        return redirect(url, code=302)
     except Exception:
-        log.exception("stream_file failed")
+        log.exception("stream_file presign failed")
         abort(500)
 
 @app.route("/zip/<token>")
@@ -16526,34 +16734,47 @@ def stream_zip(token):
     token = (token or "").strip()
     if not is_valid_token(token): abort(404)
     c = db()
-    t = current_tenant()["slug"]
-    pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
-    if not pkg: c.close(); abort(404)
-    if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): c.close(); abort(410)
-    if pkg["password_hash"] and not session.get(f"allow_{token}", False): c.close(); abort(403)
-    rows = c.execute("""SELECT name,path,s3_key FROM items
-                        WHERE token=? AND tenant_id=?
-                        ORDER BY path""", (token, t)).fetchall()
-    c.close()
+    try:
+        t = current_tenant()["slug"]
+        pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
+        if not pkg: abort(404)
+        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): abort(410)
+        if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
+        rows = c.execute("""SELECT name,path,s3_key FROM items
+                            WHERE token=? AND tenant_id=?
+                            ORDER BY path""", (token, t)).fetchall()
+    finally:
+        c.close()
     if not rows: abort(404)
 
-    # Precheck ontbrekende objecten
-    missing=[]
+    # Precheck ontbrekende objecten in parallel (8 workers).
+    # Voor grote pakketten (50+ items) scheelt dit meerdere seconden opstarttijd.
+    def _head_one(r):
+        try:
+            s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
+            return None
+        except ClientError as ce:
+            code = ce.response.get("Error", {}).get("Code", "")
+            if code in {"NoSuchKey", "NotFound", "404"}:
+                return r["path"] or r["name"]
+            raise
+
+    missing = []
     try:
-        for r in rows:
-            try: s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            except ClientError as ce:
-                code=ce.response.get("Error",{}).get("Code","")
-                if code in {"NoSuchKey","NotFound","404"}: missing.append(r["path"] or r["name"])
-                else: raise
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for result in pool.map(_head_one, rows):
+                if result is not None:
+                    missing.append(result)
     except Exception:
         log.exception("zip precheck failed")
-        resp=Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
-        resp.headers["X-Error"]="zip_precheck_failed"; return resp
+        resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
+        resp.headers["X-Error"] = "zip_precheck_failed"
+        return resp
     if missing:
-        text="De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
-        resp=Response(text, mimetype="text/plain", status=422)
-        resp.headers["X-Error"]="NoSuchKey: " + ", ".join(missing); return resp
+        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
+        resp = Response(text, mimetype="text/plain", status=422)
+        resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
+        return resp
 
     try:
         z = ZipStream()
@@ -16622,7 +16843,16 @@ def terms_page():
         mail_to=MAIL_TO
     )
 # -------------- Contact / Mail --------------
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Iets strenger dan 'ooit een @ en een .' — valideert lengtes en voorkomt
+# meerdere @ of punt aan begin/eind van domein. Voor echte RFC-validatie zou
+# email-validator (pip) robuuster zijn, maar dit dekt 99% van de gevallen.
+EMAIL_RE = re.compile(
+    r"^(?=.{3,254}$)"
+    r"[A-Za-z0-9._%+\-]{1,64}"
+    r"@"
+    r"[A-Za-z0-9]([A-Za-z0-9\-]{0,62}[A-Za-z0-9])?"
+    r"(\.[A-Za-z0-9]([A-Za-z0-9\-]{0,62}[A-Za-z0-9])?)+$"
+)
 PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
@@ -16699,7 +16929,7 @@ def contact():
 
     if len(company) < 2 or len(company) > 100: errors.append("Vul een geldige bedrijfsnaam in (min. 2 tekens).")
     if not PHONE_RE.match(phone): errors.append("Vul een geldig telefoonnummer in (8–20 tekens).")
-    if len(desired_pw) < 6: errors.append("Kies een wachtwoord van minimaal 6 tekens.")
+    if len(desired_pw) < 10: errors.append("Kies een wachtwoord van minimaal 10 tekens.")
 
     form_back = {"login_email":login_email,"storage_tb":(storage_tb_raw or ""),
                  "company":company,"phone":phone,"notes":notes}
@@ -16755,13 +16985,15 @@ def contact():
         storage_line = "- Gewenste opslag: meer opslag (op aanvraag)\\n"
 
     example_link = f"{company_slug}.{base_host}" if company_slug else base_host
+    # Wachtwoord NIET in plaintext mailen — alleen markeren of er één is ingesteld.
+    pw_marker = "ingesteld door klant" if desired_pw else "(niet ingevuld)"
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\\n\\n"
         f"- Gewenste inlog-e-mail: {login_email}\\n"
         f"{storage_line}"
         f"- Bedrijfsnaam: {company}\\n"
         f"- Telefoonnummer: {phone}\\n"
-        f"- Wachtwoord: {desired_pw}\\n"
+        f"- Wachtwoord: {pw_marker}\\n"
         f"- Subdomein voorbeeld: {example_link}\\n"
         f"- Opmerking: {notes or '-'}\\n\\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\\n"
@@ -16931,9 +17163,20 @@ def paypal_webhook():
     return jsonify(ok=True)
 
 # Healthcheck & Aliassen
+# Periodieke cleanup van oude rate-limit records via healthcheck.
+# Render pingt /health elke 30s; we limiteren naar max 1x per 10 min.
+_last_rate_cleanup = {"ts": 0.0}
+
 @app.route("/health")
 @app.route("/__health")
 def health_basic():
+    now = time.time()
+    if now - _last_rate_cleanup["ts"] > 600:
+        _last_rate_cleanup["ts"] = now
+        try:
+            _rate_cleanup_periodic()
+        except Exception:
+            log.exception("rate cleanup failed")
     return {"ok": True, "service": "minitransfer", "tenant": _tenant_slug}
 
 @app.route("/health-s3")
@@ -16978,6 +17221,7 @@ ADMIN_USERS_HTML = """
 
   <h2 style="margin-top:1.5rem">Nieuwe gebruiker aanmaken</h2>
   <form method="post" action="/admin/users/create" style="display:grid;grid-template-columns:1fr 1fr auto;gap:.5rem;align-items:end">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     <div><label for="new_email">E-mail</label>
       <input id="new_email" class="input" type="email" name="email" required></div>
     <div><label for="new_pw">Tijdelijk wachtwoord</label>
@@ -17009,15 +17253,18 @@ ADMIN_USERS_HTML = """
         <td>
           {% if u.id != my_id %}
           <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <button class="btn secondary" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/reset" style="display:inline;margin-left:.3rem">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="text" name="password" minlength="8" placeholder="nieuw pw" required
                    style="padding:.35rem .5rem;border:1px solid var(--line);border-radius:8px;width:140px">
             <button class="btn secondary" type="submit">Reset PW</button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;margin-left:.3rem"
                 onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <button class="btn secondary" type="submit" style="background:#b91c1c">Verwijderen</button>
           </form>
           {% else %}
@@ -17373,11 +17620,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                 <a class="oh-btn xs ghost" href="/p/{{ p.token }}" target="_blank" rel="noopener">Openen</a>
                 <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Kopieer link</button>
                 <form method="post" action="/uploads/{{ p.token }}/extend" style="display:inline">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                   <button class="oh-btn xs ghost" type="submit" title="Verleng met 7 dagen">+7d</button>
                 </form>
                 {% endif %}
                 <form method="post" action="/uploads/{{ p.token }}/delete" style="display:inline"
                       onsubmit="return confirm('Pakket {{ p.title or p.token }} definitief verwijderen? Dit verwijdert ook de bestanden uit opslag.');">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                   <button class="oh-btn xs danger" type="submit">Verwijder</button>
                 </form>
               </div>
