@@ -291,6 +291,23 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_score_wave ON leaderboard_scores(score DESC, wave DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_ip_created ON leaderboard_scores(ip, created_at)")
 
+        # ===== DOWNLOAD ANALYTICS =====
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS download_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL,
+        item_id INTEGER,
+        download_type TEXT NOT NULL,   -- 'file' of 'zip'
+        downloaded_at TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT,
+        tenant_id TEXT NOT NULL
+      )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_download_events_token ON download_events(token)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_download_events_tenant ON download_events(tenant_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_download_events_downloaded_at ON download_events(downloaded_at)")
+
     c.commit()
     c.close()
 
@@ -324,6 +341,31 @@ def migrate_add_tenant_columns():
 migrate_add_tenant_columns()
 
 def migrate_add_owner_columns():
+
+    def migrate_add_download_analytics():
+    conn = db()
+    try:
+        conn.execute("""
+          CREATE TABLE IF NOT EXISTS download_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT NOT NULL,
+            item_id INTEGER,
+            download_type TEXT NOT NULL,
+            downloaded_at TEXT NOT NULL,
+            ip TEXT,
+            user_agent TEXT,
+            tenant_id TEXT NOT NULL
+          )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_download_events_token ON download_events(token)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_download_events_tenant ON download_events(tenant_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_download_events_downloaded_at ON download_events(downloaded_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_download_analytics()
+
     """Voeg owner_user_id toe aan packages (per-user scoping)."""
     conn = db()
     try:
@@ -376,6 +418,41 @@ def seed_admin_from_env():
         conn.close()
 
 seed_admin_from_env()
+
+def client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "").strip()
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return (request.remote_addr or "").strip()
+
+def log_download_event(token: str, tenant_id: str, download_type: str, item_id=None):
+    conn = db()
+    try:
+        conn.execute("""
+            INSERT INTO download_events (
+                token, item_id, download_type, downloaded_at, ip, user_agent, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            token,
+            item_id,
+            download_type,
+            datetime.now(timezone.utc).isoformat(),
+            client_ip(),
+            (request.headers.get("User-Agent") or "")[:500],
+            tenant_id,
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+def format_nl_datetime(iso_value):
+    if not iso_value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(iso_value)
+        return dt.astimezone(timezone.utc).strftime("%d-%m-%Y %H:%M UTC")
+    except Exception:
+        return iso_value
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -16718,6 +16795,13 @@ def stream_file(token, item_id):
         c.close()
     if not it: abort(404)
 
+    log_download_event(
+        token=token,
+        tenant_id=t,
+        download_type="file",
+        item_id=it["id"]
+    )
+
     # Presigned GET: browser praat direct met B2/S3. Scheelt bandbreedte en voorkomt
     # dat request-tijd de Render-timeout raakt bij grote bestanden.
     try:
@@ -16754,6 +16838,13 @@ def stream_zip(token):
     finally:
         c.close()
     if not rows: abort(404)
+
+    log_download_event(
+        token=token,
+        tenant_id=t,
+        download_type="zip",
+        item_id=None
+    )
 
     # Precheck ontbrekende objecten in parallel (8 workers).
     # Voor grote pakketten (50+ items) scheelt dit meerdere seconden opstarttijd.
@@ -17897,6 +17988,8 @@ html,body{min-height:100%;background:transparent;color:var(--oh-text);
             <th>Grootte</th>
             <th>Aangemaakt</th>
             <th>Status</th>
+            <th>Downloads</th>
+            <th>Laatst gedownload</th>
             <th style="text-align:right">Acties</th>
           </tr>
         </thead>
@@ -17921,6 +18014,8 @@ html,body{min-height:100%;background:transparent;color:var(--oh-text);
               {% endif %}
               {% if p.has_password %}<span class="oh-badge pw">PW</span>{% endif %}
             </td>
+            <td data-label="Downloads">{{ p.download_count }}</td>
+            <td data-label="Laatst gedownload">{{ p.last_download_at }}</td>
             <td data-label="Acties">
               <div class="oh-actions">
                 {% if not p.is_expired %}
@@ -18001,7 +18096,9 @@ def my_uploads():
                 SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
                        p.owner_user_id, u.email AS owner_email,
                        COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
-                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes
+                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes,
+                       COALESCE((SELECT COUNT(*) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id), 0) AS download_count,
+                       (SELECT MAX(downloaded_at) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id) AS last_download_at
                 FROM packages p
                 LEFT JOIN users u ON u.id = p.owner_user_id
                 WHERE p.tenant_id = ?
@@ -18012,7 +18109,9 @@ def my_uploads():
                 SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
                        p.owner_user_id, ? AS owner_email,
                        COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
-                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes
+                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes,
+                       COALESCE((SELECT COUNT(*) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id), 0) AS download_count,
+                       (SELECT MAX(downloaded_at) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id) AS last_download_at
                 FROM packages p
                 WHERE p.tenant_id = ? AND p.owner_user_id = ?
                 ORDER BY p.created_at DESC
@@ -18041,6 +18140,8 @@ def my_uploads():
             "is_expired": is_expired,
             "days_left": days_left,
             "owner_email": r["owner_email"],
+            "download_count": int(r["download_count"] or 0),
+            "last_download_at": format_nl_datetime(r["last_download_at"]),
             "share_link": url_for("package_page", token=r["token"], _external=True),
         })
 
