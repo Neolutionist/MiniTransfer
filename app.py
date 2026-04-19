@@ -612,22 +612,97 @@ LOGIN_HTML = """
 """
 
 PASS_PROMPT_HTML = """
-<!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Pakket beveiligd – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
-{{ bg|safe }}
-<div class="wrap"><div class="card" style="max-width:560px;margin:6vh auto">
-  <h1>Beveiligd pakket</h1>
-  <p class="small" style="margin-top:.2rem">Voer het wachtwoord in om dit pakket te openen.</p>
-  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Beveiligd · Olde Hanter</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+:root{
+  --oh-bg:#f4f6fa; --oh-surface:#fff; --oh-surface-2:#f8fafc;
+  --oh-border:#e2e8f0; --oh-border-strong:#cbd5e1;
+  --oh-text:#0f172a; --oh-muted:#64748b;
+  --oh-brand:#0f3a6b; --oh-brand-2:#1e5a9e; --oh-accent:#d97706;
+  --oh-danger:#dc2626; --oh-radius:10px; --oh-radius-sm:6px;
+  --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{min-height:100%;margin:0;background:var(--oh-bg);color:var(--oh-text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
+  font-size:15px;line-height:1.5;display:grid;place-items:center;padding:24px}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);}
+.pw-card{position:relative;z-index:1;width:100%;max-width:440px;
+  background:var(--oh-surface);border:1px solid var(--oh-border);
+  border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);padding:28px}
+.pw-brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.pw-brand-mark{width:38px;height:38px;border-radius:8px;
+  background:linear-gradient(135deg,var(--oh-brand),var(--oh-brand-2));
+  display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+.pw-brand-text h1{margin:0;font-size:16px;font-weight:600}
+.pw-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
+.pw-lock{width:56px;height:56px;border-radius:50%;
+  background:#fef3c7;color:var(--oh-accent);
+  display:grid;place-items:center;margin:4px auto 14px}
+.pw-title{text-align:center;font-size:18px;font-weight:600;margin:0 0 4px}
+.pw-sub{text-align:center;font-size:13px;color:var(--oh-muted);margin:0 0 20px}
+.pw-err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca;
+  padding:10px 14px;border-radius:var(--oh-radius-sm);font-size:14px;margin-bottom:14px}
+.pw-label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--oh-muted);margin-bottom:6px}
+.pw-input{width:100%;padding:10px 12px;background:var(--oh-surface);
+  border:1px solid var(--oh-border-strong);border-radius:var(--oh-radius-sm);
+  font:inherit;color:var(--oh-text);transition:border-color .15s,box-shadow .15s}
+.pw-input:focus{outline:none;border-color:var(--oh-brand-2);
+  box-shadow:0 0 0 3px rgba(30,90,158,.12)}
+.pw-btn{width:100%;margin-top:14px;padding:11px;background:var(--oh-brand);
+  color:#fff;border:none;border-radius:var(--oh-radius-sm);font:inherit;
+  font-weight:600;cursor:pointer;transition:background .15s}
+.pw-btn:hover{background:var(--oh-brand-2)}
+.pw-footer{text-align:center;font-size:12px;color:var(--oh-muted);margin-top:18px}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --oh-bg:#0f172a; --oh-surface:#1e293b; --oh-surface-2:#0f172a;
+    --oh-border:#334155; --oh-border-strong:#475569;
+    --oh-text:#f1f5f9; --oh-muted:#94a3b8;
+    --oh-brand:#60a5fa; --oh-brand-2:#3b82f6;
+  }
+  .pw-lock{background:#422006;color:#fde68a}
+  .pw-err{background:#450a0a;color:#fca5a5;border-color:#991b1b}
+}
+</style></head><body>
+
+<div class="pw-card">
+  <div class="pw-brand">
+    <div class="pw-brand-mark">OH</div>
+    <div class="pw-brand-text">
+      <h1>Olde Hanter Bouwconstructies</h1>
+      <p>Bestandentransfer</p>
+    </div>
+  </div>
+
+  <div class="pw-lock">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+  </div>
+
+  <h2 class="pw-title">Beveiligd pakket</h2>
+  <p class="pw-sub">Voer het wachtwoord in om dit pakket te openen</p>
+
+  {% if error %}<div class="pw-err">{{ error }}</div>{% endif %}
+
   <form method="post" autocomplete="off">
     <input type="text" name="a" style="display:none"><input type="password" name="b" style="display:none">
-    <label for="pw">Wachtwoord</label>
-    <input id="pw" class="input" type="password" name="password" placeholder="Wachtwoord"
-           required autocomplete="new-password" autocapitalize="off" spellcheck="false">
-    <button class="btn" style="margin-top:1rem">Ontgrendel</button>
+    <label class="pw-label" for="pw">Wachtwoord</label>
+    <input id="pw" class="pw-input" type="password" name="password" placeholder="Voer wachtwoord in"
+           required autocomplete="new-password" autocapitalize="off" spellcheck="false" autofocus>
+    <button class="pw-btn" type="submit">Ontgrendel pakket</button>
   </form>
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
-</div></div>
+
+  <p class="pw-footer">Olde Hanter Bouwconstructies · Bestandentransfer</p>
+</div>
 </body></html>
 """
 
@@ -1133,8 +1208,16 @@ INDEX_HTML = """
       flex: 1 1 auto;
       min-width: 200px;
       font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      font-size: 13px;
-      background: white;
+      font-size: 14px;
+      background: #ffffff;
+      color: #0f172a;
+      border-color: #bae6fd;
+      font-weight: 500;
+      letter-spacing: .01em;
+    }
+    .oh-share-row .oh-input:focus {
+      color: #0f172a;
+      background: #ffffff;
     }
 
     /* ============ Telemetry ============ */
@@ -1702,211 +1785,366 @@ PACKAGE_HTML = """
 <html lang="nl">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-  <title>Download • Olde Hanter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Download · {{ title or 'Olde Hanter' }}</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
 
-    /* ===== Downloadlijst: nette uitlijning ===== */
-    .filecard{
-      display:grid;
-      grid-template-columns: 1fr auto auto; /* Naam | Size | Link */
-      align-items:center;
-      gap:.6rem .8rem;
-      padding:.70rem 1rem;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:color-mix(in oklab,var(--surface) 86%,white 14%);
+    :root{
+      --oh-bg:#f4f6fa; --oh-surface:#ffffff; --oh-surface-2:#f8fafc;
+      --oh-border:#e2e8f0; --oh-border-strong:#cbd5e1;
+      --oh-text:#0f172a; --oh-muted:#64748b;
+      --oh-brand:#0f3a6b; --oh-brand-2:#1e5a9e;
+      --oh-accent:#d97706; --oh-accent-2:#f59e0b;
+      --oh-success:#16a34a; --oh-danger:#dc2626;
+      --oh-radius:10px; --oh-radius-sm:6px;
+      --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
     }
-    .filecard .name{
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      line-height:1.25;
-      overflow-wrap:anywhere;
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{min-height:100%;background:var(--oh-bg);color:var(--oh-text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
+      font-size:15px;line-height:1.5;margin:0;-webkit-font-smoothing:antialiased}
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+      background-image:
+        radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
+        radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);}
+    .oh-shell{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:28px 22px 60px}
+
+    /* Top bar */
+    .oh-topbar{display:flex;justify-content:space-between;align-items:center;gap:20px;
+      padding:14px 20px;background:var(--oh-surface);border:1px solid var(--oh-border);
+      border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);margin-bottom:22px;flex-wrap:wrap}
+    .oh-brand{display:flex;align-items:center;gap:12px}
+    .oh-brand-mark{width:38px;height:38px;border-radius:8px;
+      background:linear-gradient(135deg,var(--oh-brand),var(--oh-brand-2));
+      display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;
+      box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+    .oh-brand-text h1{margin:0;font-size:17px;font-weight:600;color:var(--oh-text)}
+    .oh-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
+    .oh-topbar-link{color:var(--oh-brand-2);text-decoration:none;font-size:13px;
+      padding:6px 12px;border-radius:var(--oh-radius-sm);
+      border:1px solid var(--oh-border-strong);transition:all .15s}
+    .oh-topbar-link:hover{background:var(--oh-surface-2);border-color:var(--oh-brand-2)}
+
+    /* Layout */
+    .oh-deck{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:22px}
+    @media (max-width:880px){.oh-deck{grid-template-columns:1fr}}
+
+    /* Card */
+    .oh-card{background:var(--oh-surface);border:1px solid var(--oh-border);
+      border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);overflow:hidden}
+    .oh-card-head{padding:18px 22px;border-bottom:1px solid var(--oh-border);
+      display:flex;justify-content:space-between;align-items:center;gap:16px;
+      background:var(--oh-surface-2)}
+    .oh-card-head h2{margin:0;font-size:15px;font-weight:600;
+      display:flex;align-items:center;gap:10px}
+    .oh-card-head h2 svg{color:var(--oh-brand)}
+    .oh-card-head .meta{font-size:13px;color:var(--oh-muted)}
+    .oh-card-head .meta .pill{display:inline-block;padding:2px 8px;background:var(--oh-surface);
+      border:1px solid var(--oh-border);border-radius:999px;font-weight:600;color:var(--oh-text)}
+    .oh-card-body{padding:22px}
+
+    /* Pakket-info blok */
+    .pkg-info{display:flex;flex-wrap:wrap;gap:14px 32px;
+      padding:14px 18px;background:var(--oh-surface-2);border:1px solid var(--oh-border);
+      border-radius:var(--oh-radius-sm);margin-bottom:18px}
+    .pkg-info div .k{font-size:11px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.05em;color:var(--oh-muted);margin-bottom:2px}
+    .pkg-info div .v{font-size:14px;font-weight:600;color:var(--oh-text);font-variant-numeric:tabular-nums}
+
+    /* Download button */
+    .oh-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;
+      background:var(--oh-brand);color:#fff;border:none;border-radius:var(--oh-radius-sm);
+      font:inherit;font-size:15px;font-weight:600;cursor:pointer;
+      transition:background .15s,transform .05s;text-decoration:none}
+    .oh-btn:hover:not(:disabled){background:var(--oh-brand-2)}
+    .oh-btn:active:not(:disabled){transform:translateY(1px)}
+    .oh-btn:disabled{opacity:.5;cursor:not-allowed}
+    .oh-btn.accent{background:var(--oh-accent)}
+    .oh-btn.accent:hover:not(:disabled){background:var(--oh-accent-2)}
+    .oh-btn.ghost{background:var(--oh-surface);color:var(--oh-brand);
+      border:1px solid var(--oh-border-strong);padding:8px 14px;font-size:13px}
+    .oh-btn.ghost:hover{background:var(--oh-surface-2);border-color:var(--oh-brand-2)}
+
+    /* Progress bar */
+    .oh-progress{margin-top:14px}
+    .oh-progress-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+    .oh-progress-head .k{font-size:12px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.04em;color:var(--oh-muted)}
+    .oh-progress-head .v{font-size:14px;font-weight:700;color:var(--oh-brand);
+      font-variant-numeric:tabular-nums}
+    .oh-bar{height:8px;background:var(--oh-surface-2);border:1px solid var(--oh-border);
+      border-radius:999px;overflow:hidden}
+    .oh-bar > i{display:block;height:100%;width:0%;
+      background:linear-gradient(90deg,var(--oh-brand),var(--oh-brand-2));
+      transition:width .25s ease;border-radius:999px;position:relative}
+    .oh-bar.active > i::after{content:"";position:absolute;inset:0;
+      background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.35) 50%,transparent 100%);
+      animation:oh-shine 1.6s linear infinite}
+    @keyframes oh-shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+    .oh-bar.indet > i{width:40%;animation:oh-indet 1.2s linear infinite}
+    @keyframes oh-indet{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+
+    /* File list */
+    .oh-filelist{margin-top:22px}
+    .oh-filelist-head{display:flex;align-items:center;justify-content:space-between;
+      margin-bottom:10px}
+    .oh-filelist-head h3{margin:0;font-size:12px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.05em;color:var(--oh-muted)}
+    .oh-filelist-count{font-size:12px;color:var(--oh-muted);font-variant-numeric:tabular-nums}
+
+    .oh-file{display:grid;grid-template-columns:auto 1fr auto auto;gap:12px;
+      align-items:center;padding:10px 14px;background:var(--oh-surface);
+      border:1px solid var(--oh-border);border-radius:var(--oh-radius-sm);
+      margin-bottom:6px;transition:border-color .15s}
+    .oh-file:hover{border-color:var(--oh-border-strong)}
+    .oh-file .ico{color:var(--oh-muted);display:flex;align-items:center}
+    .oh-file .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      color:var(--oh-text);font-size:14px}
+    .oh-file .size{color:var(--oh-muted);font-size:13px;
+      font-variant-numeric:tabular-nums;white-space:nowrap}
+    .oh-file .action{font-size:13px}
+    .oh-file .action a{color:var(--oh-brand-2);text-decoration:none;font-weight:600;
+      padding:4px 10px;border-radius:var(--oh-radius-sm);
+      border:1px solid var(--oh-border);transition:all .15s}
+    .oh-file .action a:hover{background:var(--oh-surface-2);border-color:var(--oh-brand-2)}
+
+    /* Telemetry card */
+    .oh-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .oh-stat{padding:12px 14px;background:var(--oh-surface-2);
+      border:1px solid var(--oh-border);border-radius:var(--oh-radius-sm)}
+    .oh-stat .k{font-size:11px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.05em;color:var(--oh-muted);margin-bottom:4px}
+    .oh-stat .v{font-size:16px;font-weight:600;color:var(--oh-text);
+      font-variant-numeric:tabular-nums}
+
+    .oh-status{margin-top:8px;font-size:13px;color:var(--oh-muted);min-height:1.2em}
+
+    /* Footer */
+    .oh-footer{margin-top:32px;padding-top:18px;border-top:1px solid var(--oh-border);
+      text-align:center;font-size:12px;color:var(--oh-muted)}
+    .oh-footer a{color:var(--oh-brand-2);text-decoration:none;margin:0 6px}
+    .oh-footer a:hover{text-decoration:underline}
+
+    /* Mobile tweaks */
+    @media (max-width:640px){
+      .oh-file{grid-template-columns:auto 1fr auto}
+      .oh-file .action{grid-column:1/-1;justify-self:end}
+      .pkg-info{gap:12px 20px}
     }
-    .filecard .size{ width:6.5rem; text-align:right; }
-    .filecard .action{ width:auto; text-align:right; }
-    .filecard .action a{ display:inline-block; padding:.2rem .4rem; white-space:nowrap; }
 
-
-/* Header actions netjes uitlijnen */
-.hdr .actions{
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
-/* Kleine zwarte knop */
-.btn-dark{
-  display:inline-flex;
-  align-items:center;
-  gap:.45rem;
-  padding:.55rem .75rem;      /* kleiner */
-  border-radius:11px;
-  background:#0b0b0b;         /* zwart */
-  color:#fff;
-  text-decoration:none;
-  font-weight:800;
-  line-height:1;
-  border:1px solid rgba(255,255,255,.12);
-}
-.btn-dark:hover{ filter:brightness(1.08); }
-.btn-dark:active{ transform:translateY(1px); }
-
-.btn-dark .ic{ font-size:1.05em; opacity:.9; }
-
-/* Optioneel: “Nieuwe aanvraag” als rustige link-knop */
-.btn-link{
-  display:inline-flex;
-  align-items:center;
-  gap:.45rem;
-  padding:.55rem .7rem;
-  border-radius:11px;
-  border:1px solid var(--line);
-  background:var(--surface);
-  color:var(--text);
-  text-decoration:none;
-  font-weight:800;
-  line-height:1;
-}
-
-
-    /* Progressbalk ruimte */
-    #bar{ margin-top:.75rem }
-
-    /* Kaarten & grid */
-    .shell{max-width:980px;margin:5vh auto;padding:0 16px}
-.hdr{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom:32px;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
-    .brand{color:var(--brand);margin:0;font-weight:800}
-    .deck{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-    @media(max-width:900px){.deck{grid-template-columns:1fr}}
-    .card{border-radius:16px;background:var(--panel);border:1px solid var(--panel-b);box-shadow:0 14px 36px rgba(0,0,0,.14);overflow:hidden}
-    .card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(0,0,0,.06)}
-    .card-b{padding:14px 16px}
-    .subtle{color:var(--muted);font-size:.92rem}
-    .btn{padding:.7rem 1rem;border:0;border-radius:11px;background:linear-gradient(180deg,var(--brand),color-mix(in oklab,var(--brand)85%,black 15%));color:#fff;font-weight:800;cursor:pointer}
-    .progress{height:10px;border-radius:999px;overflow:hidden;border:1px solid #dbe5f4;background:#eef2ff}
-    .progress>i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#0f4c98,#1e90ff);transition:width .12s}
-    .progress.indet>i{width:40%;animation:ind 1.1s linear infinite}
-    @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(240%)}}
-
-    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .kv .k{font-size:.85rem;color:var(--muted)} .kv .v{font-weight:800;font-variant-numeric:tabular-nums}
-
-    .deck > .card { min-width: 0; }
-    .card h1, .card h2, .card h3 { line-height: 1.2; }
-    .card p, .card li, .card div { line-height: 1.25; }
-
-    @media (max-width:700px){
-      .filecard{grid-template-columns:1fr;gap:.35rem;}
-      .filecard .name{white-space:normal;}
-      .filecard .size,.filecard .action{width:auto;display:flex;justify-content:space-between;gap:.6rem;}
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark){
+      :root{
+        --oh-bg:#0f172a;
+        --oh-surface:#1e293b;
+        --oh-surface-2:#0f172a;
+        --oh-border:#334155;
+        --oh-border-strong:#475569;
+        --oh-text:#f1f5f9;
+        --oh-muted:#94a3b8;
+        --oh-brand:#60a5fa;
+        --oh-brand-2:#3b82f6;
+      }
     }
   </style>
 </head>
 <body>
-{{ bg|safe }}
-<div class="shell">
-<div class="actions">
-  <a class="btn-dark" href="{{ url_for('contact') }}">
-    <span class="ic">★</span> Abonnement aanvragen
-  </a>
-</div>
 
+<div class="oh-shell">
 
-  <div class="deck">
-    <!-- Linkerkaart -->
-    <div class="card">
-      <div class="card-h"><div>Download</div><div class="subtle">Bestanden: {{ items|length }}</div></div>
-      <div class="card-b">
+  <header class="oh-topbar">
+    <div class="oh-brand">
+      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-text">
+        <h1>Olde Hanter Bouwconstructies</h1>
+        <p>Je bestanden staan klaar</p>
+      </div>
+    </div>
+    <a class="oh-topbar-link" href="{{ url_for('contact') }}">
+      ★ Zelf ook zo'n omgeving?
+    </a>
+  </header>
+
+  <div class="oh-deck">
+
+    <!-- ======== Download card ======== -->
+    <section class="oh-card">
+      <div class="oh-card-head">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Downloaden
+        </h2>
+        <span class="meta">Bestanden: <span class="pill">{{ items|length }}</span></span>
+      </div>
+      <div class="oh-card-body">
+
+        <div class="pkg-info">
+          {% if title %}
+          <div>
+            <div class="k">Onderwerp</div>
+            <div class="v">{{ title }}</div>
+          </div>
+          {% endif %}
+          <div>
+            <div class="k">Aantal bestanden</div>
+            <div class="v">{{ items|length }}</div>
+          </div>
+          <div>
+            <div class="k">Totale grootte</div>
+            <div class="v">{{ total_human }}</div>
+          </div>
+          <div>
+            <div class="k">Verloopt op</div>
+            <div class="v">{{ expires_human }}</div>
+          </div>
+        </div>
+
         {% if items|length == 1 %}
-          <button id="btnDownload" class="btn">Download bestand</button>
+          <button id="btnDownload" class="oh-btn accent">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download bestand
+          </button>
         {% else %}
-          <button id="btnDownload" class="btn">Alles downloaden (ZIP)</button>
+          <button id="btnDownload" class="oh-btn accent">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Alles downloaden (ZIP)
+          </button>
         {% endif %}
-        <div id="bar" class="progress" style="display:none"><i></i></div>
-        <div class="subtle" id="txt" style="margin-top:6px;display:none">Starten…</div>
+
+        <div class="oh-progress" id="progressWrap" style="display:none">
+          <div class="oh-progress-head">
+            <span class="k">Voortgang</span>
+            <span class="v" id="pctText">0%</span>
+          </div>
+          <div id="bar" class="oh-bar"><i></i></div>
+          <div class="oh-status" id="txt">Starten…</div>
+        </div>
 
         {% if items|length > 1 %}
-        <h4 style="margin-top:14px;">Inhoud</h4>
-        {% for it in items %}
-          <div class="filecard">
-            <div class="name">{{ it["path"] }}</div>
-            <div class="size">{{ it["size_h"] }}</div>
-            <div class="action"><a class="subtle" href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">los</a></div>
+        <div class="oh-filelist">
+          <div class="oh-filelist-head">
+            <h3>Inhoud</h3>
+            <span class="oh-filelist-count">{{ items|length }} bestanden</span>
           </div>
-        {% endfor %}
+          {% for it in items %}
+          <div class="oh-file">
+            <div class="ico">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <div class="name" title="{{ it['path'] }}">{{ it["path"] }}</div>
+            <div class="size">{{ it["size_h"] }}</div>
+            <div class="action">
+              <a href="{{ url_for('stream_file', token=token, item_id=it['id']) }}">Los</a>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
         {% endif %}
-      </div>
-    </div>
 
-    <!-- Rechterkaart -->
-    <div class="card">
-      <div class="card-h"><div>Live Telemetry</div><div class="subtle">Sessie</div></div>
-      <div class="card-b kv">
-        <div class="k">Doorvoersnelheid</div><div class="v" id="tSpeed">0 B/s</div>
-        <div class="k">Gedownload</div><div class="v" id="tMoved">0 B</div>
-        <div class="k">Totale grootte</div><div class="v" id="tTotal">{{ total_human }}</div>
-        <div class="k">ETA</div><div class="v" id="tEta">—</div>
       </div>
-    </div>
+    </section>
+
+    <!-- ======== Telemetry card ======== -->
+    <aside class="oh-card">
+      <div class="oh-card-head">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Live status
+        </h2>
+        <span class="meta">Sessie</span>
+      </div>
+      <div class="oh-card-body">
+        <div class="oh-stats">
+          <div class="oh-stat">
+            <div class="k">Snelheid</div>
+            <div class="v" id="tSpeed">0 B/s</div>
+          </div>
+          <div class="oh-stat">
+            <div class="k">Gedownload</div>
+            <div class="v" id="tMoved">0 B</div>
+          </div>
+          <div class="oh-stat">
+            <div class="k">Totaal</div>
+            <div class="v" id="tTotal">{{ total_human }}</div>
+          </div>
+          <div class="oh-stat">
+            <div class="k">ETA</div>
+            <div class="v" id="tEta">—</div>
+          </div>
+        </div>
+      </div>
+    </aside>
   </div>
 
-  <p class="footer" style="text-align:center;margin-top:14px">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <footer class="oh-footer">
+    Olde Hanter Bouwconstructies · Bestandentransfer
+    <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
+    <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
+    <a href="{{ url_for('privacy_page') }}">Privacy</a>
+  </footer>
 </div>
 
 <script>
-const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null, txt=document.getElementById('txt');
+const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null;
+const txt=document.getElementById('txt'), pctText=document.getElementById('pctText');
+const progressWrap=document.getElementById('progressWrap');
 const tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tEta=document.getElementById('tEta');
+
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
-function show(){bar.style.display='block';txt.style.display='block'}
-function setPct(p){if(fill){fill.style.width=Math.max(0,Math.min(100,p))+'%'}}
+function showProgress(){ if(progressWrap) progressWrap.style.display='block'; if(bar) bar.classList.add('active'); }
+function setPct(p){
+  const pct = Math.max(0,Math.min(100,p));
+  if(fill) fill.style.width=pct+'%';
+  if(pctText) pctText.textContent=Math.round(pct)+'%';
+}
 
 async function downloadWithTelemetry(url, fallbackName){
-  show(); setPct(0); txt.textContent='Starten…';
+  showProgress(); setPct(0); txt.textContent='Starten…';
   let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
 
-  const tick = ()=>{ const now=performance.now(), dt=(now-lastT)/1000; lastT=now; const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved; speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst; tSpeed.textContent=fmtBytes(speedAvg)+'/s'; const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0; tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—'; };
+  const tick = ()=>{
+    const now=performance.now(), dt=(now-lastT)/1000; lastT=now;
+    const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved;
+    speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst;
+    tSpeed.textContent=fmtBytes(speedAvg)+'/s';
+    const eta = (total && speedAvg>1) ? (total-moved)/speedAvg : 0;
+    tEta.textContent = eta? new Date(eta*1000).toISOString().substring(11,19) : '—';
+  };
   const iv=setInterval(tick,700);
 
   try{
     const res=await fetch(url,{credentials:'same-origin'});
-    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); return; }
+    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); bar.classList.remove('active'); return; }
     total=parseInt(res.headers.get('Content-Length')||'0',10);
     const name=res.headers.get('X-Filename')||fallbackName||'download';
 
     const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
     if(rdr){
       const chunks=[];
-      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; }
+      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; if(pctText) pctText.textContent='…'; }
       while(true){
         const {done,value}=await rdr.read(); if(done) break;
         chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
-        if(total){ setPct(Math.round(moved/total*100)); txt.textContent=Math.round(moved/total*100)+'%'; }
+        if(total){ const pct=Math.round(moved/total*100); setPct(pct); txt.textContent='Downloaden…'; }
       }
-      if(!total){ bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar'; }
+      if(!total){ bar.classList.remove('indet'); setPct(100); }
+      txt.textContent='Gereed — bestand wordt opgeslagen';
+      bar.classList.remove('active');
       clearInterval(iv);
       const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
-      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+      const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
       return;
     }
-    bar.classList.add('indet'); txt.textContent='Downloaden…';
-    const blob=await res.blob(); clearInterval(iv); bar.classList.remove('indet'); setPct(100); txt.textContent='Klaar';
-    const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
-  }catch(e){ clearInterval(iv); txt.textContent='Fout'; }
+    bar.classList.add('indet'); txt.textContent='Downloaden…'; if(pctText) pctText.textContent='…';
+    const blob=await res.blob(); clearInterval(iv);
+    bar.classList.remove('indet'); bar.classList.remove('active');
+    setPct(100); txt.textContent='Gereed';
+    const u=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
+  }catch(e){ clearInterval(iv); bar.classList.remove('active'); txt.textContent='Er ging iets mis. Probeer opnieuw.'; }
 }
 
 const btn=document.getElementById('btnDownload');
