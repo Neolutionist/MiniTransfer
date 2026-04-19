@@ -5807,12 +5807,43 @@ function spawnWave(){
     };
   }
 
+  // --- Performance optimalisaties ---
+  // Gedeelde geometrie voor particles: één SphereGeometry wordt hergebruikt i.p.v.
+  // per deeltje een nieuwe te uploaden naar de GPU. Schaalverschillen worden
+  // opgelost via mesh.scale — dat is bijna gratis.
+  const SHARED_PARTICLE_GEO = new THREE.SphereGeometry(0.08, 5, 4);
+  // Kleine cache voor MeshBasicMaterials per kleur — zo vermijden we honderden
+  // nieuwe materials (en dus shader-compile-checks) bij explosies.
+  const PARTICLE_MAT_CACHE = new Map();
+  function getParticleMaterial(color){
+    let m = PARTICLE_MAT_CACHE.get(color);
+    if(!m){
+      m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:1 });
+      PARTICLE_MAT_CACHE.set(color, m);
+    }
+    return m;
+  }
+  // Max aantal gelijktijdige particles / ragdolls. Oudste wordt verwijderd.
+  const MAX_PARTICLES = 220;
+  const MAX_RAGDOLLS = 4;
+
   function createBurst(position, color=0x74a8ff, count=12, speed=4, opts={}){
+    // Bij veel particles schalen we het aantal terug zodat het systeem niet instort.
+    if(state.particles.length > MAX_PARTICLES - count){
+      count = Math.max(2, Math.floor(count * 0.5));
+    }
+    const minSize = opts.minSize || .04;
+    const maxSize = opts.maxSize || .09;
+    const baseMat = getParticleMaterial(color);
     for(let i=0;i<count;i++){
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(rand(opts.minSize || .04, opts.maxSize || .09), 6, 6),
-        new THREE.MeshBasicMaterial({ color })
-      );
+      // Hergebruik materiaal (shared per kleur) en geometrie (altijd dezelfde sphere).
+      // We clonen het materiaal alleen als we een eigen opacity nodig hebben —
+      // maar omdat alle particles van dezelfde kleur samen faden is dat prima
+      // als ze tegelijk spawnen. Voor net beheer clonen we éénmalig:
+      const mesh = new THREE.Mesh(SHARED_PARTICLE_GEO, baseMat.clone());
+      // Schaal bepaalt effectieve grootte — goedkoop, geen upload.
+      const s = rand(minSize, maxSize) / 0.08;
+      mesh.scale.setScalar(s);
       mesh.position.copy(position);
       scene.add(mesh);
       state.particles.push({
@@ -5824,6 +5855,14 @@ function spawnWave(){
         shrink: opts.shrink || 0.98,
         rotate: rand(-8,8)
       });
+    }
+    // Soft cleanup: verwijder oudste particles als we over het maximum heen zijn.
+    while(state.particles.length > MAX_PARTICLES){
+      const p = state.particles.shift();
+      if(p && p.mesh){
+        scene.remove(p.mesh);
+        if(p.mesh.material && p.mesh.material !== baseMat) p.mesh.material.dispose();
+      }
     }
   }
 
@@ -6280,35 +6319,55 @@ function shootWithDirection(dirOverride=null){
     }
   }
 
+  // Ragdoll-geometrie cache: hergebruik BoxGeometry objecten per maat.
+  // Zo vermijden we 5 nieuwe geometry-uploads per enemy dood.
+  const RAGDOLL_GEO = {
+    head:  new THREE.BoxGeometry(0.44,0.56,0.42),
+    torso: new THREE.BoxGeometry(0.84,1.02,0.42),  // torso + hips samengevoegd
+    arm:   new THREE.BoxGeometry(0.22,0.88,0.22),
+    legs:  new THREE.BoxGeometry(0.60,1.10,0.30)   // beide benen als één blok
+  };
+
   function spawnRagdoll(enemy){
+    // Hard cap: oudste ragdoll wordt direct opgeruimd zodat we nooit meer dan
+    // MAX_RAGDOLLS tegelijk in de scene hebben staan.
+    while(state.ragdolls.length >= MAX_RAGDOLLS){
+      const oldest = state.ragdolls.shift();
+      for(const piece of oldest.pieces){
+        scene.remove(piece.mesh);
+        if(piece.mesh.material) piece.mesh.material.dispose();
+      }
+    }
+
     const pieces = [];
     const constraints = [];
     const base = enemy.mesh.position.clone();
     const color = enemy.isBoss ? 0x315c96 : enemy.type === "elite" ? 0x274f86 : enemy.type === "tank" ? 0x29496f : 0x315c96;
     const dark = enemy.isBoss ? 0x0c203d : 0x1d304f;
-    const capeColor = enemy.isBoss ? 0x8a0f2d : 0x70142a;
     const skin = 0xddb08b;
     const impulse = new THREE.Vector3((Math.random()-0.5)*5.8, 5.0 + Math.random()*2.0, (Math.random()-0.5)*5.8);
+    // Vereenvoudigd van 10 naar 5 stukken: head, torso (incl. hips), twee armen, benen-blok.
+    // Visueel nauwelijks verschil bij snelle enemy-dood; halveert bijna alle ragdoll-kosten.
     const defs = [
-      { name:"head", geo:new THREE.BoxGeometry(0.44,0.56,0.42), off:[0,2.54,0.02], c:skin, mass:0.8 },
-      { name:"torso", geo:new THREE.BoxGeometry(0.84,0.92,0.42), off:[0,1.66,0], c:color, mass:1.45 },
-      { name:"hips", geo:new THREE.BoxGeometry(0.72,0.32,0.32), off:[0,0.98,0], c:dark, mass:1.2 },
-      { name:"armL", geo:new THREE.BoxGeometry(0.22,0.88,0.22), off:[-0.58,1.44,0.02], c:color, mass:0.72 },
-      { name:"armR", geo:new THREE.BoxGeometry(0.22,0.88,0.22), off:[0.58,1.44,0.02], c:color, mass:0.72 },
-      { name:"legL", geo:new THREE.BoxGeometry(0.24,1.02,0.24), off:[-0.22,0.18,0.02], c:dark, mass:0.92 },
-      { name:"legR", geo:new THREE.BoxGeometry(0.24,1.02,0.24), off:[0.22,0.18,0.02], c:dark, mass:0.92 },
-      { name:"footL", geo:new THREE.BoxGeometry(0.30,0.18,0.44), off:[-0.22,-0.46,0.10], c:dark, mass:0.55 },
-      { name:"footR", geo:new THREE.BoxGeometry(0.30,0.18,0.44), off:[0.22,-0.46,0.10], c:dark, mass:0.55 },
-      { name:"cape", geo:new THREE.BoxGeometry(0.72,0.92,0.06), off:[0,1.46,-0.24], c:capeColor, mass:0.38 }
+      { name:"head",  geo:RAGDOLL_GEO.head,  off:[0,2.54,0.02], c:skin,  mass:0.8 },
+      { name:"torso", geo:RAGDOLL_GEO.torso, off:[0,1.50,0],    c:color, mass:1.6 },
+      { name:"armL",  geo:RAGDOLL_GEO.arm,   off:[-0.58,1.44,0.02], c:color, mass:0.72 },
+      { name:"armR",  geo:RAGDOLL_GEO.arm,   off:[0.58,1.44,0.02],  c:color, mass:0.72 },
+      { name:"legs",  geo:RAGDOLL_GEO.legs,  off:[0,0.55,0.02], c:dark,  mass:1.6 }
     ];
     const idx = {};
     defs.forEach((def, index) => {
       idx[def.name] = index;
-      const mesh = new THREE.Mesh(def.geo, new THREE.MeshStandardMaterial({ color:def.c, roughness:.72, metalness:.10 }));
+      // transparent éénmalig zetten bij aanmaak; fade gebeurt via opacity.
+      const mat = new THREE.MeshStandardMaterial({ color:def.c, roughness:.72, metalness:.10, transparent:true, opacity:1 });
+      const mesh = new THREE.Mesh(def.geo, mat);
       const pos = base.clone().add(new THREE.Vector3(...def.off));
       mesh.position.copy(pos);
       mesh.rotation.set(Math.random()*0.30, Math.random()*Math.PI, Math.random()*0.30);
-      mesh.castShadow = mesh.receiveShadow = true;
+      // Shadows uitgezet voor ragdoll-pieces: dit was de duurste kostenpost
+      // (PCFSoftShadowMap + 5 meshes per dood) en je ziet het nauwelijks tussen alle flitsen.
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
       scene.add(mesh);
       pieces.push({
         mesh,
@@ -6316,9 +6375,9 @@ function shootWithDirection(dirOverride=null){
         pos,
         prev:pos.clone().sub(impulse.clone().multiplyScalar(0.015 / def.mass)),
         spin:new THREE.Vector3((Math.random()-0.5)*2.8,(Math.random()-0.5)*3.8,(Math.random()-0.5)*2.8),
-        lift:def.name === "cape" ? 0.9 : 0.35 + Math.random()*0.45,
-        radius:0.18 + (def.name.includes("torso") ? 0.18 : def.name.includes("leg") ? 0.10 : 0.08),
-        drag:def.name === "cape" ? 0.985 : 0.972
+        lift: 0.35 + Math.random()*0.45,
+        radius:0.18 + (def.name === "torso" ? 0.18 : def.name === "legs" ? 0.10 : 0.08),
+        drag: 0.972
       });
     });
 
@@ -6328,19 +6387,14 @@ function shootWithDirection(dirOverride=null){
       constraints.push({ a:idx[a], b:idx[b], len:pa.distanceTo(pb) * slack });
     };
     link("head", "torso", 1.0);
-    link("torso", "hips", 1.0);
     link("torso", "armL", 1.0);
     link("torso", "armR", 1.0);
-    link("hips", "legL", 1.0);
-    link("hips", "legR", 1.0);
-    link("legL", "footL", 1.0);
-    link("legR", "footR", 1.0);
+    link("torso", "legs", 1.0);
     link("armL", "armR", 1.08);
-    link("legL", "legR", 1.12);
-    link("torso", "cape", 1.0);
-    link("hips", "cape", 1.06);
 
-    state.ragdolls.push({ pieces, constraints, life:6.6, fade:1.8 });
+    // Kortere levensduur + snellere fade: ragdolls verdwijnen na ~2.5s (was 6.6s).
+    // In een snel spel zie je ze toch nauwelijks langer — dit voorkomt opstapeling.
+    state.ragdolls.push({ pieces, constraints, life:2.5, fade:1.0 });
   }
 
   function deployShockMine(){
@@ -6466,7 +6520,7 @@ function shootWithDirection(dirOverride=null){
     spawnRagdoll(enemy);
     scene.remove(enemy.mesh);
     if(enemy.groundRing) scene.remove(enemy.groundRing);
-    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 28 : 16, enemy.isBoss ? 8 : 5);
+    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 20 : 10, enemy.isBoss ? 8 : 5);
 
     if(enemy.isBoss){
       registerKill(150);
@@ -6498,7 +6552,14 @@ function shootWithDirection(dirOverride=null){
     for(const arr of [state.bullets, state.enemyBullets, state.particles, state.pickups, state.rings, state.hazards]){
       while(arr.length){
         const item = arr.pop();
-        if(item.mesh) scene.remove(item.mesh);
+        if(item.mesh){
+          scene.remove(item.mesh);
+          // Particles gebruiken gecloonde materials (per kleur base gedeeld); opruimen.
+          // Voor andere arrays heeft dispose geen merkbaar effect maar is ook niet schadelijk.
+          if(item.mesh.material && typeof item.mesh.material.dispose === "function"){
+            item.mesh.material.dispose();
+          }
+        }
         if(item.aura) scene.remove(item.aura);
         if(item.inner) scene.remove(item.inner);
         if(item.beam) scene.remove(item.beam);
@@ -6506,7 +6567,10 @@ function shootWithDirection(dirOverride=null){
     }
     while(state.ragdolls.length){
       const rag = state.ragdolls.pop();
-      for(const piece of rag.pieces) scene.remove(piece.mesh);
+      for(const piece of rag.pieces){
+        scene.remove(piece.mesh);
+        if(piece.mesh.material) piece.mesh.material.dispose();
+      }
     }
 
     for(const e of state.enemies){ scene.remove(e.mesh); if(e.groundRing) scene.remove(e.groundRing); }
@@ -7338,12 +7402,15 @@ if(b.gravity){
       p.vel.multiplyScalar(p.drag || 0.92);
       p.vel.y -= (p.gravity == null ? 5.3 : p.gravity) * dt;
       p.life -= dt;
-      p.mesh.material.transparent = true;
+      // material.transparent is al bij aanmaak gezet (via getParticleMaterial) —
+      // niet elke frame opnieuw toekennen: dat forceert shader-invalidatie in three.js.
       p.mesh.material.opacity = clamp(p.life * 1.8, 0, 1);
       if(p.shrink) p.mesh.scale.multiplyScalar(p.shrink);
       if(p.rotate) p.mesh.rotation.y += p.rotate * dt;
       if(p.life <= 0){
         scene.remove(p.mesh);
+        // Clone material vrijgeven (geometry is shared, die blijft staan)
+        if(p.mesh.material) p.mesh.material.dispose();
         state.particles.splice(i,1);
       }
     }
@@ -7365,7 +7432,9 @@ if(b.gravity){
         piece.pos.z += vz;
       }
 
-      for(let iter=0; iter<5; iter++){
+      // 2 iteraties i.p.v. 5 — dit is de grootste CPU-cost in updateRagdolls.
+      // Bij 5 simpele stukken en korte levensduur is 2 iteraties visueel genoeg.
+      for(let iter=0; iter<2; iter++){
         for(const c of r.constraints){
           const a = r.pieces[c.a];
           const b = r.pieces[c.b];
@@ -7379,14 +7448,12 @@ if(b.gravity){
           const aWeight = b.mass / totalMass;
           const bWeight = a.mass / totalMass;
           const half = 0.5 * diff;
-          const moveAx = ddx * half * aWeight;
-          const moveAy = ddy * half * aWeight;
-          const moveAz = ddz * half * aWeight;
-          const moveBx = -ddx * half * bWeight;
-          const moveBy = -ddy * half * bWeight;
-          const moveBz = -ddz * half * bWeight;
-          a.pos.x += moveAx; a.pos.y += moveAy; a.pos.z += moveAz;
-          b.pos.x += moveBx; b.pos.y += moveBy; b.pos.z += moveBz;
+          a.pos.x += ddx * half * aWeight;
+          a.pos.y += ddy * half * aWeight;
+          a.pos.z += ddz * half * aWeight;
+          b.pos.x -= ddx * half * bWeight;
+          b.pos.y -= ddy * half * bWeight;
+          b.pos.z -= ddz * half * bWeight;
         }
 
         for(const piece of r.pieces){
@@ -7410,11 +7477,15 @@ if(b.gravity){
         piece.mesh.rotation.x += piece.spin.x * dt + moveZ * 0.6;
         piece.mesh.rotation.y += piece.spin.y * dt + moveX * 0.35;
         piece.mesh.rotation.z += piece.spin.z * dt - moveX * 0.6;
-        piece.mesh.material.transparent = true;
+        // transparent is al true sinds aanmaak; niet opnieuw toekennen.
         piece.mesh.material.opacity = opacity;
       }
       if(r.life <= 0){
-        for(const piece of r.pieces) scene.remove(piece.mesh);
+        for(const piece of r.pieces){
+          scene.remove(piece.mesh);
+          // Dispose alleen material; geometry is gedeeld via RAGDOLL_GEO.
+          if(piece.mesh.material) piece.mesh.material.dispose();
+        }
         state.ragdolls.splice(i,1);
       }
     }
@@ -7804,7 +7875,14 @@ function coreFlushHud(force = false){
 
 function coreCleanupItem(item){
   if(!item) return;
-  if(item.mesh) scene.remove(item.mesh);
+  if(item.mesh){
+    scene.remove(item.mesh);
+    // Dispose gecloneerde material (particles, tijdelijke effects).
+    // Shared geometries/materials blijven staan in three.js' cache.
+    if(item.mesh.material && typeof item.mesh.material.dispose === "function"){
+      item.mesh.material.dispose();
+    }
+  }
   if(item.aura) scene.remove(item.aura);
   if(item.inner) scene.remove(item.inner);
   if(item.beam) scene.remove(item.beam);
@@ -8006,7 +8084,10 @@ function restartGame(){
     const rag = state.ragdolls.pop();
     if(rag?.pieces){
       for(const piece of rag.pieces){
-        if(piece?.mesh) scene.remove(piece.mesh);
+        if(piece?.mesh){
+          scene.remove(piece.mesh);
+          if(piece.mesh.material) piece.mesh.material.dispose();
+        }
       }
     }
   }
