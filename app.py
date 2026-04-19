@@ -18199,10 +18199,12 @@ html,body{
 }
 
 .oh-btn.xs{
-  min-width:92px;
-  padding:7px 10px;
-  font-size:12px;
+  min-width:0;
+  padding:4px 8px;
+  font-size:11px;
   font-weight:700;
+  border-radius:8px;
+  gap:4px;
 }
 
 /* Flash */
@@ -18307,17 +18309,65 @@ html,body{
   border-color:rgba(255,255,255,.20);
 }
 
+/* Sorteerbalk */
+.oh-sortbar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+  padding:8px 10px;
+  background:rgba(15,23,42,.24);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+}
+.oh-sortbar-label{
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--oh-muted);
+  margin-right:4px;
+}
+.oh-sort-btn{
+  padding:5px 10px;
+  border-radius:8px;
+  background:transparent;
+  border:1px solid rgba(255,255,255,.08);
+  color:#e5e7eb;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  transition:background .15s, border-color .15s, color .15s;
+}
+.oh-sort-btn:hover{
+  border-color:rgba(255,255,255,.20);
+  background:rgba(255,255,255,.04);
+}
+.oh-sort-btn.active{
+  background:#8ab4ff;
+  color:#0f172a;
+  border-color:#8ab4ff;
+}
+.oh-sort-btn .arr{
+  font-size:10px;
+  opacity:.75;
+}
+
 /* Table */
 .oh-table{
   width:100%;
   border-collapse:separate;
-  border-spacing:0 10px;
+  border-spacing:0 6px;
 }
 
 .oh-table thead th{
   text-align:left;
-  padding:0 12px 8px 12px;
-  font-size:11px;
+  padding:0 10px 6px 10px;
+  font-size:10px;
   font-weight:700;
   text-transform:uppercase;
   letter-spacing:.05em;
@@ -18331,22 +18381,22 @@ html,body{
 }
 
 .oh-table tbody td{
-  padding:14px 12px;
+  padding:8px 10px;
   border-top:1px solid rgba(255,255,255,.06);
   border-bottom:1px solid rgba(255,255,255,.06);
-  font-size:14px;
+  font-size:13px;
   vertical-align:middle;
   color:#f8fafc;
 }
 
 .oh-table tbody td:first-child{
   border-left:1px solid rgba(255,255,255,.06);
-  border-radius:12px 0 0 12px;
+  border-radius:10px 0 0 10px;
 }
 
 .oh-table tbody td:last-child{
   border-right:1px solid rgba(255,255,255,.06);
-  border-radius:0 12px 12px 0;
+  border-radius:0 10px 10px 0;
 }
 
 .oh-table tbody tr:hover td{
@@ -18356,25 +18406,27 @@ html,body{
 .oh-title-cell{
   display:flex;
   flex-direction:column;
-  gap:2px;
+  gap:0;
+  line-height:1.2;
 }
 
 .oh-title-cell strong{
-  font-size:18px;
-  line-height:1.1;
+  font-size:13px;
+  line-height:1.2;
   color:#f8fafc;
+  font-weight:600;
 }
 
 .oh-title-cell .tok{
-  margin-top:4px;
+  margin-top:1px;
   font-family:ui-monospace,"SF Mono",Menlo,monospace;
-  font-size:12px;
+  font-size:10px;
   color:#94a3b8;
 }
 
 .oh-stat-cell{
   color:#cbd5e1;
-  font-size:13px;
+  font-size:12px;
   font-variant-numeric:tabular-nums;
   white-space:nowrap;
 }
@@ -18382,9 +18434,9 @@ html,body{
 /* Badges */
 .oh-badge{
   display:inline-block;
-  padding:4px 10px;
+  padding:2px 7px;
   border-radius:999px;
-  font-size:11px;
+  font-size:10px;
   font-weight:700;
   text-transform:uppercase;
   letter-spacing:.03em;
@@ -18408,30 +18460,33 @@ html,body{
 .oh-badge.pw{
   background:#dbeafe;
   color:#1e3a8a;
-  margin-left:6px;
+  margin-left:4px;
 }
 
 .oh-download-pill{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-width:32px;
-  height:32px;
-  padding:0 10px;
+  min-width:24px;
+  height:22px;
+  padding:0 8px;
   border-radius:999px;
   background:#27324a;
   border:1px solid rgba(255,255,255,.06);
   color:#f8fafc;
   font-weight:700;
   font-variant-numeric:tabular-nums;
+  font-size:11px;
 }
 
-/* Actions */
+/* Actions - horizontaal, compact */
 .oh-actions{
   display:flex;
-  flex-direction:column;
-  gap:8px;
-  align-items:flex-end;
+  flex-direction:row;
+  gap:4px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
 }
 
 /* Mobile */
@@ -18518,6 +18573,18 @@ html,body{
       </div>
       {% endif %}
 
+      {% if packages %}
+      <div class="oh-sortbar" id="ohSortbar">
+        <span class="oh-sortbar-label">Sorteer op</span>
+        <button type="button" class="oh-sort-btn active" data-sort="created" data-dir="desc">Aangemaakt <span class="arr">▼</span></button>
+        <button type="button" class="oh-sort-btn" data-sort="expires" data-dir="asc">Verloopt <span class="arr"></span></button>
+        <button type="button" class="oh-sort-btn" data-sort="size" data-dir="desc">Grootte <span class="arr"></span></button>
+        <button type="button" class="oh-sort-btn" data-sort="downloads" data-dir="desc">Downloads <span class="arr"></span></button>
+        <button type="button" class="oh-sort-btn" data-sort="title" data-dir="asc">Onderwerp <span class="arr"></span></button>
+        {% if show_all %}<button type="button" class="oh-sort-btn" data-sort="owner" data-dir="asc">Eigenaar <span class="arr"></span></button>{% endif %}
+      </div>
+      {% endif %}
+
       {% if not packages %}
       <div class="oh-empty">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -18525,7 +18592,7 @@ html,body{
         <a class="oh-btn" href="/">Bestand uploaden</a>
       </div>
       {% else %}
-      <table class="oh-table">
+      <table class="oh-table" id="ohTable">
         <thead>
           <tr>
             <th>Onderwerp / token</th>
@@ -18539,9 +18606,16 @@ html,body{
             <th style="text-align:right">Acties</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="ohTableBody">
           {% for p in packages %}
-          <tr>
+          <tr
+            data-created="{{ p.created_at }}"
+            data-expires="{{ p.expires_at }}"
+            data-size="{{ p.size_bytes }}"
+            data-downloads="{{ p.download_count }}"
+            data-title="{{ (p.title or '') | lower }}"
+            data-owner="{{ (p.owner_email or '') | lower }}"
+          >
             <td data-label="Onderwerp"><div class="oh-title-cell">
               <strong>{{ p.title or '(geen titel)' }}</strong>
               <span class="tok">{{ p.token }}</span>
@@ -18563,12 +18637,12 @@ html,body{
             <td data-label="Downloads">
             <span class="oh-download-pill">{{ p.download_count }}</span>
             </td>
-            <td data-label="Laatst gedownload">{{ p.last_download_at }}</td>
+            <td data-label="Laatst gedownload" class="oh-stat-cell">{{ p.last_download_at }}</td>
             <td data-label="Acties">
               <div class="oh-actions">
                 {% if not p.is_expired %}
                 <a class="oh-btn xs ghost" href="/p/{{ p.token }}" target="_blank" rel="noopener">Openen</a>
-                <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Kopieer link</button>
+                <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Link</button>
                 <form method="post" action="/uploads/{{ p.token }}/extend" style="display:inline">
                   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                   <button class="oh-btn xs ghost" type="submit" title="Verleng met 7 dagen">+7d</button>
@@ -18577,7 +18651,7 @@ html,body{
                 <form method="post" action="/uploads/{{ p.token }}/delete" style="display:inline"
                       onsubmit="return confirm('Pakket {{ p.title or p.token }} definitief verwijderen? Dit verwijdert ook de bestanden uit opslag.');">
                   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                  <button class="oh-btn xs danger" type="submit">Verwijder</button>
+                  <button class="oh-btn xs danger" type="submit">Wis</button>
                 </form>
               </div>
             </td>
@@ -18594,10 +18668,82 @@ html,body{
 function copyLink(link, btn){
   navigator.clipboard.writeText(link).then(()=>{
     const orig = btn.textContent;
-    btn.textContent = '✓ Gekopieerd';
+    btn.textContent = '✓';
     setTimeout(()=>{ btn.textContent = orig; }, 1600);
   }).catch(()=>{ window.prompt('Kopieer de link:', link); });
 }
+
+// Client-side sortering op data-attributen. Klik op dezelfde kolom draait richting om.
+(function(){
+  const sortbar = document.getElementById('ohSortbar');
+  const tbody = document.getElementById('ohTableBody');
+  if(!sortbar || !tbody) return;
+
+  // Comparator per veldtype. Numerieke velden als Number, datums als ISO (string-vergelijk
+  // werkt voor ISO-datums), strings als localeCompare.
+  const NUMERIC = new Set(['size','downloads']);
+  const DATELIKE = new Set(['created','expires']);
+
+  function compareRows(a, b, field){
+    const av = a.dataset[field] || '';
+    const bv = b.dataset[field] || '';
+    if(NUMERIC.has(field)){
+      return (parseFloat(av) || 0) - (parseFloat(bv) || 0);
+    }
+    if(DATELIKE.has(field)){
+      // ISO-strings sorteren alfabetisch correct op tijd.
+      if(av < bv) return -1;
+      if(av > bv) return 1;
+      return 0;
+    }
+    return av.localeCompare(bv, 'nl', { sensitivity:'base' });
+  }
+
+  function updateArrows(activeBtn){
+    sortbar.querySelectorAll('.oh-sort-btn').forEach(btn => {
+      const arr = btn.querySelector('.arr');
+      if(btn === activeBtn){
+        btn.classList.add('active');
+        if(arr) arr.textContent = btn.dataset.dir === 'asc' ? '▲' : '▼';
+      } else {
+        btn.classList.remove('active');
+        if(arr) arr.textContent = '';
+      }
+    });
+  }
+
+  function applySort(field, dir){
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      const cmp = compareRows(a, b, field);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    // Her-append in gesorteerde volgorde. Bestaande DOM-nodes blijven behouden,
+    // dus geen flash/herrender van content, alleen reorder.
+    const frag = document.createDocumentFragment();
+    for(const r of rows) frag.appendChild(r);
+    tbody.appendChild(frag);
+  }
+
+  sortbar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.oh-sort-btn');
+    if(!btn) return;
+    const field = btn.dataset.sort;
+    // Toggle richting als je dezelfde knop nogmaals klikt.
+    if(btn.classList.contains('active')){
+      btn.dataset.dir = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
+    }
+    applySort(field, btn.dataset.dir);
+    updateArrows(btn);
+  });
+
+  // Initiele sort: aangemaakt DESC (huidige server-volgorde, zodat we start-state markeren).
+  const initial = sortbar.querySelector('.oh-sort-btn.active');
+  if(initial){
+    applySort(initial.dataset.sort, initial.dataset.dir);
+    updateArrows(initial);
+  }
+})();
 </script>
 </body></html>
 """
