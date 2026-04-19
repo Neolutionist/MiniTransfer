@@ -5107,40 +5107,55 @@ function updateMusic(){
   }
 
 function makeNameTagSprite(text, glow="#00f7ff"){
+  // Kleinere canvas dan voorheen (320x96 -> 256x72). Scheelt GPU-texture memory
+  // per enemy en is nog steeds scherp genoeg op gebruikelijke afstanden.
   const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 96;
+  canvas.width = 256;
+  canvas.height = 72;
   const ctx = canvas.getContext("2d");
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = "rgba(6,10,22,.82)";
-  ctx.strokeStyle = "rgba(255,255,255,.16)";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.roundRect(10, 14, 300, 54, 18);
-  ctx.fill();
-  ctx.stroke();
+  // Achtergrond-pill
+  ctx.fillStyle = "rgba(8,12,24,.80)";
+  ctx.strokeStyle = glow;
+  ctx.lineWidth = 2;
+  if(ctx.roundRect){
+    ctx.beginPath();
+    ctx.roundRect(4, 8, canvas.width - 8, canvas.height - 16, 14);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillRect(4, 8, canvas.width - 8, canvas.height - 16);
+    ctx.strokeRect(4, 8, canvas.width - 8, canvas.height - 16);
+  }
 
+  // Naam
   ctx.shadowColor = glow;
-  ctx.shadowBlur = 18;
+  ctx.shadowBlur = 10;
   ctx.fillStyle = "#f7fbff";
-  ctx.font = "900 28px system-ui";
+  ctx.font = "700 26px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 160, 42);
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
+  // Lineaire filtering + geen mipmaps = scherper en goedkoper.
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
   texture.needsUpdate = true;
 
   const material = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    depthWrite: false
+    depthWrite: false,
+    depthTest: true
   });
 
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(2.6, 0.78, 1);
+  // Verhouding 256:72 ~ 3.55. Behoud die ratio voor scherpte.
+  sprite.scale.set(2.1, 0.60, 1);
   return sprite;
 }
 
@@ -5148,343 +5163,255 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   const variant = profile?.variant || "standard";
   const enemyName = profile?.name || "OH Unit";
 
+  // --- Kleurpalet per type. Elke type heeft herkenbaar silhouet + kleur. ---
   const palette = isBoss
-    ? { suit:0x12335e, bodysuit:0x0a172b, cape:0x8d1230, trim:0xe6f8ff, glow:0xff5ea8 }
+    ? { suit:0x1a2f5c, plate:0x0f1d3c, accent:0xff6ea1, glow:0xff6ea1, visor:0xff4a7f, boot:0x0a1428 }
     : type === "elite"
-      ? { suit:0x3e4fa3, bodysuit:0x141d42, cape:0x7d1230, trim:0xffdb92, glow:0xffb14d }
+      ? { suit:0x3c3a7c, plate:0x1e1d4a, accent:0xffc76e, glow:0xffb14d, visor:0xffa14d, boot:0x14133a }
       : type === "runner"
-        ? { suit:0x1e7cb7, bodysuit:0x10334f, cape:0x8b1937, trim:0xdff9ff, glow:0x7be7ff }
+        ? { suit:0x1c5e8c, plate:0x0e2e48, accent:0x7be7ff, glow:0x7be7ff, visor:0x7be7ff, boot:0x0a1e2e }
         : type === "tank"
-          ? { suit:0x46515e, bodysuit:0x242b34, cape:0x5f1626, trim:0xffd37a, glow:0xff8d57 }
-          : { suit:0x315c96, bodysuit:0x1d304f, cape:0x7a1631, trim:0xe8f7ff, glow:0x9fd8ef };
+          ? { suit:0x3a4250, plate:0x1a1e26, accent:0xffd37a, glow:0xff8d57, visor:0xffa557, boot:0x10141a }
+          : { suit:0x2a4470, plate:0x152238, accent:0x9fd8ef, glow:0x7dd8ff, visor:0x7dd8ff, boot:0x0e1826 };
 
-  const variantTint = {
-    standard: 1,
-    commander: 1.08,
-    brute: 0.92,
-    hunter: 1.04,
-    phantom: 1.12,
-    sentinel: 0.96,
-    striker: 1.1,
-    warden: 0.9,
-    vanguard: 1.05
-  }[variant] || 1;
-
+  // Scale & proportions per type — duidelijk onderscheid in silhouet.
   const scale =
-    isBoss ? 2.02 :
+    isBoss ? 2.05 :
     type === "tank" ? 1.22 :
     type === "elite" ? 1.12 :
-    type === "runner" ? 0.98 : 1.04;
+    type === "runner" ? 0.95 : 1.04;
 
-  const heightMul =
-    isBoss ? 1.18 :
-    variant === "brute" ? 0.94 :
-    variant === "phantom" ? 1.06 :
-    variant === "warden" ? 1.03 :
-    1;
+  const shoulderW =
+    isBoss ? 1.32 :
+    type === "tank" ? 1.28 :
+    type === "elite" ? 1.02 :
+    type === "runner" ? 0.84 : 1.0;
 
-  const shoulderMul =
-    isBoss ? 1.18 :
-    type === "tank" ? 1.2 :
-    variant === "brute" ? 1.12 :
-    variant === "hunter" ? 0.96 :
-    1;
+  const bodyWidth = shoulderW * 0.74;
 
-  const legMul =
-    type === "runner" ? 1.06 :
-    variant === "phantom" ? 1.04 :
-    variant === "brute" ? 0.95 :
-    1;
-
-  const headMul =
-    variant === "commander" ? 1.05 :
-    variant === "phantom" ? 0.96 :
-    1;
-
-  function matColor(hex, mul=1){
-    const c = new THREE.Color(hex);
-    c.multiplyScalar(mul);
-    return c;
-  }
-
-  const group = new THREE.Group();
-
+  // --- Materialen (4 materials per enemy — was 6). ---
   const suitMat = new THREE.MeshStandardMaterial({
-    color: matColor(palette.suit, variantTint),
-    emissive: matColor(palette.bodysuit, isBoss ? 0.55 : 0.18),
-    emissiveIntensity: isBoss ? 0.40 : 0.18,
-    roughness: 0.56,
-    metalness: 0.18
+    color: palette.suit,
+    emissive: palette.plate,
+    emissiveIntensity: isBoss ? 0.35 : 0.14,
+    roughness: 0.58,
+    metalness: 0.22
   });
-
-  const bodysuitMat = new THREE.MeshStandardMaterial({
-    color: matColor(palette.bodysuit, variantTint),
-    roughness: 0.82,
-    metalness: 0.08
-  });
-
-  const trimMat = new THREE.MeshStandardMaterial({
-    color: matColor(palette.trim, 1.0),
-    emissive: matColor(palette.trim, 0.35),
-    emissiveIntensity: 0.18,
-    roughness: 0.30,
+  const plateMat = new THREE.MeshStandardMaterial({
+    color: palette.plate,
+    roughness: 0.72,
     metalness: 0.32
   });
-
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: matColor(palette.glow, 1.0),
-    emissive: matColor(palette.glow, 0.9),
-    emissiveIntensity: isBoss ? 0.72 : 0.46,
-    roughness: 0.22,
-    metalness: 0.38
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: palette.accent,
+    emissive: palette.glow,
+    emissiveIntensity: isBoss ? 0.85 : 0.55,
+    roughness: 0.30,
+    metalness: 0.42
+  });
+  const bootMat = new THREE.MeshStandardMaterial({
+    color: palette.boot,
+    roughness: 0.88,
+    metalness: 0.12
   });
 
-  const capeMat = new THREE.MeshStandardMaterial({
-    color: matColor(palette.cape, 1.0),
-    emissive: 0x230811,
-    emissiveIntensity: 0.16,
-    roughness: 0.76,
-    metalness: 0.04,
-    side: THREE.DoubleSide
-  });
+  // --- Root group (alleen positie — geen lookAt hier). ---
+  const root = new THREE.Group();
 
-  const skinMat = new THREE.MeshStandardMaterial({
-    color: 0xd9ab88,
-    roughness: 0.9,
-    metalness: 0.02
-  });
+  // --- Body group: deze wordt geroteerd naar speler (via userData.body).
+  // Zo blijft de Sprite (nametag) die we straks aan de root hangen altijd
+  // mooi billboarded (Sprite kijkt altijd naar camera, onafhankelijk van
+  // parent-rotatie — maar groepsrotatie kan z'n positie schuin laten staan).
+  const body = new THREE.Group();
+  root.add(body);
 
+  // --- Benen (strak, geen losse knee-glowblokjes meer die kunnen klippen) ---
+  const thighL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.90, 0.30), plateMat);
+  const thighR = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.90, 0.30), plateMat);
+  thighL.position.set(-0.24, 0.52, 0);
+  thighR.position.set( 0.24, 0.52, 0);
+
+  const shinL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.28), suitMat);
+  const shinR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.28), suitMat);
+  shinL.position.set(-0.24, -0.32, 0.02);
+  shinR.position.set( 0.24, -0.32, 0.02);
+
+  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.46), bootMat);
+  const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.46), bootMat);
+  bootL.position.set(-0.24, -0.78, 0.08);
+  bootR.position.set( 0.24, -0.78, 0.08);
+
+  // --- Torso: één duidelijk blok, geen losse chestPlate die kan z-fighten ---
   const pelvis = new THREE.Mesh(
-    new THREE.BoxGeometry((type==="tank"?1.04:0.80)*shoulderMul, 0.40*heightMul, 0.36),
-    bodysuitMat
+    new THREE.BoxGeometry(bodyWidth * 1.02, 0.36, 0.38),
+    plateMat
   );
   pelvis.position.y = 0.98;
 
   const torso = new THREE.Mesh(
-    new THREE.BoxGeometry((type==="tank"?1.18:0.90)*shoulderMul, 1.16*heightMul, 0.48),
+    new THREE.BoxGeometry(bodyWidth, 1.12, 0.50),
     suitMat
   );
-  torso.position.y = 1.80;
+  torso.position.y = 1.78;
 
+  // --- Chest plate: slank, subtiel ingezonken, geen z-fighting ---
   const chestPlate = new THREE.Mesh(
-    new THREE.BoxGeometry((type==="tank"?1.00:0.74)*shoulderMul, 0.82*heightMul, 0.18),
-    trimMat
+    new THREE.BoxGeometry(bodyWidth * 0.70, 0.72, 0.04),
+    plateMat
   );
-  chestPlate.position.set(0, 1.88, 0.24);
+  chestPlate.position.set(0, 1.88, 0.27);
 
-  const chestLogo = makeLogoGlyph(type === "tank" ? 0.84 : 0.70);
-  chestLogo.position.set(0, 1.88, 0.35);
-
-  const backLogo = makeLogoGlyph(type === "tank" ? 0.72 : 0.60);
-  backLogo.position.set(0, 1.80, -0.30);
-  backLogo.rotation.y = Math.PI;
-
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.18,12), skinMat);
-  neck.position.y = 2.40 * heightMul;
-
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.56*headMul, 0.66*headMul, 0.56*headMul),
-    skinMat
+  // --- Logo als één kleine emissive strip op borst (geen backlogo meer) ---
+  const logoStrip = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth * 0.40, 0.14, 0.02),
+    accentMat
   );
-  head.position.y = 2.84 * heightMul;
+  logoStrip.position.set(0, 1.92, 0.30);
 
-  const hair = new THREE.Mesh(
-    new THREE.BoxGeometry(0.58*headMul, 0.18, 0.58*headMul),
-    bodysuitMat
+  // --- Schouders + armen ---
+  const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.34), plateMat);
+  const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.34), plateMat);
+  shoulderL.position.set(-shoulderW * 0.52, 2.18, 0);
+  shoulderR.position.set( shoulderW * 0.52, 2.18, 0);
+
+  const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.24), suitMat);
+  const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.24), suitMat);
+  upperArmL.position.set(-shoulderW * 0.54, 1.70, 0);
+  upperArmR.position.set( shoulderW * 0.54, 1.70, 0);
+
+  const foreArmL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.22), plateMat);
+  const foreArmR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.22), plateMat);
+  foreArmL.position.set(-shoulderW * 0.54, 0.96, 0.04);
+  foreArmR.position.set( shoulderW * 0.54, 0.96, 0.04);
+
+  // --- Hoofd + helm — vorm varieert per type voor herkenning ---
+  const headY = 2.72;
+  const neck = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.18, 0.22),
+    plateMat
   );
-  hair.position.set(0, 3.10 * heightMul, 0.01);
+  neck.position.y = headY - 0.28;
 
-  const visorGeo = variant === "phantom"
-    ? new THREE.BoxGeometry(0.56, 0.16, 0.10)
-    : new THREE.BoxGeometry(0.52, 0.18, 0.09);
-
-  const mask = new THREE.Mesh(visorGeo, glowMat);
-  mask.position.set(0, 2.86 * heightMul, 0.29);
-
-  const jawGuard = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 0.09), trimMat);
-  jawGuard.position.set(0, 2.64 * heightMul, 0.28);
-
-  const shoulderL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.36*shoulderMul, 0.24, 0.32),
-    suitMat
-  );
-  const shoulderR = shoulderL.clone();
-  shoulderL.position.set(-0.62*shoulderMul, 2.08*heightMul, 0.02);
-  shoulderR.position.set( 0.62*shoulderMul, 2.08*heightMul, 0.02);
-
-  const upperArmL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.24, 0.78*heightMul, 0.24),
-    suitMat
-  );
-  const upperArmR = upperArmL.clone();
-  upperArmL.position.set(-0.64*shoulderMul, 1.62*heightMul, 0.02);
-  upperArmR.position.set( 0.64*shoulderMul, 1.62*heightMul, 0.02);
-
-  const foreArmL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.78*heightMul, 0.22),
-    bodysuitMat
-  );
-  const foreArmR = foreArmL.clone();
-  foreArmL.position.set(-0.64*shoulderMul, 0.88*heightMul, 0.05);
-  foreArmR.position.set( 0.64*shoulderMul, 0.88*heightMul, 0.05);
-
-  const gauntletL = new THREE.Mesh(new THREE.BoxGeometry(0.26,0.22,0.26), glowMat);
-  const gauntletR = gauntletL.clone();
-  gauntletL.position.set(-0.64*shoulderMul, 0.52*heightMul, 0.06);
-  gauntletR.position.set( 0.64*shoulderMul, 0.52*heightMul, 0.06);
-
-  const handL = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16), skinMat);
-  const handR = handL.clone();
-  handL.position.set(-0.64*shoulderMul, 0.38*heightMul, 0.06);
-  handR.position.set( 0.64*shoulderMul, 0.38*heightMul, 0.06);
-
-  const thighL = new THREE.Mesh(
-    new THREE.BoxGeometry(type === "tank" ? 0.30 : 0.27, 0.86*legMul, 0.28),
-    bodysuitMat
-  );
-  const thighR = thighL.clone();
-  thighL.position.set(-0.24, 0.46, 0.03);
-  thighR.position.set( 0.24, 0.46, 0.03);
-
-  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.15,0.30), glowMat);
-  const kneeR = kneeL.clone();
-  kneeL.position.set(-0.24, 0.06, 0.08);
-  kneeR.position.set( 0.24, 0.06, 0.08);
-
-  const shinL = new THREE.Mesh(
-    new THREE.BoxGeometry(0.23, 0.78*legMul, 0.26),
-    suitMat
-  );
-  const shinR = shinL.clone();
-  shinL.position.set(-0.24, -0.28, 0.03);
-  shinR.position.set( 0.24, -0.28, 0.03);
-
-  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.20,0.50), bodysuitMat);
-  const bootR = bootL.clone();
-  bootL.position.set(-0.24,-0.76,0.10);
-  bootR.position.set( 0.24,-0.76,0.10);
-
-  const capeWidth =
-    isBoss ? 1.24 :
-    type === "tank" ? 1.18 :
-    variant === "phantom" ? 0.82 :
-    0.96;
-
-  const capeHeight =
-    isBoss ? 1.82 :
-    type === "tank" ? 1.56 :
-    variant === "hunter" ? 1.02 :
-    1.30;
-
-  const cape = new THREE.Mesh(
-    new THREE.PlaneGeometry(capeWidth, capeHeight, 1, 7),
-    capeMat
-  );
-  cape.position.set(0, 1.72, -0.30);
-  cape.rotation.x = 0.08;
-
-  const shoulderHolster = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.36,0.09), trimMat);
-  shoulderHolster.position.set(-0.30, 1.74, 0.28);
-
-  const radio = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.22,0.10), bodysuitMat);
-  radio.position.set(0.30,1.60,0.28);
-
-  const gun = new THREE.Group();
-
-  if(type === "runner"){
-    const smgBody = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.12,0.56), bodysuitMat);
-    const smgBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,0.54,12), trimMat);
-    smgBarrel.rotation.x = Math.PI/2;
-    smgBarrel.position.set(0,0,-0.38);
-    const smgStock = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.16), suitMat);
-    smgStock.position.set(0,-0.02,0.24);
-    const smgCore = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.10), glowMat);
-    smgCore.position.set(0.03,0.03,-0.05);
-    gun.add(smgBody, smgBarrel, smgStock, smgCore);
-    gun.position.set(0.20,1.30,0.30);
-    gun.rotation.x = -0.18;
-    gun.rotation.y = Math.PI/2;
-  }else if(type === "tank"){
-    const cannonBody = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.20,0.92), bodysuitMat);
-    const cannonBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.96,14), trimMat);
-    cannonBarrel.rotation.x = Math.PI/2;
-    cannonBarrel.position.set(0,0,-0.62);
-    const cannonStock = new THREE.Mesh(new THREE.BoxGeometry(0.20,0.20,0.24), suitMat);
-    cannonStock.position.set(0,-0.02,0.38);
-    const cannonCore = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.18), glowMat);
-    cannonCore.position.set(0.05,0.05,-0.10);
-    gun.add(cannonBody, cannonBarrel, cannonStock, cannonCore);
-    gun.position.set(0.24,1.38,0.36);
-    gun.rotation.x = -0.24;
-    gun.rotation.y = Math.PI/2;
-  }else if(type === "elite" || isBoss){
-    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.15,0.84), bodysuitMat);
-    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.90,14), trimMat);
-    rifleBarrel.rotation.x = Math.PI/2;
-    rifleBarrel.position.set(0,0,-0.58);
-    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.15,0.24), suitMat);
-    rifleStock.position.set(0,-0.02,0.36);
-    const rifleCore = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.14), glowMat);
-    rifleCore.position.set(0.04,0.04,-0.08);
-    const scope = new THREE.Mesh(new THREE.BoxGeometry(0.10,0.08,0.18), glowMat);
-    scope.position.set(0,0.12,-0.02);
-    gun.add(rifleBody, rifleBarrel, rifleStock, rifleCore, scope);
-    gun.position.set(0.22,1.36,0.34);
-    gun.rotation.x = -0.22;
-    gun.rotation.y = Math.PI/2;
-  }else{
-    const rifleBody = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.14,0.78), bodysuitMat);
-    const rifleBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.86,12), trimMat);
-    rifleBarrel.rotation.x = Math.PI/2;
-    rifleBarrel.position.set(0,0,-0.55);
-    const rifleStock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.24), suitMat);
-    rifleStock.position.set(0,-0.02,0.34);
-    const rifleCore = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.12), glowMat);
-    rifleCore.position.set(0.04,0.03,-0.08);
-    gun.add(rifleBody, rifleBarrel, rifleStock, rifleCore);
-    gun.position.set(0.20,1.34,0.34);
-    gun.rotation.x = -0.22;
-    gun.rotation.y = Math.PI/2;
-  }
-
-  const antenna = new THREE.Mesh(new THREE.BoxGeometry(0.02,0.24,0.02), trimMat);
-  antenna.position.set(0.18, 3.06 * heightMul, -0.08);
-  const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), glowMat);
-  antennaTip.position.set(0.18, 3.20 * heightMul, -0.08);
-
-  const shoulderBadgeL = makeLogoGlyph(0.24);
-  const shoulderBadgeR = makeLogoGlyph(0.24);
-  shoulderBadgeL.position.set(-0.64*shoulderMul, 2.08*heightMul, 0.18);
-  shoulderBadgeL.rotation.y = -0.35;
-  shoulderBadgeR.position.set(0.64*shoulderMul, 2.08*heightMul, 0.18);
-  shoulderBadgeR.rotation.y = 0.35;
-
-  const spineLight = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.74,0.08), glowMat);
-  spineLight.position.set(0,1.64,-0.18);
-
-  [
-  pelvis, torso, chestPlate, chestLogo, backLogo, neck, head, hair, mask, jawGuard,
-  shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR, gauntletL, gauntletR,
-  handL, handR, thighL, thighR, kneeL, kneeR, shinL, shinR, bootL, bootR, cape,
-  shoulderHolster, radio, gun, antenna, antennaTip, shoulderBadgeL, shoulderBadgeR, spineLight
-].forEach(m => {
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
-  });
-
+  // Helm-vorm per type
+  let helmet;
   if(isBoss){
-    const crest = new THREE.Mesh(new THREE.TorusGeometry(1.12,.09,14,42), glowMat);
-    crest.rotation.x = Math.PI/2;
-    crest.position.y = 3.62;
-    group.add(crest);
+    // Boss: brede helm met crest
+    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.60, 0.58), suitMat);
+  } else if(type === "tank"){
+    // Tank: forse, hoekige helm
+    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.54, 0.60), suitMat);
+  } else if(type === "elite"){
+    // Elite: gestroomlijnde helm
+    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.58, 0.56), suitMat);
+  } else if(type === "runner"){
+    // Runner: kleine, compacte helm
+    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.50, 0.50), suitMat);
+  } else {
+    // Basic: standaard
+    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.54, 0.54), suitMat);
+  }
+  helmet.position.y = headY;
+
+  // Visor — één duidelijke balk aan de voorkant van de helm
+  const visorMat = new THREE.MeshStandardMaterial({
+    color: palette.visor,
+    emissive: palette.glow,
+    emissiveIntensity: 0.95,
+    roughness: 0.2,
+    metalness: 0.6
+  });
+  const visor = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      isBoss ? 0.52 : type === "tank" ? 0.54 : type === "runner" ? 0.36 : 0.42,
+      isBoss ? 0.14 : 0.12,
+      0.04
+    ),
+    visorMat
+  );
+  visor.position.set(0, headY + 0.04, helmet.geometry.parameters.depth * 0.5 + 0.01);
+
+  // --- Gun: simpel, vast geplaatst, geen per-frame wiebel ---
+  const gun = new THREE.Group();
+  let gunLen, gunRadius, gunColor;
+  if(type === "runner"){
+    gunLen = 0.52; gunRadius = 0.07; // SMG
+  } else if(type === "tank"){
+    gunLen = 0.92; gunRadius = 0.11; // Heavy cannon
+  } else if(type === "elite" || isBoss){
+    gunLen = 0.82; gunRadius = 0.08; // Rifle met scope
+  } else {
+    gunLen = 0.74; gunRadius = 0.075; // Basic rifle
   }
 
-  const tag = makeNameTagSprite(enemyName, isBoss ? "#ff5ea8" : type === "elite" ? "#ffb14d" : "#00f7ff");
-  tag.position.set(0, isBoss ? 4.8 : 4.0, 0);
-  group.add(tag);
+  const gunBody = new THREE.Mesh(
+    new THREE.BoxGeometry(gunRadius * 2, gunRadius * 1.6, gunLen),
+    plateMat
+  );
+  const gunBarrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(gunRadius * 0.4, gunRadius * 0.4, gunLen * 1.05, 8),
+    accentMat
+  );
+  gunBarrel.rotation.x = Math.PI / 2;
+  gunBarrel.position.z = -gunLen * 0.45;
+  gun.add(gunBody, gunBarrel);
 
-  group.userData.parts = {
+  if(type === "elite" || isBoss){
+    // Scope
+    const scope = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.08, 0.14),
+      accentMat
+    );
+    scope.position.set(0, gunRadius * 1.1, 0);
+    gun.add(scope);
+  }
+
+  // Gun onder rechterhand, schuin vooruit
+  gun.position.set(shoulderW * 0.54, 0.62, 0.28);
+  gun.rotation.y = Math.PI / 2;
+  gun.rotation.x = -0.18;
+
+  // --- "Back pack" in plaats van cape — geen klip-issues met plane ---
+  const backpack = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth * 0.85, 0.88, 0.18),
+    plateMat
+  );
+  backpack.position.set(0, 1.80, -0.32);
+
+  // Boss-crest bovenop helm
+  if(isBoss){
+    const crest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.28, 0.62),
+      accentMat
+    );
+    crest.position.set(0, headY + 0.42, 0);
+    body.add(crest);
+  }
+
+  // --- Alles toevoegen aan body ---
+  const allParts = [
+    thighL, thighR, shinL, shinR, bootL, bootR,
+    pelvis, torso, chestPlate, logoStrip,
+    shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR,
+    neck, helmet, visor, backpack, gun
+  ];
+  for(const m of allParts){
+    m.castShadow = true;
+    m.receiveShadow = false; // shadows ontvangen uitgezet — scheelt shadow-map kosten per enemy
+    body.add(m);
+  }
+
+  // --- Nametag: aan root gehangen (niet body), en Sprite blijft
+  // automatisch billboarded naar camera omdat THREE.Sprite dat intrinsiek doet.
+  // Geen rotatie van body beïnvloedt de sprite's oriëntatie meer. ---
+  const tag = makeNameTagSprite(
+    enemyName,
+    isBoss ? "#ff6ea1" : type === "elite" ? "#ffb14d" : type === "runner" ? "#7be7ff" : type === "tank" ? "#ffa557" : "#9fd8ef"
+  );
+  tag.position.set(0, isBoss ? 4.6 : 3.85, 0);
+  root.add(tag);
+
+  // userData.parts blijft compatibel met bestaande animatie/hit-code.
+  root.userData.parts = {
     armL: upperArmL,
     armR: upperArmR,
     foreArmL,
@@ -5494,26 +5421,28 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     shinL,
     shinR,
     gun,
-    logo: chestLogo,
-    backLogo,
-    hatBadge: mask,
-    head,
+    logo: logoStrip,
+    backLogo: null,      // niet meer aanwezig, maar veilig null
+    hatBadge: visor,
+    head: helmet,
     torso,
     pelvis,
     bootL,
     bootR,
     chest: chestPlate,
-    cape,
-    gauntletL,
-    gauntletR,
+    cape: null,          // cape vervangen door backpack, maar nameTag / cape refs elders
+    gauntletL: null,
+    gauntletR: null,
     nameTag: tag
   };
 
-  group.userData.enemyName = enemyName;
-  group.userData.variant = variant;
-  group.userData.ohStamped = true;
-  group.scale.setScalar(scale);
-  return group;
+  // Body referentie zodat updateEnemies lookAt daarop kan doen i.p.v. op root.
+  root.userData.body = body;
+  root.userData.enemyName = enemyName;
+  root.userData.variant = variant;
+  root.userData.ohStamped = true;
+  root.scale.setScalar(scale);
+  return root;
 }
 
 function waveRamp(wave = player.wave || 1){
@@ -7181,20 +7110,20 @@ if(b.gravity){
     e.bob += dt * (e.type === "runner" ? 7.2 : e.type === "tank" ? 3.2 : e.type === "elite" ? 5.2 : 4.4);
 
     if(e.mesh.userData.parts){
+      const parts = e.mesh.userData.parts;
       const swing = Math.sin(e.bob) * (
-        e.type === "runner" ? 0.75 :
+        e.type === "runner" ? 0.72 :
         e.type === "tank" ? 0.18 :
         e.type === "elite" ? 0.46 : 0.34
       );
-      e.mesh.userData.parts.armL.rotation.x = swing * 0.52;
-      e.mesh.userData.parts.armR.rotation.x = -swing * 0.48;
-      e.mesh.userData.parts.legL.rotation.x = -swing;
-      e.mesh.userData.parts.legR.rotation.x = swing;
-      if(e.mesh.userData.parts.foreArmL) e.mesh.userData.parts.foreArmL.rotation.x = swing * 0.35;
-      if(e.mesh.userData.parts.foreArmR) e.mesh.userData.parts.foreArmR.rotation.x = -swing * 0.35;
-      if(e.mesh.userData.parts.gun) e.mesh.userData.parts.gun.rotation.z = Math.sin(e.bob * 0.45) * 0.07;
-      if(e.mesh.userData.parts.cape) e.mesh.userData.parts.cape.rotation.x = 0.08 + Math.abs(Math.sin(e.bob * 0.7)) * 0.1;
-      if(e.mesh.userData.parts.hatBadge) e.mesh.userData.parts.hatBadge.rotation.z = Math.sin(e.bob * 0.4) * 0.03;
+      if(parts.armL) parts.armL.rotation.x = swing * 0.52;
+      if(parts.armR) parts.armR.rotation.x = -swing * 0.48;
+      if(parts.legL) parts.legL.rotation.x = -swing;
+      if(parts.legR) parts.legR.rotation.x = swing;
+      if(parts.foreArmL) parts.foreArmL.rotation.x = swing * 0.35;
+      if(parts.foreArmR) parts.foreArmR.rotation.x = -swing * 0.35;
+      // Gun niet meer laten wiebelen — dat veroorzaakte cross-clipping met arm/torso
+      // bij het draaien naar de speler. Gun staat nu stabiel.
     }
 
     const dx = player.pos.x - e.mesh.position.x;
@@ -7295,7 +7224,18 @@ if(b.gravity){
       e.groundRing.material.opacity = 0.12 + 0.16 * (e.hp / e.maxHp);
     }
 
-    e.mesh.lookAt(player.pos.x, 1.6, player.pos.z);
+    // Roteer alleen de body-subgroup naar de speler, niet de root.
+    // Hierdoor blijft de nametag-sprite (kind van root) altijd correct
+    // billboard-gericht naar de camera, en voorkomen we dat de hele group
+    // kantelt waardoor losse boxes door elkaar kunnen schuiven.
+    const body = e.mesh.userData.body || e.mesh;
+    if(body.lookAt){
+      // We gebruiken een tijdelijke wereldpositie want body is een child; lookAt
+      // verwacht wereldcoordinaten, en de body staat met position (0,0,0) in de
+      // root. Het resultaat is equivalent aan root.lookAt voor rotatie rond Y.
+      _tmpA.set(player.pos.x, 1.6, player.pos.z);
+      body.lookAt(_tmpA);
+    }
 
     // Melee pressure
     if(dist < (e.type === "tank" ? 2.2 : e.type === "elite" ? 1.9 : e.type === "runner" ? 1.45 : 1.6)){
@@ -12230,37 +12170,43 @@ Jad: {
     if(!ctx) return;
 
     const name = enemy.enemyName || "OH Unit";
-    const color = NAMED_TRAITS[name]?.color || 0x00f7ff;
+    const color = NAMED_TRAITS[name]?.color || 0x7dd8ff;
     const glow = "#" + color.toString(16).padStart(6, "0");
-    const role = NAMED_TRAITS[name]?.label || "OH";
+    const role = NAMED_TRAITS[name]?.label || "";
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const W = canvas.width;
+    const H = canvas.height;
 
-    ctx.fillStyle = "rgba(6,10,22,.86)";
-    ctx.strokeStyle = "rgba(255,255,255,.18)";
-    ctx.lineWidth = 3;
+    ctx.clearRect(0, 0, W, H);
+
+    // Achtergrond-pill
+    ctx.fillStyle = "rgba(8,12,24,.82)";
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 2;
     if(ctx.roundRect){
       ctx.beginPath();
-      ctx.roundRect(8, 10, canvas.width - 16, 62, 18);
+      ctx.roundRect(4, 4, W - 8, H - 8, 14);
       ctx.fill();
       ctx.stroke();
     } else {
-      ctx.fillRect(8, 10, canvas.width - 16, 62);
-      ctx.strokeRect(8, 10, canvas.width - 16, 62);
+      ctx.fillRect(4, 4, W - 8, H - 8);
+      ctx.strokeRect(4, 4, W - 8, H - 8);
     }
 
+    // Naam
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 10;
     ctx.fillStyle = "#f7fbff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "900 27px system-ui";
-    ctx.fillText(name, canvas.width * 0.5, 38);
+    ctx.font = "700 22px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
+    ctx.fillText(name, W * 0.5, H * 0.36);
 
+    // Rol-subtitle
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255,255,255,.70)";
-    ctx.font = "700 15px system-ui";
-    ctx.fillText(role, canvas.width * 0.5, 61);
+    ctx.fillStyle = "rgba(230,240,255,.78)";
+    ctx.font = "600 12px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
+    ctx.fillText(role, W * 0.5, H * 0.72);
 
     sprite.material.map.needsUpdate = true;
   }
@@ -15866,31 +15812,34 @@ shootWithDirection = function(dirOverride = null){
                  "Hunter";
     const glow = "#" + (glowHex || 0x8bf0ff).toString(16).padStart(6, "0");
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(6,10,22,.88)";
-    ctx.strokeStyle = "rgba(255,255,255,.18)";
-    ctx.lineWidth = 3;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(8,12,24,.86)";
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = 2;
     if(ctx.roundRect){
       ctx.beginPath();
-      ctx.roundRect(8, 10, canvas.width - 16, 62, 18);
+      ctx.roundRect(4, 4, W - 8, H - 8, 14);
       ctx.fill();
       ctx.stroke();
     }else{
-      ctx.fillRect(8, 10, canvas.width - 16, 62);
-      ctx.strokeRect(8, 10, canvas.width - 16, 62);
+      ctx.fillRect(4, 4, W - 8, H - 8);
+      ctx.strokeRect(4, 4, W - 8, H - 8);
     }
 
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 10;
     ctx.fillStyle = "#f7fbff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "900 27px system-ui";
-    ctx.fillText(enemy.enemyName || "Enemy", canvas.width * 0.5, 38);
+    ctx.font = "700 22px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
+    ctx.fillText(enemy.enemyName || "Enemy", W * 0.5, H * 0.36);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255,255,255,.72)";
-    ctx.font = "700 15px system-ui";
-    ctx.fillText(role, canvas.width * 0.5, 61);
+    ctx.fillStyle = "rgba(230,240,255,.78)";
+    ctx.font = "600 12px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
+    ctx.fillText(role, W * 0.5, H * 0.72);
     sprite.material.map.needsUpdate = true;
   }
 
