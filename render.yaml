@@ -16,28 +16,83 @@ services:
       --access-logfile -
       --error-logfile -
 
-    # Heel belangrijk voor Render: dit pad moet 200 OK geven
-    healthCheckPath: /health-s3
+    # Lichte healthcheck (raakt S3 niet). Gebruik /health-s3 als je ook S3
+    # wilt meenemen, maar elke 30s een S3-call kost tijd/geld.
+    healthCheckPath: /health
 
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+
+      # SECRET_KEY wordt automatisch door Render gegenereerd (stabiel).
       - key: SECRET_KEY
         generateValue: true
 
-      # Zet je S3-config hier neer (anders crasht de app tijdens import)
-      - key: S3_BUCKET
-        value: your-bucket
-      - key: S3_ENDPOINT_URL
-        value: https://your-s3-endpoint
-      - key: S3_REGION
-        value: eu-central-003
+      # Alle onderstaande variabelen moet je in het Render Dashboard zelf
+      # invullen. Met sync: false blijven ze in het dashboard bewaard en
+      # worden ze niet overschreven bij deploys vanuit deze file.
 
-      # Laat de app weten waar de persistente disk hangt (voor SQLite)
+      - key: AUTH_EMAIL
+        sync: false
+      - key: AUTH_PASSWORD_HASH
+        sync: false
+
+      - key: CANONICAL_HOST
+        sync: false
+      - key: OLD_HOST
+        sync: false
       - key: DATA_DIR
-        value: /opt/render/project/src/uploads/data
+        value: /var/data
+
+      # S3 / Backblaze
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+      # SMTP
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: MAIL_TO
+        sync: false
+
+      # PayPal
+      - key: PAYPAL_API_BASE
+        value: https://api-m.paypal.com
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_PLAN_0_5
+        sync: false
+      - key: PAYPAL_PLAN_1
+        sync: false
+      - key: PAYPAL_PLAN_2
+        sync: false
+      - key: PAYPAL_PLAN_5
+        sync: false
+
+      # Interne cron
+      - key: TASK_TOKEN
+        sync: false
 
     disks:
       - name: uploads
-        mountPath: /opt/render/project/src/uploads
+        mountPath: /var/data
         sizeGB: 1
