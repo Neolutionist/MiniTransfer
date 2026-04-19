@@ -10,7 +10,7 @@
 # - Domeinen: ondersteunt minitransfer.onrender.com én downloadlink.nl in get_base_host()
 # ======================================================================================
 
-import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request
+import os, re, uuid, smtplib, sqlite3, logging, base64, json, urllib.request, hmac, time
 from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,8 +36,19 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 DB_PATH  = DATA_DIR / "files_multi.db"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "info@oldehanter.nl")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "Hulsmaat")  
+AUTH_EMAIL = os.environ.get("AUTH_EMAIL", "").strip().lower()
+AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "").strip()
+# Backward compat: accepteer ook plaintext env var, maar waarschuw. Nieuwe installs horen AUTH_PASSWORD_HASH te gebruiken.
+_AUTH_PASSWORD_PLAIN = os.environ.get("AUTH_PASSWORD", "").strip()
+
+if not AUTH_EMAIL:
+    raise RuntimeError(
+        "❌ AUTH_EMAIL ontbreekt! Zet AUTH_EMAIL in Render → Environment."
+    )
+if not AUTH_PASSWORD_HASH and not _AUTH_PASSWORD_PLAIN:
+    raise RuntimeError(
+        "❌ Auth-configuratie mist! Zet AUTH_PASSWORD_HASH (aanbevolen) of AUTH_PASSWORD in Render → Environment."
+    )
 
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_REGION = os.getenv("S3_REGION", "eu-central-003")
@@ -54,17 +65,17 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
-MAIL_TO   = os.environ.get("MAIL_TO", "Patrick@oldehanter.nl")
+MAIL_TO   = os.environ.get("MAIL_TO", "").strip()
 
 # PayPal Subscriptions
 PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
 PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
 PAYPAL_API_BASE      = os.environ.get("PAYPAL_API_BASE", "https://api-m.paypal.com")  # sandbox: https://api-m.sandbox.paypal.com
 
-PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "P-9SU96133E7732223VNDIEDIY")  # 0,5 TB – €12/mnd
-PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "P-0E494063742081356NDIEDUI")  # 1 TB   – €15/mnd
-PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "P-8TG57271W98348431NDIEECA")  # 2 TB   – €20/mnd
-PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "P-78R23653MC041353LNDIEEOQ")  # 5 TB   – €30/mnd
+PAYPAL_PLAN_0_5  = os.environ.get("PAYPAL_PLAN_0_5", "").strip()  # 0,5 TB – €12/mnd
+PAYPAL_PLAN_1    = os.environ.get("PAYPAL_PLAN_1",   "").strip()  # 1 TB   – €15/mnd
+PAYPAL_PLAN_2    = os.environ.get("PAYPAL_PLAN_2",   "").strip()  # 2 TB   – €20/mnd
+PAYPAL_PLAN_5    = os.environ.get("PAYPAL_PLAN_5",   "").strip()  # 5 TB   – €30/mnd
 
 PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID")  # vanuit Developer Dashboard → My Apps & Credentials → jouw app → Webhooks
 
@@ -84,7 +95,13 @@ s3 = boto3.client(
 )
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "olde-hanter-simple-secret")
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    raise RuntimeError(
+        "❌ SECRET_KEY ontbreekt! Zet SECRET_KEY in Render → Environment. "
+        "Tip: render.yaml kan met generateValue: true een willekeurige waarde aanmaken."
+    )
+app.config["SECRET_KEY"] = _secret
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -107,16 +124,33 @@ def allow_health():
         return  # Geen redirect of blokkade; laat de route doorgaan
 
 # ---- Multi-tenant configuratie (HOST -> tenant) ----
+# Je kunt TENANT_HOST + TENANT_SLUG expliciet zetten, maar als ze ontbreken
+# wordt er afgeleid uit CANONICAL_HOST. Bijvoorbeeld 'oldehanter.downloadlink.nl'
+# => host=oldehanter.downloadlink.nl, slug=oldehanter.
+_tenant_host = os.environ.get("TENANT_HOST", "").strip().lower()
+_tenant_slug = os.environ.get("TENANT_SLUG", "").strip().lower()
+
+if not _tenant_host:
+    _tenant_host = os.environ.get("CANONICAL_HOST", "").strip().lower()
+if not _tenant_slug and _tenant_host:
+    _tenant_slug = _tenant_host.split(".", 1)[0]
+
+if not _tenant_host or not _tenant_slug:
+    raise RuntimeError(
+        "❌ Tenant-configuratie mist! Zet CANONICAL_HOST (of TENANT_HOST + TENANT_SLUG) in Render → Environment."
+    )
+
 TENANTS = {
-    "oldehanter.downloadlink.nl": {
-        "slug": "oldehanter",
-        "mail_to": os.environ.get("MAIL_TO", "Patrick@oldehanter.nl"),
+    _tenant_host: {
+        "slug": _tenant_slug,
+        "mail_to": MAIL_TO,
     }
 }
+_DEFAULT_TENANT_HOST = _tenant_host
 
 def current_tenant():
     host = (request.headers.get("Host") or "").lower()
-    return TENANTS.get(host) or TENANTS["oldehanter.downloadlink.nl"]
+    return TENANTS.get(host) or TENANTS[_DEFAULT_TENANT_HOST]
 # ----------------------------------------------------
 
 # --- Redirect config toevoegen ---
@@ -126,11 +160,13 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config.update(PREFERRED_URL_SCHEME="https", SESSION_COOKIE_SECURE=True)
 
 import os
-CANONICAL_HOST = os.environ.get("CANONICAL_HOST", "oldehanter.downloadlink.nl").lower()
-OLD_HOST = os.environ.get("OLD_HOST", "minitransfer.onrender.com").lower()
+CANONICAL_HOST = os.environ.get("CANONICAL_HOST", _tenant_host).lower()
+OLD_HOST = os.environ.get("OLD_HOST", "").strip().lower()
 
 @app.before_request
 def _redirect_old_host():
+    if not OLD_HOST:
+        return
     host = (request.headers.get("Host") or "").lower()
     if host == OLD_HOST:
         new_url = request.url.replace(f"//{OLD_HOST}", f"//{CANONICAL_HOST}", 1)
@@ -151,6 +187,20 @@ def db():
 
 def init_db():
     c = db()
+
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        tenant_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        disabled INTEGER NOT NULL DEFAULT 0
+      )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id)")
 
     c.execute("""
       CREATE TABLE IF NOT EXISTS packages (
@@ -212,24 +262,79 @@ def _col_exists(conn, table, col):
 def migrate_add_tenant_columns():
     conn = db()
     try:
+        default_slug = _tenant_slug
         # packages
         if not _col_exists(conn, "packages", "tenant_id"):
             conn.execute("ALTER TABLE packages ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE packages SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+            conn.execute("UPDATE packages SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
         # items
         if not _col_exists(conn, "items", "tenant_id"):
             conn.execute("ALTER TABLE items ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE items SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+            conn.execute("UPDATE items SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
         # subscriptions
         if not _col_exists(conn, "subscriptions", "tenant_id"):
             conn.execute("ALTER TABLE subscriptions ADD COLUMN tenant_id TEXT")
-            conn.execute("UPDATE subscriptions SET tenant_id = 'oldehanter' WHERE tenant_id IS NULL")
+            conn.execute("UPDATE subscriptions SET tenant_id = ? WHERE tenant_id IS NULL", (default_slug,))
 
         conn.commit()
     finally:
         conn.close()
 
 migrate_add_tenant_columns()
+
+def migrate_add_owner_columns():
+    """Voeg owner_user_id toe aan packages (per-user scoping)."""
+    conn = db()
+    try:
+        if not _col_exists(conn, "packages", "owner_user_id"):
+            conn.execute("ALTER TABLE packages ADD COLUMN owner_user_id INTEGER")
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_owner_columns()
+
+def seed_admin_from_env():
+    """
+    Bij eerste start (of wanneer de admin nog niet bestaat): maak admin-user aan
+    op basis van AUTH_EMAIL + AUTH_PASSWORD_HASH (of AUTH_PASSWORD als legacy).
+    Koppel bestaande packages zonder eigenaar aan deze admin.
+    """
+    if not AUTH_EMAIL:
+        return
+    # Bepaal wachtwoord-hash
+    pw_hash = AUTH_PASSWORD_HASH
+    if not pw_hash and _AUTH_PASSWORD_PLAIN:
+        pw_hash = generate_password_hash(_AUTH_PASSWORD_PLAIN)
+    if not pw_hash:
+        return
+
+    conn = db()
+    try:
+        existing = conn.execute("SELECT id, is_admin FROM users WHERE email = ?", (AUTH_EMAIL,)).fetchone()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if existing is None:
+            conn.execute(
+                "INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled) VALUES(?,?,?,?,?,0)",
+                (AUTH_EMAIL, pw_hash, 1, _tenant_slug, now_iso)
+            )
+            admin_id = conn.execute("SELECT id FROM users WHERE email = ?", (AUTH_EMAIL,)).fetchone()["id"]
+            log.info("Seeded admin user %s (id=%s)", AUTH_EMAIL, admin_id)
+        else:
+            admin_id = existing["id"]
+            # Zorg dat admin-flag staat
+            if not existing["is_admin"]:
+                conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (admin_id,))
+        # Koppel losgekoppelde packages aan admin
+        conn.execute(
+            "UPDATE packages SET owner_user_id = ? WHERE owner_user_id IS NULL AND tenant_id = ?",
+            (admin_id, _tenant_slug)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+seed_admin_from_env()
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -531,696 +636,788 @@ INDEX_HTML = """
 <html lang="nl">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-  <title>Upload • Olde Hanter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Uploaden • Olde Hanter</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
 
-    html, body { min-height:100%; }
-
-    body{
-      margin:0;
-      overflow-x:hidden;
-      position:relative;
-      color:#fff;
-      background:
-        radial-gradient(circle at 12% 18%, rgba(255,0,153,.30), transparent 24%),
-        radial-gradient(circle at 83% 24%, rgba(0,255,255,.24), transparent 28%),
-        radial-gradient(circle at 50% 82%, rgba(255,255,0,.18), transparent 24%),
-        linear-gradient(135deg, #0d0018 0%, #1c0033 18%, #001a3b 38%, #24002e 58%, #220014 76%, #090010 100%);
+    /* =============== Professioneel ontwerp =============== */
+    :root{
+      --oh-bg: #f4f6fa;
+      --oh-surface: #ffffff;
+      --oh-surface-2: #f8fafc;
+      --oh-border: #e2e8f0;
+      --oh-border-strong: #cbd5e1;
+      --oh-text: #0f172a;
+      --oh-muted: #64748b;
+      --oh-brand: #0f3a6b;         /* navy — serieus, bouw-gevoel */
+      --oh-brand-2: #1e5a9e;
+      --oh-accent: #d97706;        /* warm oranje — bouw-accent, signaal-kleur */
+      --oh-accent-2: #f59e0b;
+      --oh-success: #16a34a;
+      --oh-danger: #dc2626;
+      --oh-radius: 10px;
+      --oh-radius-sm: 6px;
+      --oh-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
+      --oh-shadow-hover: 0 4px 12px rgba(15,23,42,.08), 0 16px 40px rgba(15,23,42,.06);
     }
 
-    .psy-overlay,
-    .psy-overlay::before,
-    .psy-overlay::after{
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      background: var(--oh-bg);
+      color: var(--oh-text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      margin: 0;
+    }
+
+    /* subtiele achtergrond-textuur — bouw-gevoel zonder overdreven */
+    body::before{
       content:"";
-      position:fixed;
-      inset:-18%;
-      pointer-events:none;
-      z-index:0;
-    }
-
-    .psy-overlay{
-      background:
-        conic-gradient(from 0deg,
-          rgba(255,0,153,.18),
-          rgba(255,255,0,.14),
-          rgba(0,255,255,.16),
-          rgba(138,46,255,.18),
-          rgba(255,94,0,.16),
-          rgba(255,0,153,.18));
-      filter: blur(56px) saturate(1.6);
-      mix-blend-mode: screen;
-      animation: spinGlow 22s linear infinite;
-    }
-
-    .psy-overlay::before{
-      background:
-        repeating-radial-gradient(
-          circle at center,
-          rgba(255,255,255,.05) 0 12px,
-          rgba(255,255,255,0) 12px 28px
-        );
-      opacity:.30;
-      animation: pulseRings 9s ease-in-out infinite;
-    }
-
-    .psy-overlay::after{
-      background:
-        linear-gradient(90deg,
-          rgba(255,0,153,.10),
-          rgba(0,255,255,.10),
-          rgba(255,255,0,.10),
-          rgba(138,46,255,.10),
-          rgba(255,0,153,.10));
-      background-size:300% 300%;
-      mix-blend-mode:overlay;
-      animation: driftColors 12s ease-in-out infinite;
-    }
-
-    .shell{
-      position:relative;
-      z-index:2;
-      max-width:1180px;
-      margin:4vh auto;
-      padding:0 16px 28px;
-    }
-
-    .hdr{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      margin-bottom:16px;
-      gap:14px;
-      flex-wrap:wrap;
-    }
-
-    .brand{
-      margin:0;
-      font-weight:900;
-      font-size:clamp(2rem,4vw,3rem);
-      line-height:1.02;
-      text-transform:uppercase;
-      letter-spacing:.03em;
-      color:#fff;
-      text-shadow:
-        0 0 10px #ff00a8,
-        0 0 22px #ff00a8,
-        0 0 34px #00f7ff,
-        0 0 54px #8a2eff;
-    }
-
-    .hdr .right{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-
-    .who{
-      color:rgba(255,255,255,.88);
-      font-size:.95rem;
-      padding:.7rem 1rem;
-      border-radius:999px;
-      background:rgba(255,255,255,.08);
-      border:1px solid rgba(255,255,255,.14);
-      box-shadow:0 0 16px rgba(255,255,255,.05);
-      backdrop-filter: blur(10px);
-    }
-    .who a{ color:#ffe600; text-decoration:none; font-weight:700; }
-    .who a:hover{ text-decoration:underline; }
-
-    .deck{
-      display:grid;
-      grid-template-columns:1.4fr .9fr;
-      gap:16px;
-    }
-    @media (max-width:920px){ .deck{ grid-template-columns:1fr; } }
-
-    .card{
-      position:relative;
-      overflow:hidden;
-      border-radius:30px;
-      background:
-        linear-gradient(135deg,
-          rgba(255,0,153,.12),
-          rgba(0,255,255,.08),
-          rgba(255,255,0,.07),
-          rgba(138,46,255,.12));
-      border:2px solid rgba(255,255,255,.16);
-      box-shadow:
-        0 0 24px rgba(255,0,153,.18),
-        0 0 46px rgba(0,255,255,.14),
-        0 0 82px rgba(138,46,255,.12),
-        inset 0 0 30px rgba(255,255,255,.04);
-      backdrop-filter: blur(16px) saturate(1.5);
-    }
-
-    .card::before{
-      content:"";
-      position:absolute;
-      inset:-2px;
-      border-radius:inherit;
-      padding:2px;
-      background:linear-gradient(120deg,#ff00a8,#00f7ff,#ffe600,#8a2eff,#ff5e00,#ff00a8);
-      background-size:280% 280%;
-      animation:borderFlow 5.2s linear infinite;
-      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor;
-              mask-composite: exclude;
-      pointer-events:none;
-    }
-
-    .card-h{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      padding:16px 18px;
-      border-bottom:1px solid rgba(255,255,255,.10);
-      position:relative;
-      z-index:1;
-    }
-
-    .card-h h2{
-      margin:0;
-      font-size:1.06rem;
-      font-weight:900;
-      text-transform:uppercase;
-      letter-spacing:.12em;
-      color:#fff;
-      text-shadow:0 0 12px rgba(255,0,168,.4), 0 0 22px rgba(0,247,255,.2);
-    }
-
-    .card-b{
-      padding:16px 18px 18px;
-      position:relative;
-      z-index:1;
-    }
-
-    .subtle, .muted, .k{
-      color:rgba(255,255,255,.78) !important;
-    }
-
-    .grid{ display:grid; gap:12px; }
-    .cols2{ grid-template-columns:1fr 1fr; }
-    @media (max-width:720px){ .cols2{ grid-template-columns:1fr; } }
-
-    label{
-      display:block;
-      margin:0 0 6px;
-      font-weight:800;
-      color:#fff;
-      letter-spacing:.02em;
-      text-shadow:0 0 10px rgba(255,255,255,.08);
-    }
-
-    .input, select{
-      width:100%;
-      padding:.82rem 1rem;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(12,10,30,.62);
-      color:#fff;
-      box-sizing:border-box;
-      outline:none;
-      box-shadow:
-        inset 0 0 18px rgba(255,255,255,.03),
-        0 0 16px rgba(0,0,0,.08);
-      backdrop-filter: blur(8px);
-    }
-
-    .input::placeholder{ color:rgba(255,255,255,.52); }
-
-    .input:focus, select:focus{
-      border-color:#00f7ff;
-      box-shadow:
-        0 0 0 4px rgba(0,247,255,.16),
-        0 0 18px rgba(255,0,168,.16),
-        inset 0 0 18px rgba(255,255,255,.04);
-    }
-
-    select option{
-      color:#fff;
-      background:#180325;
-    }
-
-    .toggle{
-      display:flex;
-      gap:16px;
-      align-items:center;
-      flex-wrap:wrap;
-    }
-
-    .toggle label{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      cursor:pointer;
-      padding:.75rem 1rem;
-      border-radius:999px;
-      background:rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.14);
-      font-weight:800;
-    }
-
-    .toggle input[type="radio"]{
-      accent-color:#ff00a8;
-      transform:scale(1.1);
-    }
-
-    .picker{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-
-    .picker-ctl{
-      position:relative;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      border:1px solid rgba(255,255,255,.16);
-      border-radius:18px;
-      background:rgba(12,10,30,.56);
-      min-height:50px;
-      padding:0 10px;
-      box-shadow: inset 0 0 18px rgba(255,255,255,.03);
-      backdrop-filter: blur(10px);
-    }
-
-    .picker-ctl input[type=file]{
-      position:absolute;
-      inset:0;
-      opacity:0;
-      cursor:pointer;
-    }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:.45rem;
-      padding:.85rem 1.15rem;
-      border:0;
-      border-radius:999px;
-      background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
-      background-size:280% 280%;
-      color:#fff;
-      font-weight:900;
-      letter-spacing:.04em;
-      text-transform:uppercase;
-      cursor:pointer;
-      box-shadow:
-        0 0 18px rgba(255,0,168,.24),
-        0 0 32px rgba(0,247,255,.18);
-      animation:rainbowMove 5s linear infinite;
-      transition:transform .16s ease, filter .16s ease;
-    }
-
-    .btn:hover{
-      transform:translateY(-2px) scale(1.02);
-      filter:brightness(1.08);
-    }
-
-    .btn.ghost{
-      background:rgba(255,255,255,.08);
-      color:#fff;
-      border:1px solid rgba(255,255,255,.16);
-      box-shadow:none;
-      text-transform:none;
-      letter-spacing:0;
-      animation:none;
-    }
-
-    .btn.sm{
-      padding:.65rem .95rem;
-      font-size:.86rem;
-      border-radius:999px;
-    }
-
-    .ellipsis{
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-      color:rgba(255,255,255,.72);
-    }
-
-    .rowc{
-      display:grid;
-      grid-template-columns:24px 1fr 110px 96px;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border:1px solid rgba(255,255,255,.12);
-      border-radius:18px;
-      background:
-        linear-gradient(135deg,
-          rgba(255,255,255,.07),
-          rgba(255,255,255,.03));
-      box-shadow:
-        0 0 18px rgba(255,255,255,.03),
-        inset 0 0 20px rgba(255,255,255,.03);
-    }
-
-    .ico{
-      width:24px;
-      height:24px;
-      border-radius:8px;
-      background:linear-gradient(135deg,#ffe600,#ff00a8,#00f7ff);
-      box-shadow:0 0 12px rgba(255,255,255,.14), 0 0 22px rgba(255,0,168,.16);
-    }
-
-    .size,.eta{
-      text-align:right;
-      color:rgba(255,255,255,.76);
-      font-variant-numeric:tabular-nums;
-    }
-
-    .progress{
-      height:12px;
-      border-radius:999px;
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.08);
-      margin-top:.45rem;
-      box-shadow: inset 0 0 10px rgba(255,255,255,.03);
-    }
-
-    .progress > i{
-      display:block;
-      height:100%;
-      width:0%;
-      background:
-        linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
-      background-size:220% 220%;
-      animation:rainbowMove 3s linear infinite;
-      position:relative;
-    }
-
-    .progress > i::after{
-      content:"";
-      position:absolute;
-      inset:0;
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
       background-image:
-        linear-gradient(135deg,
-          rgba(255,255,255,.30) 25%,
-          transparent 25%,
-          transparent 50%,
-          rgba(255,255,255,.30) 50%,
-          rgba(255,255,255,.30) 75%,
-          transparent 75%,
-          transparent);
-      background-size:24px 24px;
-      animation:stripes 1s linear infinite;
-      mix-blend-mode:screen;
+        radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
+        radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);
+      z-index: 0;
     }
 
-    .kv{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:12px;
-    }
-    .kv .v{
-      font-weight:900;
-      color:#fff;
-      font-variant-numeric:tabular-nums;
-      text-shadow:0 0 12px rgba(255,0,168,.24), 0 0 20px rgba(0,247,255,.16);
+    .oh-shell {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 22px 60px;
     }
 
-    @media(max-width:420px){ .kv{ grid-template-columns:1fr; } }
-
-    .log{
-      max-height:220px;
-      overflow:auto;
-      border:1px solid rgba(255,255,255,.12);
-      border-radius:16px;
-      background:rgba(12,10,30,.48);
-      padding:10px 12px;
-      font-size:.92rem;
-      color:rgba(255,255,255,.86);
-      box-shadow: inset 0 0 18px rgba(255,255,255,.03);
+    /* ============ Top bar ============ */
+    .oh-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      padding: 14px 20px;
+      background: var(--oh-surface);
+      border: 1px solid var(--oh-border);
+      border-radius: var(--oh-radius);
+      box-shadow: var(--oh-shadow);
+      margin-bottom: 22px;
+      flex-wrap: wrap;
     }
-    .log p{ margin:4px 0; }
-
-    .totalline{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
+    .oh-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
-
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      padding:.32rem .75rem;
-      border-radius:999px;
-      font-weight:900;
-      font-size:.8rem;
-      letter-spacing:.03em;
-      border:1px solid rgba(255,255,255,.16);
-      background:rgba(255,255,255,.08);
-      color:#fff;
-      text-shadow:0 0 10px rgba(255,255,255,.1);
+    .oh-brand-mark {
+      width: 38px; height: 38px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--oh-brand), var(--oh-brand-2));
+      display: grid; place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: .5px;
+      box-shadow: inset 0 -2px 0 rgba(0,0,0,.15);
     }
-
-    .badge.ok{
-      background:linear-gradient(90deg, rgba(0,255,170,.20), rgba(0,247,255,.20));
-      color:#dff;
+    .oh-brand-text h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--oh-text);
     }
-
-    .badge.warn{
-      background:linear-gradient(90deg, rgba(255,0,168,.18), rgba(255,230,0,.16));
-      color:#fff7b3;
+    .oh-brand-text p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--oh-muted);
     }
-
-    .share{
-      display:flex;
-      align-items:center;
-      gap:8px;
+    .oh-userbar {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 13px;
+      color: var(--oh-muted);
     }
-    .share .input{ padding:.72rem .85rem; }
-    .share .btn{ padding:.72rem .95rem; }
-
-    .footer{
-      color:rgba(255,255,255,.72);
-      margin-top:16px;
-      text-align:center;
-      font-size:.98rem;
-      text-shadow:0 0 10px rgba(255,255,255,.06);
+    .oh-userbar strong {
+      color: var(--oh-text);
+      font-weight: 600;
     }
-
-    .blob{
-      position:absolute;
-      border-radius:50%;
-      filter:blur(22px);
-      opacity:.22;
-      mix-blend-mode:screen;
-      pointer-events:none;
-      animation:blobMove 12s ease-in-out infinite;
+    .oh-userbar a {
+      color: var(--oh-brand-2);
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: var(--oh-radius-sm);
+      transition: background .15s;
     }
-    .blob.b1{
-      width:220px;height:220px;background:#ff00a8;top:-70px;left:-50px;
-    }
-    .blob.b2{
-      width:180px;height:180px;background:#00f7ff;right:-50px;top:36px;animation-delay:-4s;
-    }
-    .blob.b3{
-      width:240px;height:240px;background:#ffe600;bottom:-110px;left:42%;animation-delay:-7s;
+    .oh-userbar a:hover {
+      background: var(--oh-surface-2);
+      color: var(--oh-brand);
     }
 
-    @keyframes spinGlow{
-      from{ transform:rotate(0deg) scale(1); }
-      to{ transform:rotate(360deg) scale(1.06); }
+    /* ============ Deck / layout ============ */
+    .oh-deck {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 22px;
     }
-    @keyframes pulseRings{
-      0%,100%{ transform:scale(1); opacity:.28; }
-      50%{ transform:scale(1.08); opacity:.42; }
-    }
-    @keyframes driftColors{
-      0%,100%{ background-position:0% 50%; }
-      50%{ background-position:100% 50%; }
-    }
-    @keyframes borderFlow{
-      0%{ background-position:0% 50%; }
-      100%{ background-position:200% 50%; }
-    }
-    @keyframes rainbowMove{
-      0%{ background-position:0% 50%; }
-      100%{ background-position:200% 50%; }
-    }
-    @keyframes stripes{
-      0%{ transform:translateX(0); }
-      100%{ transform:translateX(24px); }
-    }
-    @keyframes blobMove{
-      0%,100%{ transform:translate(0,0) scale(1); }
-      33%{ transform:translate(20px,-16px) scale(1.12); }
-      66%{ transform:translate(-16px,18px) scale(.92); }
+    @media (max-width: 880px){
+      .oh-deck { grid-template-columns: 1fr; }
     }
 
-    @media (max-width:700px){
-      .rowc{ grid-template-columns:1fr; }
-      .size,.eta{ text-align:left; }
-      .share{ flex-direction:column; align-items:stretch; }
+    /* ============ Card ============ */
+    .oh-card {
+      background: var(--oh-surface);
+      border: 1px solid var(--oh-border);
+      border-radius: var(--oh-radius);
+      box-shadow: var(--oh-shadow);
+      overflow: hidden;
+    }
+    .oh-card-head {
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--oh-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      background: var(--oh-surface-2);
+    }
+    .oh-card-head h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.005em;
+      color: var(--oh-text);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .oh-card-head h2 svg { color: var(--oh-brand); }
+    .oh-card-body { padding: 22px; }
+
+    /* ============ Formulier ============ */
+    .oh-grid {
+      display: grid;
+      gap: 16px;
+    }
+    .oh-grid.cols2 {
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width: 640px){
+      .oh-grid.cols2 { grid-template-columns: 1fr; }
+    }
+    .oh-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--oh-muted);
+      margin-bottom: 6px;
+    }
+    .oh-input,
+    .oh-select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--oh-surface);
+      border: 1px solid var(--oh-border-strong);
+      border-radius: var(--oh-radius-sm);
+      font: inherit;
+      color: var(--oh-text);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .oh-input:focus,
+    .oh-select:focus {
+      outline: none;
+      border-color: var(--oh-brand-2);
+      box-shadow: 0 0 0 3px rgba(30, 90, 158, .12);
+    }
+    .oh-input::placeholder { color: #94a3b8; }
+
+    /* Toggle radios */
+    .oh-toggle {
+      display: inline-flex;
+      background: var(--oh-surface-2);
+      border: 1px solid var(--oh-border);
+      border-radius: var(--oh-radius-sm);
+      padding: 3px;
+      gap: 2px;
+    }
+    .oh-toggle label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--oh-muted);
+      border-radius: 4px;
+      transition: background .15s, color .15s;
+      user-select: none;
+    }
+    .oh-toggle label:hover { color: var(--oh-text); }
+    .oh-toggle input { display: none; }
+    .oh-toggle label:has(input:checked) {
+      background: var(--oh-surface);
+      color: var(--oh-brand);
+      box-shadow: 0 1px 2px rgba(15,23,42,.08);
+      font-weight: 600;
     }
 
-    @media (prefers-reduced-motion: reduce){
-      .psy-overlay,
-      .psy-overlay::before,
-      .psy-overlay::after,
-      .card::before,
-      .btn,
-      .progress > i,
-      .blob{
-        animation:none !important;
+    /* ============ Drop zone ============ */
+    .oh-drop {
+      position: relative;
+      border: 2px dashed var(--oh-border-strong);
+      border-radius: var(--oh-radius);
+      padding: 32px 20px;
+      text-align: center;
+      background: var(--oh-surface-2);
+      transition: border-color .15s, background .15s;
+      cursor: pointer;
+    }
+    .oh-drop:hover {
+      border-color: var(--oh-brand-2);
+      background: #f1f5f9;
+    }
+    .oh-drop.dragover {
+      border-color: var(--oh-accent);
+      background: #fff7ed;
+    }
+    .oh-drop-icon {
+      display: inline-flex;
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--oh-surface);
+      border: 1px solid var(--oh-border);
+      align-items: center; justify-content: center;
+      margin-bottom: 12px;
+      color: var(--oh-brand);
+    }
+    .oh-drop-title {
+      font-weight: 600;
+      color: var(--oh-text);
+      margin-bottom: 4px;
+    }
+    .oh-drop-sub {
+      font-size: 13px;
+      color: var(--oh-muted);
+      margin-bottom: 12px;
+    }
+    .oh-drop-pick {
+      display: inline-block;
+      padding: 7px 14px;
+      background: var(--oh-surface);
+      border: 1px solid var(--oh-border-strong);
+      border-radius: var(--oh-radius-sm);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--oh-brand);
+      transition: background .15s;
+    }
+    .oh-drop-pick:hover { background: var(--oh-surface-2); }
+
+    .oh-drop input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .oh-drop-filename {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--oh-muted);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .oh-drop-filename.has-file { color: var(--oh-text); }
+
+    /* ============ Knoppen ============ */
+    .oh-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--oh-brand);
+      color: white;
+      border: none;
+      border-radius: var(--oh-radius-sm);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, transform .05s;
+      text-decoration: none;
+    }
+    .oh-btn:hover:not(:disabled) { background: var(--oh-brand-2); }
+    .oh-btn:active:not(:disabled) { transform: translateY(1px); }
+    .oh-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+    .oh-btn.ghost {
+      background: var(--oh-surface);
+      color: var(--oh-brand);
+      border: 1px solid var(--oh-border-strong);
+    }
+    .oh-btn.ghost:hover:not(:disabled) {
+      background: var(--oh-surface-2);
+      border-color: var(--oh-brand-2);
+    }
+    .oh-btn.accent {
+      background: var(--oh-accent);
+    }
+    .oh-btn.accent:hover:not(:disabled) { background: var(--oh-accent-2); }
+
+    /* ============ Action row ============ */
+    .oh-actionrow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 6px;
+      flex-wrap: wrap;
+    }
+    .oh-meta {
+      font-size: 13px;
+      color: var(--oh-muted);
+    }
+    .oh-meta .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      background: var(--oh-surface-2);
+      border: 1px solid var(--oh-border);
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      color: var(--oh-text);
+      margin: 0 2px;
+    }
+
+    /* ============ Progress & queue ============ */
+    .oh-queue {
+      margin-top: 16px;
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .oh-queue-item {
+      display: grid;
+      grid-template-columns: 20px 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      background: var(--oh-surface-2);
+      border: 1px solid var(--oh-border);
+      border-radius: var(--oh-radius-sm);
+      font-size: 13px;
+    }
+    .oh-queue-item .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      color: var(--oh-text);
+    }
+    .oh-queue-item .size {
+      color: var(--oh-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .oh-queue-item .state {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--oh-muted);
+    }
+    .oh-queue-item.done .state { color: var(--oh-success); }
+    .oh-queue-item.err .state { color: var(--oh-danger); }
+    .oh-queue-item.active .state { color: var(--oh-accent); }
+    .oh-queue-item .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--oh-border-strong);
+    }
+    .oh-queue-item.active .dot {
+      background: var(--oh-accent);
+      animation: oh-pulse 1.4s ease-in-out infinite;
+    }
+    .oh-queue-item.done .dot { background: var(--oh-success); }
+    .oh-queue-item.err .dot { background: var(--oh-danger); }
+
+    @keyframes oh-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .5; transform: scale(.8); }
+    }
+
+    /* Totaal-balk */
+    .oh-total-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+    .oh-total-head span:first-child {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--oh-muted);
+    }
+    .oh-total-pct {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--oh-brand);
+      font-size: 15px;
+    }
+    .oh-bar {
+      height: 8px;
+      background: var(--oh-surface-2);
+      border: 1px solid var(--oh-border);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .oh-bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--oh-brand), var(--oh-brand-2));
+      transition: width .25s ease;
+      border-radius: 999px;
+      position: relative;
+    }
+    /* Subtiele glim-animatie bij actief uploaden */
+    .oh-bar.active > i::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg,
+        transparent 0%, rgba(255,255,255,.35) 50%, transparent 100%);
+      animation: oh-shine 1.6s linear infinite;
+    }
+    @keyframes oh-shine {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .oh-total-status {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--oh-muted);
+    }
+
+    /* ============ Share result ============ */
+    .oh-share {
+      margin-top: 18px;
+      padding: 18px;
+      background: linear-gradient(135deg, #f0f9ff, #ecfeff);
+      border: 1px solid #bae6fd;
+      border-radius: var(--oh-radius);
+    }
+    .oh-share-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-weight: 600;
+      color: #075985;
+    }
+    .oh-share-head svg { color: var(--oh-success); }
+    .oh-share-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .oh-share-row .oh-input {
+      flex: 1 1 auto;
+      min-width: 200px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      background: white;
+    }
+
+    /* ============ Telemetry ============ */
+    .oh-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .oh-stat {
+      padding: 12px 14px;
+      background: var(--oh-surface-2);
+      border: 1px solid var(--oh-border);
+      border-radius: var(--oh-radius-sm);
+    }
+    .oh-stat .k {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--oh-muted);
+      margin-bottom: 4px;
+    }
+    .oh-stat .v {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--oh-text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .oh-log {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      background: #0f172a;
+      color: #cbd5e1;
+      border-radius: var(--oh-radius-sm);
+      padding: 12px 14px;
+      max-height: 220px;
+      overflow-y: auto;
+      line-height: 1.55;
+    }
+    .oh-log .t { color: #64748b; margin-right: 6px; }
+    .oh-log .ok { color: #86efac; }
+    .oh-log .err { color: #fca5a5; }
+    .oh-log .warn { color: #fcd34d; }
+
+    /* ============ Notice (kleine speelse touch) ============ */
+    .oh-notice {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: var(--oh-radius-sm);
+      color: #78350f;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .oh-notice svg {
+      flex-shrink: 0;
+      color: var(--oh-accent);
+    }
+
+    /* ============ Footer ============ */
+    .oh-footer {
+      margin-top: 32px;
+      padding-top: 18px;
+      border-top: 1px solid var(--oh-border);
+      text-align: center;
+      font-size: 12px;
+      color: var(--oh-muted);
+    }
+    .oh-footer a {
+      color: var(--oh-brand-2);
+      text-decoration: none;
+      margin: 0 6px;
+    }
+    .oh-footer a:hover { text-decoration: underline; }
+
+    /* Dark mode support (volg OS) */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --oh-bg: #0f172a;
+        --oh-surface: #1e293b;
+        --oh-surface-2: #0f172a;
+        --oh-border: #334155;
+        --oh-border-strong: #475569;
+        --oh-text: #f1f5f9;
+        --oh-muted: #94a3b8;
+        --oh-brand: #60a5fa;
+        --oh-brand-2: #3b82f6;
+      }
+      body::before {
+        background-image:
+          radial-gradient(circle at 20% 10%, rgba(217,119,6,.08), transparent 40%),
+          radial-gradient(circle at 80% 80%, rgba(96,165,250,.08), transparent 45%);
+      }
+      .oh-share {
+        background: linear-gradient(135deg, #0c2e4a, #0c3a3e);
+        border-color: #164e63;
+        color: #e0f2fe;
+      }
+      .oh-share-head { color: #7dd3fc; }
+      .oh-notice {
+        background: #422006;
+        border-color: #854d0e;
+        color: #fef3c7;
       }
     }
   </style>
 </head>
 <body>
-<div class="psy-overlay"></div>
 
-<div class="shell">
-  <div class="hdr">
-    <h1 class="brand">Psychedelische Upload</h1>
+<div class="oh-shell">
 
-    <div class="right">
-      <div class="who">Ingelogd als <strong>{{ user }}</strong> • <a href="{{ url_for('logout') }}">Uitloggen</a></div>
+  <!-- Top bar -->
+  <header class="oh-topbar">
+    <div class="oh-brand">
+      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-text">
+        <h1>Olde Hanter Bouwconstructies</h1>
+        <p>Beveiligde bestandsoverdracht</p>
+      </div>
     </div>
-  </div>
+    <div class="oh-userbar">
+      <span>Ingelogd als <strong>{{ user }}</strong></span>
+      <a href="/uploads">Mijn uploads</a>
+      {% if is_admin %}<a href="/admin/users">Beheer</a>{% endif %}
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
+    </div>
+  </header>
 
-  <div class="deck">
-    <div class="card">
-      <div class="blob b1"></div>
-      <div class="blob b2"></div>
-      <div class="blob b3"></div>
+  <div class="oh-deck">
 
-      <div class="card-h">
-        <h2>Upload Portaal</h2>
-        <div class="subtle">Parallel: <span id="kvWorkers">3</span></div>
+    <!-- ============ Upload card ============ -->
+    <section class="oh-card">
+      <div class="oh-card-head">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Uploaden
+        </h2>
+        <span class="oh-meta">Parallel: <span class="pill" id="kvWorkers">3</span></span>
       </div>
 
-      <div class="card-b">
-        <form id="form" class="grid" autocomplete="off" enctype="multipart/form-data">
-          <div class="grid cols2">
+      <div class="oh-card-body">
+
+        <form id="form" class="oh-grid" autocomplete="off" enctype="multipart/form-data">
+
+          <div class="oh-grid cols2">
             <div>
-              <label>Uploadtype</label>
-              <div class="toggle">
+              <label class="oh-label">Uploadtype</label>
+              <div class="oh-toggle">
                 <label><input type="radio" name="upmode" value="files" checked> Bestand(en)</label>
                 <label id="folderLabel"><input type="radio" name="upmode" value="folder"> Map</label>
               </div>
             </div>
             <div>
-              <label for="title">Onderwerp</label>
-              <input id="title" class="input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
+              <label class="oh-label" for="title">Onderwerp <span style="color:var(--oh-muted);font-weight:400;text-transform:none;letter-spacing:normal">(optioneel)</span></label>
+              <input id="title" class="oh-input" type="text" placeholder="Bijv. Tekeningen project X" maxlength="120">
             </div>
           </div>
 
-          <div class="grid cols2">
+          <div class="oh-grid cols2">
             <div>
-              <label for="expDays">Verloopt na</label>
-              <select id="expDays" class="input">
+              <label class="oh-label" for="expDays">Verloopt na</label>
+              <select id="expDays" class="oh-select">
                 <option value="1">1 dag</option>
                 <option value="3">3 dagen</option>
                 <option value="7">7 dagen</option>
+                <option value="14">14 dagen</option>
                 <option value="30" selected>30 dagen</option>
                 <option value="60">60 dagen</option>
-                <option value="365">1 jaar</option>
+                <option value="90">90 dagen</option>
               </select>
             </div>
             <div>
-              <label for="pw">Wachtwoord (optioneel)</label>
-              <input id="pw" class="input" type="password" placeholder="Optioneel" autocomplete="new-password">
+              <label class="oh-label" for="pw">Wachtwoord <span style="color:var(--oh-muted);font-weight:400;text-transform:none;letter-spacing:normal">(optioneel)</span></label>
+              <input id="pw" class="oh-input" type="password" placeholder="Leeg = geen wachtwoord" autocomplete="new-password">
             </div>
           </div>
 
-          <div id="fileRow" class="picker">
-            <label for="fileInput">Kies bestand(en)</label>
-            <div class="picker-ctl">
-              <button type="button" id="btnFiles" class="btn ghost">Kies bestanden</button>
-              <div id="fileName" class="ellipsis">Nog geen bestanden gekozen</div>
+          <!-- Drop zone for files -->
+          <div id="fileRow">
+            <label class="oh-label">Bestanden</label>
+            <div class="oh-drop" id="dropFiles">
+              <div class="oh-drop-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <div class="oh-drop-title">Sleep bestanden hierheen</div>
+              <div class="oh-drop-sub">of</div>
+              <span class="oh-drop-pick" id="btnFiles">Kies bestanden</span>
+              <div class="oh-drop-filename" id="fileName">Nog geen bestanden gekozen</div>
               <input id="fileInput" type="file" multiple>
             </div>
           </div>
 
-          <div id="folderRow" class="picker" style="display:none">
-            <label for="folderInput">Kies een map</label>
-            <div class="picker-ctl">
-              <button type="button" id="btnFolder" class="btn ghost">Kies map</button>
-              <div id="folderName" class="ellipsis">Nog geen map gekozen</div>
+          <!-- Drop zone for folder -->
+          <div id="folderRow" style="display:none">
+            <label class="oh-label">Map</label>
+            <div class="oh-drop" id="dropFolder">
+              <div class="oh-drop-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="oh-drop-title">Selecteer een map</div>
+              <div class="oh-drop-sub">de mapstructuur blijft behouden</div>
+              <span class="oh-drop-pick" id="btnFolder">Kies map</span>
+              <div class="oh-drop-filename" id="folderName">Nog geen map gekozen</div>
               <input id="folderInput" type="file" multiple webkitdirectory directory>
             </div>
-            <div class="muted" style="margin-top:2px">Tip: mapselectie werkt niet op iOS.</div>
           </div>
 
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">
-            <button id="btnStart" class="btn" type="submit">Uploaden</button>
-            <span class="muted">Queue: <span id="kvQueue">0</span> • Bestanden: <span id="kvFiles">0</span></span>
+          <!-- Action row -->
+          <div class="oh-actionrow">
+            <button id="btnStart" class="oh-btn" type="submit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+              Uploaden
+            </button>
+            <span class="oh-meta">Queue: <span class="pill" id="kvQueue">0</span>  Bestanden: <span class="pill" id="kvFiles">0</span></span>
           </div>
         </form>
 
-        <div id="queue" class="grid" style="margin-top:14px"></div>
+        <div id="queue" class="oh-queue"></div>
 
-        <div style="margin-top:14px">
-          <div class="totalline">
-            <div class="subtle">Totaalvoortgang</div>
-            <span id="totalPct" class="badge warn">0%</span>
-          </div>
-          <div class="progress"><i id="totalFill"></i></div>
-          <div class="subtle" id="totalStatus" style="margin-top:6px">Nog niet gestart</div>
+        <div class="oh-total-head">
+          <span>Totaalvoortgang</span>
+          <span class="oh-total-pct" id="totalPct">0%</span>
         </div>
+        <div class="oh-bar" id="totalBar"><i id="totalFill"></i></div>
+        <div class="oh-total-status" id="totalStatus">Nog niet gestart</div>
 
-        <div id="result" style="margin-top:12px"></div>
+        <div id="result"></div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-h">
-        <h2>Live Telemetry</h2>
-        <div class="subtle">Sessie</div>
+    <!-- ============ Telemetry card ============ -->
+    <aside class="oh-card">
+      <div class="oh-card-head">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Live status
+        </h2>
+        <span class="oh-meta">Sessie</span>
       </div>
-
-      <div class="card-b grid">
-        <div class="kv">
-          <div>
+      <div class="oh-card-body">
+        <div class="oh-stats">
+          <div class="oh-stat">
             <div class="k">Actieve workers</div>
             <div class="v" id="tWorkers">0</div>
           </div>
-          <div>
+          <div class="oh-stat">
             <div class="k">Doorvoersnelheid</div>
-            <div class="v"><span id="tSpeed">0</span> /s</div>
+            <div class="v"><span id="tSpeed">0</span><span style="font-size:12px;color:var(--oh-muted);font-weight:400"> /s</span></div>
           </div>
-          <div>
+          <div class="oh-stat">
             <div class="k">Verplaatst</div>
             <div class="v" id="tMoved">0 B</div>
           </div>
-          <div>
-            <div class="k">Nog te gaan</div>
+          <div class="oh-stat">
+            <div class="k">Resterend</div>
             <div class="v" id="tLeft">0 B</div>
           </div>
-          <div>
+          <div class="oh-stat">
             <div class="k">ETA</div>
             <div class="v" id="tEta">—</div>
           </div>
-          <div>
+          <div class="oh-stat">
             <div class="k">Bestanden klaar</div>
             <div class="v" id="tDone">0</div>
           </div>
         </div>
 
-        <div>
-          <div class="k" style="margin-bottom:6px">Activiteitenlog</div>
-          <div id="log" class="log" aria-live="polite"></div>
-        </div>
+        <label class="oh-label" style="margin-bottom:8px">Activiteitenlog</label>
+        <div id="log" class="oh-log" aria-live="polite"></div>
       </div>
-    </div>
+    </aside>
   </div>
 
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <footer class="oh-footer">
+    Olde Hanter Bouwconstructies · Bestandentransfer
+    <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
+    <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
+    <a href="{{ url_for('privacy_page') }}">Privacy</a>
+  </footer>
 </div>
 
 <script>
@@ -1245,7 +1442,17 @@ if(isIOS){ folderLabel.style.display='none'; }
 /* Utils */
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
 function log(msg){const p=document.createElement('p');const t=new Date().toLocaleTimeString();p.textContent=`[${t}] ${msg}`;logEl.prepend(p)}
-function setTotal(p,label){const pct=Math.max(0,Math.min(100,p)); totalFill.style.width=pct+'%'; totalPct.textContent=Math.round(pct)+'%'; if(label) totalStatus.textContent=label;}
+function setTotal(p,label){
+  const pct=Math.max(0,Math.min(100,p));
+  totalFill.style.width=pct+'%';
+  totalPct.textContent=Math.round(pct)+'%';
+  if(label) totalStatus.textContent=label;
+  const bar=document.getElementById('totalBar');
+  if(bar){
+    if(pct>0 && pct<100) bar.classList.add('active');
+    else bar.classList.remove('active');
+  }
+}
 
 /* API */
 async function packageInit(expiry,password,title){
@@ -1273,13 +1480,14 @@ function putWithProgress(url,blob,onProgress){
 
 /* Queue rows */
 function addRow(rel,size){
-  const r=document.createElement('div'); r.className='rowc';
-  r.innerHTML=`<div class="ico"></div>
-               <div class="ellipsis"><strong>${rel}</strong><div class="progress"><i style="width:0%"></i></div></div>
+  const r=document.createElement('div');
+  r.className='oh-queue-item';
+  r.innerHTML=`<div class="dot"></div>
+               <div class="name" title="${rel}">${rel}</div>
                <div class="size">${fmtBytes(size)}</div>
-               <div class="eta" data-eta>—</div>`;
+               <div class="state" data-eta>In wachtrij</div>`;
   queue.appendChild(r);
-  return {row:r,fill:r.querySelector('i'),eta:r.querySelector('[data-eta]')};
+  return {row:r,fill:null,eta:r.querySelector('[data-eta]')};
 }
 
 /* Telemetry state */
@@ -1330,17 +1538,20 @@ setInterval(()=>{
     const useFolder = (mode === "folder" && !isIOS);
     if (fileRow) fileRow.style.display = useFolder ? "none" : "";
     if (folderRow) folderRow.style.display = useFolder ? "" : "none";
-    setTimeout(() => openPicker(useFolder ? folderInput : fileInput), 0);
+    // Niet automatisch openen; de drop-zone is zelf klikbaar.
   };
 
-  if (btnFiles && fileInput) btnFiles.addEventListener("click", () => openPicker(fileInput));
-  if (btnFolder && folderInput) btnFolder.addEventListener("click", () => openPicker(folderInput));
+  if (btnFiles && fileInput) btnFiles.addEventListener("click", (e) => { e.stopPropagation(); openPicker(fileInput); });
+  if (btnFolder && folderInput) btnFolder.addEventListener("click", (e) => { e.stopPropagation(); openPicker(folderInput); });
 
   if (fileInput){
     fileInput.addEventListener("change", () => {
       const n = fileInput.files?.length || 0;
       setCounters(n);
-      if (fileName) fileName.textContent = fileSummary(fileInput.files, "Nog geen bestanden gekozen");
+      if (fileName) {
+        fileName.textContent = fileSummary(fileInput.files, "Nog geen bestanden gekozen");
+        fileName.classList.toggle('has-file', n>0);
+      }
     });
   }
 
@@ -1348,9 +1559,42 @@ setInterval(()=>{
     folderInput.addEventListener("change", () => {
       const n = folderInput.files?.length || 0;
       setCounters(n);
-      if (folderName) folderName.textContent = folderSummary(folderInput.files);
+      if (folderName) {
+        folderName.textContent = folderSummary(folderInput.files);
+        folderName.classList.toggle('has-file', n>0);
+      }
     });
   }
+
+  // ===== Drag & drop ondersteuning =====
+  const dropFiles = document.getElementById('dropFiles');
+  const dropFolder = document.getElementById('dropFolder');
+
+  function wireDrop(zone, input, isFolder){
+    if (!zone || !input) return;
+    ['dragenter','dragover'].forEach(ev=>{
+      zone.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); zone.classList.add('dragover'); });
+    });
+    ['dragleave','drop'].forEach(ev=>{
+      zone.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); zone.classList.remove('dragover'); });
+    });
+    zone.addEventListener('drop', (e)=>{
+      const dt = e.dataTransfer;
+      if (!dt || !dt.files || !dt.files.length) return;
+      // DataTransfer files kunnen niet direct in een file-input geplaatst worden, maar
+      // moderne browsers ondersteunen input.files = dt.files via DataTransfer.
+      try {
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+      } catch(_) {
+        // Fallback: we tonen tenminste de namen
+        if (isFolder) folderName.textContent = dt.files.length + ' items gesleept';
+        else fileName.textContent = dt.files.length + ' bestanden gesleept';
+      }
+    });
+  }
+  wireDrop(dropFiles, fileInput, false);
+  wireDrop(dropFolder, folderInput, true);
 
   document.querySelectorAll('input[name=upmode]').forEach(radio => {
     radio.addEventListener("change", (e) => setMode(e.target.value));
@@ -1380,37 +1624,49 @@ form.addEventListener('submit', async (e)=>{
     workers++; kvWorkers.textContent=FILE_PAR; try{
       while(q.length){
         const it=q.shift();
+        it.ui.row.classList.add('active');
+        it.ui.eta.textContent='Bezig…';
         it.start=performance.now(); log("Start: "+it.rel);
         try{
           const init=await putInit(token,it.f.name,it.f.type);
           let last=0;
           await putWithProgress(init.url,it.f,(loaded,total)=>{
             const pct=Math.round(loaded/total*100);
-            it.ui.fill.style.width=pct+'%';
             const d=loaded-last; last=loaded; moved+=d; it.uploaded=loaded;
             const spent=(performance.now()-it.start)/1000; const sp = loaded/Math.max(spent,0.001);
-            const left=total-loaded; const etaS= sp>1 ? left/sp : 0; it.ui.eta.textContent = etaS? new Date(etaS*1000).toISOString().substring(11,19) : '—';
+            const left=total-loaded; const etaS= sp>1 ? left/sp : 0;
+            it.ui.eta.textContent = pct + '%' + (etaS ? ' · ' + new Date(etaS*1000).toISOString().substring(14,19) : '');
             setTotal(moved/totBytes*100,'Uploaden…');
           });
           await putComplete(token,init.key,it.f.name,it.rel);
-          it.ui.fill.style.width='100%'; it.ui.eta.textContent='Klaar'; done++; log("Klaar: "+it.rel);
-        }catch(err){ it.ui.eta.textContent='Fout'; log("Fout: "+it.rel); }
+          it.ui.row.classList.remove('active');
+          it.ui.row.classList.add('done');
+          it.ui.eta.textContent='Klaar';
+          done++; log("Klaar: "+it.rel);
+        }catch(err){
+          it.ui.row.classList.remove('active');
+          it.ui.row.classList.add('err');
+          it.ui.eta.textContent='Fout';
+          log("Fout: "+it.rel);
+        }
       }
     } finally { workers--; }
   }
   await Promise.all(Array.from({length:Math.min(FILE_PAR,list.length)}, worker));
   setTotal(100,'Klaar');
+  document.getElementById('totalBar').classList.remove('active');
 
   const link="{{ url_for('package_page', token='__T__', _external=True) }}".replace("__T__", token);
-  resBox.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-b">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap">
-      <div class="subtle" style="font-weight:900">Deelbare link</div><span class="badge ok">Gereed</span>
+  resBox.innerHTML = `<div class="oh-share">
+    <div class="oh-share-head">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      Upload voltooid · je deelbare link is klaar
     </div>
-    <div class="share">
-      <input id="shareLinkInput" class="input" value="${link}" readonly>
-      <button id="copyBtn" type="button" class="btn sm">Kopieer</button>
+    <div class="oh-share-row">
+      <input id="shareLinkInput" class="oh-input" value="${link}" readonly>
+      <button id="copyBtn" type="button" class="oh-btn accent">Kopieer link</button>
     </div>
-  </div></div>`;
+  </div>`;
 
   document.getElementById('copyBtn').onclick = async () => {
     const input = document.getElementById('shareLinkInput');
@@ -15412,7 +15668,32 @@ def apply_default_headers(resp):
 
 # -------------- Helpers --------------
 def logged_in() -> bool:
-    return session.get("authed", False)
+    return bool(session.get("authed") and session.get("user_id"))
+
+def current_user():
+    """Haal de huidige user op (uit DB), of None."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, email, is_admin, tenant_id, disabled FROM users WHERE id = ?",
+            (uid,)
+        ).fetchone()
+        if row is None or row["disabled"]:
+            return None
+        return row
+    finally:
+        conn.close()
+
+def current_user_id():
+    u = current_user()
+    return u["id"] if u else None
+
+def is_admin() -> bool:
+    u = current_user()
+    return bool(u and u["is_admin"])
 
 def human(n: int) -> str:
     x = float(n)
@@ -15447,8 +15728,16 @@ def paypal_access_token():
 
 # --------- Basishost voor subdomein-preview ----------
 def get_base_host():
-    # Altijd downloadlink.nl gebruiken voor voorbeeldlink (ongeacht host)
-    return "downloadlink.nl"
+    # Bepaal basisdomein voor voorbeeldlinks. Configureerbaar via BASE_HOST env.
+    # Fallback: strip de subdomein-prefix van de canonical host.
+    explicit = os.environ.get("BASE_HOST", "").strip().lower()
+    if explicit:
+        return explicit
+    host = CANONICAL_HOST
+    parts = host.split(".")
+    if len(parts) > 2:
+        return ".".join(parts[-2:])
+    return host
 
 
 # ------------- Favicon -------------
@@ -15464,6 +15753,10 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" 
 
 @app.route("/debug/dbcols")
 def debug_dbcols():
+    if not logged_in():
+        abort(404)
+    if not app.debug and os.environ.get("ENABLE_DEBUG_ROUTES") != "1":
+        abort(404)
     c = db()
     out = {}
     for table in ["packages", "items", "subscriptions"]:
@@ -15477,27 +15770,106 @@ def debug_dbcols():
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
-    return render_template_string(INDEX_HTML, user=session.get("user"), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
+    return render_template_string(INDEX_HTML, user=session.get("user"), is_admin=is_admin(), base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON)
+
+# -------- Login rate limiting (brute-force bescherming) --------
+_LOGIN_ATTEMPTS: dict = {}  # key=ip -> (count, first_ts, blocked_until)
+LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_SECONDS = int(os.environ.get("LOGIN_WINDOW_SECONDS", "300"))        # 5 minuten
+LOGIN_LOCKOUT_SECONDS = int(os.environ.get("LOGIN_LOCKOUT_SECONDS", "900"))      # 15 minuten
+
+def _login_client_ip() -> str:
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",", 1)[0].strip()[:64]
+    return (request.remote_addr or "")[:64]
+
+def _login_is_blocked(ip: str) -> float:
+    """Return seconds tot unblock, of 0 als niet geblokkeerd."""
+    rec = _LOGIN_ATTEMPTS.get(ip)
+    if not rec:
+        return 0.0
+    _count, _first_ts, blocked_until = rec
+    now = time.time()
+    if blocked_until and now < blocked_until:
+        return blocked_until - now
+    return 0.0
+
+def _login_register_failure(ip: str) -> None:
+    now = time.time()
+    rec = _LOGIN_ATTEMPTS.get(ip)
+    if not rec or (now - rec[1]) > LOGIN_WINDOW_SECONDS:
+        _LOGIN_ATTEMPTS[ip] = (1, now, 0.0)
+        return
+    count = rec[0] + 1
+    blocked_until = now + LOGIN_LOCKOUT_SECONDS if count >= LOGIN_MAX_ATTEMPTS else 0.0
+    _LOGIN_ATTEMPTS[ip] = (count, rec[1], blocked_until)
+
+def _login_reset(ip: str) -> None:
+    _LOGIN_ATTEMPTS.pop(ip, None)
+
+def _verify_password(stored_hash: str, submitted: str) -> bool:
+    """Controleer wachtwoord tegen stored hash. Constant-time."""
+    if not stored_hash:
+        return False
+    try:
+        return check_password_hash(stored_hash, submitted)
+    except Exception:
+        return False
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method == "POST":
+        ip = _login_client_ip()
+        wait = _login_is_blocked(ip)
+        if wait > 0:
+            return render_template_string(
+                LOGIN_HTML,
+                error=f"Te veel mislukte pogingen. Probeer het over {int(wait//60)+1} minuten opnieuw.",
+                base_css=BASE_CSS, bg=BG_DIV,
+                auth_email="",
+                head_icon=HTML_HEAD_ICON
+            ), 429
+
         email = (request.form.get("email") or "").lower().strip()
         # accept either the hidden 'password' or the UI field 'pw_ui'
         pw    = (request.form.get("password") or request.form.get("pw_ui") or "").strip()
 
-        if email == AUTH_EMAIL and pw == AUTH_PASSWORD:
+        # Zoek user in DB
+        conn = db()
+        try:
+            row = conn.execute(
+                "SELECT id, email, password_hash, is_admin, tenant_id, disabled FROM users WHERE email = ?",
+                (email,)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        # Altijd een dummy-hash checken als user niet bestaat, om timing te normaliseren
+        pw_ok = False
+        if row is not None and not row["disabled"]:
+            pw_ok = _verify_password(row["password_hash"], pw)
+        else:
+            # Dummy compute zodat response-tijd niet verraadt of user bestaat
+            check_password_hash("pbkdf2:sha256:600000$x$" + "0"*64, pw)
+
+        if row is not None and not row["disabled"] and pw_ok:
+            _login_reset(ip)
             session.clear()
             session.permanent = True
             session["authed"] = True
-            session["user"] = AUTH_EMAIL
+            session["user_id"] = row["id"]
+            session["user"] = row["email"]
+            session["is_admin"] = bool(row["is_admin"])
             return redirect(url_for("index"))
 
+        _login_register_failure(ip)
+        time.sleep(0.3)
         return render_template_string(
             LOGIN_HTML,
             error="Onjuiste inloggegevens.",
             base_css=BASE_CSS, bg=BG_DIV,
-            auth_email=AUTH_EMAIL,
+            auth_email="",
             head_icon=HTML_HEAD_ICON
         )
 
@@ -15505,7 +15877,7 @@ def login():
         LOGIN_HTML,
         error=None,
         base_css=BASE_CSS, bg=BG_DIV,
-        auth_email=AUTH_EMAIL,
+        auth_email="",
         head_icon=HTML_HEAD_ICON
     )
 
@@ -15517,6 +15889,8 @@ def logout():
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     days = clamp_expiry_days(data.get("expiry_days") or 24)
     pw   = (data.get("password") or "")[:200]
@@ -15527,21 +15901,46 @@ def package_init():
     pw_hash = generate_password_hash(pw) if pw else None
     t = current_tenant()["slug"]
     c = db()
-    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id)
-                 VALUES(?,?,?,?,?,?)""",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t))
+    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id,owner_user_id)
+                 VALUES(?,?,?,?,?,?,?)""",
+              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t, uid))
     c.commit(); c.close()
     return jsonify(ok=True, token=token)
     
+def _user_owns_package(conn, token: str, user_id: int, tenant_slug: str) -> bool:
+    """Return True als het pakket van deze user is (admin mag alles binnen tenant)."""
+    row = conn.execute(
+        "SELECT owner_user_id FROM packages WHERE token = ? AND tenant_id = ?",
+        (token, tenant_slug)
+    ).fetchone()
+    if row is None:
+        return False
+    if row["owner_user_id"] == user_id:
+        return True
+    # Admin-fallback: admin mag in eigen tenant alles
+    u = current_user()
+    if u and u["is_admin"] and u["tenant_id"] == tenant_slug:
+        return True
+    return False
+
 @app.route("/put-init", methods=["POST"])
 def put_init():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     d = request.get_json(force=True, silent=True) or {}
     token = (d.get("token") or "").strip(); filename = secure_filename(d.get("filename") or "")
     content_type = (d.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
     t = current_tenant()["slug"]
+    # Verifieer ownership
+    conn = db()
+    try:
+        if not _user_owns_package(conn, token, uid, t):
+            return jsonify(ok=False, error="forbidden"), 403
+    finally:
+        conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         url = s3.generate_presigned_url(
@@ -15557,28 +15956,43 @@ def put_init():
 @app.route("/put-complete", methods=["POST"])
 def put_complete():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     d = request.get_json(force=True, silent=True) or {}
     token = (d.get("token") or "").strip(); key = (d.get("key") or "").strip(); name = (d.get("name") or "").strip()
     path  = normalize_rel_path(d.get("path") or name, name)
     if not (is_valid_token(token) and key and name):
         return jsonify(ok=False, error="Onvolledig afronden (PUT)"), 400
+    t = current_tenant()["slug"]
+    # Verifieer ownership + key-prefix matcht
+    if not key.startswith(f"uploads/{t}/{token}/"):
+        return jsonify(ok=False, error="invalid_key"), 400
+    conn = db()
+    try:
+        if not _user_owns_package(conn, token, uid, t):
+            conn.close()
+            return jsonify(ok=False, error="forbidden"), 403
+    except Exception:
+        conn.close()
+        raise
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
-        t = current_tenant()["slug"]
-        c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                      VALUES(?,?,?,?,?,?)""",
                   (token, key, name, path, size, t))
-        c.commit(); c.close()
+        conn.commit(); conn.close()
         return jsonify(ok=True)
     except (ClientError, BotoCoreError):
+        conn.close()
         log.exception("put_complete failed")
         return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     token = (data.get("token") or "").strip()
     filename = secure_filename(data.get("filename") or "")
@@ -15586,6 +16000,12 @@ def mpu_init():
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     t = current_tenant()["slug"]
+    conn = db()
+    try:
+        if not _user_owns_package(conn, token, uid, t):
+            return jsonify(ok=False, error="forbidden"), 403
+    finally:
+        conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
     try:
         init = s3.create_multipart_upload(Bucket=S3_BUCKET, Key=key, ContentType=content_type)
@@ -15597,11 +16017,28 @@ def mpu_init():
 @app.route("/mpu-sign", methods=["POST"])
 def mpu_sign():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
     key = data.get("key"); upload_id = data.get("uploadId")
     part_no = int(data.get("partNumber") or 0)
     if not key or not upload_id or part_no<=0:
         return jsonify(ok=False, error="Onvolledig sign"), 400
+    # Key moet binnen tenant zijn en token eruit halen om ownership te checken
+    t = current_tenant()["slug"]
+    prefix = f"uploads/{t}/"
+    if not key.startswith(prefix):
+        return jsonify(ok=False, error="invalid_key"), 400
+    rest = key[len(prefix):]
+    token_from_key = rest.split("/", 1)[0] if "/" in rest else ""
+    if not is_valid_token(token_from_key):
+        return jsonify(ok=False, error="invalid_key"), 400
+    conn = db()
+    try:
+        if not _user_owns_package(conn, token_from_key, uid, t):
+            return jsonify(ok=False, error="forbidden"), 403
+    finally:
+        conn.close()
     try:
         url = s3.generate_presigned_url(
             "upload_part",
@@ -15616,6 +16053,8 @@ def mpu_sign():
 @app.route("/mpu-complete", methods=["POST"])
 def mpu_complete():
     if not logged_in(): abort(401)
+    uid = current_user_id()
+    if not uid: abort(401)
     data      = request.get_json(force=True, silent=True) or {}
     token     = (data.get("token") or "").strip(); key = (data.get("key") or "").strip()
     name      = (data.get("name") or "").strip();  path = normalize_rel_path(data.get("path") or name, name)
@@ -15623,6 +16062,17 @@ def mpu_complete():
     client_size = int(data.get("clientSize") or 0)
     if not (is_valid_token(token) and key and name and parts_in and upload_id):
         return jsonify(ok=False, error="Onvolledig afronden (ontbrekende velden)"), 400
+    t = current_tenant()["slug"]
+    if not key.startswith(f"uploads/{t}/{token}/"):
+        return jsonify(ok=False, error="invalid_key"), 400
+    conn = db()
+    try:
+        if not _user_owns_package(conn, token, uid, t):
+            conn.close()
+            return jsonify(ok=False, error="forbidden"), 403
+    except Exception:
+        conn.close()
+        raise
     try:
         s3.complete_multipart_upload(
             Bucket=S3_BUCKET, Key=key,
@@ -15636,17 +16086,17 @@ def mpu_complete():
         except Exception:
             if client_size>0: size = client_size
             else: raise
-        t = current_tenant()["slug"]
-        c = db()
-        c.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
+        conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                      VALUES(?,?,?,?,?,?)""",
                   (token, key, name, path, size, t))
-        c.commit(); c.close()
+        conn.commit(); conn.close()
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError):
+        conn.close()
         log.exception("mpu_complete failed")
-        return jsonify(ok=False, error=f"mpu_complete_failed:{getattr(e,'response',{})}"), 500
+        return jsonify(ok=False, error="mpu_complete_failed"), 500
     except Exception:
+        conn.close()
         log.exception("mpu_complete failed (generic)")
         return jsonify(ok=False, error="server_error"), 500
         
@@ -15661,7 +16111,8 @@ def internal_cleanup():
       - ?verbose=1 -> extra logging in response
     """
     task_token = os.environ.get("TASK_TOKEN")
-    if not task_token or request.headers.get("X-Task-Token") != task_token:
+    supplied = request.headers.get("X-Task-Token", "")
+    if not task_token or not hmac.compare_digest(supplied, task_token):
         return ("Forbidden", 403)
 
     dry = request.args.get("dry") in {"1", "true", "yes"}
@@ -15891,13 +16342,18 @@ def _send_contact_email(form):
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
+    # Wachtwoord NIET in plaintext mailen. We mailen alleen of er een is ingesteld;
+    # het echte wachtwoord hash je bij livegang of laat je de klant zelf instellen
+    # via een link met tijdelijke token.
+    pw_marker = "ingesteld door klant" if form.get("desired_password") else "(niet ingevuld)"
+
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\n\n"
         f"- Gewenste inlog-e-mail: {form['login_email']}\n"
         f"{storage_line}"
         f"- Bedrijfsnaam: {form['company']}\n"
         f"- Telefoonnummer: {form['phone']}\n"
-        f"- Wachtwoord: {form.get('desired_password','(niet ingevuld)')}\n"
+        f"- Wachtwoord: {pw_marker}\n"
         f"- Subdomein voorbeeld: {example_link}\n"
         f"- Opmerking: {form.get('notes') or '-'}\n\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
@@ -16181,7 +16637,7 @@ def paypal_webhook():
 @app.route("/health")
 @app.route("/__health")
 def health_basic():
-    return {"ok": True, "service": "minitransfer", "tenant": "oldehanter"}
+    return {"ok": True, "service": "minitransfer", "tenant": _tenant_slug}
 
 @app.route("/health-s3")
 def health():
@@ -16198,6 +16654,642 @@ def stream_file_alias(token, item_id): return redirect(url_for("stream_file", to
 @app.route("/streamzip/<token>")
 def stream_zip_alias(token): return redirect(url_for("stream_zip", token=token))
 
+
+# ============================================================
+# ADMIN: User management
+# ============================================================
+EMAIL_SIMPLE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+ADMIN_USERS_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Gebruikersbeheer – Admin</title>{{ head_icon|safe }}
+<style>{{ base_css }}</style></head><body>
+{{ bg|safe }}
+<div class="wrap"><div class="card" style="max-width:900px;margin:auto">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
+    <h1 style="color:var(--brand);margin:0">Gebruikersbeheer</h1>
+    <div>
+      <a class="btn secondary" href="/">← Terug</a>
+      <a class="btn secondary" href="/logout">Uitloggen</a>
+    </div>
+  </div>
+  <p style="color:var(--muted)">Ingelogd als <strong>{{ me }}</strong> (admin)</p>
+
+  {% if msg %}<div style="background:#dcfce7;color:#14532d;padding:.6rem .8rem;border-radius:10px;margin:.6rem 0">{{ msg }}</div>{% endif %}
+  {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin:.6rem 0">{{ error }}</div>{% endif %}
+
+  <h2 style="margin-top:1.5rem">Nieuwe gebruiker aanmaken</h2>
+  <form method="post" action="/admin/users/create" style="display:grid;grid-template-columns:1fr 1fr auto;gap:.5rem;align-items:end">
+    <div><label for="new_email">E-mail</label>
+      <input id="new_email" class="input" type="email" name="email" required></div>
+    <div><label for="new_pw">Tijdelijk wachtwoord</label>
+      <input id="new_pw" class="input" type="text" name="password" minlength="8" required
+             placeholder="min. 8 tekens"></div>
+    <div><button class="btn" type="submit">Aanmaken</button></div>
+    <div style="grid-column:1/-1;display:flex;gap:1rem;align-items:center">
+      <label style="display:flex;gap:.4rem;align-items:center">
+        <input type="checkbox" name="is_admin" value="1"> Maak admin
+      </label>
+      <span style="color:var(--muted);font-size:.9em">
+        De gebruiker kan zelf later wachtwoord wijzigen (nog niet geïmplementeerd).
+      </span>
+    </div>
+  </form>
+
+  <h2 style="margin-top:2rem">Bestaande gebruikers</h2>
+  <table class="table">
+    <thead><tr>
+      <th>E-mail</th><th>Rol</th><th>Status</th><th>Aangemaakt</th><th>Acties</th>
+    </tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.email }}{% if u.id == my_id %} <em style="color:var(--muted)">(jij)</em>{% endif %}</td>
+        <td>{{ 'Admin' if u.is_admin else 'Gebruiker' }}</td>
+        <td>{{ 'Uitgeschakeld' if u.disabled else 'Actief' }}</td>
+        <td style="font-size:.85em;color:var(--muted)">{{ u.created_at[:10] }}</td>
+        <td>
+          {% if u.id != my_id %}
+          <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
+            <button class="btn secondary" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
+          </form>
+          <form method="post" action="/admin/users/{{ u.id }}/reset" style="display:inline;margin-left:.3rem">
+            <input type="text" name="password" minlength="8" placeholder="nieuw pw" required
+                   style="padding:.35rem .5rem;border:1px solid var(--line);border-radius:8px;width:140px">
+            <button class="btn secondary" type="submit">Reset PW</button>
+          </form>
+          <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;margin-left:.3rem"
+                onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
+            <button class="btn secondary" type="submit" style="background:#b91c1c">Verwijderen</button>
+          </form>
+          {% else %}
+          <em style="color:var(--muted)">eigen account</em>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div></div></body></html>
+"""
+
+def _require_admin():
+    if not logged_in():
+        abort(401)
+    if not is_admin():
+        abort(403)
+
+def _flash(msg=None, error=None):
+    """Simpele flash via session (one-shot)."""
+    if msg:
+        session["_flash_msg"] = msg
+    if error:
+        session["_flash_err"] = error
+
+def _pop_flash():
+    return session.pop("_flash_msg", None), session.pop("_flash_err", None)
+
+@app.route("/admin/users")
+def admin_users():
+    _require_admin()
+    me = current_user()
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT id, email, is_admin, disabled, created_at FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
+            (me["tenant_id"],)
+        ).fetchall()
+    finally:
+        conn.close()
+    msg, err = _pop_flash()
+    return render_template_string(
+        ADMIN_USERS_HTML,
+        users=[dict(r) for r in rows],
+        me=me["email"],
+        my_id=me["id"],
+        msg=msg, error=err,
+        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+    )
+
+@app.route("/admin/users/create", methods=["POST"])
+def admin_users_create():
+    _require_admin()
+    me = current_user()
+    email = (request.form.get("email") or "").strip().lower()
+    pw = (request.form.get("password") or "").strip()
+    mk_admin = (request.form.get("is_admin") == "1")
+
+    if not EMAIL_SIMPLE_RE.match(email):
+        _flash(error="Ongeldig e-mailadres.")
+        return redirect(url_for("admin_users"))
+    if len(pw) < 8:
+        _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
+        return redirect(url_for("admin_users"))
+
+    conn = db()
+    try:
+        exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        if exists:
+            _flash(error=f"Gebruiker {email} bestaat al.")
+            return redirect(url_for("admin_users"))
+        conn.execute(
+            "INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled) VALUES(?,?,?,?,?,0)",
+            (email, generate_password_hash(pw), 1 if mk_admin else 0, me["tenant_id"], datetime.now(timezone.utc).isoformat())
+        )
+        conn.commit()
+        _flash(msg=f"Gebruiker {email} aangemaakt.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/toggle", methods=["POST"])
+def admin_users_toggle(user_id):
+    _require_admin()
+    me = current_user()
+    if user_id == me["id"]:
+        _flash(error="Je kunt je eigen account niet uitschakelen.")
+        return redirect(url_for("admin_users"))
+    conn = db()
+    try:
+        row = conn.execute("SELECT disabled FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if not row:
+            abort(404)
+        new_val = 0 if row["disabled"] else 1
+        conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (new_val, user_id))
+        conn.commit()
+        _flash(msg="Status gewijzigd.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/reset", methods=["POST"])
+def admin_users_reset(user_id):
+    _require_admin()
+    me = current_user()
+    pw = (request.form.get("password") or "").strip()
+    if len(pw) < 8:
+        _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
+        return redirect(url_for("admin_users"))
+    conn = db()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if not row:
+            abort(404)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(pw), user_id))
+        conn.commit()
+        _flash(msg="Wachtwoord gereset.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+def admin_users_delete(user_id):
+    _require_admin()
+    me = current_user()
+    if user_id == me["id"]:
+        _flash(error="Je kunt je eigen account niet verwijderen.")
+        return redirect(url_for("admin_users"))
+    conn = db()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if not row:
+            abort(404)
+        # We verwijderen alleen de user; packages blijven bestaan (owner_user_id wordt wees)
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        _flash(msg="Gebruiker verwijderd.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+
+# ============================================================
+# MY UPLOADS: gebruiker ziet/beheert eigen uploads
+# ============================================================
+
+MY_UPLOADS_HTML = """
+<!doctype html><html lang="nl"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Mijn uploads · Olde Hanter</title>{{ head_icon|safe }}
+<style>
+{{ base_css }}
+:root{
+  --oh-bg:#f4f6fa; --oh-surface:#fff; --oh-surface-2:#f8fafc;
+  --oh-border:#e2e8f0; --oh-border-strong:#cbd5e1;
+  --oh-text:#0f172a; --oh-muted:#64748b;
+  --oh-brand:#0f3a6b; --oh-brand-2:#1e5a9e;
+  --oh-accent:#d97706; --oh-success:#16a34a; --oh-danger:#dc2626;
+  --oh-radius:10px; --oh-radius-sm:6px;
+  --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{min-height:100%;background:var(--oh-bg);color:var(--oh-text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
+  font-size:15px;line-height:1.5;margin:0}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);}
+.oh-shell{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:28px 22px 60px}
+
+.oh-topbar{display:flex;justify-content:space-between;align-items:center;gap:20px;
+  padding:14px 20px;background:var(--oh-surface);border:1px solid var(--oh-border);
+  border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);margin-bottom:22px;flex-wrap:wrap}
+.oh-brand{display:flex;align-items:center;gap:12px}
+.oh-brand-mark{width:38px;height:38px;border-radius:8px;
+  background:linear-gradient(135deg,var(--oh-brand),var(--oh-brand-2));
+  display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+.oh-brand-text h1{margin:0;font-size:17px;font-weight:600;color:var(--oh-text)}
+.oh-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
+.oh-userbar{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--oh-muted);flex-wrap:wrap}
+.oh-userbar strong{color:var(--oh-text);font-weight:600}
+.oh-userbar a{color:var(--oh-brand-2);text-decoration:none;padding:6px 10px;border-radius:var(--oh-radius-sm)}
+.oh-userbar a:hover{background:var(--oh-surface-2)}
+
+.oh-card{background:var(--oh-surface);border:1px solid var(--oh-border);
+  border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);overflow:hidden}
+.oh-card-head{padding:18px 22px;border-bottom:1px solid var(--oh-border);
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+  background:var(--oh-surface-2);flex-wrap:wrap}
+.oh-card-head h2{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px}
+.oh-card-head h2 svg{color:var(--oh-brand)}
+.oh-card-body{padding:22px}
+
+.oh-btn{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;
+  background:var(--oh-brand);color:#fff;border:none;border-radius:var(--oh-radius-sm);
+  font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;
+  transition:background .15s}
+.oh-btn:hover{background:var(--oh-brand-2)}
+.oh-btn.ghost{background:var(--oh-surface);color:var(--oh-brand);
+  border:1px solid var(--oh-border-strong)}
+.oh-btn.ghost:hover{background:var(--oh-surface-2)}
+.oh-btn.danger{background:#fff;color:var(--oh-danger);border:1px solid #fecaca}
+.oh-btn.danger:hover{background:#fef2f2;border-color:var(--oh-danger)}
+.oh-btn.xs{padding:5px 10px;font-size:12px}
+
+.oh-flash{padding:10px 14px;border-radius:var(--oh-radius-sm);margin-bottom:16px;font-size:14px}
+.oh-flash.ok{background:#dcfce7;color:#14532d;border:1px solid #bbf7d0}
+.oh-flash.err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+
+.oh-empty{padding:60px 20px;text-align:center;color:var(--oh-muted)}
+.oh-empty svg{margin-bottom:12px;color:var(--oh-border-strong)}
+.oh-empty p{margin:0 0 14px 0}
+
+.oh-table{width:100%;border-collapse:collapse}
+.oh-table th{text-align:left;padding:10px 12px;font-size:11px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--oh-muted);border-bottom:1px solid var(--oh-border);background:var(--oh-surface-2)}
+.oh-table td{padding:12px;border-bottom:1px solid var(--oh-border);font-size:14px;vertical-align:middle}
+.oh-table tr:last-child td{border-bottom:none}
+.oh-table tr:hover td{background:var(--oh-surface-2)}
+
+.oh-title-cell{display:flex;flex-direction:column;gap:2px}
+.oh-title-cell strong{color:var(--oh-text)}
+.oh-title-cell .tok{font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:11px;color:var(--oh-muted)}
+.oh-stat-cell{color:var(--oh-muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.oh-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.oh-badge.ok{background:#dcfce7;color:#14532d}
+.oh-badge.warn{background:#fef3c7;color:#854d0e}
+.oh-badge.exp{background:#fee2e2;color:#991b1b}
+.oh-badge.pw{background:#e0e7ff;color:#3730a3}
+
+.oh-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+
+/* Mobile: stack rows as cards */
+@media (max-width: 720px){
+  .oh-table thead{display:none}
+  .oh-table,.oh-table tbody,.oh-table tr,.oh-table td{display:block;width:100%}
+  .oh-table tr{margin-bottom:10px;border:1px solid var(--oh-border);
+    border-radius:var(--oh-radius-sm);padding:8px}
+  .oh-table td{border:0;padding:6px 4px}
+  .oh-table td::before{content:attr(data-label);display:block;font-size:11px;
+    font-weight:600;text-transform:uppercase;color:var(--oh-muted);margin-bottom:2px}
+  .oh-actions{justify-content:flex-start;margin-top:6px}
+}
+
+.oh-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.oh-filter-btn{padding:6px 12px;border-radius:var(--oh-radius-sm);
+  background:var(--oh-surface);border:1px solid var(--oh-border-strong);
+  color:var(--oh-text);font-size:13px;cursor:pointer;text-decoration:none}
+.oh-filter-btn.active{background:var(--oh-brand);color:#fff;border-color:var(--oh-brand)}
+.oh-filter-btn:hover{border-color:var(--oh-brand-2)}
+
+.oh-summary{display:flex;gap:24px;padding:14px 18px;background:var(--oh-surface-2);
+  border:1px solid var(--oh-border);border-radius:var(--oh-radius-sm);margin-bottom:16px;flex-wrap:wrap}
+.oh-summary .k{font-size:11px;color:var(--oh-muted);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:600}
+.oh-summary .v{font-size:18px;font-weight:700;color:var(--oh-text);font-variant-numeric:tabular-nums}
+</style></head><body>
+
+<div class="oh-shell">
+  <header class="oh-topbar">
+    <div class="oh-brand">
+      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-text">
+        <h1>Olde Hanter Bouwconstructies</h1>
+        <p>Mijn uploads</p>
+      </div>
+    </div>
+    <div class="oh-userbar">
+      <span>Ingelogd als <strong>{{ user }}</strong></span>
+      <a href="/">← Uploaden</a>
+      {% if is_admin %}<a href="/admin/users">Beheer</a>{% endif %}
+      <a href="{{ url_for('logout') }}">Uitloggen</a>
+    </div>
+  </header>
+
+  {% if flash_msg %}<div class="oh-flash ok">{{ flash_msg }}</div>{% endif %}
+  {% if flash_err %}<div class="oh-flash err">{{ flash_err }}</div>{% endif %}
+
+  <section class="oh-card">
+    <div class="oh-card-head">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        {% if show_all %}Alle uploads (admin){% else %}Mijn uploads{% endif %}
+      </h2>
+      <a class="oh-btn" href="/">+ Nieuwe upload</a>
+    </div>
+    <div class="oh-card-body">
+
+      <div class="oh-summary">
+        <div><div class="k">Totaal pakketten</div><div class="v">{{ summary.pkg_count }}</div></div>
+        <div><div class="k">Actief</div><div class="v">{{ summary.active }}</div></div>
+        <div><div class="k">Verlopen</div><div class="v">{{ summary.expired }}</div></div>
+        <div><div class="k">Totale grootte</div><div class="v">{{ summary.total_human }}</div></div>
+      </div>
+
+      {% if is_admin %}
+      <div class="oh-filters">
+        <a class="oh-filter-btn {% if not show_all %}active{% endif %}" href="?scope=mine">Alleen mijn</a>
+        <a class="oh-filter-btn {% if show_all %}active{% endif %}" href="?scope=all">Alle gebruikers</a>
+      </div>
+      {% endif %}
+
+      {% if not packages %}
+      <div class="oh-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <p>Nog geen uploads. Klik hieronder om je eerste bestand te delen.</p>
+        <a class="oh-btn" href="/">Bestand uploaden</a>
+      </div>
+      {% else %}
+      <table class="oh-table">
+        <thead>
+          <tr>
+            <th>Onderwerp / token</th>
+            {% if show_all %}<th>Eigenaar</th>{% endif %}
+            <th>Bestanden</th>
+            <th>Grootte</th>
+            <th>Aangemaakt</th>
+            <th>Status</th>
+            <th style="text-align:right">Acties</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in packages %}
+          <tr>
+            <td data-label="Onderwerp"><div class="oh-title-cell">
+              <strong>{{ p.title or '(geen titel)' }}</strong>
+              <span class="tok">{{ p.token }}</span>
+            </div></td>
+            {% if show_all %}<td data-label="Eigenaar" class="oh-stat-cell">{{ p.owner_email or '(wees)' }}</td>{% endif %}
+            <td data-label="Bestanden" class="oh-stat-cell">{{ p.item_count }}</td>
+            <td data-label="Grootte" class="oh-stat-cell">{{ p.size_human }}</td>
+            <td data-label="Aangemaakt" class="oh-stat-cell">{{ p.created_at[:10] }}</td>
+            <td data-label="Status">
+              {% if p.is_expired %}
+                <span class="oh-badge exp">Verlopen</span>
+              {% elif p.days_left <= 3 %}
+                <span class="oh-badge warn">Nog {{ p.days_left }}d</span>
+              {% else %}
+                <span class="oh-badge ok">Nog {{ p.days_left }}d</span>
+              {% endif %}
+              {% if p.has_password %}<span class="oh-badge pw">PW</span>{% endif %}
+            </td>
+            <td data-label="Acties">
+              <div class="oh-actions">
+                {% if not p.is_expired %}
+                <a class="oh-btn xs ghost" href="/p/{{ p.token }}" target="_blank" rel="noopener">Openen</a>
+                <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Kopieer link</button>
+                <form method="post" action="/uploads/{{ p.token }}/extend" style="display:inline">
+                  <button class="oh-btn xs ghost" type="submit" title="Verleng met 7 dagen">+7d</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/uploads/{{ p.token }}/delete" style="display:inline"
+                      onsubmit="return confirm('Pakket {{ p.title or p.token }} definitief verwijderen? Dit verwijdert ook de bestanden uit opslag.');">
+                  <button class="oh-btn xs danger" type="submit">Verwijder</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<script>
+function copyLink(link, btn){
+  navigator.clipboard.writeText(link).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = '✓ Gekopieerd';
+    setTimeout(()=>{ btn.textContent = orig; }, 1600);
+  }).catch(()=>{ window.prompt('Kopieer de link:', link); });
+}
+</script>
+</body></html>
+"""
+
+def _package_summary(rows, now):
+    """Bereken samenvatting van packagelijst."""
+    pkg_count = len(rows)
+    active = 0
+    expired = 0
+    total = 0
+    for r in rows:
+        total += int(r.get("size_bytes") or 0)
+        try:
+            exp = datetime.fromisoformat(r["expires_at"])
+            if exp <= now:
+                expired += 1
+            else:
+                active += 1
+        except Exception:
+            expired += 1
+    return {
+        "pkg_count": pkg_count,
+        "active": active,
+        "expired": expired,
+        "total_human": human(total),
+    }
+
+@app.route("/uploads")
+def my_uploads():
+    if not logged_in():
+        return redirect(url_for("login"))
+    me = current_user()
+    if not me:
+        session.clear()
+        return redirect(url_for("login"))
+
+    show_all = bool(me["is_admin"]) and (request.args.get("scope") == "all")
+    tenant = me["tenant_id"]
+
+    conn = db()
+    try:
+        if show_all:
+            rows = conn.execute("""
+                SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
+                       p.owner_user_id, u.email AS owner_email,
+                       COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
+                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes
+                FROM packages p
+                LEFT JOIN users u ON u.id = p.owner_user_id
+                WHERE p.tenant_id = ?
+                ORDER BY p.created_at DESC
+            """, (tenant,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
+                       p.owner_user_id, ? AS owner_email,
+                       COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
+                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes
+                FROM packages p
+                WHERE p.tenant_id = ? AND p.owner_user_id = ?
+                ORDER BY p.created_at DESC
+            """, (me["email"], tenant, me["id"])).fetchall()
+    finally:
+        conn.close()
+
+    now = datetime.now(timezone.utc)
+    packages = []
+    for r in rows:
+        try:
+            exp = datetime.fromisoformat(r["expires_at"])
+        except Exception:
+            exp = now
+        is_expired = exp <= now
+        days_left = max(0, (exp - now).days) if not is_expired else 0
+        packages.append({
+            "token": r["token"],
+            "title": r["title"],
+            "expires_at": r["expires_at"],
+            "created_at": r["created_at"],
+            "item_count": int(r["item_count"] or 0),
+            "size_bytes": int(r["size_bytes"] or 0),
+            "size_human": human(int(r["size_bytes"] or 0)),
+            "has_password": bool(r["password_hash"]),
+            "is_expired": is_expired,
+            "days_left": days_left,
+            "owner_email": r["owner_email"],
+            "share_link": url_for("package_page", token=r["token"], _external=True),
+        })
+
+    summary = _package_summary([dict(r) for r in rows], now)
+    msg, err = _pop_flash()
+
+    return render_template_string(
+        MY_UPLOADS_HTML,
+        packages=packages,
+        summary=summary,
+        show_all=show_all,
+        is_admin=bool(me["is_admin"]),
+        user=me["email"],
+        flash_msg=msg, flash_err=err,
+        base_css=BASE_CSS, head_icon=HTML_HEAD_ICON
+    )
+
+@app.route("/uploads/<token>/delete", methods=["POST"])
+def my_uploads_delete(token):
+    if not logged_in(): abort(401)
+    me = current_user()
+    if not me: abort(401)
+    token = (token or "").strip()
+    if not is_valid_token(token):
+        _flash(error="Ongeldig token.")
+        return redirect(url_for("my_uploads"))
+
+    conn = db()
+    try:
+        pkg = conn.execute(
+            "SELECT token, owner_user_id, tenant_id FROM packages WHERE token = ? AND tenant_id = ?",
+            (token, me["tenant_id"])
+        ).fetchone()
+        if not pkg:
+            _flash(error="Pakket niet gevonden.")
+            return redirect(url_for("my_uploads"))
+        if pkg["owner_user_id"] != me["id"] and not me["is_admin"]:
+            _flash(error="Geen rechten om dit pakket te verwijderen.")
+            return redirect(url_for("my_uploads"))
+
+        # Verwijder S3-objects
+        items = conn.execute(
+            "SELECT s3_key FROM items WHERE token = ? AND tenant_id = ?",
+            (token, me["tenant_id"])
+        ).fetchall()
+        for it in items:
+            try:
+                s3.delete_object(Bucket=S3_BUCKET, Key=it["s3_key"])
+            except Exception:
+                log.exception("Kon S3 object niet verwijderen: %s", it["s3_key"])
+
+        conn.execute("DELETE FROM items WHERE token = ? AND tenant_id = ?", (token, me["tenant_id"]))
+        conn.execute("DELETE FROM packages WHERE token = ? AND tenant_id = ?", (token, me["tenant_id"]))
+        conn.commit()
+        _flash(msg=f"Pakket verwijderd ({len(items)} bestand(en) uit opslag).")
+    finally:
+        conn.close()
+    # Behoud scope-parameter
+    scope = request.args.get("scope") or request.referrer or ""
+    if "scope=all" in scope:
+        return redirect(url_for("my_uploads", scope="all"))
+    return redirect(url_for("my_uploads"))
+
+@app.route("/uploads/<token>/extend", methods=["POST"])
+def my_uploads_extend(token):
+    if not logged_in(): abort(401)
+    me = current_user()
+    if not me: abort(401)
+    token = (token or "").strip()
+    if not is_valid_token(token):
+        _flash(error="Ongeldig token.")
+        return redirect(url_for("my_uploads"))
+
+    conn = db()
+    try:
+        pkg = conn.execute(
+            "SELECT token, owner_user_id, expires_at FROM packages WHERE token = ? AND tenant_id = ?",
+            (token, me["tenant_id"])
+        ).fetchone()
+        if not pkg:
+            _flash(error="Pakket niet gevonden.")
+            return redirect(url_for("my_uploads"))
+        if pkg["owner_user_id"] != me["id"] and not me["is_admin"]:
+            _flash(error="Geen rechten om dit pakket te verlengen.")
+            return redirect(url_for("my_uploads"))
+
+        try:
+            current_exp = datetime.fromisoformat(pkg["expires_at"])
+        except Exception:
+            current_exp = datetime.now(timezone.utc)
+        # Verleng met 7 dagen vanaf de huidige vervaldatum (of nu, als al verlopen)
+        base = max(current_exp, datetime.now(timezone.utc))
+        new_exp = base + timedelta(days=7)
+        conn.execute(
+            "UPDATE packages SET expires_at = ? WHERE token = ? AND tenant_id = ?",
+            (new_exp.isoformat(), token, me["tenant_id"])
+        )
+        conn.commit()
+        _flash(msg=f"Pakket verlengd tot {new_exp.strftime('%d-%m-%Y %H:%M')}.")
+    finally:
+        conn.close()
+    return redirect(url_for("my_uploads"))
 
 
 @app.errorhandler(400)
