@@ -239,6 +239,29 @@ def init_db():
       )
     """)
 
+    # ===== PENDING ACCOUNTS =====
+    # Aanvragen die nog niet betaald zijn. Na succesvolle PayPal-activatie wordt
+    # deze rij gebruikt om een echte users-row aan te maken.
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS pending_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        plan_value TEXT,
+        company TEXT,
+        phone TEXT,
+        notes TEXT,
+        paypal_subscription_id TEXT UNIQUE,
+        status TEXT NOT NULL DEFAULT 'awaiting_payment',
+        created_at TEXT NOT NULL,
+        activated_at TEXT
+      )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pending_email_tenant ON pending_accounts(email, tenant_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pending_sub ON pending_accounts(paypal_subscription_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_accounts(status)")
+
     # ===== RATE LIMITING (login + package views) =====
     c.execute("""
       CREATE TABLE IF NOT EXISTS rate_limits (
@@ -2462,15 +2485,17 @@ function renderPaypalConditional(){
     onApprove: async function(data, actions) {
       try{
         const csrf = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+        const emailEl = document.getElementById('login_email');
         await fetch("{{ url_for('paypal_store_subscription') }}", {
           method: "POST",
           headers: {"Content-Type":"application/json","X-CSRF-Token":csrf},
           body: JSON.stringify({
             subscription_id: data.subscriptionID,
-            plan_value: (document.getElementById('storage_tb')?.value || "")
+            plan_value: (document.getElementById('storage_tb')?.value || ""),
+            login_email: (emailEl ? emailEl.value.trim() : "")
           })
         });
-        alert("Bedankt! Je abonnement is gestart. ID: " + data.subscriptionID);
+        alert("Bedankt! Je abonnement is gestart. Zodra de betaling is bevestigd, wordt je account automatisch aangemaakt en ontvang je een e-mail. ID: " + data.subscriptionID);
       }catch(e){
         alert("Abonnement gestart, maar opslaan in systeem mislukte. Neem contact op.");
       }
@@ -16869,10 +16894,11 @@ def _send_contact_email(form):
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
-    # Wachtwoord wordt server-side gehasht (pbkdf2) en de hash gaat mee in de mail.
-    # Zo weet jij het wachtwoord nooit, maar kun je het account direct aanmaken
-    # via /admin/users → "Aanmaken via wachtwoord-hash". De klant logt in met
-    # het wachtwoord dat ze zelf hebben ingevuld op het formulier.
+    # Wachtwoord wordt server-side gehasht (pbkdf2) en er wordt een pending_account
+    # opgeslagen. Als de klant via PayPal betaalt, wordt het account automatisch
+    # aangemaakt bij de BILLING.SUBSCRIPTION.ACTIVATED webhook. De hash wordt ook
+    # in deze mail meegestuurd zodat je handmatig kunt aanmaken als de klant níet
+    # via PayPal betaalt (bijv. factuur-per-e-mail).
     desired_pw = form.get("desired_password") or ""
     if desired_pw:
         pw_hash = generate_password_hash(desired_pw)
@@ -16882,15 +16908,20 @@ def _send_contact_email(form):
         )
         instructions = (
             "\n"
-            "==== Account aanmaken ====\n"
+            "==== Activatie ====\n"
+            "Als de klant via PayPal betaalt: account wordt AUTOMATISCH aangemaakt\n"
+            "zodra de ACTIVATED-webhook binnenkomt. Je hoeft niets te doen.\n"
+            "\n"
+            "Als je het account handmatig wilt aanmaken (bijv. voor testing of\n"
+            "factuur-per-e-mail):\n"
             "1. Log in op het admin-paneel (/admin/users)\n"
             "2. Klap open: \"Aanmaken via wachtwoord-hash (uit contactmail)\"\n"
             f"3. Vul in: e-mail = {form['login_email']}\n"
             "4. Plak de bovenstaande Wachtwoord-hash in het hash-veld\n"
             "5. Klik \"Aanmaken met hash\"\n"
             "\n"
-            "De klant kan direct inloggen met het wachtwoord dat ze zelf hebben\n"
-            "ingevuld op het contactformulier. Jij kent dat wachtwoord niet.\n"
+            "De klant kan in beide gevallen direct inloggen met het wachtwoord\n"
+            "dat hij zelf heeft ingevuld op het contactformulier.\n"
         )
     else:
         pw_block = "- Wachtwoord: (niet ingevuld)\n"
@@ -16981,6 +17012,35 @@ def contact():
         return s[:50] if s else ""
     company_slug = slugify_py(company)
 
+    # Pending account bewaren: hash het wachtwoord en sla aanvraag op.
+    # Bij succesvolle PayPal-activatie wordt deze rij gebruikt om een
+    # users-row aan te maken (auto-provisioning).
+    pw_hash = generate_password_hash(desired_pw)
+    plan_value_str = str(storage_tb_raw) if not is_more else "more"
+    tenant_slug_now = current_tenant()["slug"]
+    try:
+        conn = db()
+        try:
+            # Verwijder oude awaiting_payment aanvragen van hetzelfde e-mailadres
+            # in dezelfde tenant om duplicaten te voorkomen bij herhaald invullen.
+            conn.execute(
+                "DELETE FROM pending_accounts WHERE email = ? AND tenant_id = ? AND status = 'awaiting_payment'",
+                (login_email.lower(), tenant_slug_now)
+            )
+            conn.execute(
+                """INSERT INTO pending_accounts
+                   (email, password_hash, tenant_id, plan_value, company, phone, notes, status, created_at)
+                   VALUES(?, ?, ?, ?, ?, ?, ?, 'awaiting_payment', ?)""",
+                (login_email.lower(), pw_hash, tenant_slug_now, plan_value_str,
+                 company, phone, notes, datetime.now(timezone.utc).isoformat())
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("pending_account insert failed")
+        # Ga verder — we willen nog steeds de mail versturen als pending insert faalt.
+
     # E-mail naar beheerder
     try:
         if SMTP_HOST and SMTP_USER and SMTP_PASS:
@@ -17042,14 +17102,30 @@ def paypal_store_subscription():
     data = request.get_json(force=True, silent=True) or {}
     sub_id = (data.get("subscription_id") or "").strip()
     plan_value = (data.get("plan_value") or "").strip()
+    # Klant-email uit het contactformulier (om sub_id aan pending_account te koppelen)
+    login_email = (data.get("login_email") or "").strip().lower()
     if not sub_id or plan_value not in {"0.5","1","2","5"}:
         return jsonify(ok=False, error="invalid_input"), 400
     t = current_tenant()["slug"]
-    c = db()
-    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
-                 VALUES(?,?,?,?,?,?)""",
-              (AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat(), t))
-    c.commit(); c.close()
+
+    conn = db()
+    try:
+        # 1) Subscription bewaren (administratief; tenant-breed)
+        conn.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
+                     VALUES(?,?,?,?,?,?)""",
+                  (login_email or AUTH_EMAIL, plan_value, sub_id, "ACTIVE", datetime.now(timezone.utc).isoformat(), t))
+
+        # 2) Koppel sub_id aan pending_account zodat de webhook het account kan activeren.
+        if login_email and EMAIL_RE.match(login_email):
+            conn.execute(
+                """UPDATE pending_accounts
+                   SET paypal_subscription_id = ?, status = 'payment_started'
+                   WHERE email = ? AND tenant_id = ? AND status = 'awaiting_payment'""",
+                (sub_id, login_email, t)
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
     try:
         plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_value+" TB")
@@ -17057,8 +17133,10 @@ def paypal_store_subscription():
             "Er is zojuist een PayPal-abonnement gestart (via onApprove):\n\n"
             f"- Subscription ID: {sub_id}\n"
             f"- Plan: {plan_label}\n"
-            f"- Inlog-e-mail (klant in systeem): {AUTH_EMAIL}\n"
-            f"- Datum/tijd (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"- Klant-e-mail: {login_email or '(niet doorgegeven)'}\n"
+            f"- Datum/tijd (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            "Zodra PayPal de webhook BILLING.SUBSCRIPTION.ACTIVATED stuurt, wordt\n"
+            "het account automatisch aangemaakt en kan de klant inloggen.\n"
         )
         send_email(MAIL_TO, "Nieuwe PayPal-abonnement gestart", body)
     except Exception:
@@ -17066,6 +17144,60 @@ def paypal_store_subscription():
     return jsonify(ok=True)
 
 # -------------- PayPal Webhook --------------
+def _activate_pending_account_by_sub(sub_id: str):
+    """
+    Activeer een pending account o.b.v. subscription_id: maak een users-row aan
+    (als die nog niet bestaat) en markeer pending als 'activated'.
+
+    Returns: dict met 'email','tenant_id','created' of None als niet gevonden.
+    """
+    if not sub_id:
+        return None
+    conn = db()
+    try:
+        row = conn.execute(
+            """SELECT id, email, password_hash, tenant_id, plan_value, status
+               FROM pending_accounts
+               WHERE paypal_subscription_id = ?
+               LIMIT 1""",
+            (sub_id,)
+        ).fetchone()
+        if not row:
+            return None
+        if row["status"] == "activated":
+            # Al eerder geactiveerd (idempotent: PayPal kan webhooks re-sturen)
+            return {"email": row["email"], "tenant_id": row["tenant_id"], "created": False, "already": True}
+
+        email = (row["email"] or "").lower()
+        tenant = row["tenant_id"]
+        # Bestaat er al een users-row? (bijv. admin die handmatig al aanmaakte)
+        existing = conn.execute(
+            "SELECT id FROM users WHERE email = ? AND tenant_id = ?",
+            (email, tenant)
+        ).fetchone()
+        created = False
+        if not existing:
+            conn.execute(
+                """INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled)
+                   VALUES(?, ?, 0, ?, ?, 0)""",
+                (email, row["password_hash"], tenant, datetime.now(timezone.utc).isoformat())
+            )
+            created = True
+
+        conn.execute(
+            "UPDATE pending_accounts SET status = 'activated', activated_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), row["id"])
+        )
+        conn.commit()
+        return {"email": email, "tenant_id": tenant, "created": created, "already": False}
+    except Exception:
+        log.exception("activate_pending failed for sub=%s", sub_id)
+        try: conn.rollback()
+        except Exception: pass
+        return None
+    finally:
+        conn.close()
+
 def paypal_verify_webhook_sig(headers, body_text: str) -> bool:
     """Verifieer webhook via /v1/notifications/verify-webhook-signature"""
     if not PAYPAL_WEBHOOK_ID:
@@ -17124,22 +17256,69 @@ def paypal_webhook():
     try:
         if event_type == "BILLING.SUBSCRIPTION.ACTIVATED":
             status = (resource.get("status") or "ACTIVE").upper()
+            activation = None
             if sub_id:
                 c = db()
-                c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
-                             VALUES(?,?,?,?,?,?)""",
-                          (AUTH_EMAIL, plan_value or (plan_id or ""), sub_id, status, datetime.now(timezone.utc).isoformat(), current_tenant()["slug"]))
-                c.commit(); c.close()
+                try:
+                    # Kijk of er een pending_account aan deze sub_id gekoppeld is
+                    pending = c.execute(
+                        "SELECT tenant_id FROM pending_accounts WHERE paypal_subscription_id = ? LIMIT 1",
+                        (sub_id,)
+                    ).fetchone()
+                    pending_tenant = pending["tenant_id"] if pending else current_tenant()["slug"]
+                    c.execute("""INSERT OR REPLACE INTO subscriptions(login_email, plan_value, subscription_id, status, created_at, tenant_id)
+                                 VALUES(?,?,?,?,?,?)""",
+                              (AUTH_EMAIL, plan_value or (plan_id or ""), sub_id, status, datetime.now(timezone.utc).isoformat(), pending_tenant))
+                    c.commit()
+                finally:
+                    c.close()
+                # Probeer het pending account te activeren (maakt users-row aan)
+                activation = _activate_pending_account_by_sub(sub_id)
+
             try:
                 plan_label = {"0.5":"0,5 TB","1":"1 TB","2":"2 TB","5":"5 TB"}.get(plan_value, plan_id or "(onbekend plan)")
-                body = (
-                    "PayPal abonnement geactiveerd:\n\n"
-                    f"- Event: {event_type}\n"
-                    f"- Subscription ID: {sub_id or '-'}\n"
-                    f"- Plan: {plan_label}\n"
-                    f"- Datum/tijd (UTC): {now_utc}\n"
-                )
-                send_email(MAIL_TO, "PayPal: abonnement geactiveerd", body)
+                if activation and activation.get("created"):
+                    subject = "PayPal: abonnement + account geactiveerd"
+                    body = (
+                        "PayPal abonnement geactiveerd — account automatisch aangemaakt:\n\n"
+                        f"- Klant-e-mail: {activation['email']}\n"
+                        f"- Tenant: {activation['tenant_id']}\n"
+                        f"- Subscription ID: {sub_id or '-'}\n"
+                        f"- Plan: {plan_label}\n"
+                        f"- Datum/tijd (UTC): {now_utc}\n\n"
+                        "De klant kan direct inloggen met het wachtwoord dat hij op het\n"
+                        "contactformulier heeft ingevuld.\n"
+                    )
+                elif activation and activation.get("already"):
+                    subject = "PayPal: abonnement geactiveerd (herhaling)"
+                    body = (
+                        "PayPal-webhook ACTIVATED opnieuw ontvangen voor bestaand account.\n\n"
+                        f"- Klant-e-mail: {activation['email']}\n"
+                        f"- Subscription ID: {sub_id or '-'}\n"
+                        f"- Datum/tijd (UTC): {now_utc}\n"
+                    )
+                elif activation and not activation.get("created"):
+                    subject = "PayPal: abonnement geactiveerd (user bestond al)"
+                    body = (
+                        "PayPal abonnement geactiveerd. De users-row bestond al — geen nieuw account\n"
+                        "aangemaakt, maar de pending_account-status is bijgewerkt.\n\n"
+                        f"- Klant-e-mail: {activation['email']}\n"
+                        f"- Subscription ID: {sub_id or '-'}\n"
+                        f"- Plan: {plan_label}\n"
+                        f"- Datum/tijd (UTC): {now_utc}\n"
+                    )
+                else:
+                    subject = "PayPal: abonnement geactiveerd (geen pending gevonden)"
+                    body = (
+                        "PayPal abonnement geactiveerd, maar er is geen pending_account\n"
+                        "gekoppeld aan deze subscription_id. Maak het account handmatig aan\n"
+                        "via /admin/users.\n\n"
+                        f"- Event: {event_type}\n"
+                        f"- Subscription ID: {sub_id or '-'}\n"
+                        f"- Plan: {plan_label}\n"
+                        f"- Datum/tijd (UTC): {now_utc}\n"
+                    )
+                send_email(MAIL_TO, subject, body)
             except Exception:
                 log.exception("Webhook mail (activated) failed")
 
@@ -17321,6 +17500,40 @@ ADMIN_USERS_HTML = """
       {% endfor %}
     </tbody>
   </table>
+
+  {% if pending_accounts %}
+  <h2 style="margin-top:2rem">Aanvragen in behandeling</h2>
+  <p style="color:var(--muted);font-size:.9em">
+    Accounts die via het contactformulier zijn aangevraagd. Zodra de PayPal-betaling
+    binnenkomt (webhook <code>BILLING.SUBSCRIPTION.ACTIVATED</code>), wordt het account
+    automatisch aangemaakt en verschijnt het in de lijst hierboven.
+  </p>
+  <table class="table">
+    <thead><tr>
+      <th>E-mail</th><th>Bedrijf</th><th>Plan</th><th>Status</th><th>Aangevraagd</th><th>Sub ID</th>
+    </tr></thead>
+    <tbody>
+      {% for p in pending_accounts %}
+      <tr>
+        <td>{{ p.email }}</td>
+        <td>{{ p.company or '-' }}</td>
+        <td>{{ p.plan_value or '-' }}</td>
+        <td>
+          {% if p.status == 'awaiting_payment' %}
+            <span style="color:#92400e">Wacht op betaling</span>
+          {% elif p.status == 'payment_started' %}
+            <span style="color:#1e40af">Betaling gestart</span>
+          {% elif p.status == 'activated' %}
+            <span style="color:#166534">Geactiveerd</span>
+          {% else %}{{ p.status }}{% endif %}
+        </td>
+        <td style="font-size:.85em;color:var(--muted)">{{ p.created_at[:16] }}</td>
+        <td style="font-size:.75em;color:var(--muted)"><code>{{ p.paypal_subscription_id or '-' }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </div></div></body></html>
 """
 
@@ -17350,12 +17563,23 @@ def admin_users():
             "SELECT id, email, is_admin, disabled, created_at FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
             (me["tenant_id"],)
         ).fetchall()
+        # Toon pending accounts van laatste 30 dagen (afgehandeld en nog-open)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        pending_rows = conn.execute(
+            """SELECT email, company, plan_value, status, created_at, paypal_subscription_id
+               FROM pending_accounts
+               WHERE tenant_id = ? AND created_at >= ?
+               ORDER BY created_at DESC
+               LIMIT 100""",
+            (me["tenant_id"], cutoff)
+        ).fetchall()
     finally:
         conn.close()
     msg, err = _pop_flash()
     return render_template_string(
         ADMIN_USERS_HTML,
         users=[dict(r) for r in rows],
+        pending_accounts=[dict(r) for r in pending_rows],
         me=me["email"],
         my_id=me["id"],
         msg=msg, error=err,
