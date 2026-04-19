@@ -731,13 +731,14 @@ INDEX_HTML = """
 
     /* =============== Professioneel ontwerp =============== */
     :root{
-      --oh-bg: #f4f6fa;
-      --oh-surface: #ffffff;
-      --oh-surface-2: #f8fafc;
-      --oh-border: #e2e8f0;
-      --oh-border-strong: #cbd5e1;
+      /* Achtergrond-tinten worden nu overgelaten aan BASE_CSS (aurora).
+         Deze custom vars blijven voor de LOCALE component-styling. */
+      --oh-surface: rgba(255,255,255,.82);
+      --oh-surface-2: rgba(248,250,252,.70);
+      --oh-border: rgba(148,163,184,.35);
+      --oh-border-strong: rgba(148,163,184,.55);
       --oh-text: #0f172a;
-      --oh-muted: #64748b;
+      --oh-muted: #475569;
       --oh-brand: #0f3a6b;         /* navy — serieus, bouw-gevoel */
       --oh-brand-2: #1e5a9e;
       --oh-accent: #d97706;        /* warm oranje — bouw-accent, signaal-kleur */
@@ -746,33 +747,36 @@ INDEX_HTML = """
       --oh-danger: #dc2626;
       --oh-radius: 10px;
       --oh-radius-sm: 6px;
-      --oh-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
-      --oh-shadow-hover: 0 4px 12px rgba(15,23,42,.08), 0 16px 40px rgba(15,23,42,.06);
+      --oh-shadow: 0 1px 3px rgba(15,23,42,.06), 0 18px 40px rgba(15,23,42,.10);
+      --oh-shadow-hover: 0 4px 12px rgba(15,23,42,.12), 0 24px 48px rgba(15,23,42,.14);
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --oh-surface: rgba(17,24,39,.70);
+        --oh-surface-2: rgba(15,23,42,.55);
+        --oh-border: rgba(148,163,184,.22);
+        --oh-border-strong: rgba(148,163,184,.38);
+        --oh-text: #e5e7eb;
+        --oh-muted: #9aa3b2;
+        --oh-brand: #7db4ff;
+        --oh-brand-2: #4a7fff;
+        --oh-shadow: 0 1px 3px rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.45);
+      }
     }
 
     *, *::before, *::after { box-sizing: border-box; }
 
+    /* Body-achtergrond transparant laten zodat de aurora (van BASE_CSS .bg)
+       doorheen schijnt. Géén eigen body::before meer die de aurora verbergt. */
     html, body {
       min-height: 100%;
-      background: var(--oh-bg);
+      background: transparent;
       color: var(--oh-text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
       font-size: 15px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
       margin: 0;
-    }
-
-    /* subtiele achtergrond-textuur — bouw-gevoel zonder overdreven */
-    body::before{
-      content:"";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background-image:
-        radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
-        radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);
-      z-index: 0;
     }
 
     .oh-shell {
@@ -791,6 +795,8 @@ INDEX_HTML = """
       gap: 20px;
       padding: 14px 20px;
       background: var(--oh-surface);
+      backdrop-filter: blur(10px) saturate(1.05);
+      -webkit-backdrop-filter: blur(10px) saturate(1.05);
       border: 1px solid var(--oh-border);
       border-radius: var(--oh-radius);
       box-shadow: var(--oh-shadow);
@@ -1308,40 +1314,10 @@ INDEX_HTML = """
       margin: 0 6px;
     }
     .oh-footer a:hover { text-decoration: underline; }
-
-    /* Dark mode support (volg OS) */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --oh-bg: #0f172a;
-        --oh-surface: #1e293b;
-        --oh-surface-2: #0f172a;
-        --oh-border: #334155;
-        --oh-border-strong: #475569;
-        --oh-text: #f1f5f9;
-        --oh-muted: #94a3b8;
-        --oh-brand: #60a5fa;
-        --oh-brand-2: #3b82f6;
-      }
-      body::before {
-        background-image:
-          radial-gradient(circle at 20% 10%, rgba(217,119,6,.08), transparent 40%),
-          radial-gradient(circle at 80% 80%, rgba(96,165,250,.08), transparent 45%);
-      }
-      .oh-share {
-        background: linear-gradient(135deg, #0c2e4a, #0c3a3e);
-        border-color: #164e63;
-        color: #e0f2fe;
-      }
-      .oh-share-head { color: #7dd3fc; }
-      .oh-notice {
-        background: #422006;
-        border-color: #854d0e;
-        color: #fef3c7;
-      }
-    }
   </style>
 </head>
 <body>
+{{ bg|safe }}
 
 <div class="oh-shell">
 
@@ -1808,28 +1784,41 @@ PACKAGE_HTML = """
     {{ base_css }}
 
     :root{
-      --oh-bg:#f4f6fa; --oh-surface:#ffffff; --oh-surface-2:#f8fafc;
-      --oh-border:#e2e8f0; --oh-border-strong:#cbd5e1;
-      --oh-text:#0f172a; --oh-muted:#64748b;
+      /* Achtergrond-tinten worden nu overgelaten aan BASE_CSS (aurora).
+         Deze custom vars blijven voor de LOCALE component-styling. */
+      --oh-surface: rgba(255,255,255,.82); --oh-surface-2: rgba(248,250,252,.70);
+      --oh-border: rgba(148,163,184,.35); --oh-border-strong: rgba(148,163,184,.55);
+      --oh-text:#0f172a; --oh-muted:#475569;
       --oh-brand:#0f3a6b; --oh-brand-2:#1e5a9e;
       --oh-accent:#d97706; --oh-accent-2:#f59e0b;
       --oh-success:#16a34a; --oh-danger:#dc2626;
       --oh-radius:10px; --oh-radius-sm:6px;
-      --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
+      --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 18px 40px rgba(15,23,42,.10);
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --oh-surface: rgba(17,24,39,.70);
+        --oh-surface-2: rgba(15,23,42,.55);
+        --oh-border: rgba(148,163,184,.22);
+        --oh-border-strong: rgba(148,163,184,.38);
+        --oh-text:#e5e7eb; --oh-muted:#9aa3b2;
+        --oh-brand:#7db4ff; --oh-brand-2:#4a7fff;
+        --oh-shadow: 0 1px 3px rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.45);
+      }
     }
     *,*::before,*::after{box-sizing:border-box}
-    html,body{min-height:100%;background:var(--oh-bg);color:var(--oh-text);
+    /* Body-achtergrond transparant zodat de aurora (BASE_CSS .bg) doorheen schijnt. */
+    html,body{min-height:100%;background:transparent;color:var(--oh-text);
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
       font-size:15px;line-height:1.5;margin:0;-webkit-font-smoothing:antialiased}
-    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
-      background-image:
-        radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
-        radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);}
     .oh-shell{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:28px 22px 60px}
 
     /* Top bar */
     .oh-topbar{display:flex;justify-content:space-between;align-items:center;gap:20px;
-      padding:14px 20px;background:var(--oh-surface);border:1px solid var(--oh-border);
+      padding:14px 20px;background:var(--oh-surface);
+      backdrop-filter:blur(10px) saturate(1.05);
+      -webkit-backdrop-filter:blur(10px) saturate(1.05);
+      border:1px solid var(--oh-border);
       border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);margin-bottom:22px;flex-wrap:wrap}
     .oh-brand{display:flex;align-items:center;gap:12px}
     .oh-brand-mark{width:38px;height:38px;border-radius:8px;
@@ -1848,7 +1837,10 @@ PACKAGE_HTML = """
     @media (max-width:880px){.oh-deck{grid-template-columns:1fr}}
 
     /* Card */
-    .oh-card{background:var(--oh-surface);border:1px solid var(--oh-border);
+    .oh-card{background:var(--oh-surface);
+      backdrop-filter:blur(10px) saturate(1.05);
+      -webkit-backdrop-filter:blur(10px) saturate(1.05);
+      border:1px solid var(--oh-border);
       border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);overflow:hidden}
     .oh-card-head{padding:18px 22px;border-bottom:1px solid var(--oh-border);
       display:flex;justify-content:space-between;align-items:center;gap:16px;
@@ -1949,24 +1941,10 @@ PACKAGE_HTML = """
       .oh-file .action{grid-column:1/-1;justify-self:end}
       .pkg-info{gap:12px 20px}
     }
-
-    /* Dark mode support */
-    @media (prefers-color-scheme: dark){
-      :root{
-        --oh-bg:#0f172a;
-        --oh-surface:#1e293b;
-        --oh-surface-2:#0f172a;
-        --oh-border:#334155;
-        --oh-border-strong:#475569;
-        --oh-text:#f1f5f9;
-        --oh-muted:#94a3b8;
-        --oh-brand:#60a5fa;
-        --oh-brand-2:#3b82f6;
-      }
-    }
   </style>
 </head>
 <body>
+{{ bg|safe }}
 
 <div class="oh-shell">
 
@@ -17735,26 +17713,35 @@ MY_UPLOADS_HTML = """
 <style>
 {{ base_css }}
 :root{
-  --oh-bg:#f4f6fa; --oh-surface:#fff; --oh-surface-2:#f8fafc;
-  --oh-border:#e2e8f0; --oh-border-strong:#cbd5e1;
-  --oh-text:#0f172a; --oh-muted:#64748b;
+  --oh-surface:rgba(255,255,255,.82); --oh-surface-2:rgba(248,250,252,.70);
+  --oh-border:rgba(148,163,184,.35); --oh-border-strong:rgba(148,163,184,.55);
+  --oh-text:#0f172a; --oh-muted:#475569;
   --oh-brand:#0f3a6b; --oh-brand-2:#1e5a9e;
   --oh-accent:#d97706; --oh-success:#16a34a; --oh-danger:#dc2626;
   --oh-radius:10px; --oh-radius-sm:6px;
-  --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
+  --oh-shadow:0 1px 3px rgba(15,23,42,.06), 0 18px 40px rgba(15,23,42,.10);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --oh-surface:rgba(17,24,39,.70); --oh-surface-2:rgba(15,23,42,.55);
+    --oh-border:rgba(148,163,184,.22); --oh-border-strong:rgba(148,163,184,.38);
+    --oh-text:#e5e7eb; --oh-muted:#9aa3b2;
+    --oh-brand:#7db4ff; --oh-brand-2:#4a7fff;
+    --oh-shadow:0 1px 3px rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.45);
+  }
 }
 *,*::before,*::after{box-sizing:border-box}
-html,body{min-height:100%;background:var(--oh-bg);color:var(--oh-text);
+/* Body-achtergrond transparant zodat de aurora (BASE_CSS .bg) doorheen schijnt. */
+html,body{min-height:100%;background:transparent;color:var(--oh-text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
   font-size:15px;line-height:1.5;margin:0}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
-  background-image:
-    radial-gradient(circle at 20% 10%, rgba(217,119,6,.04), transparent 40%),
-    radial-gradient(circle at 80% 80%, rgba(15,58,107,.05), transparent 45%);}
 .oh-shell{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:28px 22px 60px}
 
 .oh-topbar{display:flex;justify-content:space-between;align-items:center;gap:20px;
-  padding:14px 20px;background:var(--oh-surface);border:1px solid var(--oh-border);
+  padding:14px 20px;background:var(--oh-surface);
+  backdrop-filter:blur(10px) saturate(1.05);
+  -webkit-backdrop-filter:blur(10px) saturate(1.05);
+  border:1px solid var(--oh-border);
   border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);margin-bottom:22px;flex-wrap:wrap}
 .oh-brand{display:flex;align-items:center;gap:12px}
 .oh-brand-mark{width:38px;height:38px;border-radius:8px;
@@ -17768,7 +17755,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .oh-userbar a{color:var(--oh-brand-2);text-decoration:none;padding:6px 10px;border-radius:var(--oh-radius-sm)}
 .oh-userbar a:hover{background:var(--oh-surface-2)}
 
-.oh-card{background:var(--oh-surface);border:1px solid var(--oh-border);
+.oh-card{background:var(--oh-surface);
+  backdrop-filter:blur(10px) saturate(1.05);
+  -webkit-backdrop-filter:blur(10px) saturate(1.05);
+  border:1px solid var(--oh-border);
   border-radius:var(--oh-radius);box-shadow:var(--oh-shadow);overflow:hidden}
 .oh-card-head{padding:18px 22px;border-bottom:1px solid var(--oh-border);
   display:flex;justify-content:space-between;align-items:center;gap:16px;
@@ -17845,6 +17835,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   letter-spacing:.05em;font-weight:600}
 .oh-summary .v{font-size:18px;font-weight:700;color:var(--oh-text);font-variant-numeric:tabular-nums}
 </style></head><body>
+{{ bg|safe }}
 
 <div class="oh-shell">
   <header class="oh-topbar">
@@ -18064,7 +18055,7 @@ def my_uploads():
         is_admin=bool(me["is_admin"]),
         user=me["email"],
         flash_msg=msg, flash_err=err,
-        base_css=BASE_CSS, head_icon=HTML_HEAD_ICON
+        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
 
 @app.route("/uploads/<token>/delete", methods=["POST"])
