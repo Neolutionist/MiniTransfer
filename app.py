@@ -572,6 +572,96 @@ input[type=file]::file-selector-button{
 .btn:active{transform:translateY(1px)}
 .btn.secondary{background:linear-gradient(180deg, var(--brand-2), color-mix(in oklab, var(--brand-2) 85%, black 15%))}
 
+/* ======= Verfijnde knop-variant (stijl uit header, voor lichte kaarten) ======= */
+/* Wordt gebruikt op admin-, foutpagina's en contactformulier, zodat de login-knop (.btn) ongemoeid blijft. */
+.btn-pro{
+  display:inline-flex; align-items:center; justify-content:center;
+  gap:.4rem;
+  padding:.6rem 1rem;
+  font-size:.9rem; font-weight:600; line-height:1;
+  color:var(--text);
+  background:color-mix(in oklab, var(--surface) 88%, var(--brand) 12%);
+  border:1px solid color-mix(in oklab, var(--line) 70%, var(--brand) 30%);
+  border-radius:10px;
+  text-decoration:none !important;
+  cursor:pointer;
+  box-shadow:0 1px 2px rgba(15,23,42,.06), 0 2px 6px rgba(15,23,42,.04);
+  transition:background .15s, border-color .15s, box-shadow .15s, transform .02s, color .15s;
+  appearance:none;
+  -webkit-appearance:none;
+}
+.btn-pro:hover{
+  background:color-mix(in oklab, var(--surface) 75%, var(--brand) 25%);
+  border-color:color-mix(in oklab, var(--line) 40%, var(--brand) 60%);
+  color:var(--brand);
+  text-decoration:none !important;
+  box-shadow:0 2px 4px rgba(15,23,42,.08), 0 4px 12px rgba(15,76,152,.12);
+}
+.btn-pro:active{ transform:translateY(1px); }
+.btn-pro:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--ring) 35%, transparent);
+}
+
+/* Primaire variant: gevuld, voor accent-acties (bv. "Aanmaken") */
+.btn-pro.primary{
+  color:#fff;
+  background:linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand) 88%, black 12%));
+  border-color:color-mix(in oklab, var(--brand) 80%, black 20%);
+  box-shadow:0 1px 2px rgba(15,76,152,.25), 0 2px 8px rgba(15,76,152,.18);
+}
+.btn-pro.primary:hover{
+  color:#fff;
+  background:linear-gradient(180deg, color-mix(in oklab, var(--brand) 92%, white 8%), var(--brand));
+  border-color:color-mix(in oklab, var(--brand) 70%, black 30%);
+  box-shadow:0 2px 4px rgba(15,76,152,.28), 0 6px 16px rgba(15,76,152,.22);
+}
+
+/* Secundair (subtiel): identiek aan basis .btn-pro, expliciete class voor leesbaarheid */
+.btn-pro.secondary{
+  color:var(--text);
+  background:color-mix(in oklab, var(--surface) 92%, var(--brand) 8%);
+  border-color:var(--line);
+}
+.btn-pro.secondary:hover{
+  background:color-mix(in oklab, var(--surface) 80%, var(--brand) 20%);
+  color:var(--brand);
+  border-color:color-mix(in oklab, var(--line) 50%, var(--brand) 50%);
+}
+
+/* Gevaar-variant: voor "Verwijderen" */
+.btn-pro.danger{
+  color:#b91c1c;
+  background:color-mix(in oklab, var(--surface) 92%, #ef4444 8%);
+  border-color:color-mix(in oklab, var(--line) 55%, #ef4444 45%);
+}
+.btn-pro.danger:hover{
+  color:#fff;
+  background:linear-gradient(180deg, #ef4444, #b91c1c);
+  border-color:#991b1b;
+  box-shadow:0 2px 4px rgba(185,28,28,.25), 0 6px 16px rgba(185,28,28,.18);
+}
+
+/* Kleine variant voor dichtbevolkte toolbars */
+.btn-pro.sm{ padding:.45rem .75rem; font-size:.82rem; }
+
+/* Dark mode: iets transparanter zodat het past op glas-kaarten */
+@media (prefers-color-scheme: dark){
+  .btn-pro{
+    color:var(--text);
+    background:color-mix(in oklab, var(--surface-2) 70%, var(--brand) 15%);
+    border-color:color-mix(in oklab, var(--line) 60%, var(--brand) 40%);
+  }
+  .btn-pro:hover{
+    background:color-mix(in oklab, var(--surface-2) 55%, var(--brand) 30%);
+    color:#fff;
+  }
+  .btn-pro.secondary{
+    background:color-mix(in oklab, var(--surface-2) 80%, var(--brand) 10%);
+    border-color:var(--line);
+  }
+}
+
 /* Progress */
 .progress{
   height:14px;background:color-mix(in oklab, var(--surface-2) 85%, white 15%);
@@ -2410,7 +2500,7 @@ CONTACT_HTML = r"""
 
     <div class="divider"></div>
 
-    <button class="btn" type="submit">Verstuur aanvraag</button>
+    <button class="btn-pro primary" type="submit">Verstuur aanvraag</button>
 
     <span class="small notice">
       Door te versturen ga je akkoord met de
@@ -2601,7 +2691,7 @@ CONTACT_MAIL_FALLBACK_HTML = """
 <div class="wrap"><div class="card">
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
-  <a class="btn" href="{{ mailto_link }}">Open e-mail</a>
+  <a class="btn-pro primary" href="{{ mailto_link }}">Open e-mail</a>
   <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
 </body></html>
@@ -17495,8 +17585,8 @@ ADMIN_USERS_HTML = """
   <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
     <h1 style="color:var(--brand);margin:0">Gebruikersbeheer</h1>
     <div>
-      <a class="btn secondary" href="/">← Terug</a>
-      <a class="btn secondary" href="/logout">Uitloggen</a>
+      <a class="btn-pro secondary" href="/">← Terug</a>
+      <a class="btn-pro secondary" href="/logout">Uitloggen</a>
     </div>
   </div>
   <p style="color:var(--muted)">Ingelogd als <strong>{{ me }}</strong> (admin)</p>
@@ -17512,7 +17602,7 @@ ADMIN_USERS_HTML = """
     <div><label for="new_pw">Tijdelijk wachtwoord</label>
       <input id="new_pw" class="input" type="text" name="password" minlength="8" required
              placeholder="min. 8 tekens"></div>
-    <div><button class="btn" type="submit">Aanmaken</button></div>
+    <div><button class="btn-pro primary" type="submit">Aanmaken</button></div>
     <div style="grid-column:1/-1;display:flex;gap:1rem;align-items:center">
       <label style="display:flex;gap:.4rem;align-items:center">
         <input type="checkbox" name="is_admin" value="1"> Maak admin
@@ -17537,7 +17627,7 @@ ADMIN_USERS_HTML = """
       <div><label for="hash_pw">Wachtwoord-hash</label>
         <input id="hash_pw" class="input" type="text" name="password_hash" required
                placeholder="pbkdf2:sha256:..."></div>
-      <div><button class="btn" type="submit">Aanmaken met hash</button></div>
+      <div><button class="btn-pro primary" type="submit">Aanmaken met hash</button></div>
       <div style="grid-column:1/-1">
         <label style="display:flex;gap:.4rem;align-items:center">
           <input type="checkbox" name="is_admin" value="1"> Maak admin
@@ -17562,18 +17652,18 @@ ADMIN_USERS_HTML = """
           {% if u.id != my_id %}
           <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn secondary" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
+            <button class="btn-pro secondary sm" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/reset" style="display:inline;margin-left:.3rem">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <input type="text" name="password" minlength="8" placeholder="nieuw pw" required
                    style="padding:.35rem .5rem;border:1px solid var(--line);border-radius:8px;width:140px">
-            <button class="btn secondary" type="submit">Reset PW</button>
+            <button class="btn-pro secondary sm" type="submit">Reset PW</button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;margin-left:.3rem"
                 onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn secondary" type="submit" style="background:#b91c1c">Verwijderen</button>
+            <button class="btn-pro danger sm" type="submit">Verwijderen</button>
           </form>
           {% else %}
           <em style="color:var(--muted)">eigen account</em>
@@ -18627,7 +18717,7 @@ def my_uploads_extend(token):
 def handle_400(err):
     if request.path.startswith(("/package-init", "/put-", "/mpu-", "/billing/", "/internal/", "/webhook/")):
         return jsonify(ok=False, error="bad_request"), 400
-    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>400</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>400</h1><p>Het verzoek kon niet worden verwerkt.</p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 400
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>400</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>400</h1><p>Het verzoek kon niet worden verwerkt.</p><p><a class="btn-pro primary" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 400
 
 @app.errorhandler(401)
 def handle_401(err):
@@ -18637,7 +18727,7 @@ def handle_401(err):
 
 @app.errorhandler(404)
 def handle_404(err):
-    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>404</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>404</h1><p>Deze pagina of download bestaat niet (meer).</p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 404
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>404</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>404</h1><p>Deze pagina of download bestaat niet (meer).</p><p><a class="btn-pro primary" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON), 404
 
 @app.errorhandler(413)
 def handle_413(err):
@@ -18648,7 +18738,7 @@ def handle_500(err):
     log.exception("Unhandled server error", exc_info=err)
     if request.path.startswith(("/package-init", "/put-", "/mpu-", "/billing/", "/internal/", "/webhook/")):
         return jsonify(ok=False, error="server_error", request_id=getattr(g, "request_id", None)), 500
-    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>500</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>500</h1><p>Er ging iets mis op de server.</p><p>Referentie: <code>{{ request_id }}</code></p><p><a class="btn" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, request_id=getattr(g, "request_id", "-")), 500
+    return render_template_string("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{{ head_icon|safe }}<title>500</title><style>{{ base_css|safe }}</style></head><body>{{ bg|safe }}<div class="shell"><div class="card"><h1>500</h1><p>Er ging iets mis op de server.</p><p>Referentie: <code>{{ request_id }}</code></p><p><a class="btn-pro primary" href="/">Terug naar home</a></p></div></div></body></html>""", base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON, request_id=getattr(g, "request_id", "-")), 500
 
 # =============================
 # ONLINE LEADERBOARD API
