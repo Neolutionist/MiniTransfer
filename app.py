@@ -17899,6 +17899,19 @@ html,body{min-height:100%;background:transparent;color:var(--oh-text);
 .oh-badge.exp{background:#fee2e2;color:#991b1b}
 .oh-badge.pw{background:#e0e7ff;color:#3730a3}
 
+/* NIEUW */
+.oh-download-pill{
+  display:inline-block;
+  min-width:36px;
+  text-align:center;
+  padding:4px 8px;
+  border-radius:999px;
+  background:var(--oh-surface-2);
+  border:1px solid var(--oh-border);
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
+
 .oh-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
 /* Mobile: stack rows as cards */
@@ -18014,7 +18027,9 @@ html,body{min-height:100%;background:transparent;color:var(--oh-text);
               {% endif %}
               {% if p.has_password %}<span class="oh-badge pw">PW</span>{% endif %}
             </td>
-            <td data-label="Downloads">{{ p.download_count }}</td>
+            <td data-label="Downloads">
+            <span class="oh-download-pill">{{ p.download_count }}</span>
+            </td>
             <td data-label="Laatst gedownload">{{ p.last_download_at }}</td>
             <td data-label="Acties">
               <div class="oh-actions">
