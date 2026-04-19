@@ -16025,16 +16025,21 @@ def apply_default_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    # Content Security Policy: strict-ish maar ruimte voor PayPal SDK en inline styles/scripts
-    # die door deze app worden gebruikt. Pas aan als je externe hosts toevoegt.
+    # Content Security Policy: strict-ish maar ruimte voor PayPal SDK, Three.js
+    # (voor het arcade-spel op de EXPIRED_HTML pagina), en inline styles/scripts.
+    # Pas aan als je externe hosts toevoegt.
     resp.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
         "img-src 'self' data:; "
         "style-src 'self' 'unsafe-inline'; "
-        "script-src 'self' 'unsafe-inline' https://www.paypal.com https://www.paypalobjects.com; "
+        "script-src 'self' 'unsafe-inline' "
+            "https://www.paypal.com https://www.paypalobjects.com "
+            "https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         "frame-src 'self' https://www.paypal.com; "
-        "connect-src 'self' https://*.paypal.com https://*.backblazeb2.com https://*.s3.eu-central-003.backblazeb2.com"
+        "connect-src 'self' https://*.paypal.com "
+            "https://*.backblazeb2.com https://*.s3.eu-central-003.backblazeb2.com; "
+        "worker-src 'self' blob:"
     )
     if request.path.startswith(("/login", "/logout")):
         resp.headers.setdefault("Cache-Control", "no-store")
