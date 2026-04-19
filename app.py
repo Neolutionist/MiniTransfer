@@ -341,8 +341,19 @@ def migrate_add_tenant_columns():
 migrate_add_tenant_columns()
 
 def migrate_add_owner_columns():
+    """Voeg owner_user_id toe aan packages (per-user scoping)."""
+    conn = db()
+    try:
+        if not _col_exists(conn, "packages", "owner_user_id"):
+            conn.execute("ALTER TABLE packages ADD COLUMN owner_user_id INTEGER")
+        conn.commit()
+    finally:
+        conn.close()
 
-    def migrate_add_download_analytics():
+migrate_add_owner_columns()
+
+
+def migrate_add_download_analytics():
     conn = db()
     try:
         conn.execute("""
@@ -365,17 +376,6 @@ def migrate_add_owner_columns():
         conn.close()
 
 migrate_add_download_analytics()
-
-    """Voeg owner_user_id toe aan packages (per-user scoping)."""
-    conn = db()
-    try:
-        if not _col_exists(conn, "packages", "owner_user_id"):
-            conn.execute("ALTER TABLE packages ADD COLUMN owner_user_id INTEGER")
-        conn.commit()
-    finally:
-        conn.close()
-
-migrate_add_owner_columns()
 
 def seed_admin_from_env():
     """
