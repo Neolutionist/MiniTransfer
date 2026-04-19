@@ -4635,6 +4635,12 @@ function updateMusic(){
 
   const raycaster = new THREE.Raycaster();
 
+  // Reusable temp vectors — voorkomt dat we duizenden Vector3's per frame maken
+  // (grootste oorzaak van GC-haperingen tijdens schieten)
+  const _tmpA = new THREE.Vector3();
+  const _tmpB = new THREE.Vector3();
+  const _tmpC = new THREE.Vector3();
+
   const player = {
     pos: new THREE.Vector3(0,1.7,0),
     radius: 0.7,
@@ -6605,11 +6611,15 @@ function updateBullets(dt){
     const e = state.enemies[i];
     if(!e?.mesh) continue;
 
-    const hitPos = e.mesh.position.clone();
-    hitPos.y = 1.7;
-    const d = hitPos.distanceTo(position);
+    const ePos = e.mesh.position;
+    const dx = ePos.x - position.x;
+    const dy = 1.7 - position.y;
+    const dz = ePos.z - position.z;
+    const distSq = dx*dx + dy*dy + dz*dz;
+    const radiusSq = radius * radius;
 
-    if(d < radius){
+    if(distSq < radiusSq){
+      const d = Math.sqrt(distSq); // alleen sqrt als hit
       if(!Number.isFinite(e.hp)){
         e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
       }
@@ -6627,11 +6637,15 @@ function updateBullets(dt){
   }
 
   if(state.boss){
-    const bp = state.boss.mesh.position.clone();
-    bp.y = 2.2;
-    const d = bp.distanceTo(position);
+    const bPos = state.boss.mesh.position;
+    const dx = bPos.x - position.x;
+    const dy = 2.2 - position.y;
+    const dz = bPos.z - position.z;
+    const distSq = dx*dx + dy*dy + dz*dz;
+    const radiusSq = radius * radius;
 
-    if(d < radius){
+    if(distSq < radiusSq){
+      const d = Math.sqrt(distSq);
       state.boss.hp -= damage * (1 - d / radius);
       updateBossBar();
       if(state.boss.hp <= 0){
@@ -6737,23 +6751,32 @@ if(b.gravity){
 
     // normale enemies
     if(!remove){
+      const bPos = b.mesh.position;
       for(let j = state.enemies.length - 1; j >= 0; j--){
         const e = state.enemies[j];
         if(!e?.mesh) continue;
 
-        const hitPos = e.mesh.position.clone();
-        hitPos.y = e.isBoss ? 2.5 : 1.9;
-
+        const ePos = e.mesh.position;
+        const hitY = e.isBoss ? 2.5 : 1.9;
         const radius = Math.max(
           0.35,
           Number.isFinite(e.radius) ? e.radius : 1
         );
+        const radiusSq = radius * radius;
 
-        if(b.mesh.position.distanceTo(hitPos) < radius){
+        // Squared distance check — vermijdt sqrt en vector allocaties
+        const dx = bPos.x - ePos.x;
+        const dy = bPos.y - hitY;
+        const dz = bPos.z - ePos.z;
+        const distSq = dx*dx + dy*dy + dz*dz;
+
+        if(distSq < radiusSq){
           if(isExplosiveBullet(b)){
             explodeProjectile(b);
           } else {
-            hitNormalEnemy(e, b.damage, b.mesh.position);
+            // Enige clone: voor burst-effect op hit positie
+            _tmpA.copy(bPos);
+            hitNormalEnemy(e, b.damage, _tmpA);
           }
           remove = true;
           break;
@@ -6763,19 +6786,25 @@ if(b.gravity){
 
     // boss
     if(!remove && state.boss?.mesh){
-      const bossHitPos = state.boss.mesh.position.clone();
-      bossHitPos.y = 2.5;
-
+      const bPos = b.mesh.position;
+      const bossPos = state.boss.mesh.position;
       const bossRadius = Math.max(
         0.8,
         Number.isFinite(state.boss.radius) ? state.boss.radius : 2
       );
+      const bossRadiusSq = bossRadius * bossRadius;
 
-      if(b.mesh.position.distanceTo(bossHitPos) < bossRadius){
+      const dx = bPos.x - bossPos.x;
+      const dy = bPos.y - 2.5;
+      const dz = bPos.z - bossPos.z;
+      const distSq = dx*dx + dy*dy + dz*dz;
+
+      if(distSq < bossRadiusSq){
         if(isExplosiveBullet(b)){
           explodeProjectile(b);
         } else {
-          hitBoss(b.damage, b.mesh.position);
+          _tmpB.copy(bPos);
+          hitBoss(b.damage, _tmpB);
         }
         remove = true;
       }
@@ -6803,10 +6832,14 @@ if(b.gravity){
     }
 
     if(!remove){
-      const playerHit = new THREE.Vector3(player.pos.x, 1.45, player.pos.z);
-      if(b.mesh.position.distanceTo(playerHit) < PLAYER_HIT_RADIUS){
+      const bPos = b.mesh.position;
+      const dx = bPos.x - player.pos.x;
+      const dy = bPos.y - 1.45;
+      const dz = bPos.z - player.pos.z;
+      const distSq = dx*dx + dy*dy + dz*dz;
+      if(distSq < PLAYER_HIT_RADIUS * PLAYER_HIT_RADIUS){
         applyDamage(b.damage);
-        createBurst(b.mesh.position, 0xff6ea1, 7, 2.8);
+        createBurst(bPos, 0xff6ea1, 7, 2.8);
         remove = true;
       }
     }
