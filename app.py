@@ -5524,7 +5524,7 @@ function spawnEnemy(isBoss=false){
     state.boss = enemy;
     ui.bossBarWrap.classList.add("show");
     showFloating("BOSS INBOUND", "boss");
-    createShockwave(mesh.position.clone(), 0xff6ea1, 4.8);
+    createShockwave(mesh.position, 0xff6ea1, 4.8);
     sfxBoss();
   } else {
     if(type === "elite") showFloating("Elite trooper incoming");
@@ -5565,7 +5565,7 @@ function spawnWave(){
 
   showFloating(waveLabel);
 
-  createShockwave(player.pos.clone(), bossWave ? 0xff6ea1 : 0x00f7ff);
+  createShockwave(player.pos, bossWave ? 0xff6ea1 : 0x00f7ff);
 
   for(let batch = 0; batch < batchCount; batch++){
     const delay = batch * (wave >= 12 ? 480 : wave >= 8 ? 620 : 900);
@@ -5589,7 +5589,7 @@ function spawnWave(){
       if(!state.running || !player.alive || state.boss || state.waveSpawnToken !== spawnToken) return;
 
       showFloating(wave >= 12 ? "ENRAGED BOSS INBOUND" : "BOSS INBOUND");
-      createShockwave(player.pos.clone(), 0xff2e88);
+      createShockwave(player.pos, 0xff2e88);
       spawnEnemy(true);
 
       if(wave >= 12){
@@ -6056,11 +6056,11 @@ function shootWithDirection(dirOverride=null){
 }
 
   function enemyShoot(enemy){
-    const start = enemy.mesh.position.clone();
-    start.y = enemy.isBoss ? 2.9 : 2.05;
-    const target = player.pos.clone();
-    target.y = 1.45;
-    const dir = target.sub(start).normalize();
+    const ePos = enemy.mesh.position;
+    const startY = enemy.isBoss ? 2.9 : 2.05;
+    // Direction: from start to player head (y=1.45), computed inline into _tmpA
+    _tmpA.set(player.pos.x - ePos.x, 1.45 - startY, player.pos.z - ePos.z).normalize();
+    const dirX = _tmpA.x, dirY = _tmpA.y, dirZ = _tmpA.z;
     const wave = player.wave || 1;
     const waveScale = waveRamp(wave);
     const bossScale = bossPressure(wave);
@@ -6083,13 +6083,17 @@ function shootWithDirection(dirOverride=null){
     const burstCount = enemy.isBoss
       ? (wave >= 15 ? 4 : wave >= 9 ? 3 : 2)
       : (enemy.type === "runner" ? 1 : enemy.type === "elite" ? (wave >= 10 ? 3 : 2) : enemy.type === "tank" && wave >= 12 ? 2 : 1);
+    const spread = enemy.isBoss ? 0.04 : 0.025;
     for(let i=0;i<burstCount;i++){
-      const shotDir = dir.clone();
-      shotDir.x += (Math.random()-0.5) * (enemy.isBoss ? 0.04 : 0.025);
-      shotDir.y += (Math.random()-0.5) * 0.02;
-      shotDir.z += (Math.random()-0.5) * (enemy.isBoss ? 0.04 : 0.025);
-      shotDir.normalize();
-      state.enemyBullets.push(createProjectile(start.clone(), shotDir, {
+      // shotDir as new Vector3 (createProjectile keeps a ref, we can't reuse)
+      const shotDir = new THREE.Vector3(
+        dirX + (Math.random()-0.5) * spread,
+        dirY + (Math.random()-0.5) * 0.02,
+        dirZ + (Math.random()-0.5) * spread
+      ).normalize();
+      // start: new Vector3 per projectile (projectile owns its position)
+      const start = new THREE.Vector3(ePos.x, startY, ePos.z);
+      state.enemyBullets.push(createProjectile(start, shotDir, {
         speed,
         friendly:false,
         color,
@@ -6182,7 +6186,7 @@ function shootWithDirection(dirOverride=null){
     aura.position.y = 0.03;
     scene.add(aura);
     state.hazards.push({ kind:"mine", mesh:group, aura, life:20, radius:5.8, triggerRadius:2.7, damage:58, pulse:0, tick:0 });
-    createShockwave(group.position.clone(), 0x8bf0ff, 1.6);
+    createShockwave(group.position, 0x8bf0ff, 1.6);
     flashHint("Shock Mine geplaatst");
     setStat();
   }
@@ -6254,7 +6258,7 @@ function shootWithDirection(dirOverride=null){
   }
 
   state.cameraShake = Math.min(1.6, state.cameraShake + 0.25);
-  createShockwave(player.pos.clone(), 0x8bf0ff, 1.6);
+  createShockwave(player.pos, 0x8bf0ff, 1.6);
   setStat();
 }
 
@@ -6451,26 +6455,30 @@ function shootWithDirection(dirOverride=null){
 
 function findPlasmaTarget(plasma){
   let best = null;
-  let bestDist = plasma.homingRange || 24;
+  let bestDistSq = (plasma.homingRange || 24) * (plasma.homingRange || 24);
+  const pPos = plasma.mesh.position;
 
   for(const e of state.enemies){
     if(!e?.mesh) continue;
-
-    const hitPos = e.mesh.position.clone();
-    hitPos.y = e.isBoss ? 2.5 : 1.9;
-
-    const d = plasma.mesh.position.distanceTo(hitPos);
-    if(d < bestDist){
-      bestDist = d;
+    const ePos = e.mesh.position;
+    const hitY = e.isBoss ? 2.5 : 1.9;
+    const dx = pPos.x - ePos.x;
+    const dy = pPos.y - hitY;
+    const dz = pPos.z - ePos.z;
+    const distSq = dx*dx + dy*dy + dz*dz;
+    if(distSq < bestDistSq){
+      bestDistSq = distSq;
       best = e;
     }
   }
 
   if(state.boss?.mesh){
-    const bossHitPos = state.boss.mesh.position.clone();
-    bossHitPos.y = 2.5;
-    const d = plasma.mesh.position.distanceTo(bossHitPos);
-    if(d < bestDist){
+    const bPos = state.boss.mesh.position;
+    const dx = pPos.x - bPos.x;
+    const dy = pPos.y - 2.5;
+    const dz = pPos.z - bPos.z;
+    const distSq = dx*dx + dy*dy + dz*dz;
+    if(distSq < bestDistSq){
       best = state.boss;
     }
   }
@@ -6542,13 +6550,13 @@ function updateBullets(dt){
     state.nextWaveQueued = false;
 
     const epicenter = moon.position.clone();
-    createFlash?.(epicenter.clone(), 0xdbe9ff, 4.8, 26, 0.34);
-    createShockwave?.(epicenter.clone(), 0xc8dcff, 8.6);
-    createShockwave?.(player.pos.clone(), 0xc8dcff, 5.8);
-    createBurst?.(epicenter.clone(), 0xe7f1ff, 20, 5.8, { minLife:.16, maxLife:.34, minSize:.10, maxSize:.22 });
+    createFlash?.(epicenter, 0xdbe9ff, 4.8, 26, 0.34);
+    createShockwave?.(epicenter, 0xc8dcff, 8.6);
+    createShockwave?.(player.pos, 0xc8dcff, 5.8);
+    createBurst?.(epicenter, 0xe7f1ff, 20, 5.8, { minLife:.16, maxLife:.34, minSize:.10, maxSize:.22 });
 
     if(hitPosition){
-      createBurst?.(hitPosition.clone(), 0xffd8b0, 14, 3.8, { minLife:.12, maxLife:.24, minSize:.05, maxSize:.12 });
+      createBurst?.(hitPosition, 0xffd8b0, 14, 3.8, { minLife:.12, maxLife:.24, minSize:.05, maxSize:.12 });
     }
 
     const allEnemies = state.enemies.slice();
@@ -6709,17 +6717,18 @@ function updateBullets(dt){
   }
 
   if(b.target?.mesh){
-    const targetPos = b.target.mesh.position.clone();
-    targetPos.y = b.target.isBoss ? 2.5 : 1.9;
-
-    const desired = targetPos.sub(b.mesh.position).normalize();
-    const current = b.vel.clone().normalize();
-
-    const steer = Math.min(1, (b.homingTurnRate || 10) * dt * 0.35);
-    current.lerp(desired, steer).normalize();
-
+    const tgtPos = b.target.mesh.position;
+    const bPos = b.mesh.position;
+    // Compute desired direction inline into _tmpA
+    _tmpA.set(tgtPos.x - bPos.x, (b.target.isBoss ? 2.5 : 1.9) - bPos.y, tgtPos.z - bPos.z).normalize();
+    // Current velocity direction into _tmpB
     const speed = b.vel.length();
-    b.vel.copy(current.multiplyScalar(speed));
+    if(speed > 0.0001){
+      _tmpB.copy(b.vel).divideScalar(speed);
+      const steer = Math.min(1, (b.homingTurnRate || 10) * dt * 0.35);
+      _tmpB.lerp(_tmpA, steer).normalize();
+      b.vel.copy(_tmpB).multiplyScalar(speed);
+    }
   }
 }
 
@@ -6925,7 +6934,7 @@ if(b.gravity){
       strafeStrength = 0.18;
       speedMul = 1.55;
       e.chargeCooldown = rand(3.5, 5.5);
-      createShockwave(e.mesh.position.clone(), 0xff6ea1, 1.6);
+      createShockwave(e.mesh.position, 0xff6ea1, 1.6);
     }
 
     // Elite dodge / sidestep voor "slimmere" AI
@@ -6991,7 +7000,7 @@ if(b.gravity){
       applyDamage((e.type === "tank" ? 20 : e.type === "elite" ? 18 : e.type === "runner" ? 14 : 13) * Math.min(2.1, waveRamp(player.wave) * 0.9) * dt * 8);
       if(Math.random() < dt * (e.type === "runner" ? 3.6 : 2.1)){
         createShockwave(
-          e.mesh.position.clone(),
+          e.mesh.position,
           e.type === "elite" ? 0xffa86e : 0xff6ea1,
           e.type === "tank" ? 2.6 : 1.7
         );
@@ -7002,11 +7011,11 @@ if(b.gravity){
     if(e.type === "elite" && e.fireCooldown <= 0 && dist < 15){
       if(e.burstCooldown <= 0){
         // elite burst / bombardement
-        createShockwave(e.mesh.position.clone(), 0xffa86e, 3.8);
+        createShockwave(e.mesh.position, 0xffa86e, 3.8);
         for(let s=0;s<3;s++){
           setTimeout(() => {
             if(state.running && player.alive){
-              explodeAt(player.pos.clone(), 2.8, 8, 0xffa86e);
+              explodeAt(player.pos, 2.8, 8, 0xffa86e);
             }
           }, s * 180);
         }
@@ -7089,7 +7098,7 @@ if(b.gravity){
       if(!collidesAt(tx, tz, e.radius)){
         e.mesh.position.x = tx;
         e.mesh.position.z = tz;
-        createShockwave(e.mesh.position.clone(), 0xff2e88, e.phase === 3 ? 5.2 : 4.3);
+        createShockwave(e.mesh.position, 0xff2e88, e.phase === 3 ? 5.2 : 4.3);
         if(dist < 8) applyDamage((e.phase === 3 ? 18 : 12) * (1 + enrage * 0.9));
       }
       e.dashCooldown = Math.max(1.8, (e.phase === 3 ? 3.2 : 4.4) - Math.min(1.4, enrage * 4.0));
@@ -7110,8 +7119,8 @@ if(b.gravity){
 
     // Boss slam
     if(e.slamCooldown <= 0 && dist < 10){
-      createShockwave(e.mesh.position.clone(), 0xff6ea1, e.phase === 3 ? 6.0 : 5.0);
-      explodeAt(player.pos.clone(), e.phase === 3 ? 4.2 : 3.3, (e.phase === 3 ? 17 : 12) * (1 + enrage * 0.75), 0xff6ea1);
+      createShockwave(e.mesh.position, 0xff6ea1, e.phase === 3 ? 6.0 : 5.0);
+      explodeAt(player.pos, e.phase === 3 ? 4.2 : 3.3, (e.phase === 3 ? 17 : 12) * (1 + enrage * 0.75), 0xff6ea1);
       e.slamCooldown = Math.max(2.8, (e.phase === 3 ? 4.8 : 6.5) - Math.min(2.0, enrage * 5.0));
     }
 
@@ -7170,24 +7179,39 @@ if(b.gravity){
     for(let i=state.ragdolls.length-1;i>=0;i--){
       const r = state.ragdolls[i];
       r.life -= dt;
+      // Verlet integration: no clones needed, compute delta inline
       for(const piece of r.pieces){
-        const velocity = piece.pos.clone().sub(piece.prev).multiplyScalar(0.988);
+        const vx = (piece.pos.x - piece.prev.x) * 0.988;
+        const vy = (piece.pos.y - piece.prev.y) * 0.988;
+        const vz = (piece.pos.z - piece.prev.z) * 0.988;
         piece.prev.copy(piece.pos);
-        piece.pos.add(velocity);
-        piece.pos.y += (piece.lift - gravity) * dt * dt;
+        piece.pos.x += vx;
+        piece.pos.y += vy + (piece.lift - gravity) * dt * dt;
+        piece.pos.z += vz;
       }
 
       for(let iter=0; iter<5; iter++){
         for(const c of r.constraints){
           const a = r.pieces[c.a];
           const b = r.pieces[c.b];
-          const delta = b.pos.clone().sub(a.pos);
-          let dist = delta.length() || 0.0001;
+          const ddx = b.pos.x - a.pos.x;
+          const ddy = b.pos.y - a.pos.y;
+          const ddz = b.pos.z - a.pos.z;
+          const distSq = ddx*ddx + ddy*ddy + ddz*ddz;
+          const dist = Math.sqrt(distSq) || 0.0001;
           const diff = (dist - c.len) / dist;
-          const aWeight = b.mass / (a.mass + b.mass);
-          const bWeight = a.mass / (a.mass + b.mass);
-          a.pos.addScaledVector(delta, diff * 0.5 * aWeight);
-          b.pos.addScaledVector(delta, -diff * 0.5 * bWeight);
+          const totalMass = a.mass + b.mass;
+          const aWeight = b.mass / totalMass;
+          const bWeight = a.mass / totalMass;
+          const half = 0.5 * diff;
+          const moveAx = ddx * half * aWeight;
+          const moveAy = ddy * half * aWeight;
+          const moveAz = ddz * half * aWeight;
+          const moveBx = -ddx * half * bWeight;
+          const moveBy = -ddy * half * bWeight;
+          const moveBz = -ddz * half * bWeight;
+          a.pos.x += moveAx; a.pos.y += moveAy; a.pos.z += moveAz;
+          b.pos.x += moveBx; b.pos.y += moveBy; b.pos.z += moveBz;
         }
 
         for(const piece of r.pieces){
@@ -7204,11 +7228,13 @@ if(b.gravity){
 
       const opacity = clamp(r.life / r.fade, 0, 1);
       for(const piece of r.pieces){
-        const move = piece.pos.clone().sub(piece.prev);
+        // Compute movement delta without clone
+        const moveX = piece.pos.x - piece.prev.x;
+        const moveZ = piece.pos.z - piece.prev.z;
         piece.mesh.position.copy(piece.pos);
-        piece.mesh.rotation.x += piece.spin.x * dt + move.z * 0.6;
-        piece.mesh.rotation.y += piece.spin.y * dt + move.x * 0.35;
-        piece.mesh.rotation.z += piece.spin.z * dt - move.x * 0.6;
+        piece.mesh.rotation.x += piece.spin.x * dt + moveZ * 0.6;
+        piece.mesh.rotation.y += piece.spin.y * dt + moveX * 0.35;
+        piece.mesh.rotation.z += piece.spin.z * dt - moveX * 0.6;
         piece.mesh.material.transparent = true;
         piece.mesh.material.opacity = opacity;
       }
@@ -7254,7 +7280,7 @@ if(b.gravity){
           }
         }
         if(h.life <= 0){
-          explodeAt(h.mesh.position.clone(), h.radius, h.damage, 0x8bf0ff);
+          explodeAt(h.mesh.position, h.radius, h.damage, 0x8bf0ff);
         }
       }else if(h.kind === "orbital"){
         const pulse = 0.45 + Math.sin(h.pulse * 16) * 0.18;
@@ -7283,7 +7309,7 @@ if(b.gravity){
         if(h.life <= 0){
           const strike = h.mesh.position.clone();
           strike.y = 0.4;
-          for(let n=0;n<6;n++) createFlash(strike.clone(), 0xff6ea1, 7, 22, 0.2);
+          for(let n=0;n<6;n++) createFlash(strike, 0xff6ea1, 7, 22, 0.2);
           if(h.beam){
             h.beam.material.opacity = 0.5;
             h.beam.scale.set(1.6, 1.0, 1.6);
@@ -8598,7 +8624,7 @@ window.addEventListener("keydown", e => {
       damage: 9,
       type: "drone"
     }));
-    createFlash?.(from.clone(), 0x8bf0ff, 1.0, 2.5, 0.05);
+    createFlash?.(from, 0x8bf0ff, 1.0, 2.5, 0.05);
   }
 
   function updateDrones(dt, now){
@@ -8635,8 +8661,8 @@ window.addEventListener("keydown", e => {
     spawnDrones();
     player.damageCooldown = Math.max(player.damageCooldown, 0.2);
     state.cameraShake = Math.min(2.0, state.cameraShake + 0.9);
-    createShockwave?.(player.pos.clone(), 0xff00a8, 4.2);
-    createShockwave?.(player.pos.clone(), 0x00f7ff, 5.4);
+    createShockwave?.(player.pos, 0xff00a8, 4.2);
+    createShockwave?.(player.pos, 0x00f7ff, 5.4);
     flashHint?.("FURY MODE geactiveerd");
     apocToast("FURY MODE");
     updateApocHud();
@@ -8721,7 +8747,7 @@ function doDash(){
     createFlash?.(p.clone().add(new THREE.Vector3(0, 1.1, 0)), 0x8bf0ff, 1.3, 3.2, 0.06);
   }
 
-  createShockwave?.(player.pos.clone(), 0x8bf0ff, 2.6);
+  createShockwave?.(player.pos, 0x8bf0ff, 2.6);
   flashHint?.("Dash");
   updateApocHud();
 }
@@ -8760,7 +8786,7 @@ function doDash(){
       }));
     });
 
-    createFlash?.(base.clone(), 0xffffff, 0.8, 2.0, 0.04);
+    createFlash?.(base, 0xffffff, 0.8, 2.0, 0.04);
   }
 
   function updateTemporaryRelicEffects(dt){
@@ -8793,7 +8819,7 @@ function doDash(){
       apoc.lastAuraPulse -= dt;
       if(apoc.lastAuraPulse <= 0){
         apoc.lastAuraPulse = 0.48;
-        createShockwave?.(player.pos.clone(), Math.random() > 0.5 ? 0xff00a8 : 0x00f7ff, 1.8 + Math.random() * 1.4);
+        createShockwave?.(player.pos, Math.random() > 0.5 ? 0xff00a8 : 0x00f7ff, 1.8 + Math.random() * 1.4);
 
         for(const e of state.enemies){
           if(!e?.mesh) continue;
@@ -9232,7 +9258,7 @@ function doDash(){
     if(!targets.length) return;
     const target = targets[(Math.random() * targets.length) | 0];
     const p = target.mesh.position.clone();
-    createShockwave?.(p.clone(), 0x8bf0ff, 2.8);
+    createShockwave?.(p, 0x8bf0ff, 2.8);
     createFlash?.(p.clone().add(new THREE.Vector3(0, 2.5, 0)), 0xffffff, 1.4, 6.2, 0.07);
     createBurst?.(p.clone().add(new THREE.Vector3(0, 1.2, 0)), 0xdafcff, 10, 5, {
       minLife: .14, maxLife: .36, gravity: 0.5, shrink: 0.95
@@ -9357,7 +9383,7 @@ function doDash(){
       nemesis.phase = newPhase;
       state.cameraShake = Math.min(2.0, state.cameraShake + 0.8);
       flashHint?.(`BOSS PHASE ${nemesis.phase + 1}`);
-      createShockwave?.(state.boss.mesh.position.clone(), nemesis.phase === 2 ? 0xffd166 : 0xff6ea1, 4 + nemesis.phase);
+      createShockwave?.(state.boss.mesh.position, nemesis.phase === 2 ? 0xffd166 : 0xff6ea1, 4 + nemesis.phase);
       if(nemesis.phase >= 1){
         for(let i=0;i<Math.min(2 + nemesis.phase, 4); i++){
           if(state.enemies.length < 28) spawnEnemy(false);
@@ -9377,7 +9403,7 @@ function doDash(){
 
       if(Math.random() < dt * 0.7){
         const pos = state.boss.mesh.position.clone().add(new THREE.Vector3(nRand(-2.8,2.8), 0, nRand(-2.8,2.8)));
-        createShockwave?.(pos.clone(), 0xff6ea1, 1.6);
+        createShockwave?.(pos, 0xff6ea1, 1.6);
         createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffb2c8, 6, 4.2, {
           minLife:.16, maxLife:.3, gravity:0.45, shrink:0.95
         });
@@ -9478,7 +9504,7 @@ function doDash(){
       flashHint?.("Crate cursed: extra Olde Hanters!");
     }
 
-    createShockwave?.(pos.clone(), 0xffd166, 3.2);
+    createShockwave?.(pos, 0xffd166, 3.2);
     createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffe7a6, 16, 6.2, {
       minLife:.18, maxLife:.44, gravity:0.5, shrink:0.95
     });
@@ -11500,7 +11526,7 @@ function doDash(){
           }));
         });
 
-        createFlash?.(base.clone(), 0xffd166, 0.9, 2.4, 0.05);
+        createFlash?.(base, 0xffd166, 0.9, 2.4, 0.05);
       }
     }
 
@@ -11554,8 +11580,8 @@ function doDash(){
       player.hp = Math.max(45, Math.floor(player.maxHp * 0.45));
       player.damageCooldown = 1.25;
       state.cameraShake = Math.min(2.2, state.cameraShake + 1.0);
-      createShockwave?.(player.pos.clone(), 0xffd166, 4.4);
-      createShockwave?.(player.pos.clone(), 0xff4fd8, 3.2);
+      createShockwave?.(player.pos, 0xffd166, 4.4);
+      createShockwave?.(player.pos, 0xff4fd8, 3.2);
       flashHint?.("PHOENIX PROTOCOL", 1600);
       setStat?.();
       updateHud();
@@ -11803,7 +11829,7 @@ onHit(enemy, damage){
     flashHint?.("Speed boost actief");
     state.cameraShake = Math.max(state.cameraShake || 0, 0.7);
 
-    createShockwave?.(player.pos.clone(), 0x8eb8ff, 3.8);
+    createShockwave?.(player.pos, 0x8eb8ff, 3.8);
     createFlash?.(
       player.pos.clone().add(new THREE.Vector3(0, 1.2, 0)),
       0x8eb8ff,
@@ -12050,7 +12076,7 @@ Jad: {
       grenade.trailClock = 0;
       state.ohEnemyGrenades.push(grenade);
 
-      createFlash?.(start.clone(), 0x9dff7c, 0.7, 2.2, 0.04);
+      createFlash?.(start, 0x9dff7c, 0.7, 2.2, 0.04);
       return;
     }
 
@@ -12081,7 +12107,7 @@ Jad: {
         }));
       }
 
-      createFlash?.(start.clone(), 0xff965e, 1.0, 4.6, 0.07);
+      createFlash?.(start, 0xff965e, 1.0, 4.6, 0.07);
       return;
     }
 
@@ -12110,7 +12136,7 @@ Jad: {
         type: "enemy"
       }));
 
-      createFlash?.(start.clone(), 0x9eff84, 0.8, 2.6, 0.04);
+      createFlash?.(start, 0x9eff84, 0.8, 2.6, 0.04);
       return;
     }
 
@@ -12252,7 +12278,7 @@ Jad: {
     if(enemy?.enemyName === "Pieter"){
       ohPieterDownSting();
       showFloating("PIETER DOWN");
-      createShockwave?.(enemy.mesh.position.clone(), 0xffd166, 3.6);
+      createShockwave?.(enemy.mesh.position, 0xffd166, 3.6);
     }
     return _killEnemy(enemy);
   };
@@ -12322,7 +12348,7 @@ Jad: {
     state.ohFreezeUntil = performance.now() + seconds * 1000;
     ohSetFreeze(true);
     flashHint?.(`Pieter down — ${seconds} sec pauze`, seconds * 1000);
-    createShockwave?.(player.pos.clone(), 0xffd166, 2.8);
+    createShockwave?.(player.pos, 0xffd166, 2.8);
   }
 
   function ohFreezeActive(){
@@ -12534,7 +12560,7 @@ Jad: {
       const book = ohMakeBookProjectile(start, dir);
       state.enemyBullets.push(book);
 
-      createFlash?.(start.clone(), 0xffd166, 1.0, 3.2, 0.05);
+      createFlash?.(start, 0xffd166, 1.0, 3.2, 0.05);
       return;
     }
 
@@ -12655,7 +12681,7 @@ updateBullets = function(dt){
     g.trailClock = (g.trailClock || 0) + dt;
     if(g.trailClock >= (g.trailEvery || 0.05)){
       g.trailClock = 0;
-      createBurst(g.mesh.position.clone(), g.trailColor || g.explosionColor || 0x9dff7c, 1, 0.9, {
+      createBurst(g.mesh.position, g.trailColor || g.explosionColor || 0x9dff7c, 1, 0.9, {
         minSize:.025, maxSize:.045, minLife:.06, maxLife:.12, minUp:.02, maxUp:.18, drag:0.88, gravity:0.4, shrink:0.93
       });
     }
@@ -13221,7 +13247,7 @@ setWeapon = function(w){
       });
     }
 
-    createShockwave?.(pos.clone(), 0xcfd8df, 1.8);
+    createShockwave?.(pos, 0xcfd8df, 1.8);
     createFlash?.(pos.clone().add(new THREE.Vector3(0, 0.8, 0)), 0xdfe7ee, 0.9, 2.2, 0.04);
   }
 
@@ -13747,8 +13773,8 @@ setWeapon = function(w){
       .slice(0, 2)
       .forEach((enemy, idx) => {
         const target = enemy.mesh.position.clone().add(new THREE.Vector3(0, enemy.isBoss ? 2.2 : 1.3, 0));
-        createFlash(target.clone(), 0x8bf0ff, 1.5, 5.5, 0.08);
-        createBurst(target.clone(), 0x9ffcff, 6, 2.6, { minLife:.10, maxLife:.24, gravity:0.4, shrink:0.93 });
+        createFlash(target, 0x8bf0ff, 1.5, 5.5, 0.08);
+        createBurst(target, 0x9ffcff, 6, 2.6, { minLife:.10, maxLife:.24, gravity:0.4, shrink:0.93 });
         damageEnemyDirect(enemy, 8 + idx * 2);
       });
   }
@@ -13881,7 +13907,7 @@ setWeapon = function(w){
       setTimeout(() => scene.remove(marker), 900);
       setTimeout(() => {
         if(state.running && player.alive){
-          explodeAt(pos.clone(), 3.1, 14, color);
+          explodeAt(pos, 3.1, 14, color);
         }
       }, 850);
     }
@@ -13905,7 +13931,7 @@ setWeapon = function(w){
       if(s.profile.id === "warden"){
         if(s.pulseCd <= 0){
           s.pulseCd = boss.phase >= 3 ? 3.8 : 5.1;
-          createShockwave(boss.mesh.position.clone(), 0x7ec8ff, boss.phase >= 3 ? 7.2 : 5.4);
+          createShockwave(boss.mesh.position, 0x7ec8ff, boss.phase >= 3 ? 7.2 : 5.4);
           for(const enemy of state.enemies){
             if(enemy?.mesh && enemy.mesh.position.distanceTo(boss.mesh.position) < 12){
               enemy.hp = Math.min(enemy.maxHp, enemy.hp + 8);
@@ -13961,7 +13987,7 @@ setWeapon = function(w){
               type:"enemy"
             }));
           });
-          createFlash(from.clone(), 0xff7fcf, 2.2, 8, 0.10);
+          createFlash(from, 0xff7fcf, 2.2, 8, 0.10);
         }
         if(s.cloakTime > 0.5 && boss.dashCooldown <= 0){
           boss.dashCooldown = boss.phase >= 3 ? 2.6 : 3.4;
@@ -13973,7 +13999,7 @@ setWeapon = function(w){
           if(!collidesAt(tx, tz, boss.radius)){
             boss.mesh.position.x = tx;
             boss.mesh.position.z = tz;
-            createShockwave(boss.mesh.position.clone(), 0xff7fcf, 4.2);
+            createShockwave(boss.mesh.position, 0xff7fcf, 4.2);
             if(player.pos.distanceTo(boss.mesh.position) < 4.1) applyDamage(boss.phase >= 3 ? 15 : 10);
           }
         }
@@ -14456,7 +14482,7 @@ setWeapon = function(w){
       combat.overheatLock = combat.profile.unlocks.ventedBarrel ? 1.05 : 1.35;
       player.fireCooldown = Math.max(player.fireCooldown || 0, combat.overheatLock);
       state.cameraShake = Math.min(2.1, (state.cameraShake || 0) + 0.28);
-      createShockwave?.(player.pos.clone(), 0xff8c55, 2.1);
+      createShockwave?.(player.pos, 0xff8c55, 2.1);
       showFloating?.("WEAPON OVERHEAT");
     }
   }
@@ -14522,7 +14548,7 @@ setWeapon = function(w){
         });
         arc.v2SourceWeapon = "bullet_arc";
         state.bullets.push(arc);
-        createFlash?.(start.clone(), 0x8bf0ff, 1.4, 4.5, 0.05);
+        createFlash?.(start, 0x8bf0ff, 1.4, 4.5, 0.05);
         flashHint?.("Arc round", 420);
       }
     }
@@ -14710,7 +14736,7 @@ shootWithDirection = function(dirOverride = null){
         if(enemy.v2SpecialCd <= 0){
           enemy.v2SpecialCd = enemy.phase >= 3 ? 3.5 : 4.8;
           spawnBossMortarField?.(enemy.mesh.position.clone(), enemy.phase >= 3 ? 4 : 3, enemy.phase >= 3 ? 7.8 : 6.2, 0xffb36c);
-          createShockwave?.(enemy.mesh.position.clone(), 0xffb36c, enemy.phase >= 3 ? 5.2 : 4.2);
+          createShockwave?.(enemy.mesh.position, 0xffb36c, enemy.phase >= 3 ? 5.2 : 4.2);
           showFloating?.("JUGGERNAUT PULSE");
         }
       }
@@ -14734,7 +14760,7 @@ shootWithDirection = function(dirOverride = null){
           if(!collidesAt(target.x, target.z, enemy.radius)){
             enemy.mesh.position.x = target.x;
             enemy.mesh.position.z = target.z;
-            createShockwave?.(enemy.mesh.position.clone(), 0x8bf0ff, 4.0);
+            createShockwave?.(enemy.mesh.position, 0x8bf0ff, 4.0);
             for(let i=0;i<(enemy.phase >= 3 ? 3 : 2);i++){
               setTimeout(() => {
                 if(state.running && player.alive && state.boss === enemy) enemyShoot?.(enemy);
@@ -14967,7 +14993,7 @@ shootWithDirection = function(dirOverride = null){
       leveled = true;
       flashHint?.(`${weaponLabelShort(weapon)} tree level ${meta.profile.weaponLevel[weapon]}`, 1200);
       showFloating?.(`${weaponLabelShort(weapon).toUpperCase()} UPGRADE`);
-      createShockwave?.(player.pos.clone(), weapon === "bullet" ? 0x8bf0ff : weapon === "rocket" ? 0xffb36c : 0xc9ff9d, 3.8);
+      createShockwave?.(player.pos, weapon === "bullet" ? 0x8bf0ff : weapon === "rocket" ? 0xffb36c : 0xc9ff9d, 3.8);
     }
     if(leveled) saveMetaProfile();
     renderMetaPanel();
@@ -15248,7 +15274,7 @@ shootWithDirection = function(dirOverride = null){
     player.ammo.bullet += 8;
     if(player.wave >= 4) player.ammo.rocket += 1;
     if(player.wave >= 6) player.abilities.mine += 1;
-    createShockwave?.(player.pos.clone(), 0x96ffd4, 4.4);
+    createShockwave?.(player.pos, 0x96ffd4, 4.4);
     createFlash?.(player.pos.clone().add(new THREE.Vector3(0,1.4,0)), 0x96ffd4, 2.8, 10, 0.12);
     showFloating?.(`OBJECTIVE COMPLETE +${obj.rewardCores} CORE`);
     saveMetaProfile();
@@ -15286,7 +15312,7 @@ shootWithDirection = function(dirOverride = null){
     if(enemy.groundRing?.material) enemy.groundRing.material.color.setHex(0x96ffd4);
     const label = document.getElementById("bossBarLabel");
     if(label && !state.boss) label.textContent = `${enemy.contractLabel}`;
-    createShockwave?.(enemy.mesh.position.clone(), 0x96ffd4, 4.6);
+    createShockwave?.(enemy.mesh.position, 0x96ffd4, 4.6);
     showFloating?.("MINIBOSS CONTRACT");
     return enemy;
   }
@@ -15402,7 +15428,7 @@ shootWithDirection = function(dirOverride = null){
         enemy.contractMortarCd -= dt;
         if(enemy.contractBurstCd <= 0){
           enemy.contractBurstCd = 2.1;
-          createShockwave?.(enemy.mesh.position.clone(), 0x96ffd4, 3.3);
+          createShockwave?.(enemy.mesh.position, 0x96ffd4, 3.3);
           for(let i=0;i<3;i++){
             setTimeout(() => {
               if(state.running && enemy.hp > 0) enemyShoot?.(enemy);
@@ -15666,7 +15692,7 @@ shootWithDirection = function(dirOverride = null){
           type: "enemy"
         }));
       });
-      createFlash?.(start.clone(), 0x6cf6ff, 0.85, 2.6, 0.05);
+      createFlash?.(start, 0x6cf6ff, 0.85, 2.6, 0.05);
       return;
     }
 
@@ -15702,7 +15728,7 @@ shootWithDirection = function(dirOverride = null){
       grenade.trailEvery = 0.06;
       grenade.trailClock = 0;
       state.ohEnemyGrenades.push(grenade);
-      createFlash?.(start.clone(), 0xffa45d, 0.95, 2.8, 0.05);
+      createFlash?.(start, 0xffa45d, 0.95, 2.8, 0.05);
       return;
     }
 
