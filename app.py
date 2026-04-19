@@ -16869,10 +16869,32 @@ def _send_contact_email(form):
     company_slug = form.get("company_slug") or ""
     example_link  = f"{company_slug}.{base_host}" if company_slug else base_host
 
-    # Wachtwoord NIET in plaintext mailen. We mailen alleen of er een is ingesteld;
-    # het echte wachtwoord hash je bij livegang of laat je de klant zelf instellen
-    # via een link met tijdelijke token.
-    pw_marker = "ingesteld door klant" if form.get("desired_password") else "(niet ingevuld)"
+    # Wachtwoord wordt server-side gehasht (pbkdf2) en de hash gaat mee in de mail.
+    # Zo weet jij het wachtwoord nooit, maar kun je het account direct aanmaken
+    # via /admin/users → "Aanmaken via wachtwoord-hash". De klant logt in met
+    # het wachtwoord dat ze zelf hebben ingevuld op het formulier.
+    desired_pw = form.get("desired_password") or ""
+    if desired_pw:
+        pw_hash = generate_password_hash(desired_pw)
+        pw_block = (
+            "- Wachtwoord: ingesteld door klant (zie hash hieronder)\n"
+            f"- Wachtwoord-hash: {pw_hash}\n"
+        )
+        instructions = (
+            "\n"
+            "==== Account aanmaken ====\n"
+            "1. Log in op het admin-paneel (/admin/users)\n"
+            "2. Klap open: \"Aanmaken via wachtwoord-hash (uit contactmail)\"\n"
+            f"3. Vul in: e-mail = {form['login_email']}\n"
+            "4. Plak de bovenstaande Wachtwoord-hash in het hash-veld\n"
+            "5. Klik \"Aanmaken met hash\"\n"
+            "\n"
+            "De klant kan direct inloggen met het wachtwoord dat ze zelf hebben\n"
+            "ingevuld op het contactformulier. Jij kent dat wachtwoord niet.\n"
+        )
+    else:
+        pw_block = "- Wachtwoord: (niet ingevuld)\n"
+        instructions = ""
 
     body = (
         "Er is een nieuwe aanvraag binnengekomen:\n\n"
@@ -16880,9 +16902,10 @@ def _send_contact_email(form):
         f"{storage_line}"
         f"- Bedrijfsnaam: {form['company']}\n"
         f"- Telefoonnummer: {form['phone']}\n"
-        f"- Wachtwoord: {pw_marker}\n"
+        f"{pw_block}"
         f"- Subdomein voorbeeld: {example_link}\n"
-        f"- Opmerking: {form.get('notes') or '-'}\n\n"
+        f"- Opmerking: {form.get('notes') or '-'}\n"
+        f"{instructions}\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
         "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\n"
     )
@@ -17238,6 +17261,29 @@ ADMIN_USERS_HTML = """
     </div>
   </form>
 
+  <details style="margin-top:1.2rem;background:var(--surface-2);padding:.8rem 1rem;border-radius:10px;border:1px solid var(--line)">
+    <summary style="cursor:pointer;font-weight:600">Aanmaken via wachtwoord-hash (uit contactmail)</summary>
+    <p style="color:var(--muted);font-size:.9em;margin:.6rem 0">
+      Gebruik dit als een klant zijn eigen wachtwoord heeft ingevuld op het contactformulier.
+      De hash staat in de aanvraagmail onder <em>Wachtwoord-hash</em>. De klant kan zelf inloggen
+      met het wachtwoord dat hij heeft ingevuld — jij weet het wachtwoord niet.
+    </p>
+    <form method="post" action="/admin/users/create-from-hash" style="display:grid;grid-template-columns:1fr 2fr auto;gap:.5rem;align-items:end">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div><label for="hash_email">E-mail</label>
+        <input id="hash_email" class="input" type="email" name="email" required></div>
+      <div><label for="hash_pw">Wachtwoord-hash</label>
+        <input id="hash_pw" class="input" type="text" name="password_hash" required
+               placeholder="pbkdf2:sha256:..."></div>
+      <div><button class="btn" type="submit">Aanmaken met hash</button></div>
+      <div style="grid-column:1/-1">
+        <label style="display:flex;gap:.4rem;align-items:center">
+          <input type="checkbox" name="is_admin" value="1"> Maak admin
+        </label>
+      </div>
+    </form>
+  </details>
+
   <h2 style="margin-top:2rem">Bestaande gebruikers</h2>
   <table class="table">
     <thead><tr>
@@ -17343,6 +17389,47 @@ def admin_users_create():
         )
         conn.commit()
         _flash(msg=f"Gebruiker {email} aangemaakt.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/users/create-from-hash", methods=["POST"])
+def admin_users_create_from_hash():
+    """
+    Account aanmaken via een reeds gehashed wachtwoord. Bedoeld voor de flow
+    waarbij een klant op /contact zijn eigen wachtwoord invult: de server hasht
+    het meteen en mailt de hash naar de admin. De admin plakt hier de hash,
+    zonder ooit het plaintext wachtwoord te kennen.
+    """
+    _require_admin()
+    me = current_user()
+    email = (request.form.get("email") or "").strip().lower()
+    pw_hash = (request.form.get("password_hash") or "").strip()
+    mk_admin = (request.form.get("is_admin") == "1")
+
+    if not EMAIL_SIMPLE_RE.match(email):
+        _flash(error="Ongeldig e-mailadres.")
+        return redirect(url_for("admin_users"))
+
+    # Basis-validatie op hash-format. Werkzeug-hashes beginnen met het scheme,
+    # bijv. 'pbkdf2:sha256:600000$salt$hexdigest' of 'scrypt:...'.
+    # We accepteren alles wat lijkt op een werkzeug hash: bevat ':' en '$'.
+    if not pw_hash or ":" not in pw_hash or "$" not in pw_hash or len(pw_hash) < 40:
+        _flash(error="Ongeldige wachtwoord-hash. Verwacht een werkzeug pbkdf2/scrypt hash.")
+        return redirect(url_for("admin_users"))
+
+    conn = db()
+    try:
+        exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        if exists:
+            _flash(error=f"Gebruiker {email} bestaat al.")
+            return redirect(url_for("admin_users"))
+        conn.execute(
+            "INSERT INTO users(email, password_hash, is_admin, tenant_id, created_at, disabled) VALUES(?,?,?,?,?,0)",
+            (email, pw_hash, 1 if mk_admin else 0, me["tenant_id"], datetime.now(timezone.utc).isoformat())
+        )
+        conn.commit()
+        _flash(msg=f"Gebruiker {email} aangemaakt via hash. Klant kan inloggen met het wachtwoord van het contactformulier.")
     finally:
         conn.close()
     return redirect(url_for("admin_users"))
