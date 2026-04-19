@@ -291,7 +291,7 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_score_wave ON leaderboard_scores(score DESC, wave DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_leaderboard_ip_created ON leaderboard_scores(ip, created_at)")
 
-        # ===== DOWNLOAD ANALYTICS =====
+    # ===== DOWNLOAD ANALYTICS =====
     c.execute("""
       CREATE TABLE IF NOT EXISTS download_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
