@@ -1578,6 +1578,14 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     const ruinMat = new THREE.MeshStandardMaterial({ color:0x3a3f52, roughness:0.78, metalness:0.16, emissive:0x111827, emissiveIntensity:0.16 });
     const crystalMat = new THREE.MeshStandardMaterial({ color:0x7be6ff, emissive:0x2a92b6, emissiveIntensity:0.8, roughness:0.24, metalness:0.32 });
 
+    // Helper: registreer een mesh als solid collider (voor player + bullets).
+    // Gebruikt de mesh-eigen bounding-box na het zetten van position/scale.
+    function registerSolid(mesh){
+      mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(mesh);
+      colliders.push({ mesh, box });
+    }
+
     for(let i=0;i<22;i++){
       const cliff = new THREE.Mesh(
         new THREE.ConeGeometry(5 + Math.random()*6, 10 + Math.random()*16, 6),
@@ -1612,6 +1620,7 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       [left,right,top].forEach(part => {
         part.castShadow = part.receiveShadow = true;
         arenaDeco.ruins.add(part);
+        registerSolid(part);
       });
       addDecalRing(cfg.x, cfg.z, idx === 0 ? 6.8 : 4.8, idx % 2 ? 0xff4fd8 : 0x4df7ff);
     });
@@ -1626,6 +1635,8 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       crystal.userData.baseY = crystal.position.y;
       crystal.userData.floatOffset = Math.random()*Math.PI*2;
       arenaDeco.crystalClusters.add(crystal);
+      // Registreer als collider zodat speler/bullets er niet doorheen gaan.
+      registerSolid(crystal);
     }
 
     const fogGeo = new THREE.SphereGeometry(1.4, 10, 10);
@@ -1647,6 +1658,7 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       tower.position.set(i < 2 ? -58 : 58, 5.5, i % 2 ? 42 : -42);
       tower.castShadow = tower.receiveShadow = true;
       arenaDeco.searchlights.add(tower);
+      registerSolid(tower);
 
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.55,1.1), new THREE.MeshStandardMaterial({ color:0x858ca8, metalness:0.48, roughness:0.32 }));
       head.position.set(tower.position.x, 11.2, tower.position.z);
@@ -1673,6 +1685,7 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       monolith.position.set(x, monolith.geometry.parameters.height/2, z);
       monolith.castShadow = monolith.receiveShadow = true;
       arenaDeco.monoliths.add(monolith);
+      registerSolid(monolith);
       addDecalRing(x, z, 2.4, color);
     });
 
@@ -3497,6 +3510,20 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   // Y-offset zodat de voeten mooi op de grond staan in plaats van erdoorheen.
   // De nieuwe humanoid-mesh is opgebouwd met onderkant boot op local y ≈ -0.87.
   root.userData.yOffset = 0.87;
+  // Dismemberment state + limb-references zodat we ze kunnen verbergen bij hit
+  root.userData.limbs = {
+    legL: legPivotL,
+    legR: legPivotR,
+    armL: armPivotL,
+    armR: armPivotR,
+    head: helmet,
+    headExtras: [neck, jaw, visor]
+  };
+  root.userData.limbState = {
+    legL: true, legR: true,
+    armL: true, armR: true,
+    head: true
+  };
   root.scale.setScalar(scale);
   return root;
 }
@@ -4790,10 +4817,88 @@ function updateBullets(dt){
     if(!enemy?.mesh) return false;
     if(!ensureEnemyHp(enemy)) return false;
 
-    const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
-    enemy.hp = Math.max(0, enemy.hp - dmg);
+    // --- Dismemberment: bepaal welk lichaamsdeel geraakt is op basis van
+    // de hitPosition relatief aan de enemy-root. We gebruiken local-Y en
+    // horizontale afstand vanuit de body-X as. Namen: head / armL / armR /
+    // legL / legR / torso. Torso-hits tellen normaal; limb-hits kunnen de
+    // limb "afschieten" en extra gedrag triggeren.
+    const ePos = enemy.mesh.position;
+    const yOff = enemy.mesh.userData.yOffset || 0;
+    // Convert world hit-Y naar local-space van de mesh (waar mijn onderkant
+    // boot op ~0 zit). Dus localY = hitY - ePos.y + yOff? Het wordt eenvoudig:
+    // de mesh.position.y = yOffset (0.87), en onderkant boot in mesh-space is
+    // op local y ~0 (dus wereld y ~0.87). Head is local y ~2.72 (wereld ~3.59).
+    const localY = hitPosition.y - (ePos.y - yOff);
 
-    createBurst(hitPosition, 0xffec7d, 6, 3);
+    // Horizontal side: we vergelijken hit-X met body-X via afstand, en check
+    // of de hit aan de linker of rechter kant van body is. Omdat enemy body
+    // naar speler kijkt, kan X niet direct gebruikt worden — we gebruiken
+    // wereld-afstand tot body-center en laten die bepalen of het "torso"
+    // of "arm"-distance is.
+    const bodyDX = hitPosition.x - ePos.x;
+    const bodyDZ = hitPosition.z - ePos.z;
+    const horizDist = Math.hypot(bodyDX, bodyDZ);
+
+    // Probeer te bepalen welk deel: head / arm / leg / torso
+    let hitPart = "torso";
+    if(localY > 2.40){
+      hitPart = "head";
+    } else if(localY < 0.90){
+      // Been-zone: welke kant? Gebruik dot-product met body.forward om L/R te bepalen
+      // Omdat dit lastig is met rotation, kiezen we gewoon een van de twee op basis
+      // van welk been nog leeft — als beide leven willekeurig, anders het levende been.
+      const ls = enemy.mesh.userData.limbState;
+      if(ls){
+        if(ls.legL && ls.legR) hitPart = Math.random() < 0.5 ? "legL" : "legR";
+        else if(ls.legL) hitPart = "legL";
+        else if(ls.legR) hitPart = "legR";
+        else hitPart = "torso";
+      } else {
+        hitPart = "legL";
+      }
+    } else if(horizDist > 0.5){
+      // Arm-zone: idem, kies levend arm
+      const ls = enemy.mesh.userData.limbState;
+      if(ls){
+        if(ls.armL && ls.armR) hitPart = Math.random() < 0.5 ? "armL" : "armR";
+        else if(ls.armL) hitPart = "armL";
+        else if(ls.armR) hitPart = "armR";
+        else hitPart = "torso";
+      } else {
+        hitPart = "armL";
+      }
+    }
+
+    // Apply dismemberment als een limb geraakt wordt en nog leeft
+    const limbs = enemy.mesh.userData.limbs;
+    const limbState = enemy.mesh.userData.limbState;
+    const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
+    let finalDamage = dmg;
+
+    if(limbs && limbState){
+      if(hitPart === "head" && limbState.head){
+        // Headshot: massief extra schade (3.5x) — een goed geplaatst hoofdshot
+        // maakt het korte werk van de enemy.
+        finalDamage = dmg * 3.5;
+        limbState.head = false;
+        // Verberg hoofd + extras (nek/kaak/visor)
+        if(limbs.head) limbs.head.visible = false;
+        if(limbs.headExtras) limbs.headExtras.forEach(m => { if(m) m.visible = false; });
+      } else if((hitPart === "legL" || hitPart === "legR") && limbState[hitPart]){
+        limbState[hitPart] = false;
+        if(limbs[hitPart]) limbs[hitPart].visible = false;
+        // Kleine bonus-damage: -5 hp voor limb-loss
+        finalDamage = dmg + 5;
+      } else if((hitPart === "armL" || hitPart === "armR") && limbState[hitPart]){
+        limbState[hitPart] = false;
+        if(limbs[hitPart]) limbs[hitPart].visible = false;
+        finalDamage = dmg + 3;
+      }
+    }
+
+    enemy.hp = Math.max(0, enemy.hp - finalDamage);
+
+    createBurst(hitPosition, hitPart === "head" ? 0xff3a3a : 0xffec7d, 6, 3);
     sfxHit();
 
     if(enemy.hp <= 0){
@@ -5165,6 +5270,36 @@ if(b.gravity){
     e.chargeCooldown -= dt;
     e.bob += dt * (e.type === "runner" ? 7.2 : e.type === "tank" ? 3.2 : e.type === "elite" ? 5.2 : 4.4);
 
+    // ==== DISMEMBERMENT GEDRAG ====
+    // Check welke ledematen de enemy nog heeft:
+    // - Beide benen kwijt → kruipen (30% speed, body zakt naar de grond)
+    // - Beide armen kwijt → kan niet schieten (canFire=false)
+    // - Hoofd kwijt → geen effect op gedrag (al extra damage bij hit)
+    const ls = e.mesh.userData.limbState;
+    let limbSpeedMul = 1.0;
+    let crawling = false;
+    let canFire = true;
+    if(ls){
+      const hasLegs = ls.legL || ls.legR;
+      const hasArms = ls.armL || ls.armR;
+      if(!hasLegs){
+        limbSpeedMul = 0.30;
+        crawling = true;
+      } else if(!ls.legL || !ls.legR){
+        // één been weg: strompelen
+        limbSpeedMul = 0.65;
+      }
+      if(!hasArms){
+        canFire = false;
+      } else if(!ls.armL || !ls.armR){
+        // één arm weg: langzamer vuren
+        e.fireCooldownPenalty = 1.5;
+      }
+    }
+    e.mesh.userData._crawling = crawling;
+    e.mesh.userData._canFire = canFire;
+    e.mesh.userData._limbSpeedMul = limbSpeedMul;
+
     if(e.mesh.userData.parts){
       const parts = e.mesh.userData.parts;
       const swing = Math.sin(e.bob) * (
@@ -5237,8 +5372,8 @@ if(b.gravity){
     }
 
     const wobble = Math.sin(now * (1.4 + e.wobble) + i * 1.7) * 0.16;
-    const moveX = (dirX * moveForward + sideX * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * dt;
-    const moveZ = (dirZ * moveForward + sideZ * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * dt;
+    const moveX = (dirX * moveForward + sideX * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * limbSpeedMul * dt;
+    const moveZ = (dirZ * moveForward + sideZ * (strafeDir * strafeStrength + wobble) * 0.42) * e.speed * speedMul * limbSpeedMul * dt;
 
     let nx = e.mesh.position.x + moveX;
     let nz = e.mesh.position.z + moveZ;
@@ -5273,7 +5408,12 @@ if(b.gravity){
     }
 
     const yBase = e.mesh.userData.yOffset || 0.02;
-    e.mesh.position.y = yBase + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
+    if(crawling){
+      // Geen benen → kruipen: lichaam hangt op 0.25m met lichte bob.
+      e.mesh.position.y = 0.25 + Math.sin(e.bob) * 0.04;
+    } else {
+      e.mesh.position.y = yBase + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
+    }
 
     if(e.groundRing){
       e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
@@ -5294,6 +5434,16 @@ if(b.gravity){
       body.lookAt(_tmpA);
     }
 
+    // Kruip-modus: kantel de body horizontaal. Omdat lookAt hierboven X=0 zet,
+    // kunnen we hierna body.rotation.x aanpassen voor de voorover-kanteling.
+    if(crawling){
+      body.rotation.x = -Math.PI * 0.42; // ~75° voorover
+      body.position.y = -0.5; // body zakt verder binnen de root-offset
+    } else {
+      body.rotation.x = 0;
+      body.position.y = 0;
+    }
+
     // Melee pressure
     if(dist < (e.type === "tank" ? 2.2 : e.type === "elite" ? 1.9 : e.type === "runner" ? 1.45 : 1.6)){
       applyDamage((e.type === "tank" ? 20 : e.type === "elite" ? 18 : e.type === "runner" ? 14 : 13) * Math.min(2.1, waveRamp(player.wave) * 0.9) * dt * 8);
@@ -5306,8 +5456,8 @@ if(b.gravity){
       }
     }
 
-    // Fire behaviour per enemy type
-    if(e.type === "elite" && e.fireCooldown <= 0 && dist < 15){
+    // Fire behaviour per enemy type — alleen als enemy nog arm(en) heeft
+    if(canFire && e.type === "elite" && e.fireCooldown <= 0 && dist < 15){
       if(e.burstCooldown <= 0){
         // elite burst / bombardement
         createShockwave(e.mesh.position, 0xffa86e, 3.8);
@@ -5324,14 +5474,14 @@ if(b.gravity){
         enemyShoot(e);
         e.fireCooldown = rand(player.wave >= 12 ? 0.8 : 1.0, player.wave >= 12 ? 1.25 : 1.55);
       }
-    } else if(e.type === "runner" && e.fireCooldown <= 0 && dist < 12){
+    } else if(canFire && e.type === "runner" && e.fireCooldown <= 0 && dist < 12){
       if(Math.random() < 0.45) enemyShoot(e);
       e.fireCooldown = rand(player.wave >= 12 ? 0.95 : 1.25, player.wave >= 12 ? 1.5 : 1.9);
-    } else if(e.type === "tank" && e.fireCooldown <= 0 && dist < 18){
+    } else if(canFire && e.type === "tank" && e.fireCooldown <= 0 && dist < 18){
       enemyShoot(e);
       if(Math.random() < 0.35) enemyShoot(e);
       e.fireCooldown = rand(player.wave >= 12 ? 1.2 : 1.7, player.wave >= 12 ? 1.95 : 2.45);
-    } else if(e.type === "basic" && e.fireCooldown <= 0 && dist < 22){
+    } else if(canFire && e.type === "basic" && e.fireCooldown <= 0 && dist < 22){
       enemyShoot(e);
       e.fireCooldown = rand(player.wave >= 12 ? 0.72 : 0.95, player.wave >= 12 ? 1.15 : 1.55);
     }
