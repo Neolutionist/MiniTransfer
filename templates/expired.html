@@ -2727,7 +2727,9 @@ function updateMusic(){
   preBossRelief: false,
 
   cheatBuffer: "",
-  cheatGodAmmo: false
+  cheatGodAmmo: false,
+  cheatFastMove: false,
+  cheatMiniEnemies: false
 };
 
   const input = {
@@ -3716,6 +3718,12 @@ function spawnEnemy(isBoss=false){
   } else {
     if(type === "elite") showFloating("Elite trooper incoming");
     state.enemies.push(enemy);
+  }
+
+  // Mini-cheat: schaal nieuw-gespawnde enemies ook in.
+  if(state.cheatMiniEnemies && enemy?.mesh){
+    enemy.mesh.userData._baseScale = enemy.mesh.scale.x;
+    enemy.mesh.scale.setScalar(enemy.mesh.scale.x * 0.5);
   }
 
   return enemy;
@@ -4747,7 +4755,7 @@ function shootWithDirection(dirOverride=null){
 
     const sin = Math.sin(lookYaw);
     const cos = Math.cos(lookYaw);
-    const speed = player.speed * dt;
+    const speed = player.speed * (state.cheatFastMove ? 2.0 : 1.0) * dt;
 
     const dx = (-sin * f + cos * s) * speed;
     const dz = (-cos * f - sin * s) * speed;
@@ -5151,20 +5159,23 @@ if(b.gravity){
         if(!e?.mesh) continue;
 
         const ePos = e.mesh.position;
-        const hitY = e.isBoss ? 2.5 : 1.9;
         const radius = Math.max(
           0.35,
           Number.isFinite(e.radius) ? e.radius : 1
         );
         const radiusSq = radius * radius;
 
-        // Squared distance check — vermijdt sqrt en vector allocaties
+        // Cilinder-check: horizontaal binnen radius, verticaal van vloer tot
+        // boven hoofd. Zo kan de hit-code (hitNormalEnemy) correct bepalen
+        // welk lichaamsdeel geraakt is op basis van de bullet-Y.
+        const yFloor = ePos.y - 0.30;   // iets onder de voeten
+        const yCeil  = ePos.y + (e.isBoss ? 5.0 : 3.2);
         const dx = bPos.x - ePos.x;
-        const dy = bPos.y - hitY;
         const dz = bPos.z - ePos.z;
-        const distSq = dx*dx + dy*dy + dz*dz;
+        const horizSq = dx*dx + dz*dz;
+        const withinY = bPos.y >= yFloor && bPos.y <= yCeil;
 
-        if(distSq < radiusSq){
+        if(horizSq < radiusSq && withinY){
           if(isExplosiveBullet(b)){
             explodeProjectile(b);
           } else {
@@ -5426,21 +5437,22 @@ if(b.gravity){
     // billboard-gericht naar de camera, en voorkomen we dat de hele group
     // kantelt waardoor losse boxes door elkaar kunnen schuiven.
     const body = e.mesh.userData.body || e.mesh;
-    if(body.lookAt){
-      // We gebruiken een tijdelijke wereldpositie want body is een child; lookAt
-      // verwacht wereldcoordinaten, en de body staat met position (0,0,0) in de
-      // root. Het resultaat is equivalent aan root.lookAt voor rotatie rond Y.
-      _tmpA.set(player.pos.x, 1.6, player.pos.z);
-      body.lookAt(_tmpA);
+    // Bepaal de yaw naar de speler zonder lookAt (lookAt kan via Euler-volgorde
+    // een 180° X-flip introduceren → enemies ondersteboven). Rechtstreeks
+    // atan2 op het dx/dz-verschil is veiliger en gimbal-lock-vrij.
+    if(body){
+      const dxP = player.pos.x - e.mesh.position.x;
+      const dzP = player.pos.z - e.mesh.position.z;
+      body.rotation.x = 0;
+      body.rotation.z = 0;
+      body.rotation.y = Math.atan2(dxP, dzP);
     }
 
-    // Kruip-modus: kantel de body horizontaal. Omdat lookAt hierboven X=0 zet,
-    // kunnen we hierna body.rotation.x aanpassen voor de voorover-kanteling.
+    // Kruip-modus: kantel de body voorover (apart van yaw).
     if(crawling){
-      body.rotation.x = -Math.PI * 0.42; // ~75° voorover
-      body.position.y = -0.5; // body zakt verder binnen de root-offset
+      body.rotation.x = -Math.PI * 0.42; // ~75° voorover (geen flip want expliciet gezet)
+      body.position.y = -0.5;
     } else {
-      body.rotation.x = 0;
       body.position.y = 0;
     }
 
@@ -6017,6 +6029,89 @@ function toggleGodAmmoCheat(){
   updateHud?.();
 }
 
+function healCheat(){
+  if(!player.alive) return;
+  player.hp = player.maxHp || 100;
+  flashHint?.("CHEAT · HP restored", 900);
+  setStat?.();
+}
+
+function cashCheat(){
+  if(window.OHArmoryAPI){
+    // Hergebruik addLevel niet — dat verhoogt levels; we willen credits.
+    // Onze API heeft geen 'add credits', maar we kunnen via een directe hack
+    // terugvallen op fake purchase+refund pattern. Beter: spoedig een
+    // direct grant via event.
+    // Simpelste: vertrouw de grant via een custom hook op armory-state.
+  }
+  // Directe poging: zet via event voor backward compat met armory scope.
+  if(window.OHGrantCredits){
+    window.OHGrantCredits(5000);
+    flashHint?.("CHEAT · +5000 salvage", 1100);
+  } else {
+    flashHint?.("CHEAT · salvage grant niet beschikbaar", 900);
+  }
+}
+
+function boomCheat(){
+  if(!state.running) return;
+  let count = 0;
+  for(let i = state.enemies.length - 1; i >= 0; i--){
+    const e = state.enemies[i];
+    if(!e?.mesh) continue;
+    createBurst?.(e.mesh.position, 0xffa86e, 12, 6);
+    createShockwave?.(e.mesh.position, 0xffd166, 3.2);
+    killEnemy?.(e);
+    count++;
+  }
+  state.enemies.length = 0;
+  flashHint?.(`CHEAT · BOOM (${count} enemies)`, 1100);
+}
+
+function skipWavesCheat(){
+  if(!state.running || !player.alive) return;
+  for(let i = 0; i < 5; i++){
+    clearCurrentWaveForCheat();
+    player.wave += 1;
+  }
+  state.moonNukeWave = 0;
+  state.lastClearStamp = performance.now();
+  state.running = true;
+  showFloating?.(`CHEAT · SKIP → WAVE ${player.wave}`);
+  flashHint?.(`Skipped to wave ${player.wave}`, 1200);
+  setStat?.();
+  updateHud?.();
+  spawnWave?.();
+}
+
+function toggleFastCheat(){
+  state.cheatFastMove = !state.cheatFastMove;
+  flashHint?.(
+    state.cheatFastMove ? "FAST move: AAN" : "FAST move: UIT",
+    1000
+  );
+}
+
+function toggleMiniCheat(){
+  state.cheatMiniEnemies = !state.cheatMiniEnemies;
+  flashHint?.(
+    state.cheatMiniEnemies ? "MINI enemies: AAN" : "MINI enemies: UIT",
+    1000
+  );
+  // Apply scale op bestaande enemies
+  const targetScale = state.cheatMiniEnemies ? 0.5 : 1.0;
+  for(const e of state.enemies){
+    if(e?.mesh){
+      // Preserve per-type baseline scale via userData
+      if(e.mesh.userData._baseScale == null){
+        e.mesh.userData._baseScale = e.mesh.scale.x;
+      }
+      const base = e.mesh.userData._baseScale;
+      e.mesh.scale.setScalar(base * targetScale);
+    }
+  }
+}
+
 function handleTypedCheatKey(e){
   const typingInField =
     document.activeElement &&
@@ -6033,16 +6128,16 @@ function handleTypedCheatKey(e){
     .replace(/[^a-z]/g, "")
     .slice(-12);
 
-  if(state.cheatBuffer.endsWith("next")){
-    state.cheatBuffer = "";
-    forceNextWaveCheat();
-    return;
-  }
-
-  if(state.cheatBuffer.endsWith("god")){
-    state.cheatBuffer = "";
-    toggleGodAmmoCheat();
-  }
+  // Check alle cheat-codes — eindigend op de buffer
+  const b = state.cheatBuffer;
+  if(b.endsWith("next")){ state.cheatBuffer = ""; forceNextWaveCheat(); return; }
+  if(b.endsWith("god"))  { state.cheatBuffer = ""; toggleGodAmmoCheat(); return; }
+  if(b.endsWith("heal")) { state.cheatBuffer = ""; healCheat(); return; }
+  if(b.endsWith("cash")) { state.cheatBuffer = ""; cashCheat(); return; }
+  if(b.endsWith("boom")) { state.cheatBuffer = ""; boomCheat(); return; }
+  if(b.endsWith("skip")) { state.cheatBuffer = ""; skipWavesCheat(); return; }
+  if(b.endsWith("fast")) { state.cheatBuffer = ""; toggleFastCheat(); return; }
+  if(b.endsWith("mini")) { state.cheatBuffer = ""; toggleMiniCheat(); return; }
 }
 
   function startGame(){
@@ -10170,7 +10265,18 @@ function doDash(){
       syncDerivedStats();
       return true;
     },
+    grantCredits(amount){
+      armory.credits += amount;
+      armory.earnedThisRun += amount;
+      armory.profile.lifetimeCredits += amount;
+      saveProfile();
+      updateHud();
+    },
     flash(msg, dur){ flashHint?.(msg, dur); }
+  };
+  // Convenience wrapper voor cheat-systeem
+  window.OHGrantCredits = function(amount){
+    window.OHArmoryAPI.grantCredits(amount);
   };
 })();
 
@@ -13693,9 +13799,23 @@ shootWithDirection = function(dirOverride = null){
           </div>
           <div class="card">
             <h3>Quick controls</h3>
-            <div class="muted">K = open/close panel · J = cycle loadout · 7/8/9 = direct loadout select.</div>
+            <div class="muted">K = open/close panel · J = cycle loadout · 7/8/9 = direct loadout select · M = mute sound · F = buy at perk station.</div>
             <div class="muted">Objectives belonen cores en schematics. Boss contracts geven bonus progression en extra ammo.</div>
             <div class="muted">Weapon trees stijgen automatisch door kills en damage-events binnen een run.</div>
+          </div>
+          <div class="card">
+            <h3>Cheats</h3>
+            <div class="muted" style="margin-bottom:6px">Typ één van de codes tijdens het spelen (geen input-veld geselecteerd):</div>
+            <div class="loadouts">
+              <div class="loadout"><div class="topline"><div class="name">next</div><div class="muted">Skip current wave</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">skip</div><div class="muted">Skip 5 waves ineens</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">god</div><div class="muted">Toggle infinite ammo</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">heal</div><div class="muted">Restore HP to max</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">cash</div><div class="muted">+5000 salvage</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">boom</div><div class="muted">Kill all enemies now</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">fast</div><div class="muted">Toggle 2× move speed</div></div></div>
+              <div class="loadout"><div class="topline"><div class="name">mini</div><div class="muted">Toggle tiny enemies (0.5×)</div></div></div>
+            </div>
           </div>
         </div>
       </div>
