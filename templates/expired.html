@@ -762,7 +762,11 @@ canvas{ display:block; }
 
   <p>Desktop: <b>WASD</b>, <b>klik</b>, <b>1/2/3</b> voor wapens en <b>4/5/6</b> voor skills. Mobiel: <b>linker joystick beweegt</b>, <b>rechter joystick kijkt</b>, <b>tik om te schieten</b> en gebruik de <b>skillknoppen rechts</b>.</p>
 
+  <div style="display:flex; gap:12px; justify-content:center;">
   <button id="startBtn">Start spel</button>
+  <button id="startQ3Btn">Speel Quake 3</button>
+</div>
+  
   <div><button id="restartBtn" style="display:none;">Opnieuw spelen</button></div>
 
   <div id="boardWrap">
@@ -803,6 +807,24 @@ canvas{ display:block; }
 
 <script>
 (() => {
+
+  const startQ3Btn = document.getElementById("startQ3Btn");
+const closeQ3Btn = document.getElementById("closeQ3Btn");
+const q3Wrap = document.getElementById("q3Wrap");
+const centerMessage = document.getElementById("centerMessage");
+
+startQ3Btn?.addEventListener("click", () => {
+  centerMessage.classList.add("hidden");
+  q3Wrap.style.display = "block";
+});
+
+closeQ3Btn?.addEventListener("click", () => {
+  q3Wrap.style.display = "none";
+  centerMessage.classList.remove("hidden");
+});
+
+
+  
   const isTouch = matchMedia("(pointer:coarse)").matches || "ontouchstart" in window;
 
   const ui = {
@@ -14905,5 +14927,33 @@ shootWithDirection = function(dirOverride = null){
 })();
 
 </script>
+<div id="q3Wrap" style="
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:999;
+  background:#000;
+">
+  <button id="closeQ3Btn" style="
+    position:absolute;
+    top:12px;
+    right:12px;
+    z-index:10;
+    padding:10px 14px;
+    border-radius:8px;
+    border:0;
+    font-weight:bold;
+    cursor:pointer;
+  ">
+    Sluiten
+  </button>
+
+  <iframe
+    src="https://dos.zone/q3/"
+    style="width:100%; height:100%; border:0;"
+    allow="fullscreen; autoplay; gamepad"
+  ></iframe>
+</div>
+  
 </body>
 </html>
