@@ -15,7 +15,6 @@ from email.message import EmailMessage
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 
 from flask import (
     Flask, request, redirect, url_for, abort, render_template_string,
@@ -164,7 +163,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config.update(PREFERRED_URL_SCHEME="https", SESSION_COOKIE_SECURE=True)
 
-import os
 CANONICAL_HOST = os.environ.get("CANONICAL_HOST", _tenant_host).lower()
 OLD_HOST = os.environ.get("OLD_HOST", "").strip().lower()
 
@@ -418,12 +416,6 @@ def seed_admin_from_env():
         conn.close()
 
 seed_admin_from_env()
-
-def client_ip():
-    forwarded = request.headers.get("X-Forwarded-For", "").strip()
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return (request.remote_addr or "").strip()
 
 def log_download_event(token: str, tenant_id: str, download_type: str, item_id=None):
     conn = db()
@@ -2707,7 +2699,6 @@ h1{color:var(--brand);margin:.2rem 0 1rem}
 h2{margin:1.2rem 0 .4rem}
 h3{margin:1rem 0 .35rem}
 .section{margin-bottom:1.1rem}
-.small{color:var(--muted)}
 .card p{margin:.45rem 0}
 ol,ul{margin:.4rem 0 .6rem 1.2rem}
 code{background:#eef2ff;padding:.05rem .35rem;border-radius:.3rem}
@@ -16118,7 +16109,6 @@ PRIVACY_HTML = """
 h1{color:var(--brand);margin:.2rem 0 1rem}
 h2{margin:1.2rem 0 .4rem}
 .section{margin-bottom:1.1rem}
-.small{color:var(--muted)}
 .card p{margin:.45rem 0}
 ul{margin:.4rem 0 .6rem 1.2rem}
 </style></head><body>
