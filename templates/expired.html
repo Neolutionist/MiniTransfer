@@ -9481,9 +9481,9 @@ function doDash(){
   }
 
   function shouldOfferDraft(nextWave){
-    if(nextWave <= 1) return false;
-    if(nextWave % 5 === 0) return true;
-    if(nextWave % 3 === 0) return true;
+    // Relic-draft vervangen door vending machines in de map.
+    // De draft-modal wordt niet meer getoond; spelers kopen perks bij
+    // fysieke Perk Stations tijdens de wave.
     return false;
   }
 
@@ -9761,6 +9761,28 @@ function doDash(){
   buildHud();
   resetRun();
   syncDerivedStats();
+
+  // ==== Expose minimal API voor Perk Stations systeem ====
+  window.OHArmoryAPI = {
+    getCredits(){ return armory.credits; },
+    getLevel(key){ return armory.levels[key] || 0; },
+    spend(amount){
+      if(armory.credits < amount) return false;
+      armory.credits -= amount;
+      updateHud();
+      return true;
+    },
+    addLevel(key, delta = 1){
+      if(!(key in armory.levels)) return false;
+      armory.levels[key] = (armory.levels[key] || 0) + delta;
+      armory.profile.totalRelics = (armory.profile.totalRelics || 0) + delta;
+      armory.relicsTaken = (armory.relicsTaken || 0) + delta;
+      saveProfile();
+      syncDerivedStats();
+      return true;
+    },
+    flash(msg, dur){ flashHint?.(msg, dur); }
+  };
 })();
 
 
@@ -13929,6 +13951,364 @@ shootWithDirection = function(dirOverride = null){
     return ok;
   };
 })();
+
+/* ===========================
+   PERK STATIONS — vending machines in de arena.
+   Vervangt het relic-draft: perks koop je door naar een station te lopen
+   en F te drukken. Credits blijven het relic-armory salvage-systeem
+   (via window.OHArmoryAPI).
+   =========================== */
+(() => {
+  // ---- Perk definities ----
+  // Elke perk mapt op een armory-level-key die al gehookt is in combat/stats.
+  const PERKS = [
+    {
+      key: "frame",        // Juggernog: +25 max HP per level
+      name: "Juggernog",
+      tagline: "Iron Frame",
+      color: 0xff4a4a,
+      glow:  0xff1818,
+      desc: "+25 max HP per tier",
+      pos: [ 36,  30]      // x, z
+    },
+    {
+      key: "rapidfire",    // Speed Cola: +6% fire rate per level
+      name: "Speed Cola",
+      tagline: "Rapid-Fire Cyclers",
+      color: 0x5ec6ff,
+      glow:  0x1a9cff,
+      desc: "+6% fire rate per tier",
+      pos: [-36,  30]
+    },
+    {
+      key: "magboots",     // Stamin-Up: +12% speed per level
+      name: "Stamin-Up",
+      tagline: "Mag-Boot Rigs",
+      color: 0xffd166,
+      glow:  0xffaa00,
+      desc: "+12% movement speed per tier",
+      pos: [ 40, -30]
+    },
+    {
+      key: "overclock",    // Double Tap: +18% damage per level
+      name: "Double Tap",
+      tagline: "Overclocked Barrels",
+      color: 0x4df7ff,
+      glow:  0x1ae0ff,
+      desc: "+18% damage per tier",
+      pos: [-40, -30]
+    },
+    {
+      key: "vamp",         // Blood Bond: heal 2 HP per level on kill
+      name: "Blood Bond",
+      tagline: "Vampiric Protocol",
+      color: 0xb85aff,
+      glow:  0x9030ff,
+      desc: "Heal on kill (scales per tier)",
+      pos: [  0,  40]
+    },
+    {
+      key: "plating",      // Bastion: 14% damage reduction per level
+      name: "Bastion",
+      tagline: "Hard Plating",
+      color: 0x9dff7c,
+      glow:  0x5ce05c,
+      desc: "-14% incoming damage per tier",
+      pos: [  0, -40]
+    }
+  ];
+
+  const MAX_TIER = 3;
+  const TIER_COSTS = [250, 500, 1000];  // cost voor tier 1, 2, 3 (owned → next)
+  const INTERACT_RANGE = 2.6;
+
+  // ---- 3D meshes bouwen ----
+  const stationGroup = new THREE.Group();
+  scene.add(stationGroup);
+
+  const stations = [];
+
+  for(const perk of PERKS){
+    const root = new THREE.Group();
+    root.position.set(perk.pos[0], 0, perk.pos[1]);
+
+    // Base (platform)
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.95, 1.1, 0.24, 16),
+      new THREE.MeshStandardMaterial({ color:0x1a1f2e, metalness:0.72, roughness:0.38 })
+    );
+    base.position.y = 0.12;
+    base.castShadow = true;
+    root.add(base);
+
+    // Main cabinet (arcade-style)
+    const cabinetMat = new THREE.MeshStandardMaterial({
+      color: perk.color,
+      emissive: perk.glow,
+      emissiveIntensity: 0.45,
+      metalness: 0.35,
+      roughness: 0.38
+    });
+    const cabinet = new THREE.Mesh(
+      new THREE.BoxGeometry(1.3, 2.4, 0.9),
+      cabinetMat
+    );
+    cabinet.position.y = 1.44;
+    cabinet.castShadow = true;
+    root.add(cabinet);
+
+    // Bezel / frame rond het display
+    const frameMat = new THREE.MeshStandardMaterial({
+      color:0x0f1420, metalness:0.82, roughness:0.32
+    });
+    const topFrame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 1.0), frameMat);
+    topFrame.position.y = 2.70;
+    root.add(topFrame);
+
+    const botFrame = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.14, 1.0), frameMat);
+    botFrame.position.y = 0.30;
+    root.add(botFrame);
+
+    // Display-paneel met perk-naam (gloeiend vlak aan de voorkant)
+    const displayMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: perk.glow,
+      emissiveIntensity: 1.4,
+      metalness: 0.0,
+      roughness: 0.2
+    });
+    const display = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.55, 0.03),
+      displayMat
+    );
+    display.position.set(0, 1.90, 0.48);
+    root.add(display);
+
+    // Text-label: we gebruiken een canvas sprite voor perk-naam
+    const labelCanvas = document.createElement("canvas");
+    labelCanvas.width = 256; labelCanvas.height = 96;
+    const lctx = labelCanvas.getContext("2d");
+    lctx.fillStyle = "rgba(0,0,0,0)";
+    lctx.fillRect(0, 0, 256, 96);
+    lctx.font = "bold 34px system-ui, sans-serif";
+    lctx.textAlign = "center";
+    lctx.textBaseline = "middle";
+    lctx.fillStyle = "#fff";
+    lctx.shadowColor = "rgba(0,0,0,0.6)";
+    lctx.shadowBlur = 6;
+    lctx.fillText(perk.name, 128, 36);
+    lctx.font = "16px system-ui, sans-serif";
+    lctx.globalAlpha = 0.85;
+    lctx.fillText(perk.tagline, 128, 68);
+    const labelTex = new THREE.CanvasTexture(labelCanvas);
+    labelTex.needsUpdate = true;
+    const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: labelTex,
+      transparent: true
+    }));
+    labelSprite.position.set(0, 1.90, 0.52);
+    labelSprite.scale.set(1.05, 0.42, 1);
+    root.add(labelSprite);
+
+    // Service-slot (kleine opening onder het display)
+    const slot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.08, 0.05),
+      new THREE.MeshStandardMaterial({ color:0x000000, emissive:perk.glow, emissiveIntensity:0.6 })
+    );
+    slot.position.set(0, 1.15, 0.47);
+    root.add(slot);
+
+    // Side glow-strips
+    for(const sx of [-0.66, 0.66]){
+      const strip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.03, 2.0, 0.06),
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff, emissive: perk.glow, emissiveIntensity: 1.1
+        })
+      );
+      strip.position.set(sx, 1.44, 0.40);
+      root.add(strip);
+    }
+
+    // Top beacon lamp
+    const beacon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 12, 12),
+      new THREE.MeshStandardMaterial({
+        color:0xffffff, emissive:perk.glow, emissiveIntensity:1.6
+      })
+    );
+    beacon.position.set(0, 2.86, 0);
+    root.add(beacon);
+
+    // PointLight voor sfeer
+    const light = new THREE.PointLight(perk.glow, 1.2, 10, 2);
+    light.position.set(0, 2.4, 0);
+    root.add(light);
+
+    stationGroup.add(root);
+
+    // Registreer collider zodat enemies/bullets niet dwars door de kast gaan
+    try {
+      const collBox = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(perk.pos[0], 1.2, perk.pos[1]),
+        new THREE.Vector3(1.5, 2.6, 1.1)
+      );
+      if(typeof colliders !== "undefined" && Array.isArray(colliders)){
+        colliders.push({ mesh: root, box: collBox });
+      }
+    } catch(_){}
+
+    stations.push({
+      perk,
+      root,
+      cabinet,
+      cabinetMat,
+      light,
+      baseIntensity: 1.2,
+      pulsePhase: Math.random() * Math.PI * 2
+    });
+  }
+
+  // ---- HUD prompt element ----
+  const prompt = document.createElement("div");
+  prompt.id = "perkStationPrompt";
+  prompt.style.cssText = [
+    "position:fixed",
+    "left:50%",
+    "bottom:22%",
+    "transform:translateX(-50%)",
+    "padding:10px 18px",
+    "background:rgba(10,14,24,0.82)",
+    "border:1px solid rgba(255,255,255,0.18)",
+    "border-radius:10px",
+    "color:#fff",
+    "font:600 14px/1.35 system-ui,sans-serif",
+    "letter-spacing:0.02em",
+    "z-index:60",
+    "pointer-events:none",
+    "backdrop-filter:blur(6px)",
+    "box-shadow:0 10px 30px rgba(0,0,0,0.35)",
+    "text-align:center",
+    "min-width:220px",
+    "display:none"
+  ].join(";");
+  prompt.innerHTML = `
+    <div id="psTitle" style="font-size:15px;margin-bottom:4px"></div>
+    <div id="psDesc" style="opacity:0.8;font-weight:400;font-size:12px;margin-bottom:6px"></div>
+    <div id="psCost" style="margin-bottom:6px"></div>
+    <div style="opacity:0.75;font-size:12px">Press <kbd style="padding:1px 6px;border:1px solid #fff3;border-radius:4px;background:#fff1">F</kbd> to purchase</div>
+  `;
+  document.body.appendChild(prompt);
+  const psTitle = prompt.querySelector("#psTitle");
+  const psDesc  = prompt.querySelector("#psDesc");
+  const psCost  = prompt.querySelector("#psCost");
+
+  // ---- State ----
+  let nearestStation = null;
+  let nearestDist = Infinity;
+
+  // ---- Update tick (proximity check + animatie) ----
+  // We hooken in de bestaande animate-loop via requestAnimationFrame.
+  // Omdat `animate` al een rAF-loop draait, doen we onze eigen tick die
+  // ook per frame draait en dezelfde phase deelt.
+  let lastTick = performance.now();
+  function perkTick(){
+    requestAnimationFrame(perkTick);
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastTick) / 1000 || 0.016);
+    lastTick = now;
+
+    // Subtiele pulsatie van de lights (altijd, ook als game paused)
+    for(const s of stations){
+      s.pulsePhase += dt * 1.7;
+      s.light.intensity = s.baseIntensity + Math.sin(s.pulsePhase) * 0.35;
+    }
+
+    // Proximity alleen tijdens gameplay
+    if(!state || !state.running || !player || !player.alive){
+      if(prompt.style.display !== "none") prompt.style.display = "none";
+      nearestStation = null;
+      return;
+    }
+
+    nearestStation = null;
+    nearestDist = Infinity;
+    for(const s of stations){
+      const dx = player.pos.x - s.perk.pos[0];
+      const dz = player.pos.z - s.perk.pos[1];
+      const d = Math.hypot(dx, dz);
+      if(d < INTERACT_RANGE && d < nearestDist){
+        nearestDist = d;
+        nearestStation = s;
+      }
+    }
+
+    if(nearestStation){
+      showPrompt(nearestStation);
+    } else if(prompt.style.display !== "none"){
+      prompt.style.display = "none";
+    }
+  }
+
+  function showPrompt(s){
+    const api = window.OHArmoryAPI;
+    if(!api){ prompt.style.display = "none"; return; }
+    const tier = api.getLevel(s.perk.key);
+    const credits = api.getCredits();
+    prompt.style.display = "block";
+    prompt.style.borderColor = "#" + s.perk.glow.toString(16).padStart(6, "0") + "88";
+    psTitle.textContent = `${s.perk.name} — Tier ${tier}/${MAX_TIER}`;
+    psDesc.textContent  = s.perk.desc;
+    if(tier >= MAX_TIER){
+      psCost.innerHTML = `<span style="color:#9dff7c">MAX TIER</span>`;
+    } else {
+      const cost = TIER_COSTS[tier];
+      const affordable = credits >= cost;
+      psCost.innerHTML = `Next tier: <b style="color:${affordable ? "#ffd166" : "#ff6a6a"}">${cost}</b> salvage` +
+                         (affordable ? "" : ` <span style="opacity:.7">(you have ${credits})</span>`);
+    }
+  }
+
+  // ---- Buy handler ----
+  function tryPurchase(){
+    if(!nearestStation) return;
+    const api = window.OHArmoryAPI;
+    if(!api) return;
+    const s = nearestStation;
+    const tier = api.getLevel(s.perk.key);
+    if(tier >= MAX_TIER){
+      api.flash("Max tier reached", 900);
+      return;
+    }
+    const cost = TIER_COSTS[tier];
+    if(!api.spend(cost)){
+      api.flash("Not enough salvage", 900);
+      return;
+    }
+    api.addLevel(s.perk.key, 1);
+    api.flash(`${s.perk.name} → Tier ${tier + 1}`, 1400);
+    // Korte visuele puls op de cabinet
+    s.cabinetMat.emissiveIntensity = 1.8;
+    setTimeout(() => { s.cabinetMat.emissiveIntensity = 0.45; }, 180);
+    // Ververs prompt direct
+    showPrompt(s);
+  }
+
+  // ---- Input: F om te kopen ----
+  window.addEventListener("keydown", (e) => {
+    if(e.code !== "KeyF") return;
+    // Niet reageren als er getypt wordt in een veld
+    const active = document.activeElement;
+    if(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+    if(!nearestStation) return;
+    e.preventDefault();
+    tryPurchase();
+  }, { capture:false });
+
+  // ---- Start ----
+  requestAnimationFrame(perkTick);
+})();
+/* ========== END PERK STATIONS ========== */
 
   animate(performance.now());
 })();
