@@ -922,16 +922,30 @@ renderBoard();
   const minimapCtx = ui.minimapCanvas.getContext("2d");
 
   let audioCtx = null;
+  let _audioMuted = false;
+  try {
+    _audioMuted = localStorage.getItem("oh_muted") === "1";
+  } catch(_){}
   function ensureAudio(){
     if(!audioCtx){
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if(Ctx) audioCtx = new Ctx();
     }
-    if(audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    if(audioCtx && audioCtx.state === "suspended" && !_audioMuted) audioCtx.resume();
   }
+  // Globale API zodat de mute-knop (buiten deze IIFE) de state kan toggelen
+  window.OHSetMuted = function(muted){
+    _audioMuted = !!muted;
+    try { localStorage.setItem("oh_muted", _audioMuted ? "1" : "0"); } catch(_){}
+    if(audioCtx){
+      if(_audioMuted){ audioCtx.suspend?.(); }
+      else { audioCtx.resume?.(); }
+    }
+  };
+  window.OHIsMuted = function(){ return _audioMuted; };
 
   function tone(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
-    if(!audioCtx) return;
+    if(!audioCtx || _audioMuted) return;
     const now = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -951,7 +965,7 @@ renderBoard();
   }
 
   function noiseBurst(dur=0.06, volume=0.02){
-    if(!audioCtx) return;
+    if(!audioCtx || _audioMuted) return;
     const size = Math.max(1, (audioCtx.sampleRate * dur)|0);
     const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -1424,6 +1438,72 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       beaconLight.position.set(x, 7.2, z);
       scene.add(beaconLight);
     });
+
+    // ===== Bergen/cliffs rond de arena =====
+    // Ring van rotsachtige kegels en blokken net buiten de muren, zodat de
+    // arena er afgesloten uitziet en decoratie/skyline niet meer zweeft.
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1d2a, roughness: 0.95, metalness: 0.08
+    });
+    const rockMatLight = new THREE.MeshStandardMaterial({
+      color: 0x242637, roughness: 0.9, metalness: 0.1
+    });
+    const cliffGroup = new THREE.Group();
+    for(let i = 0; i < 64; i++){
+      const ang = (i / 64) * Math.PI * 2;
+      const radius = 72 + Math.random() * 8;
+      const x = Math.cos(ang) * radius;
+      const z = Math.sin(ang) * radius;
+      const h = 14 + Math.random() * 14;
+
+      // Gebruik cone voor rots-piek
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(4 + Math.random() * 3, h, 6),
+        i % 2 === 0 ? rockMat : rockMatLight
+      );
+      cone.position.set(x, h / 2 - 1, z);
+      cone.rotation.y = Math.random() * Math.PI;
+      cone.castShadow = true;
+      cliffGroup.add(cone);
+
+      // Kleinere puin-kegel ernaast voor meer silhouet
+      if(Math.random() < 0.5){
+        const rubble = new THREE.Mesh(
+          new THREE.ConeGeometry(1.5 + Math.random() * 2, 4 + Math.random() * 4, 5),
+          rockMatLight
+        );
+        const offset = 3 + Math.random() * 2;
+        rubble.position.set(
+          x + Math.cos(ang + 1.2) * offset,
+          2 + Math.random() * 2,
+          z + Math.sin(ang + 1.2) * offset
+        );
+        rubble.rotation.y = Math.random() * Math.PI;
+        cliffGroup.add(rubble);
+      }
+    }
+    scene.add(cliffGroup);
+
+    // Tweede, hogere ring verder weg voor diepte-illusie
+    const farRingMat = new THREE.MeshStandardMaterial({
+      color: 0x0e1020, roughness: 0.98, metalness: 0.04
+    });
+    const farRing = new THREE.Group();
+    for(let i = 0; i < 40; i++){
+      const ang = (i / 40) * Math.PI * 2 + 0.1;
+      const radius = 95 + Math.random() * 12;
+      const x = Math.cos(ang) * radius;
+      const z = Math.sin(ang) * radius;
+      const h = 22 + Math.random() * 16;
+      const peak = new THREE.Mesh(
+        new THREE.ConeGeometry(6 + Math.random() * 4, h, 5),
+        farRingMat
+      );
+      peak.position.set(x, h / 2 - 2, z);
+      peak.rotation.y = Math.random() * Math.PI;
+      farRing.add(peak);
+    }
+    scene.add(farRing);
   })();
   // ===== END ARENA ENRICHMENT =====
 
@@ -2305,7 +2385,7 @@ function drawMinimap(){
   const musicBass = [98, 98, 123, 123, 110, 110, 123, 123, 98, 98, 123, 147, 131, 131, 123, 110, 87, 87, 110, 110, 98, 98, 110, 110, 82, 82, 98, 98, 87, 87, 98, 98];
   const musicArp = [1568, 1760, 1976, 1760, 1568, 1760, 1976, 2349, 1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093, 1175, 1319, 1568, 1319, 1175, 1319, 1568, 1760, 1047, 1175, 1319, 1175, 1047, 1175, 1319, 1568];
   function playChip(freq, when, dur, type, gain, detune=0){
-    if(!audioCtx) return;
+    if(!audioCtx || _audioMuted) return;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     const filter = audioCtx.createBiquadFilter();
@@ -2812,8 +2892,16 @@ function updateMusic(){
   }
 
   function moveWithCollision(dx,dz){
-    const nx = player.pos.x + dx;
-    const nz = player.pos.z + dz;
+    // Harde outer bounds: arena muren staan op ±62. Speler mag niet verder
+    // dan ±58 om te voorkomen dat hij door hoek-gaten of tussen
+    // decoratie-blokken heen glipt.
+    const BOUND = 58;
+    let nx = player.pos.x + dx;
+    let nz = player.pos.z + dz;
+    if(nx < -BOUND) nx = -BOUND;
+    if(nx >  BOUND) nx =  BOUND;
+    if(nz < -BOUND) nz = -BOUND;
+    if(nz >  BOUND) nz =  BOUND;
     if(!collidesAt(nx, player.pos.z)) player.pos.x = nx;
     if(!collidesAt(player.pos.x, nz)) player.pos.z = nz;
   }
@@ -2981,101 +3069,246 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   const body = new THREE.Group();
   root.add(body);
 
-  // --- Benen (strak, geen losse knee-glowblokjes meer die kunnen klippen) ---
-  const thighL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.90, 0.30), plateMat);
-  const thighR = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.90, 0.30), plateMat);
-  thighL.position.set(-0.24, 0.52, 0);
-  thighR.position.set( 0.24, 0.52, 0);
+  // --- Benen als pivot-groups zodat heup en knie correct scharnieren ---
+  // Elke leg is een Group op hip-positie; thigh/shin/boot hangen eronder.
+  // Bij rotation.x van de group draait de hele leg rond de heup (correct),
+  // en door shin als child van thigh te parenten knikt de knie mee.
+  const HIP_Y = 0.97; // top van thigh = heup-punt
 
-  const shinL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.28), suitMat);
-  const shinR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.28), suitMat);
-  shinL.position.set(-0.24, -0.32, 0.02);
-  shinR.position.set( 0.24, -0.32, 0.02);
+  function buildLeg(sideX){
+    const legGroup = new THREE.Group();
+    legGroup.position.set(sideX, HIP_Y, 0);
 
-  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.46), bootMat);
-  const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.46), bootMat);
-  bootL.position.set(-0.24, -0.78, 0.08);
-  bootR.position.set( 0.24, -0.78, 0.08);
+    // Hip ball (ronde heup-gewricht)
+    const hipBall = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 14, 10),
+      plateMat
+    );
+    legGroup.add(hipBall);
 
-  // --- Torso: één duidelijk blok, geen losse chestPlate die kan z-fighten ---
+    // Thigh: tapered cylinder (bovenin dikker, naar knie toe smaller)
+    const thigh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.17, 0.13, 0.90, 16),
+      suitMat
+    );
+    thigh.position.set(0, -0.45, 0);
+    legGroup.add(thigh);
+
+    // Knee-pivot
+    const kneeGroup = new THREE.Group();
+    kneeGroup.position.set(0, -0.90, 0.02);
+    legGroup.add(kneeGroup);
+
+    // Knee ball (ronde knie-gewricht)
+    const kneeBall = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 12, 10),
+      plateMat
+    );
+    kneeGroup.add(kneeBall);
+
+    // Shin: tapered cylinder (boven dikker, naar enkel smaller)
+    const shin = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.10, 0.78, 14),
+      suitMat
+    );
+    shin.position.set(0, -0.39, 0);
+    kneeGroup.add(shin);
+
+    // Ankle sphere
+    const ankle = new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 10, 8),
+      plateMat
+    );
+    ankle.position.set(0, -0.78, 0);
+    kneeGroup.add(ankle);
+
+    // Voet: afgeronde box (iets naar voren gericht)
+    const boot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.16, 0.44),
+      bootMat
+    );
+    boot.position.set(0, -0.86, 0.10);
+    kneeGroup.add(boot);
+
+    // Hakcap (bolletje achter voor het silhouet)
+    const heel = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 8, 8),
+      bootMat
+    );
+    heel.position.set(0, -0.85, -0.10);
+    kneeGroup.add(heel);
+
+    return { legGroup, thigh, shin, boot, kneeGroup };
+  }
+
+  const legLRig = buildLeg(-0.24);
+  const legRRig = buildLeg( 0.24);
+  // Aliases zodat de bestaande userData.parts keys blijven werken:
+  const thighL = legLRig.thigh, shinL = legLRig.shin, bootL = legLRig.boot;
+  const thighR = legRRig.thigh, shinR = legRRig.shin, bootR = legRRig.boot;
+  // Animatie-hooks: parts.legL = de group (draait rond heup)
+  const legPivotL = legLRig.legGroup;
+  const legPivotR = legRRig.legGroup;
+
+  // --- Pelvis: ronde capsule-achtige vorm ---
+  const pelvisRadius = bodyWidth * 0.45;
   const pelvis = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 1.02, 0.36, 0.38),
+    new THREE.CylinderGeometry(pelvisRadius, pelvisRadius * 0.95, 0.40, 16),
     plateMat
   );
-  pelvis.position.y = 0.98;
+  pelvis.position.y = 1.00;
 
+  // Heup-bol onder pelvis voor afronding
+  const pelvisBase = new THREE.Mesh(
+    new THREE.SphereGeometry(pelvisRadius * 0.92, 14, 10),
+    plateMat
+  );
+  pelvisBase.position.y = 0.82;
+  pelvisBase.scale.y = 0.55;
+
+  // --- Torso: tapered cylinder (breder bovenaan = schouders, smaller onderaan = taille) ---
+  const torsoTop = bodyWidth * 0.58;
+  const torsoBot = bodyWidth * 0.42;
   const torso = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth, 1.12, 0.50),
+    new THREE.CylinderGeometry(torsoTop, torsoBot, 1.20, 18),
     suitMat
   );
-  torso.position.y = 1.78;
+  torso.position.y = 1.80;
 
-  // --- Chest plate: slank, subtiel ingezonken, geen z-fighting ---
+  // Bovenkant torso: halve bol voor ronde schouder-area
+  const torsoCap = new THREE.Mesh(
+    new THREE.SphereGeometry(torsoTop * 0.98, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    suitMat
+  );
+  torsoCap.position.y = 2.40;
+
+  // --- Chest plate: gebogen paneel op voorkant (kleine deel van cilinder) ---
   const chestPlate = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 0.70, 0.72, 0.04),
+    new THREE.CylinderGeometry(torsoTop * 0.88, torsoBot * 0.85, 0.85, 16, 1, true, -0.7, 1.4),
     plateMat
   );
-  chestPlate.position.set(0, 1.88, 0.27);
+  chestPlate.position.y = 1.95;
 
-  // --- Logo als één kleine emissive strip op borst (geen backlogo meer) ---
+  // --- Logo emissive strip (blijft klein, op de borstplaat) ---
   const logoStrip = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 0.40, 0.14, 0.02),
+    new THREE.BoxGeometry(bodyWidth * 0.25, 0.10, 0.02),
     accentMat
   );
-  logoStrip.position.set(0, 1.92, 0.30);
+  logoStrip.position.set(0, 2.05, torsoTop * 0.88);
 
-  // --- Schouders + armen ---
-  const shoulderL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.34), plateMat);
-  const shoulderR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.34), plateMat);
-  shoulderL.position.set(-shoulderW * 0.52, 2.18, 0);
-  shoulderR.position.set( shoulderW * 0.52, 2.18, 0);
-
-  const upperArmL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.24), suitMat);
-  const upperArmR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.78, 0.24), suitMat);
-  upperArmL.position.set(-shoulderW * 0.54, 1.70, 0);
-  upperArmR.position.set( shoulderW * 0.54, 1.70, 0);
-
-  const foreArmL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.22), plateMat);
-  const foreArmR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 0.22), plateMat);
-  foreArmL.position.set(-shoulderW * 0.54, 0.96, 0.04);
-  foreArmR.position.set( shoulderW * 0.54, 0.96, 0.04);
-
-  // --- Hoofd + helm — vorm varieert per type voor herkenning ---
-  const headY = 2.72;
-  const neck = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.18, 0.22),
+  // --- Schouders + armen als pivot-groups ---
+  // Schouder-cap: halve bollen zodat schouders er natuurlijk uitzien
+  const shoulderL = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 10),
     plateMat
   );
-  neck.position.y = headY - 0.28;
+  shoulderL.position.set(-shoulderW * 0.52, 2.28, 0);
+  const shoulderR = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 10),
+    plateMat
+  );
+  shoulderR.position.set( shoulderW * 0.52, 2.28, 0);
 
-  // Helm: onderbasis als gedrongen box (voor compatibiliteit: parts.head = helmet),
-  // maar bovenop zetten we een ronde cilindrische schedel en een sweeping visor-band.
-  // Dit geeft de enemy een herkenbaar silhouet zonder dat we de bestaande userData
-  // referenties hoeven te wijzigen.
-  let helmet;
-  let helmetW, helmetH, helmetD;
-  if(isBoss){
-    helmetW = 0.62; helmetH = 0.60; helmetD = 0.58;
-  } else if(type === "tank"){
-    helmetW = 0.64; helmetH = 0.54; helmetD = 0.60;
-  } else if(type === "elite"){
-    helmetW = 0.50; helmetH = 0.58; helmetD = 0.56;
-  } else if(type === "runner"){
-    helmetW = 0.46; helmetH = 0.50; helmetD = 0.50;
-  } else {
-    helmetW = 0.50; helmetH = 0.54; helmetD = 0.54;
+  const SHOULDER_Y = 2.10; // draai-punt net onder de shoulder-cap
+
+  function buildArm(sideX){
+    const armGroup = new THREE.Group();
+    armGroup.position.set(sideX, SHOULDER_Y, 0);
+
+    // Shoulder ball
+    const shoulderBall = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 12, 10),
+      plateMat
+    );
+    armGroup.add(shoulderBall);
+
+    // UpperArm: tapered cylinder
+    const upper = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.11, 0.78, 14),
+      suitMat
+    );
+    upper.position.set(0, -0.39, 0);
+    armGroup.add(upper);
+
+    // Elbow-pivot
+    const elbowGroup = new THREE.Group();
+    elbowGroup.position.set(0, -0.78, 0.04);
+    armGroup.add(elbowGroup);
+
+    // Elbow ball
+    const elbowBall = new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 10, 8),
+      plateMat
+    );
+    elbowGroup.add(elbowBall);
+
+    // ForeArm: tapered cylinder (dunner dan upper)
+    const fore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.09, 0.72, 14),
+      plateMat
+    );
+    fore.position.set(0, -0.36, 0);
+    elbowGroup.add(fore);
+
+    // Vuist (bolletje aan de onderkant van de onderarm)
+    const fist = new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 10, 8),
+      suitMat
+    );
+    fist.position.set(0, -0.74, 0);
+    elbowGroup.add(fist);
+
+    return { armGroup, upper, fore, elbowGroup };
   }
-  helmet = new THREE.Mesh(new THREE.BoxGeometry(helmetW, helmetH, helmetD), suitMat);
-  helmet.position.y = headY;
 
-  // Ronde schedel-cap bovenop — geeft het een helmlook i.p.v. blok
-  const skullCap = new THREE.Mesh(
-    new THREE.CylinderGeometry(helmetW * 0.48, helmetW * 0.52, helmetH * 0.55, 12),
+  const armLRig = buildArm(-shoulderW * 0.54);
+  const armRRig = buildArm( shoulderW * 0.54);
+  const upperArmL = armLRig.upper, foreArmL = armLRig.fore;
+  const upperArmR = armRRig.upper, foreArmR = armRRig.fore;
+  const armPivotL = armLRig.armGroup;
+  const armPivotR = armRRig.armGroup;
+  const elbowL = armLRig.elbowGroup;
+  const elbowR = armRRig.elbowGroup;
+
+  // --- Hoofd + helm: ronde vormen voor mensachtig silhouet ---
+  const headY = 2.72;
+  // Nek als cilinder in plaats van box
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.11, 0.24, 12),
+    plateMat
+  );
+  neck.position.y = headY - 0.30;
+
+  // Helm-radius per type — bol i.p.v. box
+  let helmetR, helmetScaleZ;
+  if(isBoss){
+    helmetR = 0.32; helmetScaleZ = 1.05;
+  } else if(type === "tank"){
+    helmetR = 0.32; helmetScaleZ = 1.10;
+  } else if(type === "elite"){
+    helmetR = 0.28; helmetScaleZ = 1.02;
+  } else if(type === "runner"){
+    helmetR = 0.24; helmetScaleZ = 1.00;
+  } else {
+    helmetR = 0.27; helmetScaleZ = 1.02;
+  }
+
+  // Helmet: sphere (ronde schedel)
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(helmetR, 18, 14),
     suitMat
   );
-  skullCap.position.y = headY + helmetH * 0.28;
+  helmet.position.y = headY;
+  helmet.scale.z = helmetScaleZ;
 
-  // Visor — één duidelijke balk aan de voorkant van de helm
+  // Kaaklijn (korte cilinder onder de helm-bol)
+  const jaw = new THREE.Mesh(
+    new THREE.CylinderGeometry(helmetR * 0.72, helmetR * 0.58, 0.16, 12),
+    plateMat
+  );
+  jaw.position.y = headY - 0.20;
+
+  // Visor — gebogen band rond de voorkant (partial cylinder)
   const visorMat = new THREE.MeshStandardMaterial({
     color: palette.visor,
     emissive: palette.glow,
@@ -3083,33 +3316,17 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     roughness: 0.2,
     metalness: 0.6
   });
+  // Use a thin torus segment voor de visor-band (sweep voorzijde van de helm)
   const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      isBoss ? 0.52 : type === "tank" ? 0.54 : type === "runner" ? 0.36 : 0.42,
-      isBoss ? 0.14 : 0.12,
-      0.04
+    new THREE.CylinderGeometry(
+      helmetR * 1.02, helmetR * 1.02,
+      isBoss ? 0.16 : 0.13, 20, 1, true,
+      -0.8, 1.6  // partial cilinder: 1.6 rad = ~92°, centered vooraan
     ),
     visorMat
   );
-  visor.position.set(0, headY + 0.04, helmetD * 0.5 + 0.01);
-
-  // Visor-rim (zwarte rand boven de visor) — geeft diepte-illusie
-  const visorRim = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      (isBoss ? 0.54 : type === "tank" ? 0.56 : type === "runner" ? 0.38 : 0.44),
-      0.05,
-      0.05
-    ),
-    plateMat
-  );
-  visorRim.position.set(0, headY + 0.15, helmetD * 0.5 + 0.005);
-
-  // Jaw-guard (kin): smalle plate onder de visor
-  const jawGuard = new THREE.Mesh(
-    new THREE.BoxGeometry(helmetW * 0.70, 0.10, 0.06),
-    plateMat
-  );
-  jawGuard.position.set(0, headY - 0.12, helmetD * 0.5 + 0.01);
+  visor.position.y = headY + 0.03;
+  visor.scale.z = helmetScaleZ;
 
   // --- Gun: simpel, vast geplaatst, geen per-frame wiebel ---
   const gun = new THREE.Group();
@@ -3151,12 +3368,14 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   gun.rotation.y = Math.PI / 2;
   gun.rotation.x = -0.18;
 
-  // --- "Back pack" in plaats van cape — geen klip-issues met plane ---
+  // --- Backpack: capsule-achtige rugtas (ronder dan originele box) ---
   const backpack = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 0.85, 0.88, 0.18),
+    new THREE.CylinderGeometry(bodyWidth * 0.40, bodyWidth * 0.42, 0.92, 14),
     plateMat
   );
-  backpack.position.set(0, 1.80, -0.32);
+  backpack.position.set(0, 1.82, -0.34);
+  // Subtiel afgeplat zodat het echt een rugtas lijkt (niet cilindrisch rond)
+  backpack.scale.set(1.0, 1.0, 0.35);
 
   // Boss-crest bovenop helm
   if(isBoss){
@@ -3168,50 +3387,29 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     body.add(crest);
   }
 
-  // --- Shoulder pads: angled trapezoïde caps voor breder silhouet ---
-  const padW = shoulderW * 0.30;
-  const shoulderPadL = new THREE.Mesh(new THREE.BoxGeometry(padW, 0.18, 0.42), accentMat);
-  shoulderPadL.position.set(-shoulderW * 0.56, 2.30, 0);
-  shoulderPadL.rotation.z = 0.35;
-  const shoulderPadR = new THREE.Mesh(new THREE.BoxGeometry(padW, 0.18, 0.42), accentMat);
-  shoulderPadR.position.set( shoulderW * 0.56, 2.30, 0);
-  shoulderPadR.rotation.z = -0.35;
-
-  // --- Knee guards: kleine platen op de voorkant van thighs ---
-  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.04), accentMat);
-  kneeL.position.set(-0.24, 0.18, 0.17);
-  const kneeR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.04), accentMat);
-  kneeR.position.set( 0.24, 0.18, 0.17);
-
-  // --- Forearm bracers: extra layer voor diepte-illusie ---
-  const bracerL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.04), accentMat);
-  bracerL.position.set(-shoulderW * 0.54, 0.90, 0.14);
-  const bracerR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.04), accentMat);
-  bracerR.position.set( shoulderW * 0.54, 0.90, 0.14);
-
-  // --- Spinal strip: dunne gloeiende lijn over de rug (geeft sci-fi look) ---
-  const spineStrip = new THREE.Mesh(
-    new THREE.BoxGeometry(0.08, 0.94, 0.025),
-    accentMat
-  );
-  spineStrip.position.set(0, 1.68, -0.28);
-
-  // --- Belt band: smalle accent-strip tussen pelvis en torso ---
-  const belt = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 1.05, 0.08, 0.46),
-    accentMat
-  );
-  belt.position.set(0, 1.28, 0);
-
   // --- Alles toevoegen aan body ---
+  // Belangrijk: de gewrichts-meshes (thigh/shin/boot/upperArm/foreArm) zitten al
+  // in hun pivot-groups (legPivotL/R, armPivotL/R). Die voegen we als groep toe;
+  // ze staan NIET in allParts om dubbele parenting te voorkomen.
+  body.add(legPivotL);
+  body.add(legPivotR);
+  body.add(armPivotL);
+  body.add(armPivotR);
+
+  // Cast-shadow voor de meshes binnen de pivot-groups, rekursief.
+  for(const pivot of [legPivotL, legPivotR, armPivotL, armPivotR]){
+    pivot.traverse(obj => {
+      if(obj.isMesh){
+        obj.castShadow = true;
+        obj.receiveShadow = false;
+      }
+    });
+  }
+
   const allParts = [
-    thighL, thighR, shinL, shinR, bootL, bootR,
-    pelvis, torso, chestPlate, logoStrip,
-    shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR,
-    neck, helmet, skullCap, visor, visorRim, jawGuard,
-    shoulderPadL, shoulderPadR, kneeL, kneeR, bracerL, bracerR,
-    spineStrip, belt,
-    backpack, gun
+    pelvis, pelvisBase, torso, torsoCap, chestPlate, logoStrip,
+    shoulderL, shoulderR,
+    neck, helmet, jaw, visor, backpack, gun
   ];
   for(const m of allParts){
     m.castShadow = true;
@@ -3230,18 +3428,23 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   root.add(tag);
 
   // userData.parts blijft compatibel met bestaande animatie/hit-code.
+  // legL/legR/armL/armR wijzen nu naar de PIVOT-GROUPS zodat rotatie rond
+  // heup/schouder gebeurt (niet rond het midden van de mesh).
+  // foreArmL/foreArmR wijzen naar de ELBOW-groups zodat de onderarm
+  // scharniert rond de elleboog.
+  // Extra mesh-aliases (_mesh) voor code die materials wil aanpassen.
   root.userData.parts = {
-    armL: upperArmL,
-    armR: upperArmR,
-    foreArmL,
-    foreArmR,
-    legL: thighL,
-    legR: thighR,
+    armL: armPivotL,
+    armR: armPivotR,
+    foreArmL: elbowL,
+    foreArmR: elbowR,
+    legL: legPivotL,
+    legR: legPivotR,
     shinL,
     shinR,
     gun,
     logo: logoStrip,
-    backLogo: null,      // niet meer aanwezig, maar veilig null
+    backLogo: null,
     hatBadge: visor,
     head: helmet,
     torso,
@@ -3249,10 +3452,13 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     bootL,
     bootR,
     chest: chestPlate,
-    cape: null,          // cape vervangen door backpack, maar nameTag / cape refs elders
+    cape: null,
     gauntletL: null,
     gauntletR: null,
-    nameTag: tag
+    nameTag: tag,
+    // Mesh-references voor material-recolor flows:
+    upperArmL, upperArmR, foreArmL_mesh: foreArmL, foreArmR_mesh: foreArmR,
+    thighL, thighR
   };
 
   // Body referentie zodat updateEnemies lookAt daarop kan doen i.p.v. op root.
@@ -10594,14 +10800,16 @@ Jad: {
 
     recolorMat(parts.torso?.material, darkSuit, darker, 0.18);
     recolorMat(parts.pelvis?.material, darker, darker, 0.10);
-    recolorMat(parts.armL?.material, darkSuit, darker, 0.12);
-    recolorMat(parts.armR?.material, darkSuit, darker, 0.12);
-    recolorMat(parts.foreArmL?.material, darker, darker, 0.08);
-    recolorMat(parts.foreArmR?.material, darker, darker, 0.08);
-    recolorMat(parts.legL?.material, darker, darker, 0.08);
-    recolorMat(parts.legR?.material, darker, darker, 0.08);
+    recolorMat(parts.upperArmL?.material, darkSuit, darker, 0.12);
+    recolorMat(parts.upperArmR?.material, darkSuit, darker, 0.12);
+    recolorMat(parts.foreArmL_mesh?.material, darker, darker, 0.08);
+    recolorMat(parts.foreArmR_mesh?.material, darker, darker, 0.08);
+    recolorMat(parts.thighL?.material, darker, darker, 0.08);
+    recolorMat(parts.thighR?.material, darker, darker, 0.08);
     recolorMat(parts.shinL?.material, darkSuit, darker, 0.08);
     recolorMat(parts.shinR?.material, darkSuit, darker, 0.08);
+    recolorMat(parts.bootL?.material, darker, darker, 0.08);
+    recolorMat(parts.bootR?.material, darker, darker, 0.08);
     recolorMat(parts.bootL?.material, darker, darker, 0.08);
     recolorMat(parts.bootR?.material, darker, darker, 0.08);
     recolorMat(parts.chest?.material, trim, new THREE.Color(0x3e4650), 0.12);
@@ -13969,7 +14177,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0xff4a4a,
       glow:  0xff1818,
       desc: "+25 max HP per tier",
-      pos: [ 36,  30]      // x, z
+      pos: [ 50,  50]      // x, z — hoek NO, vrij van arena-boxes
     },
     {
       key: "rapidfire",    // Speed Cola: +6% fire rate per level
@@ -13978,7 +14186,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0x5ec6ff,
       glow:  0x1a9cff,
       desc: "+6% fire rate per tier",
-      pos: [-36,  30]
+      pos: [-50,  50]      // hoek NW
     },
     {
       key: "magboots",     // Stamin-Up: +12% speed per level
@@ -13987,7 +14195,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0xffd166,
       glow:  0xffaa00,
       desc: "+12% movement speed per tier",
-      pos: [ 40, -30]
+      pos: [ 50, -50]      // hoek ZO
     },
     {
       key: "overclock",    // Double Tap: +18% damage per level
@@ -13996,7 +14204,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0x4df7ff,
       glow:  0x1ae0ff,
       desc: "+18% damage per tier",
-      pos: [-40, -30]
+      pos: [-50, -50]      // hoek ZW
     },
     {
       key: "vamp",         // Blood Bond: heal 2 HP per level on kill
@@ -14005,7 +14213,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0xb85aff,
       glow:  0x9030ff,
       desc: "Heal on kill (scales per tier)",
-      pos: [  0,  40]
+      pos: [ 50,   0]      // midden oost
     },
     {
       key: "plating",      // Bastion: 14% damage reduction per level
@@ -14014,7 +14222,7 @@ shootWithDirection = function(dirOverride = null){
       color: 0x9dff7c,
       glow:  0x5ce05c,
       desc: "-14% incoming damage per tier",
-      pos: [  0, -40]
+      pos: [-50,   0]      // midden west
     }
   ];
 
@@ -14084,30 +14292,55 @@ shootWithDirection = function(dirOverride = null){
     display.position.set(0, 1.90, 0.48);
     root.add(display);
 
-    // Text-label: we gebruiken een canvas sprite voor perk-naam
+    // Text-label: veel groter canvas, donkere achtergrond, felle kleur voor leesbaarheid
     const labelCanvas = document.createElement("canvas");
-    labelCanvas.width = 256; labelCanvas.height = 96;
+    labelCanvas.width = 512; labelCanvas.height = 256;
     const lctx = labelCanvas.getContext("2d");
-    lctx.fillStyle = "rgba(0,0,0,0)";
-    lctx.fillRect(0, 0, 256, 96);
-    lctx.font = "bold 34px system-ui, sans-serif";
+
+    // Donkere achtergrond met kleurige gloed aan de randen
+    const grad = lctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, "#0a0d18");
+    grad.addColorStop(0.5, "#12172a");
+    grad.addColorStop(1, "#0a0d18");
+    lctx.fillStyle = grad;
+    lctx.fillRect(0, 0, 512, 256);
+
+    // Dikke gekleurde border
+    const hexGlow = "#" + perk.glow.toString(16).padStart(6, "0");
+    lctx.strokeStyle = hexGlow;
+    lctx.lineWidth = 8;
+    lctx.strokeRect(8, 8, 496, 240);
+
+    // Perk-naam — groot, wit, met glow
     lctx.textAlign = "center";
     lctx.textBaseline = "middle";
-    lctx.fillStyle = "#fff";
-    lctx.shadowColor = "rgba(0,0,0,0.6)";
-    lctx.shadowBlur = 6;
-    lctx.fillText(perk.name, 128, 36);
-    lctx.font = "16px system-ui, sans-serif";
-    lctx.globalAlpha = 0.85;
-    lctx.fillText(perk.tagline, 128, 68);
+    lctx.fillStyle = "#ffffff";
+    lctx.shadowColor = hexGlow;
+    lctx.shadowBlur = 24;
+    lctx.font = "bold 68px system-ui, -apple-system, sans-serif";
+    lctx.fillText(perk.name, 256, 100);
+
+    // Tagline — kleiner maar nog goed leesbaar
+    lctx.shadowBlur = 12;
+    lctx.fillStyle = hexGlow;
+    lctx.font = "600 32px system-ui, -apple-system, sans-serif";
+    lctx.fillText(perk.tagline, 256, 170);
+
+    // Onderkant: subtiele "PERK STATION" label
+    lctx.shadowBlur = 0;
+    lctx.fillStyle = "rgba(255,255,255,0.5)";
+    lctx.font = "500 18px system-ui, sans-serif";
+    lctx.fillText("— PERK STATION —", 256, 215);
+
     const labelTex = new THREE.CanvasTexture(labelCanvas);
     labelTex.needsUpdate = true;
     const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map: labelTex,
-      transparent: true
+      transparent: true,
+      depthTest: true
     }));
-    labelSprite.position.set(0, 1.90, 0.52);
-    labelSprite.scale.set(1.05, 0.42, 1);
+    labelSprite.position.set(0, 1.90, 0.50);
+    labelSprite.scale.set(1.15, 0.58, 1);
     root.add(labelSprite);
 
     // Service-slot (kleine opening onder het display)
@@ -14202,6 +14435,61 @@ shootWithDirection = function(dirOverride = null){
   const psTitle = prompt.querySelector("#psTitle");
   const psDesc  = prompt.querySelector("#psDesc");
   const psCost  = prompt.querySelector("#psCost");
+
+  // ---- Mute-knop (rechtsboven) ----
+  const muteBtn = document.createElement("button");
+  muteBtn.id = "ohMuteBtn";
+  muteBtn.type = "button";
+  muteBtn.style.cssText = [
+    "position:fixed",
+    "top:14px",
+    "right:14px",
+    "width:46px",
+    "height:46px",
+    "border-radius:50%",
+    "border:1px solid rgba(255,255,255,0.22)",
+    "background:rgba(10,14,24,0.7)",
+    "color:#fff",
+    "font:18px/1 system-ui,sans-serif",
+    "cursor:pointer",
+    "z-index:70",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "backdrop-filter:blur(6px)",
+    "transition:transform .12s, background .12s",
+    "user-select:none"
+  ].join(";");
+  muteBtn.title = "Toggle sound (M)";
+  function refreshMuteIcon(){
+    const muted = window.OHIsMuted?.() ?? false;
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+    muteBtn.style.background = muted
+      ? "rgba(60,20,20,0.78)"
+      : "rgba(10,14,24,0.7)";
+  }
+  muteBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if(window.OHSetMuted){
+      window.OHSetMuted(!window.OHIsMuted());
+      refreshMuteIcon();
+    }
+    muteBtn.blur();
+  });
+  document.body.appendChild(muteBtn);
+  refreshMuteIcon();
+
+  // M-keybinding voor mute
+  window.addEventListener("keydown", (e) => {
+    if(e.code !== "KeyM") return;
+    const active = document.activeElement;
+    if(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+    if(window.OHSetMuted){
+      window.OHSetMuted(!window.OHIsMuted());
+      refreshMuteIcon();
+    }
+  });
 
   // ---- State ----
   let nearestStation = null;
