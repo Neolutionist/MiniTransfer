@@ -3189,12 +3189,40 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   );
   chestPlate.position.y = 1.95;
 
-  // --- Logo emissive strip (blijft klein, op de borstplaat) ---
+  // --- OH logo: daadwerkelijke "OH" tekst op borst (canvas sprite) ---
+  // Olde Hanter bots — de O en H staan gestileerd op de borstplaat.
+  const ohCanvas = document.createElement("canvas");
+  ohCanvas.width = 128; ohCanvas.height = 96;
+  const octx = ohCanvas.getContext("2d");
+  octx.fillStyle = "rgba(0,0,0,0)";
+  octx.fillRect(0, 0, 128, 96);
+  // Gestileerde OH — witte letters met gekleurde glow
+  const accentHex = "#" + palette.accent.toString(16).padStart(6, "0");
+  octx.font = "900 72px 'Impact', 'Arial Black', sans-serif";
+  octx.textAlign = "center";
+  octx.textBaseline = "middle";
+  octx.fillStyle = "#ffffff";
+  octx.shadowColor = accentHex;
+  octx.shadowBlur = 18;
+  octx.fillText("OH", 64, 52);
+  // Extra pass voor meer glow
+  octx.shadowBlur = 8;
+  octx.fillText("OH", 64, 52);
+
+  const ohTex = new THREE.CanvasTexture(ohCanvas);
+  ohTex.needsUpdate = true;
+  // Gebruik een MeshBasicMaterial (geen lighting) zodat de tekst altijd
+  // goed leesbaar blijft — niet verdonkert in schaduw.
   const logoStrip = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyWidth * 0.25, 0.10, 0.02),
-    accentMat
+    new THREE.PlaneGeometry(0.32, 0.24),
+    new THREE.MeshBasicMaterial({
+      map: ohTex,
+      transparent: true,
+      depthWrite: false
+    })
   );
-  logoStrip.position.set(0, 2.05, torsoTop * 0.88);
+  // Plaats iets voor de chestPlate om z-fighting te voorkomen
+  logoStrip.position.set(0, 1.05, torsoTop * 0.88 + 0.02);
 
   // --- Schouders + armen als pivot-groups ---
   // Schouder-cap: halve bollen zodat schouders er natuurlijk uitzien
@@ -3466,6 +3494,9 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   root.userData.enemyName = enemyName;
   root.userData.variant = variant;
   root.userData.ohStamped = true;
+  // Y-offset zodat de voeten mooi op de grond staan in plaats van erdoorheen.
+  // De nieuwe humanoid-mesh is opgebouwd met onderkant boot op local y ≈ -0.87.
+  root.userData.yOffset = 0.87;
   root.scale.setScalar(scale);
   return root;
 }
@@ -5241,7 +5272,8 @@ if(b.gravity){
       }
     }
 
-    e.mesh.position.y = 0.02 + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
+    const yBase = e.mesh.userData.yOffset || 0.02;
+    e.mesh.position.y = yBase + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
 
     if(e.groundRing){
       e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
@@ -5371,7 +5403,8 @@ if(b.gravity){
       e.dashCooldown = Math.max(1.8, (e.phase === 3 ? 3.2 : 4.4) - Math.min(1.4, enrage * 4.0));
     }
 
-    e.mesh.position.y = 0.04 + Math.sin(e.bob) * 0.07;
+    const bossYBase = e.mesh.userData.yOffset || 0.04;
+    e.mesh.position.y = bossYBase + Math.sin(e.bob) * 0.07;
     if(e.groundRing){
       e.groundRing.position.set(e.mesh.position.x, 0.03, e.mesh.position.z);
       e.groundRing.rotation.z += dt * (e.phase === 3 ? 2.5 : 1.2);
