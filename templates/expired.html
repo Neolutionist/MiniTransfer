@@ -2082,7 +2082,12 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
 
   function buildViewWeapon(type){
     weaponRig.clear();
-    const w = type || (typeof player !== "undefined" ? player.weapon : "bullet");
+    // `player` is pas later in de scope gedeclared (const op regel ~2572).
+    // Probeer het veilig op te halen; als het faalt (TDZ bij init-aanroep),
+    // fallback naar "bullet".
+    let currentPlayerWeapon = "bullet";
+    try { if(player && player.weapon) currentPlayerWeapon = player.weapon; } catch(_){}
+    const w = type || currentPlayerWeapon;
     const builder = WEAPON_BUILDERS[w] || _buildRifle;
     const built = builder();
 
@@ -2107,7 +2112,7 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
 
     weaponRig.add(built.root);
   }
-  buildViewWeapon();
+  buildViewWeapon("bullet");
 
   function updateViewWeapon(dt){
     const root = weaponRig.userData.root;
