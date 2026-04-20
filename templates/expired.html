@@ -1,5 +1,3 @@
-
-
 <!doctype html>
 <html lang="nl">
 <head>
@@ -1249,6 +1247,186 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   }
   buildArena();
 
+  // ===== ARENA ENRICHMENT =====
+  // Extra detail om de map minder kaal te maken: barricades/krattenstapels als cover,
+  // hangende pipes onder het plafond-grid, en warning-stripes op de buitenmuur.
+
+  (function addArenaDetail(){
+    // Palet voor industriele look
+    const crateMat = new THREE.MeshStandardMaterial({ color:0x3a2e1a, roughness:0.85, metalness:0.15 });
+    const crateTrim = new THREE.MeshStandardMaterial({ color:0xffb347, emissive:0x663200, emissiveIntensity:0.4, roughness:0.5, metalness:0.3 });
+    const sandbagMat = new THREE.MeshStandardMaterial({ color:0x2a2418, roughness:0.95, metalness:0.02 });
+    const pipeMat = new THREE.MeshStandardMaterial({ color:0x2c3142, metalness:0.72, roughness:0.38 });
+    const hazardMat = new THREE.MeshStandardMaterial({ color:0xffd166, emissive:0x884f00, emissiveIntensity:0.35, roughness:0.55 });
+    const darkHazardMat = new THREE.MeshStandardMaterial({ color:0x1a1a22, roughness:0.8, metalness:0.1 });
+
+    // Helper: stapel kratten op positie (x, z) in een klein patroon
+    function addCrateStack(x, z, rot = 0){
+      const stack = new THREE.Group();
+      // Onderlaag: 2x1 kratten naast elkaar
+      for(let i = 0; i < 2; i++){
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 1.2), crateMat);
+        crate.position.set((i - 0.5) * 1.25, 0.55, 0);
+        crate.castShadow = true;
+        crate.receiveShadow = true;
+        stack.add(crate);
+        // Accent-strip bovenop krat
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.05, 1.18), crateTrim);
+        strip.position.set((i - 0.5) * 1.25, 1.10, 0);
+        stack.add(strip);
+      }
+      // Bovenop: 1 krat iets kleiner
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), crateMat);
+      top.position.set(0, 1.60, 0);
+      top.castShadow = true;
+      stack.add(top);
+      const topStrip = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.04, 1.08), crateTrim);
+      topStrip.position.set(0, 2.03, 0);
+      stack.add(topStrip);
+
+      stack.position.set(x, 0, z);
+      stack.rotation.y = rot;
+      scene.add(stack);
+
+      // Registreer collider op de onderlaag (brede rechthoek)
+      const colliderBox = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(x, 1.1, z),
+        new THREE.Vector3(2.6, 2.2, 1.4)
+      );
+      if(typeof colliders !== "undefined" && Array.isArray(colliders)){
+        colliders.push({ mesh: stack, box: colliderBox });
+      }
+    }
+
+    // Helper: sandbag-wall (rijtje zandzakken)
+    function addSandbagRow(x, z, rot = 0, count = 4){
+      const row = new THREE.Group();
+      for(let i = 0; i < count; i++){
+        const bag = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 0.55), sandbagMat);
+        bag.position.set((i - (count - 1) * 0.5) * 0.95, 0.23, 0);
+        bag.castShadow = true;
+        row.add(bag);
+        // Tweede rij bovenop (versprongen)
+        if(i < count - 1){
+          const topBag = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 0.55), sandbagMat);
+          topBag.position.set((i + 0.5 - (count - 1) * 0.5) * 0.95, 0.70, 0);
+          topBag.castShadow = true;
+          row.add(topBag);
+        }
+      }
+      row.position.set(x, 0, z);
+      row.rotation.y = rot;
+      scene.add(row);
+
+      // Collider: dunne lange box die de hele rij afdekt
+      const len = count * 0.95;
+      const colliderBox = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(x, 0.55, z),
+        new THREE.Vector3(
+          Math.abs(Math.cos(rot)) * len + Math.abs(Math.sin(rot)) * 0.6,
+          1.1,
+          Math.abs(Math.sin(rot)) * len + Math.abs(Math.cos(rot)) * 0.6
+        )
+      );
+      if(typeof colliders !== "undefined" && Array.isArray(colliders)){
+        colliders.push({ mesh: row, box: colliderBox });
+      }
+    }
+
+    // Verspreide cover op safe plekken (buiten de speler-spawn area [-6..6])
+    // We kiezen locaties die niet klippen met bestaande arena-muren.
+    addCrateStack(-15, -22);
+    addCrateStack( 15, -22, Math.PI * 0.25);
+    addCrateStack(-28,  5, Math.PI * 0.1);
+    addCrateStack( 28,  5, -Math.PI * 0.15);
+    addCrateStack(-12, 42);
+    addCrateStack( 12, 42, Math.PI * 0.2);
+
+    addSandbagRow(-8, -18, 0, 5);
+    addSandbagRow( 8, -18, 0, 5);
+    addSandbagRow(-20, 20, Math.PI * 0.5, 4);
+    addSandbagRow( 20, 20, Math.PI * 0.5, 4);
+    addSandbagRow(  0, -4, 0, 6);
+
+    // Hangende pipes onder het plafond-grid (horizontal + een paar drops)
+    for(let i = 0; i < 4; i++){
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.22, 100, 12),
+        pipeMat
+      );
+      pipe.rotation.z = Math.PI / 2;
+      pipe.position.set(0, 6.0, -36 + i * 24);
+      pipe.castShadow = true;
+      scene.add(pipe);
+
+      // 2 drops per pipe (verticale ventilatie-buizen)
+      for(let j = 0; j < 2; j++){
+        const drop = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.18, 0.18, 2.2, 10),
+          pipeMat
+        );
+        drop.position.set((j === 0 ? -25 : 25), 4.9, -36 + i * 24);
+        drop.castShadow = true;
+        scene.add(drop);
+
+        // Pipe-joint (bolletje bij verbinding)
+        const joint = new THREE.Mesh(
+          new THREE.SphereGeometry(0.26, 10, 10),
+          pipeMat
+        );
+        joint.position.set((j === 0 ? -25 : 25), 6.0, -36 + i * 24);
+        scene.add(joint);
+      }
+    }
+
+    // Hazard-stripes op de buitenmuren (4 muren, 2 aan elke zijde)
+    // De buitenmuren staan op x = ±62 en z = ±62, hoogte 5, midden op y = 2.5
+    function addHazardBand(x, z, rot, length){
+      const group = new THREE.Group();
+      const bands = Math.floor(length / 1.2);
+      for(let i = 0; i < bands; i++){
+        const band = new THREE.Mesh(
+          new THREE.BoxGeometry(1.0, 0.35, 0.03),
+          i % 2 === 0 ? hazardMat : darkHazardMat
+        );
+        band.rotation.z = Math.PI / 4; // schuin
+        band.position.set((i - (bands - 1) * 0.5) * 1.15, 0, 0);
+        group.add(band);
+      }
+      group.position.set(x, 4.3, z);
+      group.rotation.y = rot;
+      scene.add(group);
+    }
+    // Aan de 4 muren — net onder de top
+    addHazardBand(-62, 0, Math.PI / 2, 100);
+    addHazardBand( 62, 0, Math.PI / 2, 100);
+    addHazardBand(0, -62, 0, 100);
+    addHazardBand(0,  62, 0, 100);
+
+    // Accent-lights op hoeken (rode warning beacons)
+    const beaconPositions = [[-60, -60], [60, -60], [-60, 60], [60, 60]];
+    beaconPositions.forEach(([x, z]) => {
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.16, 7, 8),
+        pipeMat
+      );
+      pole.position.set(x, 3.5, z);
+      scene.add(pole);
+
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(0.32, 12, 12),
+        new THREE.MeshStandardMaterial({ color:0xff3a3a, emissive:0xff1a1a, emissiveIntensity:1.4 })
+      );
+      beacon.position.set(x, 7.2, z);
+      scene.add(beacon);
+
+      const beaconLight = new THREE.PointLight(0xff3a3a, 0.8, 12, 2);
+      beaconLight.position.set(x, 7.2, z);
+      scene.add(beaconLight);
+    });
+  })();
+  // ===== END ARENA ENRICHMENT =====
+
   const moon = new THREE.Mesh(
     new THREE.SphereGeometry(5.2, 24, 24),
     new THREE.MeshBasicMaterial({ color:0xbfd7ff })
@@ -1450,60 +1628,484 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   camera.add(weaponRig);
   scene.add(camera);
 
-  function buildViewWeapon(){
-    weaponRig.clear();
+  // ===== PER-WEAPON VIEW MODELS =====
+  // Elk wapen krijgt een eigen silhouet en kleurenschema. Bullet/rocket/grenade
+  // zijn fysieke wapens; plasma/mine/orbital zijn sci-fi apparaten.
+  // Alle bouwers delen dezelfde interface: ze vullen `root` met meshes, en
+  // retourneren `{ root, flash, mats }`. `mats.bodyMat` en `mats.trimMat` worden
+  // door updateHealthWeaponTheme() gekleurd op basis van HP.
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color:0x30374c, metalness:0.72, roughness:0.28 });
+  function _buildRifle(){
+    // Tactical rifle — strak, zwart/cyaan, standaard full-auto look
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x2b3144, metalness:0.78, roughness:0.28 });
     const trimMat = new THREE.MeshStandardMaterial({ color:0x7de7ff, emissive:0x1d7e91, emissiveIntensity:0.7, metalness:0.52, roughness:0.24 });
-    const woodMat = new THREE.MeshStandardMaterial({ color:0x6d4a2e, roughness:0.72, metalness:0.08 });
-    weaponRig.userData.weaponMats = { bodyMat, trimMat, woodMat };
+    const gripMat = new THREE.MeshStandardMaterial({ color:0x141821, roughness:0.82, metalness:0.18 });
+    const flashColor = 0xffd27a;
 
     const root = new THREE.Group();
-    root.position.set(0.36, -0.35, -0.68);
-    root.rotation.set(-0.08, -0.18, -0.08);
 
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.2,0.6), bodyMat);
+    // Receiver (hoofdblok)
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.19,0.58), bodyMat);
     receiver.castShadow = true;
     root.add(receiver);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032,0.036,0.72,16), bodyMat);
+    // Upper rail — dunne strip bovenop
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.17,0.035,0.58), gripMat);
+    rail.position.set(0, 0.11, 0);
+    root.add(rail);
+
+    // Barrel met flash hider
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.032,0.62,16), bodyMat);
     barrel.rotation.x = Math.PI/2;
-    barrel.position.set(0.0, 0.025, -0.55);
+    barrel.position.set(0, 0.01, -0.58);
     barrel.castShadow = true;
     root.add(barrel);
 
-    const shroud = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.42), trimMat);
-    shroud.position.set(0,0.04,-0.28);
-    shroud.castShadow = true;
-    root.add(shroud);
+    const flashHider = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.04,0.08,8), gripMat);
+    flashHider.rotation.x = Math.PI/2;
+    flashHider.position.set(0, 0.01, -0.92);
+    root.add(flashHider);
 
-    const weaponLogo = makeLogoGlyph(0.18);
-    weaponLogo.position.set(0.058, 0.045, -0.1);
-    weaponLogo.rotation.y = Math.PI * 0.5;
-    root.add(weaponLogo);
+    // Handguard met ventilatie-slots (3 cilinders als vents)
+    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.11,0.38), bodyMat);
+    handguard.position.set(0, 0.01, -0.32);
+    handguard.castShadow = true;
+    root.add(handguard);
 
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.11,0.24,0.12), woodMat);
-    grip.position.set(0,-0.19,0.05);
-    grip.rotation.x = 0.22;
+    for(let i=0; i<3; i++){
+      const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,0.13,6), trimMat);
+      vent.rotation.z = Math.PI/2;
+      vent.position.set(0, -0.04, -0.2 - i*0.08);
+      root.add(vent);
+    }
+
+    // Magazine — curved look via dunne box schuin
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.22,0.10), gripMat);
+    mag.position.set(0, -0.18, -0.05);
+    mag.rotation.x = -0.1;
+    mag.castShadow = true;
+    root.add(mag);
+
+    // Pistol grip
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.22,0.11), gripMat);
+    grip.position.set(0, -0.18, 0.1);
+    grip.rotation.x = 0.28;
     grip.castShadow = true;
     root.add(grip);
 
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.16,0.28), woodMat);
-    stock.position.set(0,-0.03,0.32);
+    // Stock — driehoek-geïnspireerd (smalle box met schuine voorkant)
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.13,0.24), gripMat);
+    stock.position.set(0, -0.02, 0.30);
     stock.castShadow = true;
     root.add(stock);
 
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.15), trimMat);
-    sight.position.set(0,0.12,-0.02);
-    root.add(sight);
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.07,0.035,0.20), bodyMat);
+    cheek.position.set(0, 0.05, 0.30);
+    root.add(cheek);
 
-    const muzzleFlash = new THREE.PointLight(0xffd27a, 0, 5, 2);
-    muzzleFlash.position.set(0, 0.03, -0.9);
-    root.add(muzzleFlash);
-    weaponRig.userData.flash = muzzleFlash;
-    weaponRig.userData.root = root;
+    // Red-dot sight
+    const sightBase = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.12), gripMat);
+    sightBase.position.set(0, 0.15, -0.04);
+    root.add(sightBase);
 
-    weaponRig.add(root);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.008,8,8),
+      new THREE.MeshBasicMaterial({ color:0xff3a3a }));
+    dot.position.set(0, 0.17, 0.02);
+    root.add(dot);
+
+    const flash = new THREE.PointLight(flashColor, 0, 5, 2);
+    flash.position.set(0, 0.01, -1.0);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  function _buildRocketLauncher(){
+    // Heavy launcher — dikke buis, warhead zichtbaar, schuin handvat
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x3a2e20, metalness:0.55, roughness:0.55 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:0xff8844, emissive:0xff3200, emissiveIntensity:0.6, metalness:0.42, roughness:0.38 });
+    const warheadMat = new THREE.MeshStandardMaterial({ color:0x4a1810, metalness:0.65, roughness:0.42 });
+    const flashColor = 0xff7a2a;
+
+    const root = new THREE.Group();
+
+    // Hoofdbuis (groter dan rifle barrel)
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,0.92,20), bodyMat);
+    tube.rotation.x = Math.PI/2;
+    tube.position.set(0, 0.02, -0.35);
+    tube.castShadow = true;
+    root.add(tube);
+
+    // Rear vent (uitgang van exhaust) — grotere ring
+    const rearRing = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.12,0.06,16), warheadMat);
+    rearRing.rotation.x = Math.PI/2;
+    rearRing.position.set(0, 0.02, 0.15);
+    root.add(rearRing);
+
+    // Sight rail bovenop
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.03,0.5), warheadMat);
+    rail.position.set(0, 0.15, -0.3);
+    root.add(rail);
+
+    // Front iron sight (vierkantje met gat)
+    const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.08,0.03), warheadMat);
+    frontSight.position.set(0, 0.19, -0.7);
+    root.add(frontSight);
+
+    // Warhead (rocket tip zichtbaar aan de voorkant)
+    const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.08,0.22,14), trimMat);
+    warhead.rotation.x = -Math.PI/2;
+    warhead.position.set(0, 0.02, -0.90);
+    warhead.castShadow = true;
+    root.add(warhead);
+
+    // Warnings / accenten op tube
+    for(let i=0; i<3; i++){
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.112,0.112,0.04,16), trimMat);
+      band.rotation.x = Math.PI/2;
+      band.position.set(0, 0.02, -0.55 + i*0.28);
+      root.add(band);
+    }
+
+    // Pistol grip + trigger guard
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.24,0.11), warheadMat);
+    grip.position.set(0, -0.19, -0.05);
+    grip.rotation.x = 0.18;
+    grip.castShadow = true;
+    root.add(grip);
+
+    const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(0.06,0.012,8,20,Math.PI), warheadMat);
+    triggerGuard.position.set(0, -0.1, -0.08);
+    triggerGuard.rotation.y = Math.PI/2;
+    root.add(triggerGuard);
+
+    // Shoulder rest / stock aan achterkant
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.2,0.18), warheadMat);
+    stock.position.set(0, -0.06, 0.3);
+    root.add(stock);
+
+    const flash = new THREE.PointLight(flashColor, 0, 7, 2);
+    flash.position.set(0, 0.02, -1.05);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  function _buildGrenadeLauncher(){
+    // Revolving grenade launcher — cilindrische drum met zichtbare granaat-cellen
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x2f2a1f, metalness:0.62, roughness:0.42 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:0x7ee07a, emissive:0x2db83a, emissiveIntensity:0.62, metalness:0.45, roughness:0.28 });
+    const metalMat = new THREE.MeshStandardMaterial({ color:0x1a1814, metalness:0.75, roughness:0.42 });
+    const flashColor = 0xa6ff7a;
+
+    const root = new THREE.Group();
+
+    // Receiver
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.16,0.3), bodyMat);
+    receiver.position.set(0, 0.02, 0.05);
+    receiver.castShadow = true;
+    root.add(receiver);
+
+    // Revolving drum — grote cilinder met 6 cellen
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.16,16), bodyMat);
+    drum.rotation.x = Math.PI/2;
+    drum.position.set(0, 0.02, -0.18);
+    drum.castShadow = true;
+    root.add(drum);
+
+    // 6 granaat-cellen zichtbaar als kleinere cilinders in cirkelpatroon
+    for(let i=0; i<6; i++){
+      const ang = i / 6 * Math.PI * 2;
+      const x = Math.cos(ang) * 0.09;
+      const y = 0.02 + Math.sin(ang) * 0.09;
+      const cell = new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,0.17,10), metalMat);
+      cell.rotation.x = Math.PI/2;
+      cell.position.set(x, y, -0.18);
+      root.add(cell);
+      // Granaat tip zichtbaar (kleine emissive stip)
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.022,6,6), trimMat);
+      tip.position.set(x, y, -0.105);
+      root.add(tip);
+    }
+
+    // Korte dikke loop aan de voorkant
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.068,0.38,16), bodyMat);
+    barrel.rotation.x = Math.PI/2;
+    barrel.position.set(0, 0.02, -0.46);
+    barrel.castShadow = true;
+    root.add(barrel);
+
+    // Muzzle brake (platte ring)
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.065,0.06,12), metalMat);
+    muzzle.rotation.x = Math.PI/2;
+    muzzle.position.set(0, 0.02, -0.68);
+    root.add(muzzle);
+
+    // Handvat vooraan voor ondersteuning
+    const foreGrip = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.14,0.08), metalMat);
+    foreGrip.position.set(0, -0.08, -0.42);
+    foreGrip.rotation.x = -0.18;
+    root.add(foreGrip);
+
+    // Pistol grip + trigger
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.22,0.11), metalMat);
+    grip.position.set(0, -0.18, 0.12);
+    grip.rotation.x = 0.28;
+    grip.castShadow = true;
+    root.add(grip);
+
+    // Stock
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.14,0.22), metalMat);
+    stock.position.set(0, -0.04, 0.30);
+    root.add(stock);
+
+    const flash = new THREE.PointLight(flashColor, 0, 5, 2);
+    flash.position.set(0, 0.02, -0.8);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  function _buildPlasmaGun(){
+    // Sci-fi plasma emitter — glass coils rond kristalkern, emissive glow
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x1e2a4a, metalness:0.72, roughness:0.22 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:0x9ecfff, emissive:0x3a6aff, emissiveIntensity:1.2, metalness:0.3, roughness:0.15 });
+    const coilMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0x5ec6ff, emissiveIntensity:1.6, metalness:0.1, roughness:0.1, transparent:true, opacity:0.82 });
+    const flashColor = 0x5ec6ff;
+
+    const root = new THREE.Group();
+
+    // Smal, elegant chassis
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.13,0.14,0.44), bodyMat);
+    body.castShadow = true;
+    root.add(body);
+
+    // Vloeiende "focus lens" aan voorzijde (kegel die taps toeloopt)
+    const focus = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.09,0.14,16), bodyMat);
+    focus.rotation.x = Math.PI/2;
+    focus.position.set(0, 0.0, -0.32);
+    root.add(focus);
+
+    // 3 gloeiende coils rond de voorkant (torussen op barrel-as)
+    for(let i=0; i<3; i++){
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.08 - i*0.012, 0.014, 8, 24),
+        coilMat
+      );
+      ring.position.set(0, 0.0, -0.48 - i*0.10);
+      root.add(ring);
+    }
+
+    // Kristal-kern in het midden (zichtbaar door transparante coils)
+    const crystal = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.05, 0),
+      trimMat
+    );
+    crystal.position.set(0, 0.0, -0.55);
+    crystal.userData.spin = true;
+    root.add(crystal);
+
+    // Emitter tip
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.005,0.04,0.1,12), trimMat);
+    tip.rotation.x = Math.PI/2;
+    tip.position.set(0, 0.0, -0.82);
+    root.add(tip);
+
+    // Topside accent-strip (gloeiende lijn)
+    const topStrip = new THREE.Mesh(new THREE.BoxGeometry(0.02,0.025,0.36), trimMat);
+    topStrip.position.set(0, 0.085, -0.08);
+    root.add(topStrip);
+
+    // Grip — compact, ergonomisch
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.22,0.1), bodyMat);
+    grip.position.set(0, -0.18, 0.0);
+    grip.rotation.x = 0.22;
+    root.add(grip);
+
+    // Battery pack achter (zichtbare "energie cel")
+    const battery = new THREE.Mesh(new THREE.BoxGeometry(0.11,0.12,0.18), bodyMat);
+    battery.position.set(0, -0.02, 0.3);
+    root.add(battery);
+    const batteryGlow = new THREE.Mesh(new THREE.BoxGeometry(0.085,0.04,0.16), trimMat);
+    batteryGlow.position.set(0, 0.04, 0.3);
+    root.add(batteryGlow);
+
+    const flash = new THREE.PointLight(flashColor, 0.7, 3, 2); // idle glow
+    flash.position.set(0, 0.0, -0.95);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  function _buildMineDeployer(){
+    // Mine launcher — kort, blokkig; zichtbare mijnen aan de zijkant
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x252a18, metalness:0.58, roughness:0.55 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:0xffb347, emissive:0xff6a00, emissiveIntensity:0.7, metalness:0.4, roughness:0.3 });
+    const mineMat = new THREE.MeshStandardMaterial({ color:0x3a2e10, metalness:0.6, roughness:0.4 });
+    const flashColor = 0xffa033;
+
+    const root = new THREE.Group();
+
+    // Compact, breed chassis
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.16,0.46), bodyMat);
+    body.castShadow = true;
+    root.add(body);
+
+    // Warning-stripes op de zijkant (geel/zwart)
+    for(let i=0; i<4; i++){
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.08, 0.022), trimMat);
+      s.position.set(0.11, 0.0, -0.18 + i*0.09);
+      root.add(s);
+      const s2 = s.clone();
+      s2.position.x = -0.11;
+      root.add(s2);
+    }
+
+    // 3 zichtbare mijnen in een rack bovenop (platte cilinders)
+    for(let i=0; i<3; i++){
+      const mine = new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,0.03,12), mineMat);
+      mine.position.set(0, 0.11, -0.15 + i*0.12);
+      root.add(mine);
+      // Rood puntje
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.008,6,6),
+        new THREE.MeshBasicMaterial({ color:0xff2a2a }));
+      led.position.set(0, 0.13, -0.15 + i*0.12);
+      root.add(led);
+    }
+
+    // Rack-frame (dunne rails eromheen)
+    const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.04, 0.40), bodyMat);
+    frameL.position.set(-0.06, 0.115, -0.03);
+    root.add(frameL);
+    const frameR = frameL.clone();
+    frameR.position.x = 0.06;
+    root.add(frameR);
+
+    // Korte deploy-buis aan de voorkant (geen echte barrel)
+    const chute = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,0.14,12), bodyMat);
+    chute.rotation.x = Math.PI/2;
+    chute.position.set(0, -0.03, -0.30);
+    root.add(chute);
+
+    // Handvat (dubbel, tactisch look)
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.22,0.1), bodyMat);
+    grip.position.set(0, -0.18, 0.0);
+    grip.rotation.x = 0.22;
+    root.add(grip);
+
+    const foreGrip = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.14,0.08), bodyMat);
+    foreGrip.position.set(0, -0.08, -0.22);
+    foreGrip.rotation.x = -0.15;
+    root.add(foreGrip);
+
+    // Stock
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.12,0.2), bodyMat);
+    stock.position.set(0, -0.02, 0.3);
+    root.add(stock);
+
+    const flash = new THREE.PointLight(flashColor, 0, 4, 2);
+    flash.position.set(0, -0.03, -0.42);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  function _buildOrbitalBeacon(){
+    // Beacon — holografisch apparaat: cirkel/ring bovenop, emissive core
+    const bodyMat = new THREE.MeshStandardMaterial({ color:0x1a2238, metalness:0.75, roughness:0.22 });
+    const trimMat = new THREE.MeshStandardMaterial({ color:0xb87dff, emissive:0x7a2dff, emissiveIntensity:1.3, metalness:0.2, roughness:0.2 });
+    const coreMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0xd4a0ff, emissiveIntensity:1.8, metalness:0.0, roughness:0.0 });
+    const flashColor = 0xb87dff;
+
+    const root = new THREE.Group();
+
+    // Handheld chassis (klein & rechthoekig)
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.22,0.28), bodyMat);
+    body.position.set(0, 0.0, 0.0);
+    body.castShadow = true;
+    root.add(body);
+
+    // Bovenop: een holografische ring die ronddraait (torus)
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.10, 0.014, 10, 28), trimMat);
+    halo.position.set(0, 0.18, -0.05);
+    halo.rotation.x = Math.PI/2;
+    halo.userData.spin = true;
+    root.add(halo);
+
+    // Binnen de ring: een kleine cube die zweeft
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.05), coreMat);
+    core.position.set(0, 0.18, -0.05);
+    core.userData.spin = true;
+    root.add(core);
+
+    // 4 vertical fins (antennes) rond de top
+    for(let i=0; i<4; i++){
+      const ang = i / 4 * Math.PI * 2;
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.012,0.1,0.04), trimMat);
+      fin.position.set(Math.cos(ang)*0.14, 0.22, -0.05 + Math.sin(ang)*0.04);
+      root.add(fin);
+    }
+
+    // Display-scherm aan de zijkant (gloeiend vlak)
+    const screen = new THREE.Mesh(new THREE.BoxGeometry(0.005,0.14,0.18), trimMat);
+    screen.position.set(-0.095, 0.0, 0.0);
+    root.add(screen);
+
+    // Sensor ring aan onderkant
+    const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.008, 8, 20), trimMat);
+    baseRing.position.set(0, -0.11, 0.0);
+    baseRing.rotation.x = Math.PI/2;
+    root.add(baseRing);
+
+    // Grip
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.2,0.1), bodyMat);
+    grip.position.set(0, -0.22, 0.08);
+    grip.rotation.x = 0.25;
+    root.add(grip);
+
+    const flash = new THREE.PointLight(flashColor, 0.5, 3, 2); // permanente glow
+    flash.position.set(0, 0.18, -0.05);
+    root.add(flash);
+
+    return { root, flash, mats:{ bodyMat, trimMat } };
+  }
+
+  // Map weapon-type -> builder
+  const WEAPON_BUILDERS = {
+    bullet:   _buildRifle,
+    rocket:   _buildRocketLauncher,
+    grenade:  _buildGrenadeLauncher,
+    plasma:   _buildPlasmaGun,
+    mine:     _buildMineDeployer,
+    orbital:  _buildOrbitalBeacon
+  };
+
+  function buildViewWeapon(type){
+    weaponRig.clear();
+    const w = type || (typeof player !== "undefined" ? player.weapon : "bullet");
+    const builder = WEAPON_BUILDERS[w] || _buildRifle;
+    const built = builder();
+
+    // Positioneer root consistent — idem als vóór de refactor
+    built.root.position.set(0.36, -0.35, -0.68);
+    built.root.rotation.set(-0.08, -0.18, -0.08);
+
+    weaponRig.userData.flash = built.flash;
+    weaponRig.userData.root = built.root;
+    // Zowel bodyMat als trimMat exposen voor updateHealthWeaponTheme
+    weaponRig.userData.weaponMats = built.mats;
+    weaponRig.userData.currentWeapon = w;
+    // Sommige wapens (plasma, orbital) hebben een permanente idle-glow
+    // zodat de flash.intensity niet naar 0 zakt tijdens de update-loop.
+    weaponRig.userData.idleGlow =
+      (w === "plasma")  ? 0.7 :
+      (w === "orbital") ? 0.5 : 0;
+    // Initialiseer de flash-intensity op idleGlow zodat het direct zichtbaar is
+    if(built.flash && weaponRig.userData.idleGlow > 0){
+      built.flash.intensity = weaponRig.userData.idleGlow;
+    }
+
+    weaponRig.add(built.root);
   }
   buildViewWeapon();
 
@@ -1522,8 +2124,21 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     root.rotation.x = -0.08 + state.viewKick * 0.11;
     root.rotation.y = -0.18 - state.viewKick * 0.14;
     root.rotation.z = -0.08 + bobX * 0.7;
+
+    // Spin-animatie voor kristallen/halo's (plasma + orbital)
+    root.traverse(obj => {
+      if(obj.userData && obj.userData.spin){
+        obj.rotation.y += dt * 2.2;
+        obj.rotation.x += dt * 0.9;
+      }
+    });
+
+    // Muzzle flash decay — maar respecteer idle-glow voor plasma/orbital
     const flash = weaponRig.userData.flash;
-    if(flash) flash.intensity = Math.max(0, flash.intensity - dt * 18);
+    if(flash){
+      const idle = weaponRig.userData.idleGlow || 0;
+      flash.intensity = Math.max(idle, flash.intensity - dt * 18);
+    }
     camera.position.x += (Math.random()-0.5) * state.cameraShake * 0.05;
     camera.position.y += (Math.random()-0.5) * state.cameraShake * 0.04;
   }
@@ -2428,25 +3043,32 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
   );
   neck.position.y = headY - 0.28;
 
-  // Helm-vorm per type
+  // Helm: onderbasis als gedrongen box (voor compatibiliteit: parts.head = helmet),
+  // maar bovenop zetten we een ronde cilindrische schedel en een sweeping visor-band.
+  // Dit geeft de enemy een herkenbaar silhouet zonder dat we de bestaande userData
+  // referenties hoeven te wijzigen.
   let helmet;
+  let helmetW, helmetH, helmetD;
   if(isBoss){
-    // Boss: brede helm met crest
-    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.60, 0.58), suitMat);
+    helmetW = 0.62; helmetH = 0.60; helmetD = 0.58;
   } else if(type === "tank"){
-    // Tank: forse, hoekige helm
-    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.54, 0.60), suitMat);
+    helmetW = 0.64; helmetH = 0.54; helmetD = 0.60;
   } else if(type === "elite"){
-    // Elite: gestroomlijnde helm
-    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.58, 0.56), suitMat);
+    helmetW = 0.50; helmetH = 0.58; helmetD = 0.56;
   } else if(type === "runner"){
-    // Runner: kleine, compacte helm
-    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.50, 0.50), suitMat);
+    helmetW = 0.46; helmetH = 0.50; helmetD = 0.50;
   } else {
-    // Basic: standaard
-    helmet = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.54, 0.54), suitMat);
+    helmetW = 0.50; helmetH = 0.54; helmetD = 0.54;
   }
+  helmet = new THREE.Mesh(new THREE.BoxGeometry(helmetW, helmetH, helmetD), suitMat);
   helmet.position.y = headY;
+
+  // Ronde schedel-cap bovenop — geeft het een helmlook i.p.v. blok
+  const skullCap = new THREE.Mesh(
+    new THREE.CylinderGeometry(helmetW * 0.48, helmetW * 0.52, helmetH * 0.55, 12),
+    suitMat
+  );
+  skullCap.position.y = headY + helmetH * 0.28;
 
   // Visor — één duidelijke balk aan de voorkant van de helm
   const visorMat = new THREE.MeshStandardMaterial({
@@ -2464,7 +3086,25 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     ),
     visorMat
   );
-  visor.position.set(0, headY + 0.04, helmet.geometry.parameters.depth * 0.5 + 0.01);
+  visor.position.set(0, headY + 0.04, helmetD * 0.5 + 0.01);
+
+  // Visor-rim (zwarte rand boven de visor) — geeft diepte-illusie
+  const visorRim = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      (isBoss ? 0.54 : type === "tank" ? 0.56 : type === "runner" ? 0.38 : 0.44),
+      0.05,
+      0.05
+    ),
+    plateMat
+  );
+  visorRim.position.set(0, headY + 0.15, helmetD * 0.5 + 0.005);
+
+  // Jaw-guard (kin): smalle plate onder de visor
+  const jawGuard = new THREE.Mesh(
+    new THREE.BoxGeometry(helmetW * 0.70, 0.10, 0.06),
+    plateMat
+  );
+  jawGuard.position.set(0, headY - 0.12, helmetD * 0.5 + 0.01);
 
   // --- Gun: simpel, vast geplaatst, geen per-frame wiebel ---
   const gun = new THREE.Group();
@@ -2523,12 +3163,50 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     body.add(crest);
   }
 
+  // --- Shoulder pads: angled trapezoïde caps voor breder silhouet ---
+  const padW = shoulderW * 0.30;
+  const shoulderPadL = new THREE.Mesh(new THREE.BoxGeometry(padW, 0.18, 0.42), accentMat);
+  shoulderPadL.position.set(-shoulderW * 0.56, 2.30, 0);
+  shoulderPadL.rotation.z = 0.35;
+  const shoulderPadR = new THREE.Mesh(new THREE.BoxGeometry(padW, 0.18, 0.42), accentMat);
+  shoulderPadR.position.set( shoulderW * 0.56, 2.30, 0);
+  shoulderPadR.rotation.z = -0.35;
+
+  // --- Knee guards: kleine platen op de voorkant van thighs ---
+  const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.04), accentMat);
+  kneeL.position.set(-0.24, 0.18, 0.17);
+  const kneeR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.04), accentMat);
+  kneeR.position.set( 0.24, 0.18, 0.17);
+
+  // --- Forearm bracers: extra layer voor diepte-illusie ---
+  const bracerL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.04), accentMat);
+  bracerL.position.set(-shoulderW * 0.54, 0.90, 0.14);
+  const bracerR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.04), accentMat);
+  bracerR.position.set( shoulderW * 0.54, 0.90, 0.14);
+
+  // --- Spinal strip: dunne gloeiende lijn over de rug (geeft sci-fi look) ---
+  const spineStrip = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.94, 0.025),
+    accentMat
+  );
+  spineStrip.position.set(0, 1.68, -0.28);
+
+  // --- Belt band: smalle accent-strip tussen pelvis en torso ---
+  const belt = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyWidth * 1.05, 0.08, 0.46),
+    accentMat
+  );
+  belt.position.set(0, 1.28, 0);
+
   // --- Alles toevoegen aan body ---
   const allParts = [
     thighL, thighR, shinL, shinR, bootL, bootR,
     pelvis, torso, chestPlate, logoStrip,
     shoulderL, shoulderR, upperArmL, upperArmR, foreArmL, foreArmR,
-    neck, helmet, visor, backpack, gun
+    neck, helmet, skullCap, visor, visorRim, jawGuard,
+    shoulderPadL, shoulderPadR, kneeL, kneeR, bracerL, bracerR,
+    spineStrip, belt,
+    backpack, gun
   ];
   for(const m of allParts){
     m.castShadow = true;
@@ -10398,14 +11076,21 @@ window.addEventListener("keydown", e => {
       chip.style.color = chip.classList.contains("active") ? color : "";
     });
 
-    const mats = weaponRig?.userData?.weaponMats;
-    if(mats?.trimMat){
-      mats.trimMat.color.setHSL(hue / 360, 0.92, 0.60);
-      mats.trimMat.emissive.setHSL(hue / 360, 0.92, danger ? 0.34 : 0.22);
-      mats.trimMat.emissiveIntensity = danger ? 1.35 : 0.82;
-    }
-    if(mats?.bodyMat){
-      mats.bodyMat.color.setHSL(hue / 360, 0.28, 0.22 + ratio * 0.1);
+    // Alleen de standaard-rifle krijgt HP-kleuring in 3D. De andere wapens
+    // (rocket/grenade/plasma/mine/orbital) hebben eigen signature-kleuren die
+    // deel zijn van hun visuele identiteit — die overschrijven we niet.
+    // HP-feedback is ruim voldoende zichtbaar via UI (cijfer, chips, label).
+    const currentW = weaponRig?.userData?.currentWeapon;
+    if(currentW === "bullet"){
+      const mats = weaponRig?.userData?.weaponMats;
+      if(mats?.trimMat){
+        mats.trimMat.color.setHSL(hue / 360, 0.92, 0.60);
+        mats.trimMat.emissive.setHSL(hue / 360, 0.92, danger ? 0.34 : 0.22);
+        mats.trimMat.emissiveIntensity = danger ? 1.35 : 0.82;
+      }
+      if(mats?.bodyMat){
+        mats.bodyMat.color.setHSL(hue / 360, 0.28, 0.22 + ratio * 0.1);
+      }
     }
   };
 
@@ -10426,6 +11111,10 @@ setWeapon = function(w){
   if(!state.running || !player.alive) return;
 
   _setWeaponFinal(next);
+  // Rebuild het view-model zodat elk wapen zijn eigen look heeft
+  if(weaponRig.userData.currentWeapon !== next){
+    buildViewWeapon(next);
+  }
   updateHealthWeaponTheme?.();
 };
 
