@@ -539,7 +539,7 @@ body{
   backdrop-filter: blur(10px) saturate(1.05);
 }
 h1{line-height:1.15}
-.footer{color:#334155;margin-top:1.2rem;text-align:center}
+.footer{color:var(--muted);margin-top:1.2rem;text-align:center}
 .small{font-size:.9rem;color:var(--muted)}
 
 /* Forms/Buttons */
@@ -1003,29 +1003,29 @@ INDEX_HTML = """
   align-items:center;
   gap:12px;
   font-size:13px;
-  color:rgba(255,255,255,.95);
+  color:var(--oh-text);
   flex-wrap:wrap;
 }
 
 .oh-userbar strong{
-  color:#ffffff;
+  color:var(--oh-text);
   font-weight:700;
 }
 
 .oh-userbar a{
-  color:#f8fafc;
+  color:var(--oh-brand-2);
   text-decoration:none;
   padding:7px 12px;
   border-radius:var(--oh-radius-sm);
-  background:rgba(255,255,255,.10);
-  border:1px solid rgba(255,255,255,.20);
+  background:var(--oh-surface-2);
+  border:1px solid var(--oh-border);
   transition:background .15s, color .15s, border-color .15s;
 }
 
 .oh-userbar a:hover{
-  background:rgba(255,255,255,.18);
-  color:#ffffff;
-  border-color:rgba(255,255,255,.32);
+  background:var(--oh-surface);
+  color:var(--oh-brand);
+  border-color:var(--oh-brand-2);
 }
 
     /* ============ Deck / layout ============ */
@@ -2707,7 +2707,7 @@ h1{color:var(--brand);margin:.2rem 0 1rem}
 h2{margin:1.2rem 0 .4rem}
 h3{margin:1rem 0 .35rem}
 .section{margin-bottom:1.1rem}
-.small{color:#475569}
+.small{color:var(--muted)}
 .card p{margin:.45rem 0}
 ol,ul{margin:.4rem 0 .6rem 1.2rem}
 code{background:#eef2ff;padding:.05rem .35rem;border-radius:.3rem}
@@ -16118,7 +16118,7 @@ PRIVACY_HTML = """
 h1{color:var(--brand);margin:.2rem 0 1rem}
 h2{margin:1.2rem 0 .4rem}
 .section{margin-bottom:1.1rem}
-.small{color:#475569}
+.small{color:var(--muted)}
 .card p{margin:.45rem 0}
 ul{margin:.4rem 0 .6rem 1.2rem}
 </style></head><body>
