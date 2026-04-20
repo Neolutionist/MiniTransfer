@@ -6591,7 +6591,19 @@ function startGame(){
 }
 
   ui.startBtn.addEventListener("click", startGame);
-  ui.restartBtn.addEventListener("click", restartGame);
+ui.restartBtn.addEventListener("click", restartGame);
+
+const startQ3Btn = document.getElementById("startQ3Btn");
+
+if (startQ3Btn) {
+  startQ3Btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // simpelste en meest betrouwbare variant:
+    window.open("https://dos.zone/q3/", "_blank", "noopener,noreferrer");
+  });
+}
 
   document.addEventListener("pointerlockchange", () => {
     state.pointerLocked = document.pointerLockElement === renderer.domElement;
