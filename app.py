@@ -424,25 +424,44 @@ def seed_admin_from_env():
 
 seed_admin_from_env()
 
-def log_download_event(token: str, tenant_id: str, download_type: str, item_id=None):
-    conn = db()
+def _insert_download_event(token, item_id, download_type, downloaded_at, ip, user_agent, tenant_id):
+    """Daadwerkelijke INSERT — wordt op een achtergrondthread gerund."""
     try:
-        conn.execute("""
-            INSERT INTO download_events (
-                token, item_id, download_type, downloaded_at, ip, user_agent, tenant_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            token,
-            item_id,
-            download_type,
-            datetime.now(timezone.utc).isoformat(),
-            client_ip(),
-            (request.headers.get("User-Agent") or "")[:500],
-            tenant_id,
-        ))
-        conn.commit()
-    finally:
-        conn.close()
+        conn = db()
+        try:
+            conn.execute("""
+                INSERT INTO download_events (
+                    token, item_id, download_type, downloaded_at, ip, user_agent, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (token, item_id, download_type, downloaded_at, ip, user_agent, tenant_id))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("download event insert failed")
+
+def log_download_event(token: str, tenant_id: str, download_type: str, item_id=None):
+    # Capture request-context waarden NU (anders zijn ze weg op de bg-thread).
+    payload = (
+        token,
+        item_id,
+        download_type,
+        datetime.now(timezone.utc).isoformat(),
+        client_ip(),
+        (request.headers.get("User-Agent") or "")[:500],
+        tenant_id,
+    )
+    # Fire-and-forget: blokkeert de download-request niet.
+    # _bg_executor wordt verderop gedefinieerd; lazy lookup via globals().
+    try:
+        ex = globals().get("_bg_executor")
+        if ex is not None:
+            ex.submit(_insert_download_event, *payload)
+            return
+    except Exception:
+        log.exception("download event submit failed")
+    # Fallback (executor nog niet beschikbaar bij init): synchroon.
+    _insert_download_event(*payload)
 
 def format_nl_datetime(iso_value):
     if not iso_value:
@@ -3165,6 +3184,28 @@ def send_email(to_addr: str, subject: str, body: str):
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
+def send_email_async(to_addr: str, subject: str, body: str):
+    """Verstuur e-mail op een achtergrondthread.
+
+    Belangrijk voor PayPal-webhooks: anders blokkeert SMTP de webhook-respons
+    (timeout 20s); PayPal retried dan en je krijgt dubbele mails. Voor
+    contactformulieren scheelt het zichtbaar de "verzenden..." wachttijd.
+    """
+    def _run():
+        try:
+            send_email(to_addr, subject, body)
+        except Exception:
+            log.exception("async send_email failed (to=%s, subject=%s)", to_addr, subject)
+    try:
+        ex = globals().get("_bg_executor")
+        if ex is not None:
+            ex.submit(_run)
+            return
+    except Exception:
+        log.exception("send_email_async submit failed")
+    # Fallback: synchroon
+    _run()
+
 _paypal_token_cache = {"token": None, "exp": 0.0}
 _paypal_token_lock = threading.Lock()
 
@@ -3859,35 +3900,9 @@ def stream_zip(token):
         item_id=None
     )
 
-    # Precheck ontbrekende objecten in parallel (8 workers).
-    # Voor grote pakketten (50+ items) scheelt dit meerdere seconden opstarttijd.
-    def _head_one(r):
-        try:
-            s3.head_object(Bucket=S3_BUCKET, Key=r["s3_key"])
-            return None
-        except ClientError as ce:
-            code = ce.response.get("Error", {}).get("Code", "")
-            if code in {"NoSuchKey", "NotFound", "404"}:
-                return r["path"] or r["name"]
-            raise
-
-    missing = []
-    try:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            for result in pool.map(_head_one, rows):
-                if result is not None:
-                    missing.append(result)
-    except Exception:
-        log.exception("zip precheck failed")
-        resp = Response("ZIP precheck mislukt. Zie serverlogs.", status=500, mimetype="text/plain")
-        resp.headers["X-Error"] = "zip_precheck_failed"
-        return resp
-    if missing:
-        text = "De volgende items ontbreken in S3 en kunnen niet gezipt worden:\n- " + "\n- ".join(missing)
-        resp = Response(text, mimetype="text/plain", status=422)
-        resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
-        return resp
-
+    # Geen aparte precheck meer: dat kostte bij grote pakketten 1-3s extra
+    # vóór de eerste byte. Eventuele NoSuchKey-fouten komen tijdens streaming
+    # naar boven en worden door de exception-handler hieronder gevangen.
     try:
         from queue import Queue
         from threading import Thread
@@ -4111,7 +4126,7 @@ def _send_contact_email(form):
         "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\n"
     )
 
-    send_email(MAIL_TO, "Nieuwe aanvraag transfer-oplossing", body)
+    send_email_async(MAIL_TO, "Nieuwe aanvraag transfer-oplossing", body)
 
 @app.route("/contact", methods=["GET","POST"])
 def contact():
@@ -4308,7 +4323,7 @@ def paypal_store_subscription():
             "Zodra PayPal de webhook BILLING.SUBSCRIPTION.ACTIVATED stuurt, wordt\n"
             "het account automatisch aangemaakt en kan de klant inloggen.\n"
         )
-        send_email(MAIL_TO, "Nieuwe PayPal-abonnement gestart", body)
+        send_email_async(MAIL_TO, "Nieuwe PayPal-abonnement gestart", body)
     except Exception:
         log.exception("Kon bevestigingsmail niet versturen")
     return jsonify(ok=True)
@@ -4488,7 +4503,7 @@ def paypal_webhook():
                         f"- Plan: {plan_label}\n"
                         f"- Datum/tijd (UTC): {now_utc}\n"
                     )
-                send_email(MAIL_TO, subject, body)
+                send_email_async(MAIL_TO, subject, body)
             except Exception:
                 log.exception("Webhook mail (activated) failed")
 
@@ -4506,7 +4521,7 @@ def paypal_webhook():
                     f"- Plan ID: {plan_id or '-'}\n"
                     f"- Datum/tijd (UTC): {now_utc}\n"
                 )
-                send_email(MAIL_TO, f"PayPal: {event_type}", body)
+                send_email_async(MAIL_TO, f"PayPal: {event_type}", body)
             except Exception:
                 log.exception("Webhook mail (status change) failed")
 
@@ -4522,7 +4537,7 @@ def paypal_webhook():
                     f"- Subscription (indien bekend): {sub_id or '-'}\n"
                     f"- Datum/tijd (UTC): {now_utc}\n"
                 )
-                send_email(MAIL_TO, "PayPal: betaling ontvangen", body)
+                send_email_async(MAIL_TO, "PayPal: betaling ontvangen", body)
             except Exception:
                 log.exception("Webhook mail (payment) failed")
         else:
