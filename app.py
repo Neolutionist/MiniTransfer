@@ -3750,13 +3750,54 @@ def _pkg_allow_set(token: str) -> None:
     session[f"allow_{token}"] = {"ok": True, "exp": time.time() + PKG_ALLOW_TTL}
 
 def _async_delete_s3_keys(keys: list) -> None:
-    """Delete objecten op achtergrond (niet in request-thread)."""
+    """Delete objecten op achtergrond, gebatched.
+
+    `delete_objects` neemt tot 1000 keys per call. Voor grote pakketten
+    (1000+ items) is dat 100x sneller dan losse `delete_object` calls,
+    wat anders de bg-executor minutenlang kon bezighouden.
+    """
+    if not keys:
+        return
+    # Filter en de-dup keys defensief
+    keys = [k for k in dict.fromkeys(keys) if k]
+    if not keys:
+        return
+
     def _do():
-        for k in keys:
+        BATCH = 1000
+        for i in range(0, len(keys), BATCH):
+            chunk = keys[i:i + BATCH]
             try:
-                s3.delete_object(Bucket=S3_BUCKET, Key=k)
-            except Exception:
-                log.exception("bg delete failed: %s", k)
+                resp = s3.delete_objects(
+                    Bucket=S3_BUCKET,
+                    Delete={
+                        "Objects": [{"Key": k} for k in chunk],
+                        "Quiet": True,
+                    },
+                )
+                # B2/S3 kan per-key errors teruggeven zonder de hele call te falen.
+                errors = resp.get("Errors") or []
+                if errors:
+                    log.warning("bg delete: %d/%d keys faalden in batch", len(errors), len(chunk))
+                    # Probeer de gefaalde keys nog één keer individueel — soms is
+                    # het een transient fout (rate limit op een specifieke key).
+                    for e in errors:
+                        k = e.get("Key")
+                        if not k:
+                            continue
+                        try:
+                            s3.delete_object(Bucket=S3_BUCKET, Key=k)
+                        except Exception:
+                            log.exception("bg delete retry failed: %s", k)
+            except (ClientError, BotoCoreError):
+                # Provider ondersteunt delete_objects mogelijk niet of weigert de
+                # batch — fallback naar één-voor-één voor deze chunk.
+                log.exception("bg delete_objects batch failed, falling back to single deletes")
+                for k in chunk:
+                    try:
+                        s3.delete_object(Bucket=S3_BUCKET, Key=k)
+                    except Exception:
+                        log.exception("bg delete failed: %s", k)
     try:
         _bg_executor.submit(_do)
     except Exception:
@@ -3922,21 +3963,38 @@ def stream_zip(token):
                     except StopIteration: self._done=True; break
                 out,self._buf=self._buf[:n],self._buf[n:]; return out
 
-        def add_compat(arcname, gen_factory):
-            if hasattr(z,"add_iter"):
-                try: z.add_iter(arcname, gen_factory()); return
-                except Exception: pass
-            try: z.add(arcname=arcname, iterable=gen_factory()); return
-            except Exception: pass
-            try: z.add(arcname=arcname, stream=gen_factory()); return
-            except Exception: pass
-            try: z.add(arcname=arcname, fileobj=_GenReader(gen_factory())); return
-            except Exception: pass
-            try: z.add(arcname, gen_factory()); return
-            except Exception: pass
-            try: z.add(gen_factory(), arcname); return
-            except Exception: pass
+        # Detecteer de werkende zipstream-ng add()-signatuur ÉÉN keer met een
+        # lege probe-entry, niet bij elk bestand. Bij 1000+ bestanden scheelt
+        # dit substantieel CPU (geen exception-traceback bouwen × N).
+        # We schrijven de probe niet daadwerkelijk naar de zip — we gebruiken
+        # een wegwerp-ZipStream alleen voor signature-detection.
+        def _detect_add_strategy():
+            probe = ZipStream()
+            def empty_iter():
+                if False: yield b""
+            strategies = []
+            if hasattr(probe, "add_iter"):
+                strategies.append(("add_iter", lambda zz, name, gf: zz.add_iter(name, gf())))
+            strategies.extend([
+                ("add_iterable", lambda zz, name, gf: zz.add(arcname=name, iterable=gf())),
+                ("add_stream",   lambda zz, name, gf: zz.add(arcname=name, stream=gf())),
+                ("add_fileobj",  lambda zz, name, gf: zz.add(arcname=name, fileobj=_GenReader(gf()))),
+                ("add_pos",      lambda zz, name, gf: zz.add(name, gf())),
+                ("add_pos_rev",  lambda zz, name, gf: zz.add(gf(), name)),
+            ])
+            for name, fn in strategies:
+                try:
+                    fn(probe, "__probe__", empty_iter)
+                    return fn
+                except Exception:
+                    continue
             raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
+
+        _add_iter_strategy = _detect_add_strategy()
+
+        def add_compat(arcname, gen_factory):
+            # Hot path: directe call naar de gedetecteerde strategie.
+            _add_iter_strategy(z, arcname, gen_factory)
 
         # --- Prefetch pipeline ---
         # Bij veel kleine bestanden zit de tijd in S3-latency per object, niet in
@@ -4005,6 +4063,17 @@ def stream_zip(token):
 
         Thread(target=_producer, daemon=True).start()
 
+        # Detecteer 1 keer of de bibliotheek een directe bytes-API heeft.
+        # Sommige zipstream-ng versies accepteren `data=` als kwarg en kunnen
+        # dan zonder generator-overhead bytes inserten.
+        _bytes_api_works = False
+        try:
+            _probe_z = ZipStream()
+            _probe_z.add(arcname="__probe_bytes__", data=b"")
+            _bytes_api_works = True
+        except Exception:
+            _bytes_api_works = False
+
         # Consumer: voeg in volgorde toe aan de zipstream.
         while True:
             item = q.get()
@@ -4014,14 +4083,9 @@ def stream_zip(token):
                 break
             arcname, kind, payload = item
             if kind == "bytes":
-                # Probeer eerst de directe bytes-API; valt anders terug op iterable.
-                added = False
-                try:
+                if _bytes_api_works:
                     z.add(arcname=arcname, data=payload)
-                    added = True
-                except Exception:
-                    pass
-                if not added:
+                else:
                     add_compat(arcname, lambda data=payload: iter([data]))
             else:
                 add_compat(arcname, payload)
@@ -5720,31 +5784,66 @@ def my_uploads():
 
     conn = db()
     try:
+        # Vooraf: aggregaten in één scan per child-tabel ipv per-package subqueries.
+        # Dit was de hoofdtraagheid bij 100+ pakketten (4 correlated subqueries
+        # per package -> hier nog maar 2 GROUP BY's totaal).
         if show_all:
             rows = conn.execute("""
                 SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
                        p.owner_user_id, u.email AS owner_email,
-                       COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
-                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes,
-                       COALESCE((SELECT COUNT(*) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id), 0) AS download_count,
-                       (SELECT MAX(downloaded_at) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id) AS last_download_at
+                       COALESCE(i.item_count, 0)     AS item_count,
+                       COALESCE(i.size_bytes, 0)     AS size_bytes,
+                       COALESCE(d.download_count, 0) AS download_count,
+                       d.last_download_at            AS last_download_at
                 FROM packages p
                 LEFT JOIN users u ON u.id = p.owner_user_id
+                LEFT JOIN (
+                    SELECT token, tenant_id,
+                           COUNT(*)         AS item_count,
+                           SUM(size_bytes)  AS size_bytes
+                    FROM items
+                    WHERE tenant_id = ?
+                    GROUP BY token, tenant_id
+                ) i ON i.token = p.token AND i.tenant_id = p.tenant_id
+                LEFT JOIN (
+                    SELECT token, tenant_id,
+                           COUNT(*)             AS download_count,
+                           MAX(downloaded_at)   AS last_download_at
+                    FROM download_events
+                    WHERE tenant_id = ?
+                    GROUP BY token, tenant_id
+                ) d ON d.token = p.token AND d.tenant_id = p.tenant_id
                 WHERE p.tenant_id = ?
                 ORDER BY p.created_at DESC
-            """, (tenant,)).fetchall()
+            """, (tenant, tenant, tenant)).fetchall()
         else:
             rows = conn.execute("""
                 SELECT p.token, p.title, p.expires_at, p.created_at, p.password_hash,
                        p.owner_user_id, ? AS owner_email,
-                       COALESCE((SELECT COUNT(*) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS item_count,
-                       COALESCE((SELECT SUM(size_bytes) FROM items i WHERE i.token = p.token AND i.tenant_id = p.tenant_id), 0) AS size_bytes,
-                       COALESCE((SELECT COUNT(*) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id), 0) AS download_count,
-                       (SELECT MAX(downloaded_at) FROM download_events d WHERE d.token = p.token AND d.tenant_id = p.tenant_id) AS last_download_at
+                       COALESCE(i.item_count, 0)     AS item_count,
+                       COALESCE(i.size_bytes, 0)     AS size_bytes,
+                       COALESCE(d.download_count, 0) AS download_count,
+                       d.last_download_at            AS last_download_at
                 FROM packages p
+                LEFT JOIN (
+                    SELECT token, tenant_id,
+                           COUNT(*)         AS item_count,
+                           SUM(size_bytes)  AS size_bytes
+                    FROM items
+                    WHERE tenant_id = ?
+                    GROUP BY token, tenant_id
+                ) i ON i.token = p.token AND i.tenant_id = p.tenant_id
+                LEFT JOIN (
+                    SELECT token, tenant_id,
+                           COUNT(*)             AS download_count,
+                           MAX(downloaded_at)   AS last_download_at
+                    FROM download_events
+                    WHERE tenant_id = ?
+                    GROUP BY token, tenant_id
+                ) d ON d.token = p.token AND d.tenant_id = p.tenant_id
                 WHERE p.tenant_id = ? AND p.owner_user_id = ?
                 ORDER BY p.created_at DESC
-            """, (me["email"], tenant, me["id"])).fetchall()
+            """, (me["email"], tenant, tenant, tenant, me["id"])).fetchall()
     finally:
         conn.close()
 
