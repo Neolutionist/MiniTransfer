@@ -3853,7 +3853,7 @@ def stream_zip(token):
         resp.headers["X-Error"] = "NoSuchKey: " + ", ".join(missing)
         return resp
 
-try:
+    try:
         from queue import Queue
         from threading import Thread
 
@@ -3889,74 +3889,67 @@ try:
             raise RuntimeError("Geen compatibele zipstream-ng add() signatuur gevonden")
 
         # --- Prefetch pipeline ---
-        # Probleem: bij veel kleine bestanden zit de tijd in S3-latency per object,
-        # niet in bandbreedte. Oplossing: download een aantal bestanden vooruit
-        # in parallelle threads en serveer ze sequentieel aan de zipstream.
+        # Bij veel kleine bestanden zit de tijd in S3-latency per object, niet in
+        # bandbreedte. We halen daarom meerdere objecten parallel op terwijl de
+        # zipstream sequentieel blijft schrijven (zip-formaat eist seriele output).
         PREFETCH_WORKERS = int(os.environ.get("ZIP_PREFETCH_WORKERS", "8"))
         PREFETCH_QUEUE   = int(os.environ.get("ZIP_PREFETCH_QUEUE", "16"))
-        # Voor heel kleine bestanden materialiseren we de bytes in geheugen.
-        # Boven deze drempel streamen we alsnog in chunks om RAM te sparen.
-        SMALL_FILE_BYTES = int(os.environ.get("ZIP_SMALL_FILE_BYTES", str(8 * 1024 * 1024)))  # 8 MB
+        # Voor kleine objecten loont het om de bytes volledig in geheugen te
+        # materialiseren (1 round-trip, geen chunk-overhead). Boven deze drempel
+        # streamen we alsnog in chunks om RAM te sparen.
+        SMALL_FILE_BYTES = int(os.environ.get("ZIP_SMALL_FILE_BYTES", str(8 * 1024 * 1024)))
 
-        # Bounded queue: blokkeert producers als de consumer (zip) achterloopt,
-        # waardoor we nooit meer dan ~PREFETCH_QUEUE bestanden in geheugen hebben.
+        # Bounded queue: blokkeert producers als de zip-consumer achterloopt,
+        # zodat we nooit meer dan ~PREFETCH_QUEUE bestanden tegelijk in RAM hebben.
         q = Queue(maxsize=PREFETCH_QUEUE)
         SENTINEL = object()
         producer_error = {}
 
-        def _fetch_one(idx, key):
-            """Haal één object op. Voor kleine objecten -> bytes; anders -> streaming generator."""
+        def _fetch_one(key):
             obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
             length = obj.get("ContentLength")
             body = obj["Body"]
             if length is not None and length <= SMALL_FILE_BYTES:
-                # In één keer lezen: 1 round-trip per file, geen chunk-overhead.
-                data = body.read()
-                return ("bytes", data)
-            else:
-                # Stream in chunks via een buffer-queue, zodat de download alvast
-                # doorgaat terwijl de zip nog vorige bestanden aan het schrijven is.
-                chunk_q = Queue(maxsize=8)
-                def _stream():
-                    try:
-                        for chunk in body.iter_chunks(1024 * 1024):
-                            if chunk: chunk_q.put(chunk)
-                    except Exception as e:
-                        chunk_q.put(("__ERR__", e))
-                    finally:
-                        chunk_q.put(None)
-                Thread(target=_stream, daemon=True).start()
+                # Klein bestand: 1 keer lezen en doorgeven als bytes.
+                return ("bytes", body.read())
+            # Groot bestand: stream via een interne chunk-queue zodat de download
+            # alvast doorloopt terwijl de zip nog vorige bestanden verwerkt.
+            chunk_q = Queue(maxsize=8)
+            def _stream():
+                try:
+                    for chunk in body.iter_chunks(1024 * 1024):
+                        if chunk: chunk_q.put(chunk)
+                except Exception as ex:
+                    chunk_q.put(("__ERR__", ex))
+                finally:
+                    chunk_q.put(None)
+            Thread(target=_stream, daemon=True).start()
 
-                def _gen():
-                    while True:
-                        item = chunk_q.get()
-                        if item is None: return
-                        if isinstance(item, tuple) and item and item[0] == "__ERR__":
-                            raise item[1]
-                        yield item
-                return ("stream", _gen)
+            def _gen():
+                while True:
+                    item = chunk_q.get()
+                    if item is None: return
+                    if isinstance(item, tuple) and item and item[0] == "__ERR__":
+                        raise item[1]
+                    yield item
+            return ("stream", _gen)
 
         def _producer():
             try:
                 with ThreadPoolExecutor(max_workers=PREFETCH_WORKERS) as pool:
-                    # Submit alle fetches in volgorde. Resultaten komen in volgorde
-                    # binnen omdat we sequentieel .result() opvragen — parallellisme
-                    # zit in de gelijktijdige uitvoering van de submits.
-                    futures = [
-                        (r, pool.submit(_fetch_one, i, r["s3_key"]))
-                        for i, r in enumerate(rows)
-                    ]
+                    # Submit alle fetches; result() opvragen we sequentieel zodat
+                    # de zip de bestanden in dezelfde volgorde toegevoegd krijgt.
+                    futures = [(r, pool.submit(_fetch_one, r["s3_key"])) for r in rows]
                     for r, fut in futures:
                         arcname = r["path"] or r["name"]
                         try:
                             kind, payload = fut.result()
-                        except Exception as e:
-                            producer_error["err"] = e
-                            q.put(SENTINEL)
+                        except Exception as ex:
+                            producer_error["err"] = ex
                             return
                         q.put((arcname, kind, payload))
-            except Exception as e:
-                producer_error["err"] = e
+            except Exception as ex:
+                producer_error["err"] = ex
             finally:
                 q.put(SENTINEL)
 
@@ -3971,13 +3964,16 @@ try:
                 break
             arcname, kind, payload = item
             if kind == "bytes":
-                # zipstream-ng accepteert bytes direct; valt anders terug op iterable.
+                # Probeer eerst de directe bytes-API; valt anders terug op iterable.
+                added = False
                 try:
-                    z.add(arcname=arcname, data=payload); continue
-                except Exception: pass
-                add_compat(arcname, lambda data=payload: iter([data]))
+                    z.add(arcname=arcname, data=payload)
+                    added = True
+                except Exception:
+                    pass
+                if not added:
+                    add_compat(arcname, lambda data=payload: iter([data]))
             else:
-                # streaming generator
                 add_compat(arcname, payload)
 
         def generate():
