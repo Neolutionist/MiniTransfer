@@ -190,6 +190,16 @@ def current_tenant():
 
 def is_trial_tenant() -> bool:
     return bool(current_tenant().get("is_trial"))
+
+def trial_signup_url() -> str:
+    """Geeft de absolute URL naar de trial-signup-pagina, of '' als trial uit staat.
+
+    Templates kunnen dit gebruiken om voorwaardelijk een link te tonen zonder
+    afhankelijk te zijn van de huidige Host-header.
+    """
+    if not TRIAL_ENABLED or not _trial_host:
+        return ""
+    return f"https://{_trial_host}/trial/signup"
 # ----------------------------------------------------
 
 # --- Redirect config toevoegen ---
@@ -903,6 +913,13 @@ LOGIN_HTML = """
 
   <button class="btn" type="submit" style="margin-top:1rem;width:100%">Inloggen</button>
 </form>
+
+  {% set _trial_url = trial_signup_url() %}
+  {% if _trial_url %}
+  <p class="footer small" style="margin-top:1rem;text-align:center">
+    Nog geen account? <a href="{{ _trial_url }}">Probeer de gratis variant</a>.
+  </p>
+  {% endif %}
 
   <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
 </div></div>
@@ -2240,6 +2257,21 @@ PACKAGE_HTML = """
 
     .oh-status{margin-top:8px;font-size:13px;color:var(--oh-muted);min-height:1.2em}
 
+    /* Animerende puntjes bij "Voorbereiden" — geeft visuele feedback dat
+       de server bezig is, zelfs als er nog geen bytes binnenkomen. JS zet
+       de class .pulsing op #txt en injecteert drie spans; CSS doet de rest. */
+    .oh-status .dot{
+      display:inline-block;width:.35em;
+      opacity:.2;animation:oh-dot-pulse 1.4s ease-in-out infinite;
+    }
+    .oh-status .dot:nth-child(1){animation-delay:0s}
+    .oh-status .dot:nth-child(2){animation-delay:.2s}
+    .oh-status .dot:nth-child(3){animation-delay:.4s}
+    @keyframes oh-dot-pulse{
+      0%, 80%, 100% { opacity:.2 }
+      40%           { opacity:1  }
+    }
+
     /* Footer */
     .oh-footer{margin-top:32px;padding-top:18px;border-top:1px solid var(--oh-border);
       text-align:center;font-size:12px;color:var(--oh-muted)}
@@ -2415,6 +2447,26 @@ function setPct(p){
   if(pctText) pctText.textContent=Math.round(pct)+'%';
 }
 
+// setStatus: gebruik dit ipv txt.textContent=..., zodat we de "pulsing dots"
+// animatie netjes aan- en uitzetten. Met pulse=true verschijnt na de tekst
+// een rij van drie puntjes die om de beurt opfaden — zo zie je dat er ook
+// echt iets gebeurt tijdens "Voorbereiden", als de server nog wacht op B2.
+function setStatus(text, pulse){
+  if(!txt) return;
+  txt.classList.toggle('pulsing', !!pulse);
+  if(pulse){
+    // Build: "<text> <span.dot>.</span><span.dot>.</span><span.dot>.</span>"
+    txt.textContent = text + ' ';
+    for(let i=0;i<3;i++){
+      const s=document.createElement('span');
+      s.className='dot'; s.textContent='.';
+      txt.appendChild(s);
+    }
+  } else {
+    txt.textContent = text;
+  }
+}
+
 async function downloadWithTelemetry(url, fallbackName){
   // Toon meteen de "Voorbereiden..." staat met geanimeerde indeterminate balk.
   // De server kan een paar seconden bezig zijn met prefetch voordat de eerste
@@ -2423,7 +2475,7 @@ async function downloadWithTelemetry(url, fallbackName){
   if(pctText) pctText.textContent='…';
   if(fill) fill.style.width='0%';
   if(bar){ bar.classList.add('active'); bar.classList.add('indet'); }
-  txt.textContent='Voorbereiden…';
+  setStatus('Voorbereiden', true);
   if(tSpeed) tSpeed.textContent='—';
   if(tMoved) tMoved.textContent='0 B';
   if(tEta)   tEta.textContent='—';
@@ -2445,7 +2497,7 @@ async function downloadWithTelemetry(url, fallbackName){
   try{
     const res=await fetch(url,{credentials:'same-origin'});
     if(!res.ok){
-      txt.textContent='Fout '+res.status;
+      setStatus('Fout '+res.status, false);
       clearInterval(iv);
       if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
       return;
@@ -2464,10 +2516,11 @@ async function downloadWithTelemetry(url, fallbackName){
           lastT=performance.now(); lastB=0;
           if(total){
             if(bar) bar.classList.remove('indet');
-            txt.textContent='Downloaden…';
+            setStatus('Downloaden', false);
           } else {
-            // Geen Content-Length (zip-stream): houd indet-balk aan, maar update label.
-            txt.textContent='Downloaden…';
+            // Geen Content-Length (zip-stream): houd indet-balk aan, label
+            // krijgt wel pulserende dots want we weten niet hoe lang nog.
+            setStatus('Downloaden', true);
           }
         }
         chunks.push(value); moved+=value.length;
@@ -2475,7 +2528,7 @@ async function downloadWithTelemetry(url, fallbackName){
         if(total){ setPct(Math.round(moved/total*100)); }
       }
       if(!total){ if(bar) bar.classList.remove('indet'); setPct(100); }
-      txt.textContent='Gereed — bestand wordt opgeslagen';
+      setStatus('Gereed — bestand wordt opgeslagen', false);
       if(bar) bar.classList.remove('active');
       clearInterval(iv);
       const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
@@ -2485,17 +2538,17 @@ async function downloadWithTelemetry(url, fallbackName){
       return;
     }
     // Geen streaming reader beschikbaar: blijf op indeterminate tot we de blob hebben.
-    txt.textContent='Downloaden…';
+    setStatus('Downloaden', true);
     const blob=await res.blob(); clearInterval(iv);
     if(bar){ bar.classList.remove('indet'); bar.classList.remove('active'); }
-    setPct(100); txt.textContent='Gereed';
+    setPct(100); setStatus('Gereed', false);
     const u=URL.createObjectURL(blob); const a=document.createElement('a');
     a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
     revealPostDownloadCard();
   }catch(e){
     clearInterval(iv);
     if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
-    txt.textContent='Er ging iets mis. Probeer opnieuw.';
+    setStatus('Er ging iets mis. Probeer opnieuw.', false);
   }
 }
 
@@ -2647,6 +2700,13 @@ CONTACT_HTML = r"""
 {{ bg|safe }}
 <div class="wrap"><div class="card contact-card">
   <h1>Eigen transfer-oplossing aanvragen</h1>
+  {% set _trial_url = trial_signup_url() %}
+  {% if _trial_url %}
+  <p class="small" style="margin:.2rem 0 1.2rem 0;color:#475569">
+    Liever eerst zonder verplichtingen ervaren hoe het werkt?
+    <a href="{{ _trial_url }}">Probeer de gratis variant →</a>
+  </p>
+  {% endif %}
   {% if error %}<div style="background:#fee2e2;color:#991b1b;padding:.6rem .8rem;border-radius:10px;margin-bottom:1rem">{{ error }}</div>{% endif %}
 
   <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
@@ -3229,8 +3289,11 @@ def _get_csrf_token() -> str:
 
 @app.context_processor
 def _inject_csrf():
-    """Maakt csrf_token() beschikbaar in alle Jinja-templates."""
-    return {"csrf_token": _get_csrf_token}
+    """Maakt csrf_token() en trial_signup_url() beschikbaar in alle Jinja-templates."""
+    return {
+        "csrf_token": _get_csrf_token,
+        "trial_signup_url": trial_signup_url,
+    }
 
 @app.before_request
 def _csrf_protect():
