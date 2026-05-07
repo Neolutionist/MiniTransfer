@@ -118,6 +118,13 @@ MIN_EXPIRY_DAYS = float(os.environ.get("MIN_EXPIRY_DAYS", "0.04"))  # ~1 uur
 MAX_EXPIRY_DAYS = float(os.environ.get("MAX_EXPIRY_DAYS", "365"))
 MAX_TITLE_LENGTH = int(os.environ.get("MAX_TITLE_LENGTH", "120"))
 
+# Sentinel waarde voor onbeperkt geldige pakketten.
+# We gebruiken een vaste datum ver in de toekomst (jaar 9999) zodat alle bestaande
+# expiry-checks (pkg["expires_at"] <= now) en de cleanup_expired-routine ongewijzigd
+# blijven werken: het pakket verloopt simpelweg nooit.
+NEVER_EXPIRES_AT = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+NEVER_EXPIRES_ISO = NEVER_EXPIRES_AT.isoformat()
+
 # --- Render healthcheck fix ---
 HEALTH_PATHS = ("/health", "/health-s3", "/__health")
 
@@ -1547,6 +1554,7 @@ INDEX_HTML = """
                 <option value="30" selected>30 dagen</option>
                 <option value="60">60 dagen</option>
                 <option value="90">90 dagen</option>
+                <option value="never">Onbeperkt geldig</option>
               </select>
             </div>
             <div>
@@ -3369,12 +3377,17 @@ def package_init():
     uid = current_user_id()
     if not uid: abort(401)
     data = request.get_json(force=True, silent=True) or {}
-    days = clamp_expiry_days(data.get("expiry_days") or 24)
+    raw_expiry = data.get("expiry_days")
+    is_never = isinstance(raw_expiry, str) and raw_expiry.strip().lower() == "never"
+    if is_never:
+        expires_at = NEVER_EXPIRES_ISO
+    else:
+        days = clamp_expiry_days(raw_expiry or 24)
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw   = (data.get("password") or "")[:200]
     title_raw = (data.get("title") or "").strip()
     title = title_raw[:MAX_TITLE_LENGTH] if title_raw else None
     token = secrets.token_hex(NEW_TOKEN_BYTES)  # 16 hex = 64 bits entropie
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     pw_hash = generate_password_hash(pw) if pw else None
     t = current_tenant()["slug"]
     c = db()
@@ -3730,7 +3743,10 @@ def package_page(token):
     total_bytes = sum(int(r["size_bytes"]) for r in items)
     total_h = human(total_bytes)
     dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
-    expires_h = dt.strftime("%d-%m-%Y %H:%M")
+    if dt.year >= 9000:
+        expires_h = "Onbeperkt geldig"
+    else:
+        expires_h = dt.strftime("%d-%m-%Y %H:%M")
 
     its = [{"id":r["id"], "name":r["name"], "path":r["path"], "size_h":human(int(r["size_bytes"]))} for r in items]
 
@@ -5409,6 +5425,8 @@ html,body{
             <td data-label="Status">
               {% if p.is_expired %}
                 <span class="oh-badge exp">Verlopen</span>
+              {% elif p.is_never %}
+                <span class="oh-badge ok">Onbeperkt</span>
               {% elif p.days_left <= 3 %}
                 <span class="oh-badge warn">Nog {{ p.days_left }}d</span>
               {% else %}
@@ -5425,10 +5443,12 @@ html,body{
                 {% if not p.is_expired %}
                 <a class="oh-btn xs ghost" href="/p/{{ p.token }}" target="_blank" rel="noopener">Openen</a>
                 <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Link</button>
+                {% if not p.is_never %}
                 <form method="post" action="/uploads/{{ p.token }}/extend" style="display:inline">
                   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                   <button class="oh-btn xs ghost" type="submit" title="Verleng met 7 dagen">+7d</button>
                 </form>
+                {% endif %}
                 {% endif %}
                 <form method="post" action="/uploads/{{ p.token }}/delete" style="display:inline"
                       onsubmit="return confirm('Pakket {{ p.title or p.token }} definitief verwijderen? Dit verwijdert ook de bestanden uit opslag.');">
@@ -5603,6 +5623,8 @@ def my_uploads():
         except Exception:
             exp = now
         is_expired = exp <= now
+        # Onbeperkt geldig: vervaldatum staat ver in de toekomst (>= jaar 9000)
+        is_never = exp.year >= 9000
         days_left = max(0, (exp - now).days) if not is_expired else 0
         packages.append({
             "token": r["token"],
@@ -5614,6 +5636,7 @@ def my_uploads():
             "size_human": human(int(r["size_bytes"] or 0)),
             "has_password": bool(r["password_hash"]),
             "is_expired": is_expired,
+            "is_never": is_never,
             "days_left": days_left,
             "owner_email": r["owner_email"],
             "download_count": int(r["download_count"] or 0),
@@ -5708,6 +5731,11 @@ def my_uploads_extend(token):
             current_exp = datetime.fromisoformat(pkg["expires_at"])
         except Exception:
             current_exp = datetime.now(timezone.utc)
+        # Onbeperkt geldige pakketten hoeven (en kunnen) niet verlengd worden:
+        # +7 dagen op een datum in jaar 9999 zou overflowen.
+        if current_exp.year >= 9000:
+            _flash(msg="Dit pakket is al onbeperkt geldig.")
+            return redirect(url_for("my_uploads"))
         # Verleng met 7 dagen vanaf de huidige vervaldatum (of nu, als al verlopen)
         base = max(current_exp, datetime.now(timezone.utc))
         new_exp = base + timedelta(days=7)
