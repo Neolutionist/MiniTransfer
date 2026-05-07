@@ -463,14 +463,34 @@ def log_download_event(token: str, tenant_id: str, download_type: str, item_id=N
     # Fallback (executor nog niet beschikbaar bij init): synchroon.
     _insert_download_event(*payload)
 
+def parse_dt_utc(iso_value, default=None):
+    """Parse een ISO-datetime en garandeer timezone-aware UTC.
+
+    Beschermt tegen 'naive vs aware' TypeError-crashes als er ooit een rij
+    zonder timezone-info in de DB belandt. Accepteert ook 'Z'-suffix.
+    """
+    if not iso_value:
+        return default
+    try:
+        s = iso_value
+        if isinstance(s, str) and s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s) if isinstance(s, str) else s
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
+    except Exception:
+        return default
+
 def format_nl_datetime(iso_value):
     if not iso_value:
         return "—"
-    try:
-        dt = datetime.fromisoformat(iso_value)
-        return dt.astimezone(timezone.utc).strftime("%d-%m-%Y %H:%M UTC")
-    except Exception:
+    dt = parse_dt_utc(iso_value)
+    if dt is None:
         return iso_value
+    return dt.strftime("%d-%m-%Y %H:%M UTC")
 
 # -------------- CSS --------------
 BASE_CSS = """
@@ -3746,8 +3766,31 @@ def _pkg_allow_is_valid(token: str) -> bool:
         return False
     return rec.get("ok") is True and float(rec.get("exp") or 0) > time.time()
 
+# Maximaal aantal pakket-toegang sleutels in de sessie. Voorkomt dat een
+# Flask-sessie cookie (max ~4KB) volloopt bij gebruikers die veel
+# password-protected pakketten openen.
+_PKG_ALLOW_MAX_KEYS = 25
+
 def _pkg_allow_set(token: str) -> None:
-    session[f"allow_{token}"] = {"ok": True, "exp": time.time() + PKG_ALLOW_TTL}
+    # Verwijder eerst verlopen entries; cap daarna op de max.
+    now_ts = time.time()
+    allow_keys = [k for k in list(session.keys()) if k.startswith("allow_")]
+    for k in allow_keys:
+        rec = session.get(k)
+        if not isinstance(rec, dict) or float(rec.get("exp") or 0) <= now_ts:
+            session.pop(k, None)
+    # Hertel na opschoning
+    allow_keys = [k for k in list(session.keys()) if k.startswith("allow_")]
+    # Als we nog over de limiet zitten, gooi de oudste (laagste exp) eruit
+    if len(allow_keys) >= _PKG_ALLOW_MAX_KEYS:
+        sortable = []
+        for k in allow_keys:
+            rec = session.get(k) or {}
+            sortable.append((float(rec.get("exp") or 0), k))
+        sortable.sort()
+        for _, k in sortable[:len(allow_keys) - _PKG_ALLOW_MAX_KEYS + 1]:
+            session.pop(k, None)
+    session[f"allow_{token}"] = {"ok": True, "exp": now_ts + PKG_ALLOW_TTL}
 
 def _async_delete_s3_keys(keys: list) -> None:
     """Delete objecten op achtergrond, gebatched.
@@ -3831,13 +3874,23 @@ def package_page(token):
                 head_icon=HTML_HEAD_ICON
             ), 404
 
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc):
-            # Verzamel keys, verwijder DB-rows, start S3-cleanup async.
-            rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
-            s3_keys = [r["s3_key"] for r in rows]
-            c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
-            c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
-            c.commit()
+        # Robuuste datetime-vergelijking: bij parse-fout behandelen we het pakket
+        # als verlopen (veiliger dan een 500). Onbeperkte pakketten (jaar 9999)
+        # blijven geldig omdat die ver in de toekomst staan.
+        now_utc = datetime.now(timezone.utc)
+        exp_dt = parse_dt_utc(pkg["expires_at"]) or now_utc
+        if exp_dt <= now_utc:
+            # Atomair: items + package in één transactie verwijderen, dan async
+            # de S3-keys opruimen. Voorkomt half-opgeruimde state bij crash.
+            try:
+                rows = c.execute("SELECT s3_key FROM items WHERE token=? AND tenant_id=?", (token, t)).fetchall()
+                s3_keys = [r["s3_key"] for r in rows]
+                with c:  # commit/rollback transactie
+                    c.execute("DELETE FROM items WHERE token=? AND tenant_id=?", (token, t))
+                    c.execute("DELETE FROM packages WHERE token=? AND tenant_id=?", (token, t))
+            except sqlite3.Error:
+                log.exception("expired package cleanup DB failed")
+                s3_keys = []
             if s3_keys:
                 _async_delete_s3_keys(s3_keys)
             abort(410)
@@ -3859,7 +3912,7 @@ def package_page(token):
 
     total_bytes = sum(int(r["size_bytes"]) for r in items)
     total_h = human(total_bytes)
-    dt = datetime.fromisoformat(pkg["expires_at"]).replace(second=0, microsecond=0)
+    dt = (parse_dt_utc(pkg["expires_at"]) or datetime.now(timezone.utc)).replace(second=0, microsecond=0)
     if dt.year >= 9000:
         expires_h = "Onbeperkt geldig"
     else:
@@ -3874,6 +3927,33 @@ def package_page(token):
         expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
 
+def _is_pkg_expired(pkg) -> bool:
+    """Robuust check: True als pakket verlopen is. Behandelt parse-fouten als verlopen."""
+    now_utc = datetime.now(timezone.utc)
+    exp_dt = parse_dt_utc(pkg["expires_at"])
+    if exp_dt is None:
+        return True  # niet-parseable: veiliger om als verlopen te zien
+    return exp_dt <= now_utc
+
+def _safe_content_disposition(filename: str) -> str:
+    """Bouw een RFC 6266-conforme Content-Disposition waarde.
+
+    - Strip CR/LF (defense-in-depth tegen response splitting)
+    - Strip quote-characters
+    - Geeft naast `filename=` ook `filename*=UTF-8''...` zodat browsers
+      non-ASCII titels (bijv. 'België-rapport.zip') correct tonen.
+    - ASCII-fallback met onleesbare bytes vervangen door '_'.
+    """
+    from urllib.parse import quote as _quote
+    raw = (filename or "download").replace("\r", "").replace("\n", "").replace('"', "").strip()
+    if not raw:
+        raw = "download"
+    # ASCII-fallback voor oude clients
+    ascii_name = raw.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    # RFC 5987 percent-encoding voor de UTF-8-variant
+    utf8_name = _quote(raw, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+
 @app.route("/file/<token>/<int:item_id>")
 def stream_file(token, item_id):
     token = (token or "").strip()
@@ -3883,7 +3963,7 @@ def stream_file(token, item_id):
         t = current_tenant()["slug"]
         pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
         if not pkg: abort(404)
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): abort(410)
+        if _is_pkg_expired(pkg): abort(410)
         if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
         it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
     finally:
@@ -3900,14 +3980,14 @@ def stream_file(token, item_id):
     # Presigned GET: browser praat direct met B2/S3. Scheelt bandbreedte en voorkomt
     # dat request-tijd de Render-timeout raakt bij grote bestanden.
     try:
-        # Sanitize filename voor Content-Disposition header
-        safe_name = (it["name"] or "download").replace('"', '').replace('\r','').replace('\n','')
+        # RFC 6266-conforme Content-Disposition met UTF-8-fallback voor
+        # non-ASCII filenames (bijv. accenten, Arabisch, Chinees).
         url = s3.generate_presigned_url(
             "get_object",
             Params={
                 "Bucket": S3_BUCKET,
                 "Key": it["s3_key"],
-                "ResponseContentDisposition": f'attachment; filename="{safe_name}"',
+                "ResponseContentDisposition": _safe_content_disposition(it["name"] or "download"),
             },
             ExpiresIn=3600, HttpMethod="GET",
         )
@@ -3925,7 +4005,7 @@ def stream_zip(token):
         t = current_tenant()["slug"]
         pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
         if not pkg: abort(404)
-        if datetime.fromisoformat(pkg["expires_at"]) <= datetime.now(timezone.utc): abort(410)
+        if _is_pkg_expired(pkg): abort(410)
         if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
         rows = c.execute("""SELECT name,path,s3_key FROM items
                             WHERE token=? AND tenant_id=?
@@ -4093,12 +4173,14 @@ def stream_zip(token):
         def generate():
             for chunk in z: yield chunk
 
-        filename = (pkg["title"] or f"onderwerp-{token}").strip().replace('"','')
+        filename = (pkg["title"] or f"onderwerp-{token}").strip()
         if not filename.lower().endswith(".zip"): filename += ".zip"
+        # Strip CR/LF expliciet als extra safety net voor X-Filename header.
+        x_filename = filename.replace("\r", "").replace("\n", "").replace('"', "")
 
         resp = Response(stream_with_context(generate()), mimetype="application/zip")
-        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-        resp.headers["X-Filename"] = filename
+        resp.headers["Content-Disposition"] = _safe_content_disposition(filename)
+        resp.headers["X-Filename"] = x_filename
         return resp
     except Exception as e:
         log.exception("stream_zip failed")
@@ -4624,10 +4706,15 @@ def health_basic():
     now = time.time()
     if now - _last_rate_cleanup["ts"] > 600:
         _last_rate_cleanup["ts"] = now
+        # Async: healthcheck mag NOOIT blokkeren op DB. Bij een SQLite-lock
+        # of trage disk zou Render anders de container als unhealthy markeren
+        # en herstarten — terwijl er feitelijk niets mis is met de app.
         try:
-            _rate_cleanup_periodic()
+            ex = globals().get("_bg_executor")
+            if ex is not None:
+                ex.submit(_rate_cleanup_periodic)
         except Exception:
-            log.exception("rate cleanup failed")
+            log.exception("rate cleanup submit failed")
     return {"ok": True, "service": "minitransfer", "tenant": _tenant_slug}
 
 @app.route("/health-s3")
@@ -5755,14 +5842,11 @@ def _package_summary(rows, now):
     total = 0
     for r in rows:
         total += int(r.get("size_bytes") or 0)
-        try:
-            exp = datetime.fromisoformat(r["expires_at"])
-            if exp <= now:
-                expired += 1
-            else:
-                active += 1
-        except Exception:
+        exp = parse_dt_utc(r["expires_at"])
+        if exp is None or exp <= now:
             expired += 1
+        else:
+            active += 1
     return {
         "pkg_count": pkg_count,
         "active": active,
@@ -5850,10 +5934,7 @@ def my_uploads():
     now = datetime.now(timezone.utc)
     packages = []
     for r in rows:
-        try:
-            exp = datetime.fromisoformat(r["expires_at"])
-        except Exception:
-            exp = now
+        exp = parse_dt_utc(r["expires_at"]) or now
         is_expired = exp <= now
         # Onbeperkt geldig: vervaldatum staat ver in de toekomst (>= jaar 9000)
         is_never = exp.year >= 9000
@@ -5959,10 +6040,7 @@ def my_uploads_extend(token):
             _flash(error="Geen rechten om dit pakket te verlengen.")
             return redirect(url_for("my_uploads"))
 
-        try:
-            current_exp = datetime.fromisoformat(pkg["expires_at"])
-        except Exception:
-            current_exp = datetime.now(timezone.utc)
+        current_exp = parse_dt_utc(pkg["expires_at"]) or datetime.now(timezone.utc)
         # Onbeperkt geldige pakketten hoeven (en kunnen) niet verlengd worden:
         # +7 dagen op een datum in jaar 9999 zou overflowen.
         if current_exp.year >= 9000:
@@ -6042,10 +6120,13 @@ def safe_int(value, default=0, minimum=None, maximum=None):
 
 
 def client_ip():
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()[:64]
-    return (request.remote_addr or "")[:64]
+    """Alias naar _client_ip — single source of truth.
+
+    Eerder werd hier X-Forwarded-For zelf opnieuw geparset; dat dupliceerde
+    werk dat ProxyFix al doet en kon bij multi-hop proxies een andere IP
+    teruggeven dan _client_ip(). Nu consistent.
+    """
+    return _client_ip()
 
 
 def cleanup_old_scores():
