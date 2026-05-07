@@ -2271,10 +2271,23 @@ function setPct(p){
 }
 
 async function downloadWithTelemetry(url, fallbackName){
-  showProgress(); setPct(0); txt.textContent='Starten…';
+  // Toon meteen de "Voorbereiden..." staat met geanimeerde indeterminate balk.
+  // De server kan een paar seconden bezig zijn met prefetch voordat de eerste
+  // echte bytes binnenkomen; zonder deze feedback lijkt het alsof er niks gebeurt.
+  showProgress();
+  if(pctText) pctText.textContent='…';
+  if(fill) fill.style.width='0%';
+  if(bar){ bar.classList.add('active'); bar.classList.add('indet'); }
+  txt.textContent='Voorbereiden…';
+  if(tSpeed) tSpeed.textContent='—';
+  if(tMoved) tMoved.textContent='0 B';
+  if(tEta)   tEta.textContent='—';
+
   let speedAvg=0, lastT=performance.now(), lastB=0, moved=0, total=0;
+  let firstChunkSeen=false;
 
   const tick = ()=>{
+    if(!firstChunkSeen) return; // pas tellen als er echt data stroomt
     const now=performance.now(), dt=(now-lastT)/1000; lastT=now;
     const inst=(moved-lastB)/Math.max(dt,0.001); lastB=moved;
     speedAvg = speedAvg? speedAvg*0.7 + inst*0.3 : inst;
@@ -2286,35 +2299,57 @@ async function downloadWithTelemetry(url, fallbackName){
 
   try{
     const res=await fetch(url,{credentials:'same-origin'});
-    if(!res.ok){ txt.textContent='Fout '+res.status; clearInterval(iv); bar.classList.remove('active'); return; }
+    if(!res.ok){
+      txt.textContent='Fout '+res.status;
+      clearInterval(iv);
+      if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
+      return;
+    }
     total=parseInt(res.headers.get('Content-Length')||'0',10);
     const name=res.headers.get('X-Filename')||fallbackName||'download';
 
     const rdr = res.body && res.body.getReader ? res.body.getReader() : null;
     if(rdr){
       const chunks=[];
-      if(!total){ bar.classList.add('indet'); txt.textContent='Downloaden…'; if(pctText) pctText.textContent='…'; }
       while(true){
         const {done,value}=await rdr.read(); if(done) break;
-        chunks.push(value); moved+=value.length; tMoved.textContent=fmtBytes(moved);
-        if(total){ const pct=Math.round(moved/total*100); setPct(pct); txt.textContent='Downloaden…'; }
+        if(!firstChunkSeen){
+          // Eerste byte binnen: wissel van "Voorbereiden..." naar echte voortgang.
+          firstChunkSeen=true;
+          lastT=performance.now(); lastB=0;
+          if(total){
+            if(bar) bar.classList.remove('indet');
+            txt.textContent='Downloaden…';
+          } else {
+            // Geen Content-Length (zip-stream): houd indet-balk aan, maar update label.
+            txt.textContent='Downloaden…';
+          }
+        }
+        chunks.push(value); moved+=value.length;
+        if(tMoved) tMoved.textContent=fmtBytes(moved);
+        if(total){ setPct(Math.round(moved/total*100)); }
       }
-      if(!total){ bar.classList.remove('indet'); setPct(100); }
+      if(!total){ if(bar) bar.classList.remove('indet'); setPct(100); }
       txt.textContent='Gereed — bestand wordt opgeslagen';
-      bar.classList.remove('active');
+      if(bar) bar.classList.remove('active');
       clearInterval(iv);
       const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
       const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
       return;
     }
-    bar.classList.add('indet'); txt.textContent='Downloaden…'; if(pctText) pctText.textContent='…';
+    // Geen streaming reader beschikbaar: blijf op indeterminate tot we de blob hebben.
+    txt.textContent='Downloaden…';
     const blob=await res.blob(); clearInterval(iv);
-    bar.classList.remove('indet'); bar.classList.remove('active');
+    if(bar){ bar.classList.remove('indet'); bar.classList.remove('active'); }
     setPct(100); txt.textContent='Gereed';
     const u=URL.createObjectURL(blob); const a=document.createElement('a');
     a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
-  }catch(e){ clearInterval(iv); bar.classList.remove('active'); txt.textContent='Er ging iets mis. Probeer opnieuw.'; }
+  }catch(e){
+    clearInterval(iv);
+    if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
+    txt.textContent='Er ging iets mis. Probeer opnieuw.';
+  }
 }
 
 const btn=document.getElementById('btnDownload');
