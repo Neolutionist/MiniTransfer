@@ -155,13 +155,41 @@ TENANTS = {
     _tenant_host: {
         "slug": _tenant_slug,
         "mail_to": MAIL_TO,
+        "is_trial": False,
     }
 }
 _DEFAULT_TENANT_HOST = _tenant_host
 
+# ---- Trial-tenant (gratis variant met restricties) ----
+# Trial-host komt uit env var TRIAL_HOST; bij ontbreken afgeleid uit het
+# basisdomein van de hoofdtenant. Bijvoorbeeld 'downloadlink.nl' wordt
+# 'trial.downloadlink.nl'. De slug is altijd 'trial'.
+_trial_host = os.environ.get("TRIAL_HOST", "").strip().lower()
+if not _trial_host:
+    _parts = _tenant_host.split(".")
+    if len(_parts) >= 2:
+        _trial_host = "trial." + ".".join(_parts[-2:])
+TRIAL_TENANT_SLUG = "trial"
+TRIAL_ENABLED = bool(_trial_host) and os.environ.get("TRIAL_ENABLED", "1").lower() in ("1", "true", "yes")
+if TRIAL_ENABLED:
+    TENANTS[_trial_host] = {
+        "slug": TRIAL_TENANT_SLUG,
+        "mail_to": MAIL_TO,
+        "is_trial": True,
+    }
+
+# Trial-restricties (overrid'baar via env vars zonder code-aanpassing)
+TRIAL_MAX_BYTES_PER_PACKAGE = int(os.environ.get("TRIAL_MAX_BYTES_PER_PACKAGE", str(2 * 1024 * 1024 * 1024)))  # 2 GB
+TRIAL_MAX_TTL_DAYS          = float(os.environ.get("TRIAL_MAX_TTL_DAYS", "3"))
+TRIAL_MAX_ACTIVE_PACKAGES   = int(os.environ.get("TRIAL_MAX_ACTIVE_PACKAGES", "5"))
+TRIAL_VERIFY_TOKEN_TTL_HRS  = int(os.environ.get("TRIAL_VERIFY_TOKEN_TTL_HRS", "48"))
+
 def current_tenant():
     host = (request.headers.get("Host") or "").lower()
     return TENANTS.get(host) or TENANTS[_DEFAULT_TENANT_HOST]
+
+def is_trial_tenant() -> bool:
+    return bool(current_tenant().get("is_trial"))
 # ----------------------------------------------------
 
 # --- Redirect config toevoegen ---
@@ -313,6 +341,27 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_download_events_tenant ON download_events(tenant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_download_events_downloaded_at ON download_events(downloaded_at)")
 
+    # ===== EMAIL VERIFICATIONS =====
+    # Gebruikt voor de gratis trial-signup. Eén rij per uitstaande verificatie;
+    # consumed_at wordt gezet zodra de gebruiker de link aanklikt. Tokens zijn
+    # 32 hex chars (128 bits) zodat ze niet te raden zijn.
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS email_verifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        email TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        ip TEXT
+      )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_token ON email_verifications(token)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_email ON email_verifications(email)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_expires ON email_verifications(expires_at)")
+
     c.commit()
     c.close()
 
@@ -381,6 +430,40 @@ def migrate_add_download_analytics():
         conn.close()
 
 migrate_add_download_analytics()
+
+def migrate_add_trial_columns():
+    """Voeg is_trial + email_verified toe aan users, en de email_verifications tabel.
+
+    Idempotent: doet niets als kolommen/tabel al bestaan. Veilig om bij elke
+    deploy te draaien.
+    """
+    conn = db()
+    try:
+        if not _col_exists(conn, "users", "is_trial"):
+            conn.execute("ALTER TABLE users ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0")
+        if not _col_exists(conn, "users", "email_verified"):
+            conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+        conn.execute("""
+          CREATE TABLE IF NOT EXISTS email_verifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            consumed_at TEXT,
+            ip TEXT
+          )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_token ON email_verifications(token)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_email ON email_verifications(email)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_email_verif_expires ON email_verifications(expires_at)")
+        conn.commit()
+    finally:
+        conn.close()
+
+migrate_add_trial_columns()
 
 def seed_admin_from_env():
     """
@@ -3234,7 +3317,7 @@ def current_user():
     conn = db()
     try:
         row = conn.execute(
-            "SELECT id, email, is_admin, tenant_id, disabled FROM users WHERE id = ?",
+            "SELECT id, email, is_admin, tenant_id, disabled, is_trial, email_verified FROM users WHERE id = ?",
             (uid,)
         ).fetchone()
         if row is None or row["disabled"]:
@@ -3494,7 +3577,7 @@ def login():
         conn = db()
         try:
             row = conn.execute(
-                "SELECT id, email, password_hash, is_admin, tenant_id, disabled FROM users WHERE email = ?",
+                "SELECT id, email, password_hash, is_admin, tenant_id, disabled, is_trial, email_verified FROM users WHERE email = ?",
                 (email,)
             ).fetchone()
         finally:
@@ -3509,6 +3592,18 @@ def login():
             check_password_hash("pbkdf2:sha256:600000$x$" + "0"*64, pw)
 
         if row is not None and not row["disabled"] and pw_ok:
+            # Onverifieerde accounts (zoals trial vóór e-mail-bevestiging) mogen
+            # niet inloggen. Geen apart pad zodat e-mail-enumeratie niet mogelijk is.
+            if not row["email_verified"]:
+                _login_register_failure(ip)
+                time.sleep(0.3)
+                return render_template_string(
+                    LOGIN_HTML,
+                    error="Bevestig eerst je e-mailadres via de link die we je hebben gestuurd.",
+                    base_css=BASE_CSS, bg=BG_DIV,
+                    auth_email="",
+                    head_icon=HTML_HEAD_ICON
+                )
             _login_reset(ip)
             session.clear()
             session.permanent = True
@@ -3540,31 +3635,369 @@ def login():
 def logout():
     session.clear(); return redirect(url_for("login"))
 
+# ============================================================
+# TRIAL (gratis variant) — signup, e-mail-verificatie, restricties
+# ============================================================
+
+# Wegwerp-mailproviders die we niet accepteren voor trial-signups.
+# Een korte lijst is genoeg — dekt 90% van de gevallen, en kost geen externe
+# afhankelijkheid. Uitbreidbaar via env var TRIAL_DISPOSABLE_DOMAINS (komma-gescheiden).
+_DISPOSABLE_DOMAINS_BUILTIN = {
+    "mailinator.com", "guerrillamail.com", "guerrillamail.info", "guerrillamail.biz",
+    "10minutemail.com", "10minutemail.net", "20minutemail.com", "30minutemail.com",
+    "tempmail.com", "temp-mail.org", "tempmailo.com", "tempmail.net", "tmpmail.org",
+    "yopmail.com", "trashmail.com", "trashmail.de", "throwawaymail.com",
+    "maildrop.cc", "sharklasers.com", "getnada.com", "getairmail.com",
+    "dispostable.com", "fakeinbox.com", "mintemail.com", "mailnesia.com",
+    "spambox.us", "spamgourmet.com", "spam4.me", "mohmal.com",
+    "emailondeck.com", "tempinbox.com", "tempmailaddress.com",
+}
+_disposable_extra = os.environ.get("TRIAL_DISPOSABLE_DOMAINS", "").lower().strip()
+DISPOSABLE_DOMAINS = _DISPOSABLE_DOMAINS_BUILTIN | {
+    d.strip() for d in _disposable_extra.split(",") if d.strip()
+}
+
+# E-mail format-check: simpel maar adequaat. Voor trial-signup is een snelle
+# format-check + DNS-checks via de SMTP-server zelf voldoende.
+_EMAIL_RE_TRIAL = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+# Rate-limit scopes (sluit aan op bestaand rate_limits-systeem)
+TRIAL_SIGNUP_MAX_PER_DAY = int(os.environ.get("TRIAL_SIGNUP_MAX_PER_DAY", "1"))
+TRIAL_SIGNUP_WINDOW = 24 * 3600
+TRIAL_SIGNUP_LOCKOUT = 24 * 3600
+
+def _is_disposable_email(email: str) -> bool:
+    parts = (email or "").lower().rsplit("@", 1)
+    if len(parts) != 2:
+        return True
+    return parts[1] in DISPOSABLE_DOMAINS
+
+def _email_already_in_use(email: str) -> bool:
+    """Bestaat er al een (verified) user met dit e-mailadres?"""
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM users WHERE email = ? LIMIT 1", (email,)
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+def _enforce_trial_size_limit(byte_size: int) -> tuple:
+    """Return (ok: bool, error_message: str)."""
+    if byte_size > TRIAL_MAX_BYTES_PER_PACKAGE:
+        gb = TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)
+        return False, f"In de gratis variant is het maximum {gb:.0f} GB per pakket. Upgrade voor grotere uploads."
+    return True, ""
+
+def _enforce_trial_active_count(conn, user_id: int) -> tuple:
+    """Hoeveel niet-verlopen pakketten heeft deze trial-gebruiker al?"""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM packages WHERE owner_user_id = ? AND expires_at > ?",
+        (user_id, now_iso)
+    ).fetchone()
+    n = int(row["n"] or 0)
+    if n >= TRIAL_MAX_ACTIVE_PACKAGES:
+        return False, f"In de gratis variant kun je maximaal {TRIAL_MAX_ACTIVE_PACKAGES} actieve pakketten hebben. Verwijder een ouder pakket of upgrade."
+    return True, ""
+
+def _enforce_trial_ttl(days: float) -> float:
+    """Cap TTL op trial-max. Anders unchanged."""
+    return min(float(days), TRIAL_MAX_TTL_DAYS)
+
+def _send_verify_email(to_addr: str, verify_url: str):
+    """Stuurt de verificatiemail asynchroon."""
+    subject = "Bevestig je e-mailadres voor de gratis variant"
+    body = (
+        "Welkom!\n\n"
+        "Je hebt zojuist een gratis account aangevraagd. Klik op de onderstaande link\n"
+        "om je e-mailadres te bevestigen en je account te activeren:\n\n"
+        f"{verify_url}\n\n"
+        f"Deze link is {TRIAL_VERIFY_TOKEN_TTL_HRS} uur geldig.\n\n"
+        "Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.\n"
+    )
+    send_email_async(to_addr, subject, body)
+
+# -------------------- Trial signup form --------------------
+
+TRIAL_SIGNUP_HTML = r"""
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+{{ head_icon|safe }}<title>Gratis variant – aanmelden</title><style>{{ base_css|safe }}</style></head><body>
+{{ bg|safe }}
+<div class="shell">
+  <div class="card">
+    <h1>Gratis variant — aanmelden</h1>
+    <p class="muted">
+      Probeer de service met een gratis account. Geen creditcard, geen automatische verlenging.
+      We sturen je een bevestigingsmail; klik op de link en je kunt direct beginnen.
+    </p>
+    <ul class="muted small" style="margin:12px 0 18px;padding-left:18px;line-height:1.6">
+      <li>Tot {{ max_gb }} GB per pakket</li>
+      <li>Linkjes maximaal {{ max_days }} dagen geldig</li>
+      <li>Maximaal {{ max_active }} actieve pakketten tegelijk</li>
+      <li>Wachtwoordbescherming en eigen subdomein zitten in de betaalde variant</li>
+    </ul>
+    {% if error %}<div class="error" style="background:#fee;border:1px solid #fbb;color:#900;padding:10px 12px;border-radius:8px;margin-bottom:14px">{{ error }}</div>{% endif %}
+    {% if info %}<div class="info" style="background:#eff;border:1px solid #bdd;color:#066;padding:10px 12px;border-radius:8px;margin-bottom:14px">{{ info }}</div>{% endif %}
+    <form method="post" autocomplete="off" novalidate>
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="email">E-mailadres</label>
+      <input id="email" class="input" name="email" type="email" required value="{{ email or '' }}" placeholder="naam@bedrijf.nl">
+      <label for="password" style="margin-top:12px">Wachtwoord (min. 10 tekens)</label>
+      <input id="password" class="input" name="password" type="password" required minlength="10">
+      <p class="muted small" style="margin-top:14px">
+        Door op aanmelden te klikken ga je akkoord met onze
+        <a href="https://{{ base_host }}/voorwaarden" target="_blank" rel="noopener">voorwaarden</a>.
+      </p>
+      <button class="btn-pro primary" type="submit" style="margin-top:16px">Aanmelden en bevestigingsmail ontvangen</button>
+    </form>
+    <p class="muted small" style="margin-top:18px">
+      Al een account? <a href="{{ url_for('login') }}">Inloggen</a>.
+      Direct upgraden naar de betaalde variant?
+      <a href="https://{{ base_host }}/contact?ref=trial_signup_form" target="_blank" rel="noopener">Bekijk de mogelijkheden</a>.
+    </p>
+  </div>
+</div></body></html>
+"""
+
+TRIAL_SIGNUP_DONE_HTML = r"""
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+{{ head_icon|safe }}<title>Bevestig je e-mailadres</title><style>{{ base_css|safe }}</style></head><body>
+{{ bg|safe }}
+<div class="shell">
+  <div class="card">
+    <h1>Check je inbox</h1>
+    <p>We hebben een bevestigingsmail gestuurd naar <strong>{{ email }}</strong>.</p>
+    <p>Klik op de link in de mail om je account te activeren. De link is
+       {{ ttl_hours }} uur geldig.</p>
+    <p class="muted small">
+      Geen mail ontvangen? Check je spam-folder. Of
+      <a href="{{ url_for('trial_signup') }}">probeer het opnieuw</a>.
+    </p>
+  </div>
+</div></body></html>
+"""
+
+TRIAL_VERIFY_OK_HTML = r"""
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+{{ head_icon|safe }}<title>Account geactiveerd</title><style>{{ base_css|safe }}</style></head><body>
+{{ bg|safe }}
+<div class="shell">
+  <div class="card">
+    <h1>Je account is geactiveerd</h1>
+    <p>Je kunt nu inloggen en bestanden delen via de gratis variant.</p>
+    <p style="margin-top:18px"><a class="btn-pro primary" href="{{ url_for('login') }}">Inloggen</a></p>
+  </div>
+</div></body></html>
+"""
+
+TRIAL_VERIFY_FAIL_HTML = r"""
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+{{ head_icon|safe }}<title>Verificatie mislukt</title><style>{{ base_css|safe }}</style></head><body>
+{{ bg|safe }}
+<div class="shell">
+  <div class="card">
+    <h1>Deze link werkt niet meer</h1>
+    <p>{{ reason }}</p>
+    <p style="margin-top:18px"><a class="btn-pro primary" href="{{ url_for('trial_signup') }}">Opnieuw aanmelden</a></p>
+  </div>
+</div></body></html>
+"""
+
+# -------------------- Trial signup route --------------------
+
+@app.route("/trial/signup", methods=["GET", "POST"])
+def trial_signup():
+    if not TRIAL_ENABLED:
+        abort(404)
+
+    base_host = get_base_host()
+    ctx = {
+        "base_css": BASE_CSS, "bg": BG_DIV, "head_icon": HTML_HEAD_ICON,
+        "base_host": base_host,
+        "max_gb": int(TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)),
+        "max_days": int(TRIAL_MAX_TTL_DAYS),
+        "max_active": TRIAL_MAX_ACTIVE_PACKAGES,
+    }
+
+    if request.method == "GET":
+        return render_template_string(TRIAL_SIGNUP_HTML, error=None, info=None, email="", **ctx)
+
+    ip = _client_ip()
+    wait = _rate_is_blocked("trial_signup", ip)
+    if wait > 0:
+        hrs = max(1, int(wait // 3600))
+        return render_template_string(
+            TRIAL_SIGNUP_HTML,
+            error=f"Te veel aanmeldingen vanaf jouw netwerk. Probeer het over ~{hrs} uur opnieuw.",
+            info=None, email="", **ctx
+        ), 429
+
+    email = (request.form.get("email") or "").strip().lower()
+    pw    = request.form.get("password") or ""
+
+    # Validatie
+    if not _EMAIL_RE_TRIAL.match(email) or len(email) > 254:
+        return render_template_string(TRIAL_SIGNUP_HTML, error="Vul een geldig e-mailadres in.", info=None, email=email, **ctx), 400
+    if _is_disposable_email(email):
+        return render_template_string(TRIAL_SIGNUP_HTML, error="Wegwerp-e-mailadressen worden niet geaccepteerd. Gebruik je zakelijke of persoonlijke adres.", info=None, email=email, **ctx), 400
+    if len(pw) < 10:
+        return render_template_string(TRIAL_SIGNUP_HTML, error="Wachtwoord moet minimaal 10 tekens zijn.", info=None, email=email, **ctx), 400
+    if _email_already_in_use(email):
+        # Geef een neutrale bevestigingspagina terug om e-mail-enumeratie te
+        # voorkomen. Geen feedback "bestaat al"; dat zou attackers helpen.
+        return render_template_string(TRIAL_SIGNUP_DONE_HTML, email=email,
+                                      ttl_hours=TRIAL_VERIFY_TOKEN_TTL_HRS, **ctx)
+
+    # Genereer verificatie-token (128 bits) en sla pending verificatie op.
+    token = secrets.token_hex(16)
+    pw_hash = generate_password_hash(pw)
+    now_dt = datetime.now(timezone.utc)
+    exp_dt = now_dt + timedelta(hours=TRIAL_VERIFY_TOKEN_TTL_HRS)
+    conn = db()
+    try:
+        # Verwijder bestaande niet-geconsumeerde verifs voor dit e-mailadres
+        # zodat een tweede signup-poging gewoon werkt en oude tokens dood zijn.
+        conn.execute(
+            "DELETE FROM email_verifications WHERE email = ? AND consumed_at IS NULL",
+            (email,)
+        )
+        conn.execute(
+            """INSERT INTO email_verifications
+               (token, email, password_hash, tenant_id, created_at, expires_at, ip)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (token, email, pw_hash, TRIAL_TENANT_SLUG,
+             now_dt.isoformat(), exp_dt.isoformat(), ip)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _rate_register_failure("trial_signup", ip,
+                           TRIAL_SIGNUP_MAX_PER_DAY, TRIAL_SIGNUP_WINDOW, TRIAL_SIGNUP_LOCKOUT)
+
+    # Stuur de verificatiemail. Gebruik de TRIAL_HOST (niet de huidige Host),
+    # want signup kan ook via de hoofdsite komen via een redirect.
+    verify_url = f"https://{_trial_host}/trial/verify/{token}"
+    _send_verify_email(email, verify_url)
+
+    return render_template_string(TRIAL_SIGNUP_DONE_HTML, email=email,
+                                  ttl_hours=TRIAL_VERIFY_TOKEN_TTL_HRS, **ctx)
+
+
+@app.route("/trial/verify/<token>")
+def trial_verify(token):
+    if not TRIAL_ENABLED:
+        abort(404)
+
+    ctx = {
+        "base_css": BASE_CSS, "bg": BG_DIV, "head_icon": HTML_HEAD_ICON,
+    }
+
+    # Token-formaat valideren voordat we de DB raken
+    if not re.match(r"^[a-f0-9]{32}$", token or ""):
+        return render_template_string(TRIAL_VERIFY_FAIL_HTML,
+                                      reason="De verificatielink is ongeldig.", **ctx), 400
+
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, email, password_hash, tenant_id, expires_at, consumed_at "
+            "FROM email_verifications WHERE token = ?",
+            (token,)
+        ).fetchone()
+        if row is None:
+            return render_template_string(TRIAL_VERIFY_FAIL_HTML,
+                                          reason="Deze verificatielink is niet (meer) geldig.", **ctx), 404
+        if row["consumed_at"]:
+            # Idempotent: al geactiveerd. Stuur door naar success-pagina, niet error.
+            return render_template_string(TRIAL_VERIFY_OK_HTML, **ctx)
+        exp_dt = parse_dt_utc(row["expires_at"])
+        if exp_dt is None or exp_dt <= datetime.now(timezone.utc):
+            return render_template_string(TRIAL_VERIFY_FAIL_HTML,
+                                          reason="Deze verificatielink is verlopen. Meld je opnieuw aan.", **ctx), 410
+
+        # Race-window: in de tussentijd kan een andere user met hetzelfde adres
+        # zijn aangemaakt (bijv. via betaalde flow). Check nogmaals.
+        if _email_already_in_use(row["email"]):
+            # Markeer als consumed zodat de token dood is.
+            conn.execute(
+                "UPDATE email_verifications SET consumed_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), row["id"])
+            )
+            conn.commit()
+            return render_template_string(TRIAL_VERIFY_FAIL_HTML,
+                                          reason="Voor dit e-mailadres bestaat al een account. Log in of vraag een wachtwoord-reset aan.", **ctx), 409
+
+        # Maak het user-account aan + markeer token als consumed in één transactie.
+        with conn:
+            conn.execute(
+                """INSERT INTO users (email, password_hash, is_admin, tenant_id,
+                                      created_at, disabled, is_trial, email_verified)
+                   VALUES (?, ?, 0, ?, ?, 0, 1, 1)""",
+                (row["email"], row["password_hash"], row["tenant_id"],
+                 datetime.now(timezone.utc).isoformat())
+            )
+            conn.execute(
+                "UPDATE email_verifications SET consumed_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), row["id"])
+            )
+    finally:
+        conn.close()
+
+    return render_template_string(TRIAL_VERIFY_OK_HTML, **ctx)
+
+
 # -------------- Upload API --------------
 @app.route("/package-init", methods=["POST"])
 def package_init():
     if not logged_in(): abort(401)
     uid = current_user_id()
     if not uid: abort(401)
+    me = current_user()
+    is_trial_user = bool(me and me["is_trial"])
     data = request.get_json(force=True, silent=True) or {}
     raw_expiry = data.get("expiry_days")
     is_never = isinstance(raw_expiry, str) and raw_expiry.strip().lower() == "never"
-    if is_never:
+
+    # Trial-restricties: geen 'never' (onbeperkt), TTL gecapped, geen wachtwoord.
+    if is_trial_user:
+        if is_never:
+            return jsonify(ok=False, error="trial_no_unlimited",
+                           message=f"Onbeperkt geldige links zitten in de betaalde variant. Trial-pakketten zijn maximaal {int(TRIAL_MAX_TTL_DAYS)} dagen geldig."), 403
+        days = clamp_expiry_days(raw_expiry or TRIAL_MAX_TTL_DAYS)
+        days = _enforce_trial_ttl(days)
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    elif is_never:
         expires_at = NEVER_EXPIRES_ISO
     else:
         days = clamp_expiry_days(raw_expiry or 24)
         expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
     pw   = (data.get("password") or "")[:200]
+    if is_trial_user and pw:
+        return jsonify(ok=False, error="trial_no_password",
+                       message="Wachtwoord-bescherming op pakketten zit in de betaalde variant."), 403
+
     title_raw = (data.get("title") or "").strip()
     title = title_raw[:MAX_TITLE_LENGTH] if title_raw else None
     token = secrets.token_hex(NEW_TOKEN_BYTES)  # 16 hex = 64 bits entropie
     pw_hash = generate_password_hash(pw) if pw else None
     t = current_tenant()["slug"]
     c = db()
-    c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id,owner_user_id)
-                 VALUES(?,?,?,?,?,?,?)""",
-              (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t, uid))
-    c.commit(); c.close()
+    try:
+        # Trial: max aantal actieve pakketten check (hier, in transactie-window).
+        if is_trial_user:
+            ok, msg = _enforce_trial_active_count(c, uid)
+            if not ok:
+                return jsonify(ok=False, error="trial_max_active", message=msg), 403
+        c.execute("""INSERT INTO packages(token,expires_at,password_hash,created_at,title,tenant_id,owner_user_id)
+                     VALUES(?,?,?,?,?,?,?)""",
+                  (token, expires_at, pw_hash, datetime.now(timezone.utc).isoformat(), title, t, uid))
+        c.commit()
+    finally:
+        c.close()
     return jsonify(ok=True, token=token)
     
 def _user_owns_package(conn, token: str, user_id: int, tenant_slug: str) -> bool:
@@ -3588,17 +4021,31 @@ def put_init():
     if not logged_in(): abort(401)
     uid = current_user_id()
     if not uid: abort(401)
+    me = current_user()
+    is_trial_user = bool(me and me["is_trial"])
     d = request.get_json(force=True, silent=True) or {}
     token = (d.get("token") or "").strip(); filename = secure_filename(d.get("filename") or "")
     content_type = (d.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
+    client_size = int(d.get("clientSize") or 0)
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (PUT)"), 400
     t = current_tenant()["slug"]
-    # Verifieer ownership
+    # Verifieer ownership + trial-grootte-limiet (vooraf weigeren scheelt
+    # weggegooid uploadwerk én B2-kosten).
     conn = db()
     try:
         if not _user_owns_package(conn, token, uid, t):
             return jsonify(ok=False, error="forbidden"), 403
+        if is_trial_user and client_size > 0:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes),0) AS s FROM items WHERE token = ? AND tenant_id = ?",
+                (token, t)
+            ).fetchone()
+            current_total = int(row["s"] or 0)
+            if current_total + client_size > TRIAL_MAX_BYTES_PER_PACKAGE:
+                gb = TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)
+                return jsonify(ok=False, error="trial_size_limit",
+                               message=f"Pakket zou groter worden dan {gb:.0f} GB (trial-limiet). Upgrade voor grotere uploads."), 403
     finally:
         conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
@@ -3638,6 +4085,26 @@ def put_complete():
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=key)
         size = int(head.get("ContentLength", 0))
+        # Trial post-check: ondanks pre-check in put-init kan een gemanipuleerde
+        # clientSize een te grote upload doorlaten. Hier verifieren we tegen de
+        # ECHTE size en ruimen op als de limiet alsnog overschreden wordt.
+        me = current_user()
+        if me and me["is_trial"]:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes),0) AS s FROM items WHERE token = ? AND tenant_id = ?",
+                (token, t)
+            ).fetchone()
+            current_total = int(row["s"] or 0)
+            if current_total + size > TRIAL_MAX_BYTES_PER_PACKAGE:
+                gb = TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)
+                # Verwijder het zojuist geüploade S3-object — niet in DB inserten.
+                try:
+                    s3.delete_object(Bucket=S3_BUCKET, Key=key)
+                except Exception:
+                    log.exception("trial limit cleanup failed: %s", key)
+                conn.close()
+                return jsonify(ok=False, error="trial_size_limit",
+                               message=f"Pakket overschrijdt {gb:.0f} GB (trial-limiet). Upload geweigerd."), 403
         try:
             conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                          VALUES(?,?,?,?,?,?)""",
@@ -3663,10 +4130,13 @@ def mpu_init():
     if not logged_in(): abort(401)
     uid = current_user_id()
     if not uid: abort(401)
+    me = current_user()
+    is_trial_user = bool(me and me["is_trial"])
     data = request.get_json(force=True, silent=True) or {}
     token = (data.get("token") or "").strip()
     filename = secure_filename(data.get("filename") or "")
     content_type = (data.get("contentType") or "application/octet-stream").strip() or "application/octet-stream"
+    client_size = int(data.get("clientSize") or 0)
     if not is_valid_token(token) or not filename:
         return jsonify(ok=False, error="Onvolledige init (MPU)"), 400
     t = current_tenant()["slug"]
@@ -3674,6 +4144,16 @@ def mpu_init():
     try:
         if not _user_owns_package(conn, token, uid, t):
             return jsonify(ok=False, error="forbidden"), 403
+        if is_trial_user and client_size > 0:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes),0) AS s FROM items WHERE token = ? AND tenant_id = ?",
+                (token, t)
+            ).fetchone()
+            current_total = int(row["s"] or 0)
+            if current_total + client_size > TRIAL_MAX_BYTES_PER_PACKAGE:
+                gb = TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)
+                return jsonify(ok=False, error="trial_size_limit",
+                               message=f"Pakket zou groter worden dan {gb:.0f} GB (trial-limiet). Upgrade voor grotere uploads."), 403
     finally:
         conn.close()
     key = f"uploads/{t}/{token}/{uuid.uuid4().hex[:8]}__{filename}"
@@ -3767,6 +4247,24 @@ def mpu_complete():
         except Exception:
             if client_size>0: size = client_size
             else: raise
+        # Trial post-check: zie put_complete. Bij overschrijding ruim de
+        # zojuist gemerge-de MPU op via delete_object.
+        me = current_user()
+        if me and me["is_trial"]:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(size_bytes),0) AS s FROM items WHERE token = ? AND tenant_id = ?",
+                (token, t)
+            ).fetchone()
+            current_total = int(row["s"] or 0)
+            if current_total + size > TRIAL_MAX_BYTES_PER_PACKAGE:
+                gb = TRIAL_MAX_BYTES_PER_PACKAGE / (1024**3)
+                try:
+                    s3.delete_object(Bucket=S3_BUCKET, Key=key)
+                except Exception:
+                    log.exception("trial limit cleanup failed: %s", key)
+                conn.close()
+                return jsonify(ok=False, error="trial_size_limit",
+                               message=f"Pakket overschrijdt {gb:.0f} GB (trial-limiet). Upload geweigerd."), 403
         # Stap 3: DB insert. Als deze faalt, ruim het S3-object op anders wees-object in B2.
         try:
             conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
