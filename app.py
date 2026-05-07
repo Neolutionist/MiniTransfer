@@ -2109,6 +2109,23 @@ PACKAGE_HTML = """
     .oh-bar.indet > i{width:40%;animation:oh-indet 1.2s linear infinite}
     @keyframes oh-indet{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 
+    /* Post-success invitation: subtle, opt-in by attention only.
+       Lichte achtergrond, dunne border, fade-in. Geen schaduwen, geen accentkleuren. */
+    .oh-postdl{margin-top:14px;padding:12px 14px;
+      background:var(--oh-surface);border:1px solid var(--oh-border);
+      border-radius:var(--oh-radius-sm);
+      opacity:0;transform:translateY(-4px);
+      transition:opacity .35s ease, transform .35s ease}
+    .oh-postdl[data-show="1"]{opacity:1;transform:translateY(0)}
+    .oh-postdl-line{display:flex;align-items:center;gap:8px;
+      font-size:13px;font-weight:600;color:var(--oh-text)}
+    .oh-postdl-line svg{color:var(--oh-brand-2);flex:0 0 auto}
+    .oh-postdl-cta{margin-top:6px;font-size:13px;color:var(--oh-muted);line-height:1.5}
+    .oh-postdl-cta em{font-style:normal;color:var(--oh-text);font-weight:600;
+      background:var(--oh-surface-2);padding:1px 6px;border-radius:4px}
+    .oh-postdl-cta a{color:var(--oh-brand-2);text-decoration:none;font-weight:600;margin-left:6px}
+    .oh-postdl-cta a:hover{text-decoration:underline}
+
     /* File list */
     .oh-filelist{margin-top:22px}
     .oh-filelist-head{display:flex;align-items:center;justify-content:space-between;
@@ -2171,7 +2188,7 @@ PACKAGE_HTML = """
         <p>Je bestanden staan klaar</p>
       </div>
     </div>
-    <a class="oh-topbar-link" href="{{ url_for('contact') }}">
+    <a class="oh-topbar-link" href="https://{{ base_host }}/contact?ref=p_topbar" target="_blank" rel="noopener">
       ★ Zelf ook zo'n omgeving?
     </a>
   </header>
@@ -2229,6 +2246,19 @@ PACKAGE_HTML = """
           </div>
           <div id="bar" class="oh-bar"><i></i></div>
           <div class="oh-status" id="txt">Starten…</div>
+        </div>
+
+        <!-- Post-success card: subtiele invitatie, verschijnt pas NA de download.
+             Geen modal, geen interrupt. Wie het niet ziet, mist niets. -->
+        <div class="oh-postdl" id="postdlCard" hidden>
+          <div class="oh-postdl-line">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>Download geslaagd.</span>
+          </div>
+          <div class="oh-postdl-cta">
+            Zelf ook bestanden delen op <em>jouwbedrijf.{{ base_host }}</em>?
+            <a href="https://{{ base_host }}/contact?ref=p_postdl" target="_blank" rel="noopener">Bekijk de mogelijkheden →</a>
+          </div>
         </div>
 
         {% if items|length > 1 %}
@@ -2292,8 +2322,18 @@ PACKAGE_HTML = """
     <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
     <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
     <a href="{{ url_for('privacy_page') }}">Privacy</a>
+    <span class="oh-footer-sep" aria-hidden="true">·</span>
+    <a class="oh-footer-pb" href="https://{{ base_host }}/contact?ref=p_footer" target="_blank" rel="noopener" title="Eigen transfer-oplossing op je eigen domein">Eigen transferdienst?</a>
   </footer>
 </div>
+
+<style>
+/* Subtiele "powered by"-link onderaan: zichtbaar maar niet schreeuwend.
+   Lichter dan de andere footer-links, hover-effect alleen bij intentie. */
+.oh-footer .oh-footer-sep{margin:0 6px;color:var(--oh-border-strong);opacity:.6}
+.oh-footer .oh-footer-pb{opacity:.55;transition:opacity .2s ease}
+.oh-footer .oh-footer-pb:hover{opacity:1}
+</style>
 
 <script>
 const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null;
@@ -2375,6 +2415,7 @@ async function downloadWithTelemetry(url, fallbackName){
       const blob=new Blob(chunks); const u=URL.createObjectURL(blob);
       const a=document.createElement('a'); a.href=u; a.download=name; a.rel='noopener';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+      revealPostDownloadCard();
       return;
     }
     // Geen streaming reader beschikbaar: blijf op indeterminate tot we de blob hebben.
@@ -2384,11 +2425,29 @@ async function downloadWithTelemetry(url, fallbackName){
     setPct(100); txt.textContent='Gereed';
     const u=URL.createObjectURL(blob); const a=document.createElement('a');
     a.href=u; a.download=fallbackName||'download'; a.click(); URL.revokeObjectURL(u);
+    revealPostDownloadCard();
   }catch(e){
     clearInterval(iv);
     if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
     txt.textContent='Er ging iets mis. Probeer opnieuw.';
   }
+}
+
+// Toon de post-download invitatie pas NA success — en met een korte delay
+// zodat het oog eerst de "Gereed"-tekst opvangt en pas daarna de card opmerkt.
+// Geen modal, geen scroll-to, geen pulse: gewoon zacht binnenfaden.
+let _postDlShown = false;
+function revealPostDownloadCard(){
+  if(_postDlShown) return;
+  _postDlShown = true;
+  const card = document.getElementById('postdlCard');
+  if(!card) return;
+  setTimeout(()=>{
+    card.hidden = false;
+    // Force reflow zodat de transition op opacity/transform daadwerkelijk speelt
+    void card.offsetWidth;
+    card.setAttribute('data-show','1');
+  }, 600);
 }
 
 const btn=document.getElementById('btnDownload');
@@ -2526,6 +2585,7 @@ CONTACT_HTML = r"""
 
   <form method="post" action="{{ url_for('contact') }}" novalidate id="contactForm">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="ref" id="contactRef" value="">
     <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
       <div>
         <label for="login_email">Gewenste inlog-e-mail</label>
@@ -2638,6 +2698,20 @@ const paypalContainerSel = '#paypal-button-container';
 const paypalHint = document.getElementById('paypal-hint');
 const storageSelect = document.getElementById('storage_tb');
 const moreNote = document.getElementById('more-note');
+
+// ---------- bron-tracking ----------
+// Vul het hidden ref-veld vanuit ?ref=... in de URL. Whitelist op alphanumeric,
+// max 32 chars (server filtert nogmaals, maar client-side scheelt rondreis).
+(function(){
+  try{
+    const refEl = document.getElementById('contactRef');
+    if(!refEl) return;
+    const params = new URLSearchParams(window.location.search);
+    const raw = (params.get('ref') || '').slice(0, 32);
+    const clean = raw.replace(/[^a-zA-Z0-9_\-]/g, '');
+    if(clean){ refEl.value = clean; }
+  }catch(e){ /* niet kritiek */ }
+})();
 
 // ---------- validatie ----------
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -3924,7 +3998,8 @@ def package_page(token):
         PACKAGE_HTML,
         token=token, title=pkg["title"],
         items=its, total_human=total_h,
-        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+        expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
+        base_host=get_base_host()
     )
 
 def _is_pkg_expired(pkg) -> bool:
@@ -4213,6 +4288,18 @@ PHONE_RE  = re.compile(r"^[0-9+()\\s-]{8,20}$")
 ALLOWED_TB = {0.5, 1.0, 2.0, 5.0}
 PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€30/maand"}
 
+# Mapping van interne ref-codes naar leesbare bron-labels in de mailmelding.
+# Onbekende waarden worden doorgegeven zoals ze zijn (al gefilterd op alphanumeric).
+_REF_LABELS = {
+    "direct":    "rechtstreeks via /contact (geen ref)",
+    "p_topbar":  "downloadpagina – knop 'Zelf ook zo'n omgeving?' (topbar)",
+    "p_postdl":  "downloadpagina – kaart na succesvolle download",
+    "p_footer":  "downloadpagina – footer-link",
+}
+
+def _describe_ref(ref: str) -> str:
+    return _REF_LABELS.get(ref, f"onbekende bron: {ref}")
+
 def _send_contact_email(form):
     storage_val = form.get("storage_tb")
     if storage_val in PRICE_LABEL:
@@ -4267,6 +4354,7 @@ def _send_contact_email(form):
         f"{pw_block}"
         f"- Subdomein voorbeeld: {example_link}\n"
         f"- Opmerking: {form.get('notes') or '-'}\n"
+        f"- Bron: {_describe_ref(form.get('ref') or 'direct')}\n"
         f"{instructions}\n"
         "Livegang: doorgaans 1–2 dagen (langer bij maatwerk).\n"
         "Facturatie: PayPal abonnement mogelijk via site; of incasso-link per e-mail na livegang.\n"
@@ -4296,6 +4384,11 @@ def contact():
     phone         = (request.form.get("phone") or "").strip()
     desired_pw    = (request.form.get("desired_password") or "").strip()
     notes         = (request.form.get("notes") or "").strip()
+    # Bron-tracking: hidden field 'ref' meegestuurd vanuit het formulier (gevuld
+    # door JS uit de URL), of fallback uit de query. Whitelist op alphanumeric/_-
+    # om vrije input te voorkomen.
+    raw_ref       = (request.form.get("ref") or request.args.get("ref") or "").strip()[:32]
+    ref_clean     = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_ref) or "direct"
 
     errors = []
     if not EMAIL_RE.match(login_email): errors.append("Vul een geldig e-mailadres in.")
@@ -4383,7 +4476,8 @@ def contact():
                 "desired_password": desired_pw,
                 "notes": notes,
                 "company_slug": company_slug,
-                "base_host": base_host
+                "base_host": base_host,
+                "ref": ref_clean,
             })
             return render_template_string(
                 CONTACT_DONE_HTML, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
