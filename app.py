@@ -2125,10 +2125,6 @@ PACKAGE_HTML = """
       box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
     .oh-brand-text h1{margin:0;font-size:17px;font-weight:600;color:var(--oh-text)}
     .oh-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
-    .oh-topbar-link{color:var(--oh-brand-2);text-decoration:none;font-size:13px;
-      padding:6px 12px;border-radius:var(--oh-radius-sm);
-      border:1px solid var(--oh-border-strong);transition:all .15s}
-    .oh-topbar-link:hover{background:var(--oh-surface-2);border-color:var(--oh-brand-2)}
 
     /* Layout */
     .oh-deck{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:22px}
@@ -2271,9 +2267,6 @@ PACKAGE_HTML = """
         <p>Je bestanden staan klaar</p>
       </div>
     </div>
-    <a class="oh-topbar-link" href="https://{{ base_host }}/contact?ref=p_topbar" target="_blank" rel="noopener">
-      ★ Zelf ook zo'n omgeving?
-    </a>
   </header>
 
   <div class="oh-deck">
@@ -2405,18 +2398,8 @@ PACKAGE_HTML = """
     <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
     <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
     <a href="{{ url_for('privacy_page') }}">Privacy</a>
-    <span class="oh-footer-sep" aria-hidden="true">·</span>
-    <a class="oh-footer-pb" href="https://{{ base_host }}/contact?ref=p_footer" target="_blank" rel="noopener" title="Eigen transfer-oplossing op je eigen domein">Eigen transferdienst?</a>
   </footer>
 </div>
-
-<style>
-/* Subtiele "powered by"-link onderaan: zichtbaar maar niet schreeuwend.
-   Lichter dan de andere footer-links, hover-effect alleen bij intentie. */
-.oh-footer .oh-footer-sep{margin:0 6px;color:var(--oh-border-strong);opacity:.6}
-.oh-footer .oh-footer-pb{opacity:.55;transition:opacity .2s ease}
-.oh-footer .oh-footer-pb:hover{opacity:1}
-</style>
 
 <script>
 const bar=document.getElementById('bar'), fill=bar?bar.querySelector('i'):null;
@@ -4790,9 +4773,7 @@ PRICE_LABEL = {0.5:"€12/maand", 1.0:"€15/maand", 2.0:"€20/maand", 5.0:"€
 # Onbekende waarden worden doorgegeven zoals ze zijn (al gefilterd op alphanumeric).
 _REF_LABELS = {
     "direct":    "rechtstreeks via /contact (geen ref)",
-    "p_topbar":  "downloadpagina – knop 'Zelf ook zo'n omgeving?' (topbar)",
     "p_postdl":  "downloadpagina – kaart na succesvolle download",
-    "p_footer":  "downloadpagina – footer-link",
 }
 
 def _describe_ref(ref: str) -> str:
