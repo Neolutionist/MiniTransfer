@@ -2467,7 +2467,34 @@ function setStatus(text, pulse){
   }
 }
 
+// Download-lock: voorkom dat dezelfde knop meerdere parallelle downloads
+// start als iemand snel achter elkaar klikt of via toetsenbord-Enter spamt.
+// Server-side zou dat een aparte zip-pipeline per klik openen — duur en
+// verwarrend voor de gebruiker (drie "Voorbereiden"-states tegelijk).
+let _isDownloading = false;
+
+function _setBtnState(disabled, label){
+  const b = document.getElementById('btnDownload');
+  if(!b) return;
+  b.disabled = !!disabled;
+  if(label !== undefined){
+    // Bewaar het oorspronkelijke label zodat we 'm later kunnen herstellen.
+    if(!b.dataset._origHtml){ b.dataset._origHtml = b.innerHTML; }
+    if(disabled){
+      b.innerHTML = label;
+    } else {
+      b.innerHTML = b.dataset._origHtml || label;
+    }
+  }
+}
+
 async function downloadWithTelemetry(url, fallbackName){
+  // Guard tegen dubbele starts: deze flag is voldoende want alle downloads
+  // vanuit deze pagina lopen via deze functie.
+  if(_isDownloading) return;
+  _isDownloading = true;
+  _setBtnState(true, 'Bezig…');
+
   // Toon meteen de "Voorbereiden..." staat met geanimeerde indeterminate balk.
   // De server kan een paar seconden bezig zijn met prefetch voordat de eerste
   // echte bytes binnenkomen; zonder deze feedback lijkt het alsof er niks gebeurt.
@@ -2549,7 +2576,19 @@ async function downloadWithTelemetry(url, fallbackName){
     clearInterval(iv);
     if(bar){ bar.classList.remove('active'); bar.classList.remove('indet'); }
     setStatus('Er ging iets mis. Probeer opnieuw.', false);
+  }finally{
+    // Altijd unlock'en, ook bij fout. Bij succes 1.5s delay zodat "Gereed"
+    // leesbaar blijft; bij fout 800ms zodat de foutmelding ook zichtbaar is
+    // voor de gebruiker iets opnieuw kan klikken.
+    const delay = _txtSaysDone() ? 1500 : 800;
+    setTimeout(()=>{ _isDownloading = false; _setBtnState(false); }, delay);
   }
+}
+
+function _txtSaysDone(){
+  // Helper voor finally-block: kijk of de huidige status-tekst op 'Gereed' staat.
+  const t = txt && txt.textContent ? txt.textContent.toLowerCase() : '';
+  return t.indexOf('gereed') !== -1;
 }
 
 // Toon de post-download invitatie pas NA success — en met een korte delay
