@@ -3824,10 +3824,74 @@ def _send_verify_email(to_addr: str, verify_url: str):
 
 TRIAL_SIGNUP_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-{{ head_icon|safe }}<title>Gratis variant – aanmelden</title><style>{{ base_css|safe }}</style></head><body>
+{{ head_icon|safe }}<title>Gratis variant – aanmelden</title>
+<style>
+  {{ base_css|safe }}
+
+  /* =====================================================
+     TRIAL SIGNUP — solid card, identiek aan contactpagina
+     ===================================================== */
+  .card.contact-card{
+    background: rgba(255,255,255,0.9) !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+    border-radius: 20px;
+    box-shadow: 0 18px 40px rgba(0,0,0,.18);
+    backdrop-filter: blur(12px) saturate(1.2);
+  }
+  .card.contact-card h1,
+  .card.contact-card label{ color:#0f172a !important; }
+  .card.contact-card .small,
+  .card.contact-card .muted{ color:#334155 !important; }
+
+  .card.contact-card .input,
+  .card.contact-card input[type=email],
+  .card.contact-card input[type=password]{
+    color:#0f172a !important;
+    background:#f8fafc !important;
+    border:1px solid #cbd5e1 !important;
+  }
+  .card.contact-card input::placeholder{ color:#6b7280 !important; }
+  .card.contact-card .input:focus,
+  .card.contact-card input:focus{
+    border-color:#2563eb !important;
+    box-shadow:0 0 0 4px color-mix(in oklab, #2563eb 25%, transparent) !important;
+    outline:0;
+  }
+
+  .card.contact-card a{ color:#0f4c98 !important; text-decoration: underline; }
+  .card.contact-card .btn-pro.primary{
+    background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
+    color:#fff !important;
+  }
+
+  @media (prefers-color-scheme: dark){
+    .card.contact-card{
+      background: rgba(15,23,42,0.92) !important;
+      color:#e5e7eb !important;
+      border:1px solid rgba(255,255,255,0.14) !important;
+      box-shadow: 0 18px 40px rgba(0,0,0,.42);
+    }
+    .card.contact-card h1,
+    .card.contact-card label{ color:#e5e7eb !important; }
+    .card.contact-card .small,
+    .card.contact-card .muted{ color:#9aa3b2 !important; }
+
+    .card.contact-card .input,
+    .card.contact-card input[type=email],
+    .card.contact-card input[type=password]{
+      background:#0f172a !important;
+      border:1px solid #374151 !important;
+      color:#e5e7eb !important;
+    }
+    .card.contact-card input::placeholder{ color:#9aa3b2 !important; }
+    .card.contact-card a{ color:#7db4ff !important; }
+  }
+</style>
+</head><body>
 {{ bg|safe }}
-<div class="shell">
-  <div class="card">
+<div class="wrap">
+  <div class="card contact-card">
     <h1>Gratis variant — aanmelden</h1>
     <p class="muted">
       Probeer de service met een gratis account. Geen creditcard, geen automatische verlenging.
@@ -3864,10 +3928,35 @@ TRIAL_SIGNUP_HTML = r"""
 
 TRIAL_SIGNUP_DONE_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-{{ head_icon|safe }}<title>Bevestig je e-mailadres</title><style>{{ base_css|safe }}</style></head><body>
+{{ head_icon|safe }}<title>Bevestig je e-mailadres</title>
+<style>
+  {{ base_css|safe }}
+  .card.contact-card{
+    background: rgba(255,255,255,0.9) !important;
+    color:#0f172a !important;
+    border:1px solid rgba(0,0,0,0.08) !important;
+    border-radius:20px;
+    box-shadow:0 18px 40px rgba(0,0,0,.18);
+    backdrop-filter:blur(12px) saturate(1.2);
+  }
+  .card.contact-card h1{ color:#0f172a !important; }
+  .card.contact-card .muted, .card.contact-card .small{ color:#334155 !important; }
+  .card.contact-card a{ color:#0f4c98 !important; text-decoration:underline; }
+  @media (prefers-color-scheme: dark){
+    .card.contact-card{
+      background:rgba(15,23,42,0.92) !important;
+      color:#e5e7eb !important;
+      border:1px solid rgba(255,255,255,0.14) !important;
+    }
+    .card.contact-card h1{ color:#e5e7eb !important; }
+    .card.contact-card .muted, .card.contact-card .small{ color:#9aa3b2 !important; }
+    .card.contact-card a{ color:#7db4ff !important; }
+  }
+</style>
+</head><body>
 {{ bg|safe }}
-<div class="shell">
-  <div class="card">
+<div class="wrap">
+  <div class="card contact-card">
     <h1>Check je inbox</h1>
     <p>We hebben een bevestigingsmail gestuurd naar <strong>{{ email }}</strong>.</p>
     <p>Klik op de link in de mail om je account te activeren. De link is
@@ -3882,10 +3971,35 @@ TRIAL_SIGNUP_DONE_HTML = r"""
 
 TRIAL_VERIFY_OK_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-{{ head_icon|safe }}<title>Account geactiveerd</title><style>{{ base_css|safe }}</style></head><body>
+{{ head_icon|safe }}<title>Account geactiveerd</title>
+<style>
+  {{ base_css|safe }}
+  .card.contact-card{
+    background: rgba(255,255,255,0.9) !important;
+    color:#0f172a !important;
+    border:1px solid rgba(0,0,0,0.08) !important;
+    border-radius:20px;
+    box-shadow:0 18px 40px rgba(0,0,0,.18);
+    backdrop-filter:blur(12px) saturate(1.2);
+  }
+  .card.contact-card h1{ color:#0f172a !important; }
+  .card.contact-card .btn-pro.primary{
+    background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
+    color:#fff !important;
+  }
+  @media (prefers-color-scheme: dark){
+    .card.contact-card{
+      background:rgba(15,23,42,0.92) !important;
+      color:#e5e7eb !important;
+      border:1px solid rgba(255,255,255,0.14) !important;
+    }
+    .card.contact-card h1{ color:#e5e7eb !important; }
+  }
+</style>
+</head><body>
 {{ bg|safe }}
-<div class="shell">
-  <div class="card">
+<div class="wrap">
+  <div class="card contact-card">
     <h1>Je account is geactiveerd</h1>
     <p>Je kunt nu inloggen en bestanden delen via de gratis variant.</p>
     <p style="margin-top:18px"><a class="btn-pro primary" href="{{ url_for('login') }}">Inloggen</a></p>
@@ -3895,10 +4009,35 @@ TRIAL_VERIFY_OK_HTML = r"""
 
 TRIAL_VERIFY_FAIL_HTML = r"""
 <!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-{{ head_icon|safe }}<title>Verificatie mislukt</title><style>{{ base_css|safe }}</style></head><body>
+{{ head_icon|safe }}<title>Verificatie mislukt</title>
+<style>
+  {{ base_css|safe }}
+  .card.contact-card{
+    background: rgba(255,255,255,0.9) !important;
+    color:#0f172a !important;
+    border:1px solid rgba(0,0,0,0.08) !important;
+    border-radius:20px;
+    box-shadow:0 18px 40px rgba(0,0,0,.18);
+    backdrop-filter:blur(12px) saturate(1.2);
+  }
+  .card.contact-card h1{ color:#0f172a !important; }
+  .card.contact-card .btn-pro.primary{
+    background: linear-gradient(180deg,#4a9fff,#1c62d2) !important;
+    color:#fff !important;
+  }
+  @media (prefers-color-scheme: dark){
+    .card.contact-card{
+      background:rgba(15,23,42,0.92) !important;
+      color:#e5e7eb !important;
+      border:1px solid rgba(255,255,255,0.14) !important;
+    }
+    .card.contact-card h1{ color:#e5e7eb !important; }
+  }
+</style>
+</head><body>
 {{ bg|safe }}
-<div class="shell">
-  <div class="card">
+<div class="wrap">
+  <div class="card contact-card">
     <h1>Deze link werkt niet meer</h1>
     <p>{{ reason }}</p>
     <p style="margin-top:18px"><a class="btn-pro primary" href="{{ url_for('trial_signup') }}">Opnieuw aanmelden</a></p>
