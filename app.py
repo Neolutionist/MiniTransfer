@@ -161,22 +161,26 @@ TENANTS = {
 _DEFAULT_TENANT_HOST = _tenant_host
 
 # ---- Trial-tenant (gratis variant met restricties) ----
-# Trial-host komt uit env var TRIAL_HOST; bij ontbreken afgeleid uit het
-# basisdomein van de hoofdtenant. Bijvoorbeeld 'downloadlink.nl' wordt
-# 'trial.downloadlink.nl'. De slug is altijd 'trial'.
-_trial_host = os.environ.get("TRIAL_HOST", "").strip().lower()
-if not _trial_host:
-    _parts = _tenant_host.split(".")
-    if len(_parts) >= 2:
-        _trial_host = "trial." + ".".join(_parts[-2:])
+# Trial draait standaard op het canonieke domein onder pad /trial/...
+# (bv. https://downloadlink.nl/trial/signup). Optioneel kan via TRIAL_HOST
+# een apart subdomein worden geconfigureerd; dan wordt dat subdomein óók
+# als trial-host herkend (achterwaarts compatibel met oudere setups).
+_trial_host = os.environ.get("TRIAL_HOST", "").strip().lower()  # optioneel, leeg = geen subdomein
 TRIAL_TENANT_SLUG = "trial"
-TRIAL_ENABLED = bool(_trial_host) and os.environ.get("TRIAL_ENABLED", "1").lower() in ("1", "true", "yes")
+TRIAL_ENABLED = os.environ.get("TRIAL_ENABLED", "1").lower() in ("1", "true", "yes")
+# Interne sleutel voor de trial-tenant in TENANTS. Begint met '__' zodat hij
+# nooit per ongeluk matcht op een echte Host-header.
+_TRIAL_TENANT_KEY = "__trial__"
 if TRIAL_ENABLED:
-    TENANTS[_trial_host] = {
+    TENANTS[_TRIAL_TENANT_KEY] = {
         "slug": TRIAL_TENANT_SLUG,
         "mail_to": MAIL_TO,
         "is_trial": True,
     }
+    # Backwards compatibility: als TRIAL_HOST expliciet is gezet, blijft de
+    # oude subdomein-routing óók werken.
+    if _trial_host:
+        TENANTS[_trial_host] = TENANTS[_TRIAL_TENANT_KEY]
 
 # Trial-restricties (overrid'baar via env vars zonder code-aanpassing)
 TRIAL_MAX_BYTES_PER_PACKAGE = int(os.environ.get("TRIAL_MAX_BYTES_PER_PACKAGE", str(2 * 1024 * 1024 * 1024)))  # 2 GB
@@ -185,6 +189,17 @@ TRIAL_MAX_ACTIVE_PACKAGES   = int(os.environ.get("TRIAL_MAX_ACTIVE_PACKAGES", "5
 TRIAL_VERIFY_TOKEN_TTL_HRS  = int(os.environ.get("TRIAL_VERIFY_TOKEN_TTL_HRS", "48"))
 
 def current_tenant():
+    # Paden onder /trial/ horen altijd bij de trial-tenant, ongeacht de host.
+    # Dit zorgt dat https://<canonical>/trial/signup correct als trial geldt.
+    if TRIAL_ENABLED:
+        try:
+            path = (request.path or "")
+        except RuntimeError:
+            # current_tenant() kan buiten een request-context worden aangeroepen;
+            # in dat geval valt terug op host-matching.
+            path = ""
+        if path.startswith("/trial/") or path == "/trial":
+            return TENANTS[_TRIAL_TENANT_KEY]
     host = (request.headers.get("Host") or "").lower()
     return TENANTS.get(host) or TENANTS[_DEFAULT_TENANT_HOST]
 
@@ -194,12 +209,13 @@ def is_trial_tenant() -> bool:
 def trial_signup_url() -> str:
     """Geeft de absolute URL naar de trial-signup-pagina, of '' als trial uit staat.
 
-    Templates kunnen dit gebruiken om voorwaardelijk een link te tonen zonder
-    afhankelijk te zijn van de huidige Host-header.
+    Standaard: https://<canonical_host>/trial/signup (op de huidige server).
+    Als TRIAL_HOST is gezet, wordt dat subdomein gebruikt (legacy).
     """
-    if not TRIAL_ENABLED or not _trial_host:
+    if not TRIAL_ENABLED:
         return ""
-    return f"https://{_trial_host}/trial/signup"
+    host = _trial_host or _tenant_host
+    return f"https://{host}/trial/signup"
 # ----------------------------------------------------
 
 # --- Redirect config toevoegen ---
@@ -3962,9 +3978,10 @@ def trial_signup():
     _rate_register_failure("trial_signup", ip,
                            TRIAL_SIGNUP_MAX_PER_DAY, TRIAL_SIGNUP_WINDOW, TRIAL_SIGNUP_LOCKOUT)
 
-    # Stuur de verificatiemail. Gebruik de TRIAL_HOST (niet de huidige Host),
-    # want signup kan ook via de hoofdsite komen via een redirect.
-    verify_url = f"https://{_trial_host}/trial/verify/{token}"
+    # Stuur de verificatiemail. Gebruik TRIAL_HOST als die expliciet gezet is
+    # (legacy subdomein-setup), anders het canonieke domein van deze server.
+    _verify_host = _trial_host or _tenant_host
+    verify_url = f"https://{_verify_host}/trial/verify/{token}"
     _send_verify_email(email, verify_url)
 
     return render_template_string(TRIAL_SIGNUP_DONE_HTML, email=email,
