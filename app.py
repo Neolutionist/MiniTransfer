@@ -2030,6 +2030,10 @@ INDEX_HTML = """
               <div class="oh-drop-sub">de mapstructuur blijft behouden</div>
               <span class="oh-drop-pick" id="btnFolder">Kies map</span>
               <div class="oh-drop-filename" id="folderName">Nog geen map gekozen</div>
+              <div class="oh-drop-hint" id="folderHint" style="display:none;font-size:.78rem;color:var(--oh-muted);margin-top:.5rem;line-height:1.4;max-width:380px">
+                Op sommige Android-browsers werkt mapselectie beperkt. Lukt het niet?
+                Schakel terug naar <strong>Bestand(en)</strong> en selecteer alle bestanden tegelijk.
+              </div>
               <input id="folderInput" type="file" multiple webkitdirectory directory>
             </div>
           </div>
@@ -2109,9 +2113,21 @@ INDEX_HTML = """
 </div>
 
 <script>
-/* ==== Settings & iOS ==== */
+/* ==== Settings & platform-detectie ==== */
 const FILE_PAR = 3;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isAndroid = /Android/i.test(navigator.userAgent);
+// Feature-detectie voor mappen-picker. Op iOS Safari/Chrome bestaat dit
+// hele concept niet — daar verbergen we de knop. Op Android werkt het in
+// de praktijk wisselend: feature-detect geeft true terug maar sommige
+// browsers tonen alsnog een bestand-picker. Daar tonen we de knop met
+// een hint, en geven we bij een lege selectie een duidelijke foutmelding.
+const supportsFolderPicker = (() => {
+  try {
+    const t = document.createElement('input');
+    return ('webkitdirectory' in t) && !isIOS;
+  } catch(e) { return false; }
+})();
 
 /* CSRF token uit <meta name="csrf-token"> */
 const CSRF_TOKEN = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
@@ -2129,7 +2145,12 @@ const kvWorkers=document.getElementById('kvWorkers'), kvQueue=document.getElemen
 const tWorkers=document.getElementById('tWorkers'), tSpeed=document.getElementById('tSpeed'), tMoved=document.getElementById('tMoved'), tLeft=document.getElementById('tLeft'), tEta=document.getElementById('tEta'), tDone=document.getElementById('tDone');
 const logEl=document.getElementById('log'), resBox=document.getElementById('result');
 
-if(isIOS){ folderLabel.style.display='none'; }
+if(!supportsFolderPicker){ folderLabel.style.display='none'; }
+// Op Android tonen we een korte hint dat mapselectie soms beperkt werkt.
+if(supportsFolderPicker && isAndroid){
+  const hint = document.getElementById('folderHint');
+  if(hint) hint.style.display='block';
+}
 
 /* Utils */
 function fmtBytes(n){const u=["B","KB","MB","GB","TB"];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i?n.toFixed(1):Math.round(n))+" "+u[i]}
@@ -2227,7 +2248,7 @@ setInterval(()=>{
   };
 
   const setMode = (mode) => {
-    const useFolder = (mode === "folder" && !isIOS);
+    const useFolder = (mode === "folder" && supportsFolderPicker);
     if (fileRow) fileRow.style.display = useFolder ? "none" : "";
     if (folderRow) folderRow.style.display = useFolder ? "" : "none";
     // Niet automatisch openen; de drop-zone is zelf klikbaar.
@@ -2301,9 +2322,17 @@ form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   queue.innerHTML=''; moved=0; done=0; speedAvg=0; setTotal(0,'Voorbereiden…');
   const mode=document.querySelector('input[name=upmode]:checked').value;
-  const useFolder = mode==='folder' && !isIOS;
+  const useFolder = mode==='folder' && supportsFolderPicker;
   const files = Array.from(useFolder ? folderInput.files : fileInput.files);
-  if(!files.length){ alert("Kies eerst "+(useFolder?"een map":"bestanden")+"."); return; }
+  if(!files.length){
+    if(useFolder && isAndroid){
+      alert("Geen bestanden gekozen. Op deze Android-browser lijkt mapselectie niet te werken. "
+          + "Schakel terug naar 'Bestand(en)' en selecteer daar alle bestanden tegelijk.");
+    } else {
+      alert("Kies eerst "+(useFolder?"een map":"bestanden")+".");
+    }
+    return;
+  }
   const expiry=document.getElementById('expDays').value, pw=document.getElementById('pw').value||'', title=document.getElementById('title').value||'';
   const token = await packageInit(expiry,pw,title);
 
@@ -7023,6 +7052,65 @@ html,body{
   opacity:1;
 }
 
+/* Mobile sort UI — alleen zichtbaar op smalle schermen waar de tabelkoppen
+   zelf verborgen worden (<720px in de mobile-stack-layout hieronder). */
+.oh-mobile-sort{
+  display:none;
+  align-items:center;
+  gap:8px;
+  margin-bottom:12px;
+  padding:8px 10px;
+  background:rgba(15,23,42,.24);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+}
+.oh-mobile-sort-label{
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--oh-muted);
+  white-space:nowrap;
+}
+.oh-mobile-sort-select{
+  flex:1;
+  min-width:0;
+  padding:6px 10px;
+  background:rgba(15,23,42,.42);
+  color:#dbeafe;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:8px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+}
+.oh-mobile-sort-select:focus-visible{
+  outline:2px solid #8ab4ff;
+  outline-offset:1px;
+}
+.oh-mobile-sort-dir{
+  width:32px; height:32px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  border-radius:8px;
+  background:rgba(15,23,42,.42);
+  color:#dbeafe;
+  border:1px solid rgba(255,255,255,.10);
+  cursor:pointer;
+  font-size:14px;
+  transition:background .15s, color .15s;
+}
+.oh-mobile-sort-dir:hover{
+  background:rgba(15,23,42,.65);
+  color:#fff;
+}
+.oh-mobile-sort-dir:focus-visible{
+  outline:2px solid #8ab4ff;
+  outline-offset:1px;
+}
+
 /* Table */
 .oh-table{
   width:100%;
@@ -7163,6 +7251,7 @@ html,body{
 }
 
 @media (max-width: 720px){
+  .oh-mobile-sort{ display:flex; }
   .oh-table thead{display:none}
   .oh-table,.oh-table tbody,.oh-table tr,.oh-table td{display:block;width:100%}
   .oh-table{border-spacing:0}
@@ -7248,6 +7337,21 @@ html,body{
         <a class="oh-btn" href="/">Bestand uploaden</a>
       </div>
       {% else %}
+      <div class="oh-mobile-sort" id="ohMobileSort">
+        <label class="oh-mobile-sort-label" for="ohMobileSortField">Sorteer op</label>
+        <select id="ohMobileSortField" class="oh-mobile-sort-select">
+          <option value="created" selected>Aangemaakt</option>
+          <option value="expires">Verloopt</option>
+          <option value="size">Grootte</option>
+          <option value="downloads">Downloads</option>
+          <option value="title">Onderwerp</option>
+          {% if show_all %}<option value="owner">Eigenaar</option>{% endif %}
+        </select>
+        <button type="button" id="ohMobileSortDir" class="oh-mobile-sort-dir"
+                data-dir="desc" title="Richting wisselen" aria-label="Richting wisselen">
+          <span class="arr">▼</span>
+        </button>
+      </div>
       <table class="oh-table" id="ohTable">
         <thead>
           <tr>
@@ -7366,13 +7470,17 @@ function copyLink(link, btn){
   }).catch(()=>{ window.prompt('Kopieer de link:', link); });
 }
 
-// Client-side sortering op data-attributen. Klik op dezelfde kolom draait richting om.
+// Client-side sortering. Werkt via klikbare tabelkoppen (desktop) én via een
+// dropdown + richtingsknop (mobiel, waar het tabelhoofd verborgen wordt).
 (function(){
   const table = document.getElementById('ohTable');
   const tbody = document.getElementById('ohTableBody');
   if(!table || !tbody) return;
   const headers = table.querySelectorAll('th.sortable');
   if(!headers.length) return;
+
+  const mobileField = document.getElementById('ohMobileSortField');
+  const mobileDir   = document.getElementById('ohMobileSortDir');
 
   // Comparator per veldtype. Numerieke velden als Number, datums als ISO (string-vergelijk
   // werkt voor ISO-datums), strings als localeCompare.
@@ -7394,17 +7502,34 @@ function copyLink(link, btn){
     return av.localeCompare(bv, 'nl', { sensitivity:'base' });
   }
 
-  function updateArrows(activeTh){
+  function findHeader(field){
+    for(const th of headers){ if(th.dataset.sort === field) return th; }
+    return null;
+  }
+
+  // Default-richting per kolom (zoals oorspronkelijk in de <th> gezet).
+  const defaultDirs = {};
+  headers.forEach(th => { defaultDirs[th.dataset.sort] = th.dataset.dir; });
+
+  function setActive(field, dir){
     headers.forEach(th => {
       const arr = th.querySelector('.arr');
-      if(th === activeTh){
+      if(th.dataset.sort === field){
         th.classList.add('active');
-        if(arr) arr.textContent = th.dataset.dir === 'asc' ? '▲' : '▼';
+        th.dataset.dir = dir;
+        if(arr) arr.textContent = dir === 'asc' ? '▲' : '▼';
       } else {
         th.classList.remove('active');
         if(arr) arr.textContent = '';
       }
     });
+    // Sync mobile-controls.
+    if(mobileField && mobileField.value !== field) mobileField.value = field;
+    if(mobileDir){
+      mobileDir.dataset.dir = dir;
+      const arr = mobileDir.querySelector('.arr');
+      if(arr) arr.textContent = dir === 'asc' ? '▲' : '▼';
+    }
   }
 
   function applySort(field, dir){
@@ -7418,36 +7543,47 @@ function copyLink(link, btn){
     const frag = document.createDocumentFragment();
     for(const r of rows) frag.appendChild(r);
     tbody.appendChild(frag);
+    setActive(field, dir);
   }
 
+  // Klik op een sorteerbare tabelkop.
   headers.forEach(th => {
     th.addEventListener('click', () => {
       const field = th.dataset.sort;
-      // Toggle richting als je dezelfde kolom nogmaals klikt.
+      let dir = th.dataset.dir;
+      // Toggle richting als deze kolom al actief is.
       if(th.classList.contains('active')){
-        th.dataset.dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+        dir = (dir === 'asc') ? 'desc' : 'asc';
       }
-      applySort(field, th.dataset.dir);
-      updateArrows(th);
+      applySort(field, dir);
     });
-    // Toetsenbord-toegankelijkheid: Enter / Space activeert ook.
     th.addEventListener('keydown', (e) => {
-      if(e.key === 'Enter' || e.key === ' '){
-        e.preventDefault();
-        th.click();
-      }
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); th.click(); }
     });
-    // Maak focusbaar voor schermlezers / toetsenbord-navigatie.
     if(!th.hasAttribute('tabindex')) th.setAttribute('tabindex', '0');
     if(!th.hasAttribute('role')) th.setAttribute('role', 'button');
   });
 
-  // Initiele sort: aangemaakt DESC (huidige server-volgorde, zodat we start-state markeren).
-  const initial = table.querySelector('th.sortable.active');
-  if(initial){
-    applySort(initial.dataset.sort, initial.dataset.dir);
-    updateArrows(initial);
+  // Mobile: kolom kiezen in dropdown -> gebruik default-richting van die kolom.
+  if(mobileField){
+    mobileField.addEventListener('change', () => {
+      const field = mobileField.value;
+      const dir = defaultDirs[field] || 'asc';
+      applySort(field, dir);
+    });
   }
+  // Mobile: richtingsknop togglet asc/desc voor de huidige kolom.
+  if(mobileDir){
+    mobileDir.addEventListener('click', () => {
+      const field = mobileField ? mobileField.value : 'created';
+      const dir = mobileDir.dataset.dir === 'asc' ? 'desc' : 'asc';
+      applySort(field, dir);
+    });
+  }
+
+  // Initiele sort: de kolom die al .active heeft (server-default = 'created' DESC).
+  const initial = table.querySelector('th.sortable.active') || headers[0];
+  if(initial){ applySort(initial.dataset.sort, initial.dataset.dir); }
 })();
 </script>
 </body></html>
