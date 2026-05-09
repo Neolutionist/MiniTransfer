@@ -3450,7 +3450,12 @@ def human(n: int) -> str:
         x /= 1024
     return f"{x:.1f} TB"
 
-def send_email(to_addr: str, subject: str, body: str):
+def send_email(to_addr: str, subject: str, body: str, html: str | None = None):
+    """Stuur een e-mail. Als 'html' is meegegeven, wordt een multipart-bericht
+    verstuurd met zowel een plain-text versie (body) als een HTML-versie.
+    Mailclients tonen dan de HTML-versie met klikbare links; oudere clients
+    vallen automatisch terug op plain-text.
+    """
     if not to_addr or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
         log.warning("E-mail niet verstuurd: SMTP niet (volledig) geconfigureerd")
         return
@@ -3459,10 +3464,12 @@ def send_email(to_addr: str, subject: str, body: str):
     msg["From"] = SMTP_FROM
     msg["To"] = to_addr
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
         s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
 
-def send_email_async(to_addr: str, subject: str, body: str):
+def send_email_async(to_addr: str, subject: str, body: str, html: str | None = None):
     """Verstuur e-mail op een achtergrondthread.
 
     Belangrijk voor PayPal-webhooks: anders blokkeert SMTP de webhook-respons
@@ -3471,7 +3478,7 @@ def send_email_async(to_addr: str, subject: str, body: str):
     """
     def _run():
         try:
-            send_email(to_addr, subject, body)
+            send_email(to_addr, subject, body, html=html)
         except Exception:
             log.exception("async send_email failed (to=%s, subject=%s)", to_addr, subject)
     try:
@@ -3808,7 +3815,7 @@ def _enforce_trial_ttl(days: float) -> float:
     return min(float(days), TRIAL_MAX_TTL_DAYS)
 
 def _send_verify_email(to_addr: str, verify_url: str):
-    """Stuurt de verificatiemail asynchroon."""
+    """Stuurt de verificatiemail asynchroon (multipart: plain-text + HTML)."""
     subject = "Bevestig je e-mailadres voor de gratis variant"
     body = (
         "Welkom!\n\n"
@@ -3818,7 +3825,52 @@ def _send_verify_email(to_addr: str, verify_url: str):
         f"Deze link is {TRIAL_VERIFY_TOKEN_TTL_HRS} uur geldig.\n\n"
         "Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.\n"
     )
-    send_email_async(to_addr, subject, body)
+    # HTML-variant met klikbare knop én tekstuele fallback-link voor mailclients
+    # die de knop niet correct renderen. Inline styles want externe CSS wordt
+    # door veel mailclients (Outlook, Gmail) genegeerd of gestript.
+    html = f"""\
+<!doctype html>
+<html lang="nl"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;background:#f8fafc">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px">
+    <tr><td style="padding:28px 28px 8px 28px">
+      <h1 style="margin:0 0 12px 0;font-size:20px;color:#0f172a">Welkom!</h1>
+      <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5;color:#334155">
+        Je hebt zojuist een gratis account aangevraagd. Klik op de knop hieronder
+        om je e-mailadres te bevestigen en je account te activeren.
+      </p>
+    </td></tr>
+    <tr><td style="padding:8px 28px 8px 28px">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="background:#1c62d2;border-radius:10px">
+          <a href="{verify_url}"
+             style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;
+                    color:#ffffff;text-decoration:none;border-radius:10px">
+            Bevestig e-mailadres
+          </a>
+        </td></tr>
+      </table>
+    </td></tr>
+    <tr><td style="padding:16px 28px 8px 28px">
+      <p style="margin:0 0 8px 0;font-size:13px;color:#64748b">
+        Werkt de knop niet? Kopieer dan deze link naar je browser:
+      </p>
+      <p style="margin:0 0 12px 0;font-size:13px;word-break:break-all">
+        <a href="{verify_url}" style="color:#0f4c98">{verify_url}</a>
+      </p>
+      <p style="margin:0 0 12px 0;font-size:13px;color:#64748b">
+        Deze link is {TRIAL_VERIFY_TOKEN_TTL_HRS} uur geldig.
+      </p>
+    </td></tr>
+    <tr><td style="padding:8px 28px 28px 28px;border-top:1px solid #e5e7eb">
+      <p style="margin:12px 0 0 0;font-size:12px;color:#94a3b8">
+        Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.
+      </p>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    send_email_async(to_addr, subject, body, html=html)
 
 # -------------------- Trial signup form --------------------
 
@@ -4559,6 +4611,76 @@ def internal_cleanup():
     except Exception as e:
         logging.exception("internal_cleanup failed")
         return jsonify(ok=False, error=str(e), db=str(db_path)), 500
+
+
+@app.get("/internal/test-mail")
+def internal_test_mail():
+    """
+    Tijdelijke diagnostische route om SMTP-config te verifiëren.
+
+    Stuurt synchroon één test-mail; eventuele fouten komen direct terug in de
+    response in plaats van te verdwijnen in een achtergrond-thread-log.
+
+    Auth via query: ?token=<TASK_TOKEN>
+    Bestemming via query: ?to=<emailadres>  (default: MAIL_TO)
+
+    Voorbeeld:
+      curl -s "https://downloadlink.nl/internal/test-mail?token=$TASK_TOKEN&to=jij@example.com"
+
+    Response (succes):
+      {"ok": true, "to": "jij@example.com", "from": "noreply@...",
+       "smtp_host": "...", "smtp_port": 587}
+
+    Response (fout):
+      {"ok": false, "error": "<smtplib uitleg>"}
+    """
+    task_token = os.environ.get("TASK_TOKEN")
+    supplied = request.args.get("token", "")
+    if not task_token or not hmac.compare_digest(supplied, task_token):
+        return ("Forbidden", 403)
+
+    to_addr = (request.args.get("to") or MAIL_TO or "").strip()
+    if not to_addr:
+        return jsonify(
+            ok=False,
+            error="Geen ontvanger. Gebruik ?to=jij@example.com of zet MAIL_TO."
+        ), 400
+
+    # Config-zichtbaarheid (zonder secrets te lekken)
+    cfg = {
+        "smtp_host": SMTP_HOST or "(leeg)",
+        "smtp_port": SMTP_PORT,
+        "smtp_user_set": bool(SMTP_USER),
+        "smtp_pass_set": bool(SMTP_PASS),
+        "smtp_from": SMTP_FROM or "(leeg)",
+        "to": to_addr,
+    }
+
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+        return jsonify(
+            ok=False,
+            error="SMTP niet (volledig) geconfigureerd. Check SMTP_HOST, SMTP_USER, SMTP_PASS.",
+            **cfg
+        ), 500
+
+    subject = "Test-mail vanuit downloadlink.nl"
+    body = (
+        "Dit is een diagnostische test-mail.\n\n"
+        f"Verzonden vanaf host: {request.host}\n"
+        f"Tijdstip (UTC): {datetime.now(timezone.utc).isoformat()}\n\n"
+        "Als je deze mail ontvangt, werkt de SMTP-configuratie correct.\n"
+    )
+
+    try:
+        # Synchroon aanroepen — geen send_email_async — zodat we de fout
+        # direct in de response kunnen tonen.
+        send_email(to_addr, subject, body)
+    except Exception as e:
+        logging.exception("internal_test_mail send failed")
+        return jsonify(ok=False, error=f"{type(e).__name__}: {e}", **cfg), 500
+
+    return jsonify(ok=True, **cfg)
+
 
 # -------------- Download Pages --------------
 # Background executor voor niet-blokkerende S3 cleanup bij expired packages
