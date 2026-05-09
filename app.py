@@ -160,6 +160,28 @@ TENANTS = {
 }
 _DEFAULT_TENANT_HOST = _tenant_host
 
+# ---- Branding per tenant ----
+# Configureerbaar via env vars zodat dezelfde codebase voor verschillende klanten
+# werkt zonder code-aanpassing. Defaults vallen terug op Olde Hanter (huidige
+# productie) zodat bestaande deploys blijven werken zonder env-wijzigingen.
+_BRAND_NAME    = os.environ.get("BRAND_NAME", "Olde Hanter Bouwconstructies").strip()
+_BRAND_SHORT   = os.environ.get("BRAND_SHORT", "OH").strip()[:3]  # 1-3 tekens voor de badge
+_BRAND_TAGLINE = os.environ.get("BRAND_TAGLINE", "Beveiligde bestandsoverdracht").strip()
+_BRAND_FOOTER  = os.environ.get("BRAND_FOOTER", f"{_BRAND_NAME} · Bestandentransfer").strip()
+# Optioneel: raw SVG voor het logo (incl. <svg>-tags). Leeg = initialen-badge.
+_BRAND_LOGO_SVG = os.environ.get("BRAND_LOGO_SVG", "").strip()
+# Optioneel: kleur van de initialen-badge (CSS color). Leeg = standaard --brand var.
+_BRAND_COLOR   = os.environ.get("BRAND_COLOR", "").strip()
+
+TENANTS[_tenant_host].update({
+    "brand_name":    _BRAND_NAME,
+    "brand_short":   _BRAND_SHORT,
+    "brand_tagline": _BRAND_TAGLINE,
+    "brand_footer":  _BRAND_FOOTER,
+    "brand_logo_svg": _BRAND_LOGO_SVG,
+    "brand_color":   _BRAND_COLOR,
+})
+
 # ---- Trial-tenant (gratis variant met restricties) ----
 # Trial draait standaard op het canonieke domein onder pad /trial/...
 # (bv. https://downloadlink.nl/trial/signup). Optioneel kan via TRIAL_HOST
@@ -172,10 +194,23 @@ TRIAL_ENABLED = os.environ.get("TRIAL_ENABLED", "1").lower() in ("1", "true", "y
 # nooit per ongeluk matcht op een echte Host-header.
 _TRIAL_TENANT_KEY = "__trial__"
 if TRIAL_ENABLED:
+    # Trial krijgt neutrale branding zodat trial-gebruikers niet alvast worden
+    # aangesproken als klant van de hoofd-tenant. Override-baar via env vars.
+    _TRIAL_BRAND_NAME    = os.environ.get("TRIAL_BRAND_NAME", "Trial · Bestandentransfer").strip()
+    _TRIAL_BRAND_SHORT   = os.environ.get("TRIAL_BRAND_SHORT", "TR").strip()[:3]
+    _TRIAL_BRAND_TAGLINE = os.environ.get("TRIAL_BRAND_TAGLINE", "Beveiligde bestandsoverdracht (trial)").strip()
+    _TRIAL_BRAND_FOOTER  = os.environ.get("TRIAL_BRAND_FOOTER", "Trial · Bestandentransfer").strip()
+
     TENANTS[_TRIAL_TENANT_KEY] = {
         "slug": TRIAL_TENANT_SLUG,
         "mail_to": MAIL_TO,
         "is_trial": True,
+        "brand_name":    _TRIAL_BRAND_NAME,
+        "brand_short":   _TRIAL_BRAND_SHORT,
+        "brand_tagline": _TRIAL_BRAND_TAGLINE,
+        "brand_footer":  _TRIAL_BRAND_FOOTER,
+        "brand_logo_svg": "",
+        "brand_color":   "",
     }
     # Backwards compatibility: als TRIAL_HOST expliciet is gezet, blijft de
     # oude subdomein-routing óók werken.
@@ -221,6 +256,23 @@ def current_tenant():
 
 def is_trial_tenant() -> bool:
     return bool(current_tenant().get("is_trial"))
+
+def current_brand() -> dict:
+    """Geeft de branding-velden voor de huidige tenant.
+
+    Altijd dezelfde keys, met sensible defaults als een tenant onverhoopt
+    geen branding-velden heeft (oude config). Gebruik dit overal in templates
+    via de Jinja-variabele `brand` (zie context_processor).
+    """
+    t = current_tenant()
+    return {
+        "name":     t.get("brand_name")    or "Bestandentransfer",
+        "short":    t.get("brand_short")   or "FT",
+        "tagline":  t.get("brand_tagline") or "Beveiligde bestandsoverdracht",
+        "footer":   t.get("brand_footer")  or (t.get("brand_name") or "Bestandentransfer"),
+        "logo_svg": t.get("brand_logo_svg") or "",
+        "color":    t.get("brand_color")   or "",
+    }
 
 def trial_signup_url() -> str:
     """Geeft de absolute URL naar de trial-signup-pagina, of '' als trial uit staat.
@@ -958,36 +1010,56 @@ input[type=file]::file-selector-button{
 """
 
 # --- Favicon (SVG) ---
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#1E3A8A"/>
-  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle"
-        font-family="Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700"
-        fill="white">OH</text>
-</svg>"""
-
-from urllib.parse import quote as _q
-FAVICON_DATA_URL = "data:image/svg+xml;utf8," + _q(FAVICON_SVG)
+# Wordt per request gerenderd zodat elke tenant zijn eigen favicon krijgt op
+# basis van current_brand(). Als de tenant een eigen BRAND_LOGO_SVG heeft,
+# wordt die rechtstreeks teruggestuurd; anders een initialen-badge.
+def _render_favicon_svg() -> str:
+    try:
+        b = current_brand()
+    except Exception:
+        b = {"short": "FT", "color": "", "logo_svg": ""}
+    # Eigen logo? Stuur dat onveranderd terug.
+    if b.get("logo_svg"):
+        return b["logo_svg"]
+    short = (b.get("short") or "FT")[:3]
+    color = (b.get("color") or "#1E3A8A").strip() or "#1E3A8A"
+    # XML-escape de letters voor het geval iemand iets geks invult.
+    from xml.sax.saxutils import escape as _xml_escape
+    short_safe = _xml_escape(short)
+    # Lettergrootte schaalt mee met aantal karakters zodat 1, 2 én 3 letters
+    # netjes in de badge passen.
+    fs = 32 if len(short) <= 2 else 24
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'
+        f'<rect width="64" height="64" rx="12" fill="{color}"/>'
+        f'<text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" '
+        f'font-family="Segoe UI, Roboto, sans-serif" font-size="{fs}" font-weight="700" '
+        f'fill="white">{short_safe}</text>'
+        f'</svg>'
+    )
 
 @app.route("/favicon.svg")
 def favicon_svg():
-    return Response(FAVICON_SVG, mimetype="image/svg+xml")
+    return Response(_render_favicon_svg(), mimetype="image/svg+xml")
 
 @app.route("/favicon.ico")
 def favicon_ico():
     # browsers die /favicon.ico hardcoderen -> redirect naar svg
     return redirect(url_for("favicon_svg"), code=302)
-    
+
 # -------------- Templates --------------
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
-HTML_HEAD_ICON = f"""
-<link rel="icon" href="{FAVICON_DATA_URL}" type="image/svg+xml"/>
-<link rel="alternate icon" href="{{{{ url_for('favicon_svg') }}}}" type="image/svg+xml"/>
-<link rel="shortcut icon" href="{{{{ url_for('favicon_ico') }}}}"/>
+# Het favicon wordt per request gerenderd door /favicon.svg, dus we verwijzen
+# alleen naar die URL en bedden de SVG niet langer als data-URL in.
+HTML_HEAD_ICON = """
+<link rel="icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
+<link rel="alternate icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
+<link rel="shortcut icon" href="{{ url_for('favicon_ico') }}"/>
 """
 
 LOGIN_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Inloggen – Olde Hanter</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
+<title>Inloggen – {{ brand.name }}</title>{{ head_icon|safe }}<style>{{ base_css }}</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card" style="max-width:460px;margin:auto">
   <h1 style="color:var(--brand)">Inloggen</h1>
@@ -1021,7 +1093,7 @@ LOGIN_HTML = """
   </p>
   {% endif %}
 
-  <p class="footer small">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer small">{{ brand.footer }}</p>
 </div></div>
 </body></html>
 """
@@ -1029,7 +1101,7 @@ LOGIN_HTML = """
 PASS_PROMPT_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Beveiligd · Olde Hanter</title>{{ head_icon|safe }}
+<title>Beveiligd · {{ brand.name }}</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
 :root{
@@ -1055,7 +1127,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .pw-brand-mark{width:38px;height:38px;border-radius:8px;
   background:linear-gradient(135deg,var(--oh-brand),var(--oh-brand-2));
   display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;
-  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.15);overflow:hidden}
+.pw-brand-mark svg{width:100%;height:100%;display:block}
 .pw-brand-text h1{margin:0;font-size:16px;font-weight:600}
 .pw-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
 .pw-lock{width:56px;height:56px;border-radius:50%;
@@ -1092,9 +1165,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
 <div class="pw-card">
   <div class="pw-brand">
-    <div class="pw-brand-mark">OH</div>
+    <div class="pw-brand-mark"{% if brand.color %} style="background:{{ brand.color }}"{% endif %}>
+      {% if brand.logo_svg %}{{ brand.logo_svg|safe }}{% else %}{{ brand.short }}{% endif %}
+    </div>
     <div class="pw-brand-text">
-      <h1>Olde Hanter Bouwconstructies</h1>
+      <h1>{{ brand.name }}</h1>
       <p>Bestandentransfer</p>
     </div>
   </div>
@@ -1117,7 +1192,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <button class="pw-btn" type="submit">Ontgrendel pakket</button>
   </form>
 
-  <p class="pw-footer">Olde Hanter Bouwconstructies · Bestandentransfer</p>
+  <p class="pw-footer">{{ brand.footer }}</p>
 </div>
 </body></html>
 """
@@ -1129,7 +1204,7 @@ INDEX_HTML = """
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta name="csrf-token" content="{{ csrf_token() }}"/>
-  <title>Uploaden • Olde Hanter</title>
+  <title>Uploaden • {{ brand.name }}</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
@@ -1223,6 +1298,12 @@ INDEX_HTML = """
       font-size: 14px;
       letter-spacing: .5px;
       box-shadow: inset 0 -2px 0 rgba(0,0,0,.15);
+      overflow: hidden;
+    }
+    .oh-brand-mark svg {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
     .oh-brand-text h1 {
       margin: 0;
@@ -1738,10 +1819,12 @@ INDEX_HTML = """
   <!-- Top bar -->
   <header class="oh-topbar">
     <div class="oh-brand">
-      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-mark"{% if brand.color %} style="background:{{ brand.color }}"{% endif %}>
+        {% if brand.logo_svg %}{{ brand.logo_svg|safe }}{% else %}{{ brand.short }}{% endif %}
+      </div>
       <div class="oh-brand-text">
-        <h1>Olde Hanter Bouwconstructies</h1>
-        <p>Beveiligde bestandsoverdracht</p>
+        <h1>{{ brand.name }}</h1>
+        <p>{{ brand.tagline }}</p>
       </div>
     </div>
     <div class="oh-userbar">
@@ -1787,18 +1870,32 @@ INDEX_HTML = """
               <label class="oh-label" for="expDays">Verloopt na</label>
               <select id="expDays" class="oh-select">
                 <option value="1">1 dag</option>
-                <option value="3">3 dagen</option>
-                <option value="7">7 dagen</option>
-                <option value="14">14 dagen</option>
-                <option value="30" selected>30 dagen</option>
-                <option value="60">60 dagen</option>
-                <option value="90">90 dagen</option>
-                <option value="never">Onbeperkt geldig</option>
+                <option value="3"{% if is_trial %} selected{% endif %}>3 dagen{% if is_trial %} (max trial){% endif %}</option>
+                <option value="7"{% if is_trial %} disabled{% endif %}>7 dagen{% if is_trial %} — betaald{% endif %}</option>
+                <option value="14"{% if is_trial %} disabled{% endif %}>14 dagen{% if is_trial %} — betaald{% endif %}</option>
+                <option value="30"{% if is_trial %} disabled{% else %} selected{% endif %}>30 dagen{% if is_trial %} — betaald{% endif %}</option>
+                <option value="60"{% if is_trial %} disabled{% endif %}>60 dagen{% if is_trial %} — betaald{% endif %}</option>
+                <option value="90"{% if is_trial %} disabled{% endif %}>90 dagen{% if is_trial %} — betaald{% endif %}</option>
+                <option value="never"{% if is_trial %} disabled{% endif %}>Onbeperkt geldig{% if is_trial %} — betaald{% endif %}</option>
               </select>
+              {% if is_trial %}
+              <p style="margin:.4rem 0 0;font-size:.8rem;color:var(--oh-muted);line-height:1.4">
+                Trial-pakketten zijn maximaal <strong>3 dagen</strong> geldig.
+                Langere bewaartermijnen zitten in de
+                {% set _signup_url = trial_signup_url() %}{% if _signup_url %}<a href="/contact" style="color:inherit;text-decoration:underline">betaalde variant</a>{% else %}betaalde variant{% endif %}.
+              </p>
+              {% endif %}
             </div>
             <div>
               <label class="oh-label" for="pw">Wachtwoord <span style="color:var(--oh-muted);font-weight:400;text-transform:none;letter-spacing:normal">(optioneel)</span></label>
-              <input id="pw" class="oh-input" type="password" placeholder="Leeg = geen wachtwoord" autocomplete="new-password">
+              <input id="pw" class="oh-input" type="password"
+                     placeholder="{% if is_trial %}Wachtwoord-bescherming: betaald{% else %}Leeg = geen wachtwoord{% endif %}"
+                     autocomplete="new-password"{% if is_trial %} disabled{% endif %}>
+              {% if is_trial %}
+              <p style="margin:.4rem 0 0;font-size:.8rem;color:var(--oh-muted);line-height:1.4">
+                Wachtwoord-bescherming zit in de betaalde variant.
+              </p>
+              {% endif %}
             </div>
           </div>
 
@@ -1899,7 +1996,7 @@ INDEX_HTML = """
   </div>
 
   <footer class="oh-footer">
-    Olde Hanter Bouwconstructies · Bestandentransfer
+    {{ brand.footer }}
     <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
     <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
     <a href="{{ url_for('privacy_page') }}">Privacy</a>
@@ -2193,7 +2290,7 @@ PACKAGE_HTML = """
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Download · {{ title or 'Olde Hanter' }}</title>
+  <title>Download · {{ title or brand.name }}</title>
   {{ head_icon|safe }}
   <style>
     {{ base_css }}
@@ -2239,7 +2336,8 @@ PACKAGE_HTML = """
     .oh-brand-mark{width:38px;height:38px;border-radius:8px;
       background:linear-gradient(135deg,var(--oh-brand),var(--oh-brand-2));
       display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;
-      box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}
+      box-shadow:inset 0 -2px 0 rgba(0,0,0,.15);overflow:hidden}
+    .oh-brand-mark svg{width:100%;height:100%;display:block}
     .oh-brand-text h1{margin:0;font-size:17px;font-weight:600;color:var(--oh-text)}
     .oh-brand-text p{margin:0;font-size:12px;color:var(--oh-muted)}
 
@@ -2393,9 +2491,11 @@ PACKAGE_HTML = """
 
   <header class="oh-topbar">
     <div class="oh-brand">
-      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-mark"{% if brand.color %} style="background:{{ brand.color }}"{% endif %}>
+        {% if brand.logo_svg %}{{ brand.logo_svg|safe }}{% else %}{{ brand.short }}{% endif %}
+      </div>
       <div class="oh-brand-text">
-        <h1>Olde Hanter Bouwconstructies</h1>
+        <h1>{{ brand.name }}</h1>
         <p>Je bestanden staan klaar</p>
       </div>
     </div>
@@ -2526,7 +2626,7 @@ PACKAGE_HTML = """
   </div>
 
   <footer class="oh-footer">
-    Olde Hanter Bouwconstructies · Bestandentransfer
+    {{ brand.footer }}
     <span style="margin:0 6px;color:var(--oh-border-strong)">|</span>
     <a href="{{ url_for('terms_page') }}">Voorwaarden</a>
     <a href="{{ url_for('privacy_page') }}">Privacy</a>
@@ -3093,7 +3193,7 @@ CONTACT_DONE_HTML = """
   Je omgeving wordt doorgaans binnen <strong>1–2 werkdagen</strong> actief.
   Na livegang ontvang je een bevestigingsmail met alle gegevens.
 </p>
-<p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p></div></div>
+<p class="footer">{{ brand.footer }}</p></div></div>
 </body></html>
 """
 
@@ -3105,7 +3205,7 @@ CONTACT_MAIL_FALLBACK_HTML = """
   <h1>Aanvraag gereed</h1>
   <p>SMTP staat niet ingesteld of gaf een fout. Klik op de knop hieronder om de e-mail te openen in je mailprogramma.</p>
   <a class="btn-pro primary" href="{{ mailto_link }}">Open e-mail</a>
-  <p class="footer">Olde Hanter Bouwconstructies • Bestandentransfer</p>
+  <p class="footer">{{ brand.footer }}</p>
 </div></div>
 </body></html>
 """
@@ -3428,10 +3528,22 @@ def _get_csrf_token() -> str:
 
 @app.context_processor
 def _inject_csrf():
-    """Maakt csrf_token() en trial_signup_url() beschikbaar in alle Jinja-templates."""
+    """Maakt csrf_token(), trial_signup_url(), brand en is_trial beschikbaar in alle Jinja-templates."""
+    try:
+        brand = current_brand()
+        is_trial = is_trial_tenant()
+    except Exception:
+        # Buiten request-context (zoals bij errors voor request setup) of bij
+        # onbekende tenant: lege defaults zodat templates niet crashen.
+        brand = {"name": "Bestandentransfer", "short": "FT",
+                 "tagline": "Beveiligde bestandsoverdracht",
+                 "footer": "Bestandentransfer", "logo_svg": "", "color": ""}
+        is_trial = False
     return {
         "csrf_token": _get_csrf_token,
         "trial_signup_url": trial_signup_url,
+        "brand": brand,
+        "is_trial": is_trial,
     }
 
 @app.before_request
@@ -6268,7 +6380,7 @@ def admin_pending_cancel(pending_id):
 MY_UPLOADS_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Mijn uploads · Olde Hanter</title>{{ head_icon|safe }}
+<title>Mijn uploads · {{ brand.name }}</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
 :root{
@@ -6356,7 +6468,9 @@ html,body{
   font-weight:700;
   font-size:14px;
   box-shadow:inset 0 -2px 0 rgba(0,0,0,.15);
+  overflow:hidden;
 }
+.oh-brand-mark svg{width:100%;height:100%;display:block}
 
 .oh-brand-text h1{
   margin:0;
@@ -6820,9 +6934,11 @@ html,body{
 <div class="oh-shell">
   <header class="oh-topbar">
     <div class="oh-brand">
-      <div class="oh-brand-mark">OH</div>
+      <div class="oh-brand-mark"{% if brand.color %} style="background:{{ brand.color }}"{% endif %}>
+        {% if brand.logo_svg %}{{ brand.logo_svg|safe }}{% else %}{{ brand.short }}{% endif %}
+      </div>
       <div class="oh-brand-text">
-        <h1>Olde Hanter Bouwconstructies</h1>
+        <h1>{{ brand.name }}</h1>
         <p>Mijn uploads</p>
       </div>
     </div>
