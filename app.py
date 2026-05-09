@@ -6990,52 +6990,37 @@ html,body{
   border-color:rgba(255,255,255,.20);
 }
 
-/* Sorteerbalk */
-.oh-sortbar{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-  margin-bottom:12px;
-  padding:8px 10px;
-  background:rgba(15,23,42,.24);
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:10px;
-}
-.oh-sortbar-label{
-  font-size:11px;
-  font-weight:700;
-  text-transform:uppercase;
-  letter-spacing:.05em;
-  color:var(--oh-muted);
-  margin-right:4px;
-}
-.oh-sort-btn{
-  padding:5px 10px;
-  border-radius:8px;
-  background:transparent;
-  border:1px solid rgba(255,255,255,.08);
-  color:#e5e7eb;
-  font-size:12px;
-  font-weight:600;
+/* Sorteerbare tabelkoppen — klik op de kolomtitel om te sorteren */
+.oh-table thead th.sortable{
   cursor:pointer;
-  display:inline-flex;
-  align-items:center;
-  gap:4px;
-  transition:background .15s, border-color .15s, color .15s;
+  user-select:none;
+  transition:color .15s, background .15s;
+  border-radius:6px;
 }
-.oh-sort-btn:hover{
-  border-color:rgba(255,255,255,.20);
+.oh-table thead th.sortable .oh-th-label{
+  display:inline-block;
+}
+.oh-table thead th.sortable .arr{
+  display:inline-block;
+  margin-left:4px;
+  font-size:10px;
+  opacity:.6;
+  min-width:8px;
+}
+.oh-table thead th.sortable:hover{
+  color:#fff;
   background:rgba(255,255,255,.04);
 }
-.oh-sort-btn.active{
-  background:#8ab4ff;
-  color:#0f172a;
-  border-color:#8ab4ff;
+.oh-table thead th.sortable:focus-visible{
+  outline:2px solid #8ab4ff;
+  outline-offset:2px;
+  color:#fff;
 }
-.oh-sort-btn .arr{
-  font-size:10px;
-  opacity:.75;
+.oh-table thead th.sortable.active{
+  color:#8ab4ff;
+}
+.oh-table thead th.sortable.active .arr{
+  opacity:1;
 }
 
 /* Table */
@@ -7256,18 +7241,6 @@ html,body{
       </div>
       {% endif %}
 
-      {% if packages %}
-      <div class="oh-sortbar" id="ohSortbar">
-        <span class="oh-sortbar-label">Sorteer op</span>
-        <button type="button" class="oh-sort-btn active" data-sort="created" data-dir="desc">Aangemaakt <span class="arr">▼</span></button>
-        <button type="button" class="oh-sort-btn" data-sort="expires" data-dir="asc">Verloopt <span class="arr"></span></button>
-        <button type="button" class="oh-sort-btn" data-sort="size" data-dir="desc">Grootte <span class="arr"></span></button>
-        <button type="button" class="oh-sort-btn" data-sort="downloads" data-dir="desc">Downloads <span class="arr"></span></button>
-        <button type="button" class="oh-sort-btn" data-sort="title" data-dir="asc">Onderwerp <span class="arr"></span></button>
-        {% if show_all %}<button type="button" class="oh-sort-btn" data-sort="owner" data-dir="asc">Eigenaar <span class="arr"></span></button>{% endif %}
-      </div>
-      {% endif %}
-
       {% if not packages %}
       <div class="oh-empty">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -7278,14 +7251,28 @@ html,body{
       <table class="oh-table" id="ohTable">
         <thead>
           <tr>
-            <th>Onderwerp / token</th>
-            {% if show_all %}<th>Eigenaar</th>{% endif %}
+            <th class="sortable" data-sort="title" data-dir="asc">
+              <span class="oh-th-label">Onderwerp / token</span><span class="arr"></span>
+            </th>
+            {% if show_all %}
+            <th class="sortable" data-sort="owner" data-dir="asc">
+              <span class="oh-th-label">Eigenaar</span><span class="arr"></span>
+            </th>
+            {% endif %}
             <th>Bestanden</th>
-            <th>Grootte</th>
-            <th>Aangemaakt</th>
-            <th>Verloopt</th>
+            <th class="sortable" data-sort="size" data-dir="desc">
+              <span class="oh-th-label">Grootte</span><span class="arr"></span>
+            </th>
+            <th class="sortable active" data-sort="created" data-dir="desc">
+              <span class="oh-th-label">Aangemaakt</span><span class="arr">▼</span>
+            </th>
+            <th class="sortable" data-sort="expires" data-dir="asc">
+              <span class="oh-th-label">Verloopt</span><span class="arr"></span>
+            </th>
             <th>Status</th>
-            <th>Downloads</th>
+            <th class="sortable" data-sort="downloads" data-dir="desc">
+              <span class="oh-th-label">Downloads</span><span class="arr"></span>
+            </th>
             <th>Laatst gedownload</th>
             <th style="text-align:right">Acties</th>
           </tr>
@@ -7381,9 +7368,11 @@ function copyLink(link, btn){
 
 // Client-side sortering op data-attributen. Klik op dezelfde kolom draait richting om.
 (function(){
-  const sortbar = document.getElementById('ohSortbar');
+  const table = document.getElementById('ohTable');
   const tbody = document.getElementById('ohTableBody');
-  if(!sortbar || !tbody) return;
+  if(!table || !tbody) return;
+  const headers = table.querySelectorAll('th.sortable');
+  if(!headers.length) return;
 
   // Comparator per veldtype. Numerieke velden als Number, datums als ISO (string-vergelijk
   // werkt voor ISO-datums), strings als localeCompare.
@@ -7405,14 +7394,14 @@ function copyLink(link, btn){
     return av.localeCompare(bv, 'nl', { sensitivity:'base' });
   }
 
-  function updateArrows(activeBtn){
-    sortbar.querySelectorAll('.oh-sort-btn').forEach(btn => {
-      const arr = btn.querySelector('.arr');
-      if(btn === activeBtn){
-        btn.classList.add('active');
-        if(arr) arr.textContent = btn.dataset.dir === 'asc' ? '▲' : '▼';
+  function updateArrows(activeTh){
+    headers.forEach(th => {
+      const arr = th.querySelector('.arr');
+      if(th === activeTh){
+        th.classList.add('active');
+        if(arr) arr.textContent = th.dataset.dir === 'asc' ? '▲' : '▼';
       } else {
-        btn.classList.remove('active');
+        th.classList.remove('active');
         if(arr) arr.textContent = '';
       }
     });
@@ -7431,20 +7420,30 @@ function copyLink(link, btn){
     tbody.appendChild(frag);
   }
 
-  sortbar.addEventListener('click', (e) => {
-    const btn = e.target.closest('.oh-sort-btn');
-    if(!btn) return;
-    const field = btn.dataset.sort;
-    // Toggle richting als je dezelfde knop nogmaals klikt.
-    if(btn.classList.contains('active')){
-      btn.dataset.dir = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
-    }
-    applySort(field, btn.dataset.dir);
-    updateArrows(btn);
+  headers.forEach(th => {
+    th.addEventListener('click', () => {
+      const field = th.dataset.sort;
+      // Toggle richting als je dezelfde kolom nogmaals klikt.
+      if(th.classList.contains('active')){
+        th.dataset.dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+      }
+      applySort(field, th.dataset.dir);
+      updateArrows(th);
+    });
+    // Toetsenbord-toegankelijkheid: Enter / Space activeert ook.
+    th.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();
+        th.click();
+      }
+    });
+    // Maak focusbaar voor schermlezers / toetsenbord-navigatie.
+    if(!th.hasAttribute('tabindex')) th.setAttribute('tabindex', '0');
+    if(!th.hasAttribute('role')) th.setAttribute('role', 'button');
   });
 
   // Initiele sort: aangemaakt DESC (huidige server-volgorde, zodat we start-state markeren).
-  const initial = sortbar.querySelector('.oh-sort-btn.active');
+  const initial = table.querySelector('th.sortable.active');
   if(initial){
     applySort(initial.dataset.sort, initial.dataset.dir);
     updateArrows(initial);
