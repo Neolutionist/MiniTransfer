@@ -6000,6 +6000,8 @@ def admin_users():
 
     conn = db()
     try:
+        # De hoofdadmin (AUTH_EMAIL) ziet alle tenants, inclusief trial.
+        # Andere admins zien alleen gebruikers binnen hun eigen tenant.
         if is_global_admin:
             rows = conn.execute(
                 """SELECT id, email, is_admin, disabled, created_at, tenant_id, is_trial, email_verified
@@ -6015,6 +6017,8 @@ def admin_users():
                 (me["tenant_id"],)
             ).fetchall()
 
+        # Toon pending accounts van laatste 30 dagen (afgehandeld en nog-open).
+        # Ook hier ziet de hoofdadmin alle tenants, zodat trial-aanvragen zichtbaar zijn.
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         if is_global_admin:
             pending_rows = conn.execute(
