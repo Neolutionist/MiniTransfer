@@ -5996,51 +5996,24 @@ def _pop_flash():
 def admin_users():
     _require_admin()
     me = current_user()
-    is_global_admin = (me["email"] == AUTH_EMAIL)
-
     conn = db()
     try:
-        # De hoofdadmin (AUTH_EMAIL) ziet alle tenants, inclusief trial.
-        # Andere admins zien alleen gebruikers binnen hun eigen tenant.
-        if is_global_admin:
-            rows = conn.execute(
-                """SELECT id, email, is_admin, disabled, created_at, tenant_id, is_trial, email_verified
-                   FROM users
-                   ORDER BY created_at ASC"""
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """SELECT id, email, is_admin, disabled, created_at, tenant_id, is_trial, email_verified
-                   FROM users
-                   WHERE tenant_id = ?
-                   ORDER BY created_at ASC""",
-                (me["tenant_id"],)
-            ).fetchall()
-
-        # Toon pending accounts van laatste 30 dagen (afgehandeld en nog-open).
-        # Ook hier ziet de hoofdadmin alle tenants, zodat trial-aanvragen zichtbaar zijn.
+        rows = conn.execute(
+            "SELECT id, email, is_admin, disabled, created_at FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
+            (me["tenant_id"],)
+        ).fetchall()
+        # Toon pending accounts van laatste 30 dagen (afgehandeld en nog-open)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        if is_global_admin:
-            pending_rows = conn.execute(
-                """SELECT email, company, plan_value, status, created_at, paypal_subscription_id, tenant_id
-                   FROM pending_accounts
-                   WHERE created_at >= ?
-                   ORDER BY created_at DESC
-                   LIMIT 100""",
-                (cutoff,)
-            ).fetchall()
-        else:
-            pending_rows = conn.execute(
-                """SELECT email, company, plan_value, status, created_at, paypal_subscription_id, tenant_id
-                   FROM pending_accounts
-                   WHERE tenant_id = ? AND created_at >= ?
-                   ORDER BY created_at DESC
-                   LIMIT 100""",
-                (me["tenant_id"], cutoff)
-            ).fetchall()
+        pending_rows = conn.execute(
+            """SELECT email, company, plan_value, status, created_at, paypal_subscription_id
+               FROM pending_accounts
+               WHERE tenant_id = ? AND created_at >= ?
+               ORDER BY created_at DESC
+               LIMIT 100""",
+            (me["tenant_id"], cutoff)
+        ).fetchall()
     finally:
         conn.close()
-
     msg, err = _pop_flash()
     return render_template_string(
         ADMIN_USERS_HTML,
