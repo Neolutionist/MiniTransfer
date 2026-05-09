@@ -5905,7 +5905,9 @@ ADMIN_USERS_HTML = """
   <h2 style="margin-top:2rem">Bestaande gebruikers</h2>
   <table class="table">
     <thead><tr>
-      <th>E-mail</th><th>Rol</th><th>Status</th><th>Aangemaakt</th><th>Acties</th>
+      <th>E-mail</th><th>Rol</th><th>Status</th><th>Aangemaakt</th>
+      {% if show_tenant_col %}<th>Tenant</th>{% endif %}
+      <th>Acties</th>
     </tr></thead>
     <tbody>
       {% for u in users %}
@@ -5914,6 +5916,9 @@ ADMIN_USERS_HTML = """
         <td>{{ 'Admin' if u.is_admin else 'Gebruiker' }}</td>
         <td>{{ 'Uitgeschakeld' if u.disabled else 'Actief' }}</td>
         <td style="font-size:.85em;color:var(--muted)">{{ u.created_at[:10] }}</td>
+        {% if show_tenant_col %}
+        <td style="font-size:.85em;color:var(--muted)"><code>{{ u.tenant_id }}</code></td>
+        {% endif %}
         <td>
           {% if u.id != my_id %}
           <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
@@ -5950,6 +5955,8 @@ ADMIN_USERS_HTML = """
   <table class="table">
     <thead><tr>
       <th>E-mail</th><th>Bedrijf</th><th>Plan</th><th>Status</th><th>Aangevraagd</th><th>Sub ID</th>
+      {% if show_tenant_col %}<th>Tenant</th>{% endif %}
+      <th>Acties</th>
     </tr></thead>
     <tbody>
       {% for p in pending_accounts %}
@@ -5964,10 +5971,26 @@ ADMIN_USERS_HTML = """
             <span style="color:#1e40af">Betaling gestart</span>
           {% elif p.status == 'activated' %}
             <span style="color:#166534">Geactiveerd</span>
+          {% elif p.status == 'cancelled' %}
+            <span style="color:#991b1b">Geannuleerd</span>
           {% else %}{{ p.status }}{% endif %}
         </td>
         <td style="font-size:.85em;color:var(--muted)">{{ p.created_at[:16] }}</td>
         <td style="font-size:.75em;color:var(--muted)"><code>{{ p.paypal_subscription_id or '-' }}</code></td>
+        {% if show_tenant_col %}
+        <td style="font-size:.85em;color:var(--muted)"><code>{{ p.tenant_id }}</code></td>
+        {% endif %}
+        <td>
+          {% if p.status in ('awaiting_payment', 'payment_started') %}
+          <form method="post" action="/admin/pending/{{ p.id }}/cancel" style="display:inline"
+                onsubmit="return confirm('Aanvraag voor {{ p.email }} annuleren? Deze rij wordt verwijderd. Als de klant later toch betaalt, wordt automatisch een nieuwe pending aangemaakt via de webhook.');">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <button class="btn-pro danger sm" type="submit">Annuleren</button>
+          </form>
+          {% else %}
+          <em style="color:var(--muted)">-</em>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -5996,22 +6019,46 @@ def _pop_flash():
 def admin_users():
     _require_admin()
     me = current_user()
+    # Root-admin (AUTH_EMAIL) ziet álle users en pending accounts over álle tenants.
+    # Dit voorkomt dat accounts die ooit op een andere tenant_id zijn beland
+    # (bv. via de trial-tenant) onzichtbaar blijven, terwijl de duplicaat-check
+    # in /admin/users/create wél globaal is en dus klaagt dat ze "bestaan".
+    is_root_admin = (me["email"].lower() == AUTH_EMAIL)
     conn = db()
     try:
-        rows = conn.execute(
-            "SELECT id, email, is_admin, disabled, created_at FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
-            (me["tenant_id"],)
-        ).fetchall()
+        if is_root_admin:
+            rows = conn.execute(
+                "SELECT id, email, is_admin, disabled, created_at, tenant_id "
+                "FROM users ORDER BY created_at ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, email, is_admin, disabled, created_at, tenant_id "
+                "FROM users WHERE tenant_id = ? ORDER BY created_at ASC",
+                (me["tenant_id"],)
+            ).fetchall()
         # Toon pending accounts van laatste 30 dagen (afgehandeld en nog-open)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        pending_rows = conn.execute(
-            """SELECT email, company, plan_value, status, created_at, paypal_subscription_id
-               FROM pending_accounts
-               WHERE tenant_id = ? AND created_at >= ?
-               ORDER BY created_at DESC
-               LIMIT 100""",
-            (me["tenant_id"], cutoff)
-        ).fetchall()
+        if is_root_admin:
+            pending_rows = conn.execute(
+                """SELECT id, email, company, plan_value, status, created_at,
+                          paypal_subscription_id, tenant_id
+                   FROM pending_accounts
+                   WHERE created_at >= ?
+                   ORDER BY created_at DESC
+                   LIMIT 100""",
+                (cutoff,)
+            ).fetchall()
+        else:
+            pending_rows = conn.execute(
+                """SELECT id, email, company, plan_value, status, created_at,
+                          paypal_subscription_id, tenant_id
+                   FROM pending_accounts
+                   WHERE tenant_id = ? AND created_at >= ?
+                   ORDER BY created_at DESC
+                   LIMIT 100""",
+                (me["tenant_id"], cutoff)
+            ).fetchall()
     finally:
         conn.close()
     msg, err = _pop_flash()
@@ -6021,6 +6068,7 @@ def admin_users():
         pending_accounts=[dict(r) for r in pending_rows],
         me=me["email"],
         my_id=me["id"],
+        show_tenant_col=is_root_admin,
         msg=msg, error=err,
         base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
@@ -6042,7 +6090,16 @@ def admin_users_create():
 
     conn = db()
     try:
-        exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        # Consistent met admin_users(): root-admin checkt globaal, anderen
+        # binnen hun eigen tenant. Zo wordt geen account geblokkeerd door een
+        # onzichtbare collision in een andere tenant.
+        if me["email"].lower() == AUTH_EMAIL:
+            exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        else:
+            exists = conn.execute(
+                "SELECT 1 FROM users WHERE email = ? AND tenant_id = ?",
+                (email, me["tenant_id"])
+            ).fetchone()
         if exists:
             _flash(error=f"Gebruiker {email} bestaat al.")
             return redirect(url_for("admin_users"))
@@ -6083,7 +6140,15 @@ def admin_users_create_from_hash():
 
     conn = db()
     try:
-        exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        # Consistent met admin_users(): root-admin checkt globaal, anderen
+        # binnen hun eigen tenant.
+        if me["email"].lower() == AUTH_EMAIL:
+            exists = conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone()
+        else:
+            exists = conn.execute(
+                "SELECT 1 FROM users WHERE email = ? AND tenant_id = ?",
+                (email, me["tenant_id"])
+            ).fetchone()
         if exists:
             _flash(error=f"Gebruiker {email} bestaat al.")
             return redirect(url_for("admin_users"))
@@ -6153,6 +6218,44 @@ def admin_users_delete(user_id):
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
         _flash(msg="Gebruiker verwijderd.")
+    finally:
+        conn.close()
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/pending/<int:pending_id>/cancel", methods=["POST"])
+def admin_pending_cancel(pending_id):
+    """
+    Annuleer een pending account-aanvraag (verwijdert de rij uit pending_accounts).
+    Alleen toegestaan voor 'awaiting_payment' en 'payment_started'; reeds geactiveerde
+    aanvragen mogen hier niet weg, want daar hangt al een users-row aan vast.
+
+    Tenant-scoping: een gewone admin kan alleen aanvragen uit zijn eigen tenant
+    annuleren. De root-admin (AUTH_EMAIL) mag aanvragen uit alle tenants annuleren.
+    """
+    _require_admin()
+    me = current_user()
+    is_root_admin = (me["email"].lower() == AUTH_EMAIL)
+    conn = db()
+    try:
+        if is_root_admin:
+            row = conn.execute(
+                "SELECT id, email, status FROM pending_accounts WHERE id = ?",
+                (pending_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id, email, status FROM pending_accounts WHERE id = ? AND tenant_id = ?",
+                (pending_id, me["tenant_id"])
+            ).fetchone()
+        if not row:
+            abort(404)
+        if row["status"] == "activated":
+            _flash(error="Deze aanvraag is al geactiveerd en kan niet meer geannuleerd worden.")
+            return redirect(url_for("admin_users"))
+        conn.execute("DELETE FROM pending_accounts WHERE id = ?", (pending_id,))
+        conn.commit()
+        _flash(msg=f"Aanvraag voor {row['email']} geannuleerd.")
     finally:
         conn.close()
     return redirect(url_for("admin_users"))
