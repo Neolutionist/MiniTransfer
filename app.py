@@ -189,17 +189,33 @@ TRIAL_MAX_ACTIVE_PACKAGES   = int(os.environ.get("TRIAL_MAX_ACTIVE_PACKAGES", "5
 TRIAL_VERIFY_TOKEN_TTL_HRS  = int(os.environ.get("TRIAL_VERIFY_TOKEN_TTL_HRS", "48"))
 
 def current_tenant():
-    # Paden onder /trial/ horen altijd bij de trial-tenant, ongeacht de host.
-    # Dit zorgt dat https://<canonical>/trial/signup correct als trial geldt.
+    # 1) Ingelogde gebruiker: zijn/haar eigen tenant is leidend. Een trial-user
+    #    moet trial-tenant houden ongeacht via welk pad hij iets doet (uploaden,
+    #    /uploads bekijken, etc.) — anders raken pakketten zoek doordat ze aan
+    #    een andere tenant gekoppeld worden dan de gebruiker zelf.
+    try:
+        # Dit is gecached via 'g' per request, dus geen extra DB-hit.
+        u = current_user()
+    except RuntimeError:
+        # Buiten request-context (bv. tijdens app-startup): val door.
+        u = None
+    if u:
+        slug = u["tenant_id"]
+        for tenant in TENANTS.values():
+            if tenant.get("slug") == slug:
+                return tenant
+        # Slug onbekend in TENANTS → val door naar pad/host-detectie.
+
+    # 2) Anonieme bezoeker: paden onder /trial/ horen bij de trial-tenant.
     if TRIAL_ENABLED:
         try:
             path = (request.path or "")
         except RuntimeError:
-            # current_tenant() kan buiten een request-context worden aangeroepen;
-            # in dat geval valt terug op host-matching.
             path = ""
         if path.startswith("/trial/") or path == "/trial":
             return TENANTS[_TRIAL_TENANT_KEY]
+
+    # 3) Fallback: host-matching, met canonical default.
     host = (request.headers.get("Host") or "").lower()
     return TENANTS.get(host) or TENANTS[_DEFAULT_TENANT_HOST]
 
@@ -490,6 +506,74 @@ def migrate_add_trial_columns():
         conn.close()
 
 migrate_add_trial_columns()
+
+def migrate_align_package_tenants_with_owner():
+    """
+    Eénmalige fix: oudere trial-pakketten kunnen tenant_id='downloadlink'
+    (of 'oldehanter') hebben terwijl hun eigenaar tenant_id='trial' is.
+    Dat ontstond doordat current_tenant() destijds op het URL-pad keek;
+    een trial-user die op /upload uploadde kreeg de canonical tenant.
+
+    Deze migratie zet packages en items op de tenant van hun eigenaar.
+    Idempotent: opnieuw draaien doet niks als alles al klopt.
+    """
+    conn = db()
+    try:
+        # Aantal mismatches tellen voor logging.
+        n_pkgs = conn.execute("""
+            SELECT COUNT(*) AS n FROM packages p
+            JOIN users u ON u.id = p.owner_user_id
+            WHERE p.owner_user_id IS NOT NULL
+              AND p.tenant_id != u.tenant_id
+        """).fetchone()["n"]
+        if not n_pkgs:
+            return
+
+        log.info("Tenant-migratie: %d package(s) met afwijkende tenant t.o.v. eigenaar — corrigeren", n_pkgs)
+
+        # Items volgen het pakket: zet items op dezelfde nieuwe tenant
+        # (gekoppeld via token + huidige pakket-tenant).
+        conn.execute("""
+            UPDATE items
+               SET tenant_id = (
+                   SELECT u.tenant_id
+                     FROM packages p
+                     JOIN users u ON u.id = p.owner_user_id
+                    WHERE p.token = items.token
+                      AND p.tenant_id = items.tenant_id
+                      AND p.owner_user_id IS NOT NULL
+                      AND p.tenant_id != u.tenant_id
+               )
+             WHERE EXISTS (
+                   SELECT 1 FROM packages p
+                     JOIN users u ON u.id = p.owner_user_id
+                    WHERE p.token = items.token
+                      AND p.tenant_id = items.tenant_id
+                      AND p.owner_user_id IS NOT NULL
+                      AND p.tenant_id != u.tenant_id
+               )
+        """)
+
+        # Pakket zelf op tenant van eigenaar zetten.
+        conn.execute("""
+            UPDATE packages
+               SET tenant_id = (
+                   SELECT u.tenant_id FROM users u WHERE u.id = packages.owner_user_id
+               )
+             WHERE owner_user_id IS NOT NULL
+               AND tenant_id != (
+                   SELECT u.tenant_id FROM users u WHERE u.id = packages.owner_user_id
+               )
+        """)
+
+        conn.commit()
+        log.info("Tenant-migratie klaar.")
+    except Exception:
+        log.exception("migrate_align_package_tenants_with_owner faalde")
+    finally:
+        conn.close()
+
+migrate_align_package_tenants_with_owner()
 
 def seed_admin_from_env():
     """
@@ -3816,56 +3900,122 @@ def _enforce_trial_ttl(days: float) -> float:
 
 def _send_verify_email(to_addr: str, verify_url: str):
     """Stuurt de verificatiemail asynchroon (multipart: plain-text + HTML)."""
-    subject = "Bevestig je e-mailadres voor de gratis variant"
+    # Bepaal de host voor links in de footer (voorwaarden, privacy, home).
+    # Gebruikt het canonieke domein van deze server (oldehanter.downloadlink.nl
+    # of downloadlink.nl, afhankelijk van waar de signup vandaan kwam).
+    site_host = _trial_host or _tenant_host
+    site_url = f"https://{site_host}"
+    terms_url = f"{site_url}/terms"
+    privacy_url = f"{site_url}/privacy"
+
+    subject = "Bevestig je e-mailadres voor downloadlink.nl"
+
+    # Plain-text fallback (voor mailclients zonder HTML-ondersteuning).
     body = (
-        "Welkom!\n\n"
-        "Je hebt zojuist een gratis account aangevraagd. Klik op de onderstaande link\n"
-        "om je e-mailadres te bevestigen en je account te activeren:\n\n"
+        "Hallo,\n\n"
+        "Bedankt voor je aanmelding bij downloadlink.nl. Klik op de onderstaande "
+        "link om je e-mailadres te bevestigen en je gratis account te activeren:\n\n"
         f"{verify_url}\n\n"
         f"Deze link is {TRIAL_VERIFY_TOKEN_TTL_HRS} uur geldig.\n\n"
-        "Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.\n"
+        "Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.\n\n"
+        "—\n"
+        "downloadlink.nl • Bestandentransfer\n"
+        f"{site_url}\n"
+        f"Algemene voorwaarden: {terms_url}\n"
+        f"Privacyverklaring:    {privacy_url}\n"
     )
-    # HTML-variant met klikbare knop én tekstuele fallback-link voor mailclients
-    # die de knop niet correct renderen. Inline styles want externe CSS wordt
-    # door veel mailclients (Outlook, Gmail) genegeerd of gestript.
+
+    # HTML-variant. Tabel-layout en inline styles want externe CSS wordt door
+    # veel mailclients (Outlook, Gmail) genegeerd of gestript. Compatibel met
+    # Outlook 2007-2024, Gmail, Apple Mail, Teams, mobiel.
     html = f"""\
 <!doctype html>
-<html lang="nl"><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;background:#f8fafc">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px">
-    <tr><td style="padding:28px 28px 8px 28px">
-      <h1 style="margin:0 0 12px 0;font-size:20px;color:#0f172a">Welkom!</h1>
-      <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5;color:#334155">
-        Je hebt zojuist een gratis account aangevraagd. Klik op de knop hieronder
-        om je e-mailadres te bevestigen en je account te activeren.
-      </p>
-    </td></tr>
-    <tr><td style="padding:8px 28px 8px 28px">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-        <tr><td style="background:#1c62d2;border-radius:10px">
-          <a href="{verify_url}"
-             style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;
-                    color:#ffffff;text-decoration:none;border-radius:10px">
-            Bevestig e-mailadres
-          </a>
+<html lang="nl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bevestig je e-mailadres</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#0f172a">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9">
+    <tr><td align="center" style="padding:32px 16px">
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0">
+
+        <tr><td style="background:#0f4c98;padding:22px 28px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.2px">
+                downloadlink<span style="color:#9ec5ff">.nl</span>
+              </td>
+              <td align="right" style="font-size:12px;color:#cfe0fa;text-transform:uppercase;letter-spacing:1px">
+                Bestandentransfer
+              </td>
+            </tr>
+          </table>
         </td></tr>
+
+        <tr><td style="padding:32px 28px 8px 28px">
+          <h1 style="margin:0 0 14px 0;font-size:22px;font-weight:600;color:#0f172a;line-height:1.3">
+            Bevestig je e-mailadres
+          </h1>
+          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.6;color:#334155">
+            Bedankt voor je aanmelding bij <strong>downloadlink.nl</strong>.
+            Klik op de knop hieronder om je e-mailadres te bevestigen en je
+            gratis account te activeren.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:18px 28px 8px 28px" align="left">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="background:#1c62d2;border-radius:10px">
+              <a href="{verify_url}"
+                 style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;
+                        color:#ffffff;text-decoration:none;border-radius:10px;
+                        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+                Bevestig e-mailadres
+              </a>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <tr><td style="padding:14px 28px 4px 28px">
+          <p style="margin:14px 0 6px 0;font-size:13px;color:#64748b;line-height:1.5">
+            Werkt de knop niet? Kopieer dan deze link naar je browser:
+          </p>
+          <p style="margin:0 0 12px 0;font-size:13px;word-break:break-all;line-height:1.5">
+            <a href="{verify_url}" style="color:#0f4c98;text-decoration:underline">{verify_url}</a>
+          </p>
+          <p style="margin:0 0 4px 0;font-size:13px;color:#64748b;line-height:1.5">
+            Deze link is <strong>{TRIAL_VERIFY_TOKEN_TTL_HRS} uur</strong> geldig.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:18px 28px 24px 28px;border-top:1px solid #e2e8f0">
+          <p style="margin:14px 0 0 0;font-size:12px;color:#94a3b8;line-height:1.5">
+            Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt
+            verder niets en het account wordt niet geactiveerd.
+          </p>
+        </td></tr>
+
+        <tr><td style="padding:16px 28px 22px 28px;background:#f8fafc;border-top:1px solid #e2e8f0">
+          <p style="margin:0 0 6px 0;font-size:12px;color:#475569;line-height:1.5">
+            <strong style="color:#0f172a">downloadlink.nl</strong> &middot; Bestandentransfer
+          </p>
+          <p style="margin:0;font-size:12px;color:#64748b;line-height:1.6">
+            <a href="{site_url}" style="color:#475569;text-decoration:underline">Website</a>
+            &nbsp;&middot;&nbsp;
+            <a href="{terms_url}" style="color:#475569;text-decoration:underline">Algemene voorwaarden</a>
+            &nbsp;&middot;&nbsp;
+            <a href="{privacy_url}" style="color:#475569;text-decoration:underline">Privacyverklaring</a>
+          </p>
+          <p style="margin:10px 0 0 0;font-size:11px;color:#94a3b8;line-height:1.5">
+            Je ontvangt deze e-mail omdat dit e-mailadres is gebruikt om een
+            account aan te maken op {site_host}. Reageer niet op dit bericht.
+          </p>
+        </td></tr>
+
       </table>
-    </td></tr>
-    <tr><td style="padding:16px 28px 8px 28px">
-      <p style="margin:0 0 8px 0;font-size:13px;color:#64748b">
-        Werkt de knop niet? Kopieer dan deze link naar je browser:
-      </p>
-      <p style="margin:0 0 12px 0;font-size:13px;word-break:break-all">
-        <a href="{verify_url}" style="color:#0f4c98">{verify_url}</a>
-      </p>
-      <p style="margin:0 0 12px 0;font-size:13px;color:#64748b">
-        Deze link is {TRIAL_VERIFY_TOKEN_TTL_HRS} uur geldig.
-      </p>
-    </td></tr>
-    <tr><td style="padding:8px 28px 28px 28px;border-top:1px solid #e5e7eb">
-      <p style="margin:12px 0 0 0;font-size:12px;color:#94a3b8">
-        Heb je je niet aangemeld? Negeer deze e-mail dan; er gebeurt verder niets.
-      </p>
+
     </td></tr>
   </table>
 </body></html>
