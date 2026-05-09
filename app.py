@@ -1156,10 +1156,15 @@ def favicon_ico():
 BG_DIV = '<div class="bg" aria-hidden="true"></div>'
 # Het favicon wordt per request gerenderd door /favicon.svg, dus we verwijzen
 # alleen naar die URL en bedden de SVG niet langer als data-URL in.
+# NB: hardcoded paden i.p.v. {{ url_for(...) }}, omdat deze string via
+# {{ head_icon|safe }} in templates wordt geïnjecteerd. |safe markeert de string
+# als reeds-gerenderde HTML, dus Jinja zou de url_for-expressies niet nog eens
+# evalueren — browsers kregen dan letterlijk "{{ url_for(...) }}" als href en
+# laadden geen favicon. /favicon.svg en /favicon.ico zijn vaste app-routes.
 HTML_HEAD_ICON = """
-<link rel="icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
-<link rel="alternate icon" href="{{ url_for('favicon_svg') }}" type="image/svg+xml"/>
-<link rel="shortcut icon" href="{{ url_for('favicon_ico') }}"/>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+<link rel="alternate icon" href="/favicon.svg" type="image/svg+xml"/>
+<link rel="shortcut icon" href="/favicon.ico"/>
 """
 
 LOGIN_HTML = """
