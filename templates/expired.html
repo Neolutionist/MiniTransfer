@@ -62,14 +62,16 @@ canvas{ display:block; }
 }
 
 /* ========================================================================
-   CALL OF DUTY ZOMBIES-STIJL HUD
-   - Top-left: alleen kleine brand (Olde Hanter Arcade)
-   - Top-right: minimap + mute + help + Fury (klein)
-   - Bottom-right: ammo prominent groot
-   - Bottom-left: HP-balk + score + kills (compact)
-   - Center-above-weaponbar: WAVE als grote ronde indicator
-   - Combat polish + nemesis: ingeklapt tot kleine chips
-   - #msg: alleen tijdens intro/start, niet in-game
+   HUD - VOLLEDIG HERONTWORPEN (CoD Zombies-stijl)
+
+   Strategie: na DOM-load worden de .stat-elementen via JS uit de oude
+   #ui-container gelicht en in 3 nieuwe zones gehangen:
+     #hudLeftBlock   (linksonder: HP, Score, Kills, Combo)
+     #hudRightBlock  (rechtsonder: ammo)
+     #hudCenterBlock (midden-onder: wave, plasma/mine/orbital)
+   De #ui-container zelf bevat dan alleen nog de brand. Alle CSS hieronder
+   target id's of de zone-containers — geen :has()-trucs meer, omdat die
+   resulteerden in een overlap-rotzooi.
    ======================================================================== */
 
 #ui{
@@ -102,30 +104,60 @@ canvas{ display:block; }
   font-size:12px;
   background:
     radial-gradient(circle at 50% 30%, rgba(255,255,255,.22), transparent 28%),
-    linear-gradient(180deg, rgba(77,247,255,.35), rgba(255,79,216,.18));
+    linear-gradient(180deg, rgba(255,160,80,.45), rgba(255,80,60,.22));
   border:1px solid rgba(255,255,255,.14);
-  box-shadow:0 0 14px rgba(77,247,255,.14), 0 0 18px rgba(255,79,216,.10);
+  box-shadow:0 0 14px rgba(255,160,80,.18);
 }
 
 #brandText b{ display:block; font-size:12px; line-height:1.1; }
 #brandText span{ display:block; color:var(--muted); font-size:10px; }
 
-/* HUD-stats container — herontworpen als 2 zones (links-onder + rechts-onder) */
-#hud{
+/* Container voor de stats die er nog in #hud staan voor JS hem leeggehaald
+   heeft. Voor het 1-frame voor reorg al onzichtbaar, anders flits je een
+   onnozele lijst stats. */
+#hud{ display:none; }
+
+/* === HUD ZONES === */
+#hudLeftBlock,
+#hudRightBlock,
+#hudCenterBlock{
   position:fixed;
   z-index:23;
   pointer-events:none;
-  display:contents; /* container is "leeg" — kinderen nemen eigen positie */
+  display:flex;
+}
+#hudLeftBlock{
+  left:14px;
+  bottom:14px;
+  flex-direction:column-reverse; /* HP onderaan, daarboven score, etc. */
+  gap:6px;
+  align-items:flex-start;
+}
+#hudRightBlock{
+  right:14px;
+  bottom:14px;
+  flex-direction:column-reverse;
+  gap:6px;
+  align-items:flex-end;
+}
+#hudCenterBlock{
+  left:50%;
+  bottom:78px;
+  transform:translateX(-50%);
+  flex-direction:column;
+  gap:6px;
+  align-items:center;
 }
 
-/* === Score / wave / kills BLOCK — bottom-left, compact === */
+/* Default stat-style — alle stats die in een zone hangen krijgen deze look */
 .stat{
   background:rgba(8,12,22,.78);
   border:1px solid rgba(255,255,255,.10);
   border-radius:10px;
-  padding:6px 10px;
+  padding:6px 12px;
   backdrop-filter:blur(6px);
   pointer-events:none;
+  min-width:120px;
 }
 .stat .label{
   font-size:9px;
@@ -140,37 +172,22 @@ canvas{ display:block; }
   letter-spacing:.02em;
 }
 
-/* Specifieke positionering per stat. Zo behouden we de bestaande HTML
-   en hoeven we geen JS aan te passen. */
-.stat:has(#score){
-  position:fixed; left:14px; bottom:74px;
-  min-width:140px;
-}
-.stat:has(#score) .value{ font-size:22px; color:#ffd166; transition:color .3s ease, text-shadow .3s ease; }
-body.doublepoints-active .stat:has(#score) .value{
+/* Specifieke stat-overrides via id (eenduidig, geen :has()) */
+#score{ font-size:24px; color:#ffd166; transition:color .3s ease, text-shadow .3s ease; }
+body.doublepoints-active #score{
   color:#4dd9ff;
   text-shadow:0 0 12px rgba(77,217,255,0.7);
 }
 
-.stat:has(#kills){
-  position:fixed; left:14px; bottom:120px;
-  min-width:140px;
+/* HP-stat: groter, met ingebouwde balk eronder */
+#hudLeftBlock #hp{
+  font-size:14px;
 }
-
-/* HP als balk i.p.v. los nummer (zombies-style) */
-.stat:has(#hp){
-  position:fixed; left:14px; bottom:14px;
+.stat-hp{
+  /* Een aparte .stat-hp helper-class wordt door JS gegeven */
   min-width:200px;
 }
-.stat:has(#hp) .label{ display:flex; align-items:center; justify-content:space-between; }
-.stat:has(#hp) .label::after{ content:""; }
-.stat:has(#hp) .value{
-  font-size:13px;
-  position:relative;
-  padding-right:6px;
-}
-/* Een dunne pulse-bar onder de HP-waarde — visueel duidelijker dan een getal */
-.stat:has(#hp)::after{
+.stat-hp::after{
   content:"";
   display:block;
   height:6px;
@@ -181,106 +198,85 @@ body.doublepoints-active .stat:has(#score) .value{
 }
 
 /* Wave: groot prominent rond label boven de wapenbalk (CoD Zombies "round X") */
-.stat:has(#wave){
-  position:fixed;
-  left:50%;
-  bottom:74px;
-  transform:translateX(-50%);
-  background:linear-gradient(180deg, rgba(20,8,8,.92), rgba(40,4,12,.86));
-  border:1px solid rgba(255,71,87,.45);
-  border-radius:14px;
-  padding:6px 18px;
-  box-shadow:0 0 18px rgba(255,71,87,.25), 0 6px 22px rgba(0,0,0,.45);
+.stat-wave{
+  background:linear-gradient(180deg, rgba(20,8,8,.92), rgba(40,4,12,.86)) !important;
+  border:1px solid rgba(255,71,87,.45) !important;
+  border-radius:14px !important;
+  padding:6px 22px !important;
+  box-shadow:0 0 18px rgba(255,71,87,.25), 0 6px 22px rgba(0,0,0,.45) !important;
   text-align:center;
+  min-width:100px !important;
+}
+.stat-wave .label{
+  color:rgba(255,180,180,.80) !important;
+  font-size:9px !important;
+  letter-spacing:.18em !important;
+  text-align:center;
+}
+.stat-wave .value{
+  font-size:30px !important;
+  color:#ff5260 !important;
+  text-shadow:0 0 12px rgba(255,71,87,.55) !important;
+  font-family:"Trebuchet MS", system-ui, sans-serif !important;
+  font-weight:900 !important;
+  text-align:center;
+}
+
+/* Ammo: groot prominent in de rechterhoek */
+.stat-ammo-bullets #ammoBullets{
+  font-size:34px !important;
+  color:#fff;
+  text-shadow:0 0 8px rgba(255,255,255,.18);
+}
+.stat-ammo-bullets{
+  min-width:140px;
+}
+.stat-ammo-rockets,
+.stat-ammo-grenades{ min-width:90px; }
+.stat-ammo-rockets .value,
+.stat-ammo-grenades .value{ font-size:18px !important; }
+
+.stat-weapon-name .value{ font-size:13px !important; color:#9fe8ff; }
+
+/* Plasma/Mines/Orbital — kleine row van chips boven de ability-dock */
+.stat-row{
+  display:flex !important;
+  flex-direction:row;
+  gap:6px;
+}
+.stat-mini{
+  padding:4px 10px !important;
+  min-width:0 !important;
+  background:rgba(8,12,22,.72) !important;
+}
+.stat-mini .value{ font-size:13px !important; }
+
+/* Combo: kleine paarse chip boven de score */
+.stat-combo{
+  background:rgba(20,8,30,.78) !important;
+  border-color:rgba(255,154,255,.30) !important;
   min-width:90px;
 }
-.stat:has(#wave) .label{
-  color:rgba(255,180,180,.80);
-  font-size:9px;
-  letter-spacing:.18em;
-}
-.stat:has(#wave) .value{
-  font-size:28px;
-  color:#ff5260;
-  text-shadow:0 0 12px rgba(255,71,87,.55);
-  font-family:"Trebuchet MS", system-ui, sans-serif;
-  font-weight:900;
-}
+.stat-combo .value{ font-size:14px !important; color:#ff9aff; }
 
-/* === Ammo BLOCK — bottom-right, groot, CoD style === */
-.stat:has(#ammoBullets),
-.stat:has(#ammoRockets),
-.stat:has(#ammoGrenades),
-.stat:has(#weaponName){
-  position:fixed;
-  right:14px;
-  background:rgba(8,12,22,.82);
-}
-.stat:has(#weaponName){ bottom:120px; min-width:160px; }
-.stat:has(#weaponName) .value{ font-size:13px; color:#9fe8ff; }
-.stat:has(#ammoBullets){ bottom:14px; right:14px; min-width:130px; }
-.stat:has(#ammoBullets) .value{ font-size:32px; color:#fff; text-shadow:0 0 8px rgba(255,255,255,.18); }
-.stat:has(#ammoBullets) .label{ font-size:9px; }
-.stat:has(#ammoRockets){ bottom:74px; right:160px; min-width:90px; }
-.stat:has(#ammoGrenades){ bottom:74px; right:14px; min-width:110px; }
-.stat:has(#ammoRockets) .value,
-.stat:has(#ammoGrenades) .value{ font-size:18px; }
-
-/* Plasma/Mines/Orbital chips: heel klein, dicht bij ability dock — onderdeel van weaponBar zone */
-.stat:has(#ammoPlasma),
-.stat:has(#ammoMine),
-.stat:has(#ammoOrbital){
-  position:fixed;
-  bottom:120px;
-  background:rgba(8,12,22,.72);
-  padding:4px 9px;
-  min-width:0;
-}
-.stat:has(#ammoPlasma){ left:50%; transform:translateX(calc(-50% - 86px)); }
-.stat:has(#ammoMine){ left:50%; transform:translateX(-50%); }
-.stat:has(#ammoOrbital){ left:50%; transform:translateX(calc(-50% + 86px)); }
-.stat:has(#ammoPlasma) .value,
-.stat:has(#ammoMine) .value,
-.stat:has(#ammoOrbital) .value{ font-size:13px; }
-
-/* Combo-chip: links boven HP-balk */
-.stat:has(#combo){
-  position:fixed;
-  left:14px;
-  bottom:166px;
-  background:rgba(20,8,30,.78);
-  border-color:rgba(255,154,255,.30);
-  min-width:90px;
-}
-.stat:has(#combo) .value{ font-size:14px; color:#ff9aff; }
-
-/* Mobile / smaller screens — verplaats stats minder agressief en stack */
+/* Mobile-aanpassingen: zones blijven werken, alleen size/spacing tweaken */
 @media (max-width: 720px){
-  .stat:has(#score){ left:10px; bottom:68px; min-width:110px; }
-  .stat:has(#kills){ left:10px; bottom:108px; min-width:110px; }
-  .stat:has(#hp){ left:10px; bottom:10px; min-width:140px; }
-  .stat:has(#ammoBullets){ right:10px; bottom:10px; min-width:100px; }
-  .stat:has(#ammoBullets) .value{ font-size:24px; }
-  .stat:has(#ammoRockets){ right:120px; bottom:68px; min-width:70px; }
-  .stat:has(#ammoGrenades){ right:10px; bottom:68px; min-width:90px; }
-  .stat:has(#weaponName){ right:10px; bottom:108px; min-width:120px; }
-  .stat:has(#wave){ bottom:66px; padding:4px 14px; }
-  .stat:has(#wave) .value{ font-size:22px; }
-  .stat:has(#combo){ left:10px; right:auto; bottom:148px; min-width:70px; }
-  .stat:has(#ammoPlasma),
-  .stat:has(#ammoMine),
-  .stat:has(#ammoOrbital){ display:none; }
+  #hudLeftBlock{ left:10px; bottom:10px; }
+  #hudRightBlock{ right:10px; bottom:10px; }
+  #hudCenterBlock{ bottom:70px; }
+  .stat{ padding:5px 10px; min-width:100px; }
+  .stat-hp{ min-width:140px; }
+  .stat-ammo-bullets #ammoBullets{ font-size:26px !important; }
+  .stat-wave .value{ font-size:22px !important; }
+  .stat-row{ display:none !important; }   /* plasma/mine/orbital chips weg op mobiel */
 }
 
 @media (max-width: 480px){
-  /* Op echt smalle schermen: minder lawaai bovenin. Kills + weapon-name verbergen,
-     die info heb je niet nodig in de heat van het moment. */
-  .stat:has(#kills),
-  .stat:has(#weaponName),
-  .stat:has(#combo){ display:none; }
-  .stat:has(#hp){ min-width:120px; }
-  .stat:has(#score){ bottom:60px; min-width:90px; }
-  .stat:has(#score) .value{ font-size:18px; }
+  .stat-kills,
+  .stat-weapon-name,
+  .stat-combo{ display:none !important; }
+  .stat-hp{ min-width:120px; }
+  #score{ font-size:18px !important; }
 }
 
 #msg{
@@ -1165,6 +1161,11 @@ body.instakill-active.doublepoints-active::after{ bottom:198px; }
   <div id="msg">Desktop: WASD / pijltjes / klik / 1-2-3 + 4-5-6 skills. Mobiel: linker joystick beweegt, rechter joystick kijkt, tik om te schieten en gebruik rechts de skillknoppen.</div>
 </div>
 
+<!-- HUD zones — gevuld door reorganiseHud() in de game-init -->
+<div id="hudLeftBlock"></div>
+<div id="hudRightBlock"></div>
+<div id="hudCenterBlock"></div>
+
 <div id="weaponBar">
   <div class="weapon-chip active" id="chipBullet">1 Bullet</div>
   <div class="weapon-chip" id="chipRocket">2 Rocket</div>
@@ -1282,6 +1283,56 @@ body.instakill-active.doublepoints-active::after{ bottom:198px; }
     abilityMineCount: document.getElementById("abilityMineCount"),
     abilityOrbitalCount: document.getElementById("abilityOrbitalCount")
   };
+
+  // ============== HUD REORGANISATIE ==============
+  // De stats zitten initieel in #ui (legacy structuur). We verplaatsen ze naar
+  // 3 vaste zones zodat ze niet meer overlappen met de brand of elkaar.
+  // Belangrijk: we behouden de element-references in `ui` (zoals ui.score) —
+  // alleen de DOM-positie verandert. setStat() blijft ongewijzigd werken.
+  (function reorganiseHud(){
+    const left   = document.getElementById("hudLeftBlock");
+    const right  = document.getElementById("hudRightBlock");
+    const center = document.getElementById("hudCenterBlock");
+    if(!left || !right || !center) return;
+
+    // Helper: zoek de .stat-parent van een value-element en verhuis hem
+    function moveStat(id, target, classes=[]){
+      const el = document.getElementById(id);
+      if(!el) return null;
+      const stat = el.closest(".stat");
+      if(!stat) return null;
+      classes.forEach(c => stat.classList.add(c));
+      target.appendChild(stat);
+      return stat;
+    }
+
+    // Linkerblok (van onder naar boven, want we gebruiken column-reverse)
+    moveStat("hp",     left, ["stat-hp"]);
+    moveStat("score",  left, ["stat-score"]);
+    moveStat("kills",  left, ["stat-kills"]);
+    moveStat("combo",  left, ["stat-combo"]);
+
+    // Rechterblok (van onder naar boven via column-reverse)
+    moveStat("ammoBullets", right, ["stat-ammo-bullets"]);
+
+    // Rij voor rockets + grenades
+    const ammoRow = document.createElement("div");
+    ammoRow.className = "stat-row";
+    right.appendChild(ammoRow);
+    moveStat("ammoRockets",  ammoRow, ["stat-ammo-rockets"]);
+    moveStat("ammoGrenades", ammoRow, ["stat-ammo-grenades"]);
+
+    moveStat("weaponName", right, ["stat-weapon-name"]);
+
+    // Middenblok: wave bovenaan, daaronder een rij met ability-counts
+    moveStat("wave", center, ["stat-wave"]);
+    const abilRow = document.createElement("div");
+    abilRow.className = "stat-row";
+    center.appendChild(abilRow);
+    moveStat("ammoPlasma",  abilRow, ["stat-mini"]);
+    moveStat("ammoMine",    abilRow, ["stat-mini"]);
+    moveStat("ammoOrbital", abilRow, ["stat-mini"]);
+  })();
 
 
 function escapeHtml(s){
@@ -2981,31 +3032,150 @@ function drawMinimap(){
     }, delay * 1000);
   }
 
-  const musicLead = [784, 988, 1175, 1568, 1175, 988, 880, 988, 784, 988, 1175, 1760, 1568, 1175, 988, 880, 698, 880, 988, 1319, 988, 880, 784, 880, 659, 784, 988, 1175, 988, 784, 698, 784];
-  const musicHarmony = [392, 494, 587, 784, 587, 494, 440, 494, 392, 494, 587, 880, 784, 587, 494, 440, 349, 440, 494, 659, 494, 440, 392, 440, 330, 392, 494, 587, 494, 392, 349, 392];
-  const musicBass = [98, 98, 123, 123, 110, 110, 123, 123, 98, 98, 123, 147, 131, 131, 123, 110, 87, 87, 110, 110, 98, 98, 110, 110, 82, 82, 98, 98, 87, 87, 98, 98];
-  const musicArp = [1568, 1760, 1976, 1760, 1568, 1760, 1976, 2349, 1319, 1568, 1760, 1568, 1319, 1568, 1760, 2093, 1175, 1319, 1568, 1319, 1175, 1319, 1568, 1760, 1047, 1175, 1319, 1175, 1047, 1175, 1319, 1568];
-  function playChip(freq, when, dur, type, gain, detune=0){
+  // ================================================================
+  // KINO DER TOTEN-STIJL HORROR AMBIENT
+  // ================================================================
+  // Geen vrolijke arp meer. We bouwen een traag, donker D-minor sfeerstuk:
+  //   * Continue lage drone-pads (D2 + A2) op de achtergrond
+  //   * Een trage 8-stappen pizzicato-ostinato (staccato cello-achtige plukjes)
+  //   * Sporadische industriële kicks (geen 4-on-the-floor — alleen op
+  //     accent-beats), distant clangs en verre noise-rumbles
+  //   * Atonale dissonant op zeldzame stappen voor onbehagen
+  //   * Tijdens boss/low-HP komt een hogere tritone-laag erbij
+  //
+  // Hele song-array geschaald in D-minor:
+  //   D=146.83 (D3) · F=174.61 · G=196 · A=220 · A#=233.08 · C=261.63
+  //   D=293.66 (D4) · F=349.23 · G=392 · A=440
+  //
+  // Ostinato (8 stappen, herhaalt traag) — typisch Kino-pattern:
+  //   D - F - A - D' - C - A - F - D
+  // ================================================================
+
+  const ostinatoPitches = [146.83, 174.61, 220.00, 293.66, 261.63, 220.00, 174.61, 146.83];
+  const ostinatoOctaveUp = ostinatoPitches.map(f => f * 2);
+
+  // Continuous drone-pad — wordt 1× gestart en blijft draaien zolang er
+  // muziek nodig is. Ranged via een gain die we per frame updaten.
+  let _drone = null;
+  function ensureDrone(){
+    if(!audioCtx || _audioMuted) return;
+    if(_drone) return;
+    const now = audioCtx.currentTime;
+    // Twee oscillatoren: D2 (laag) + A2 (kwint erboven). Lichte detune voor
+    // chorus/dread effect. Lowpass-filter eroverheen om scherp te dempen.
+    const o1 = audioCtx.createOscillator();
+    o1.type = "sawtooth";
+    o1.frequency.value = 73.42; // D2
+    o1.detune.value = -3;
+    const o2 = audioCtx.createOscillator();
+    o2.type = "sawtooth";
+    o2.frequency.value = 110.00; // A2
+    o2.detune.value = +4;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 360;
+    lp.Q.value = 0.7;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.018, now + 2.5);
+    o1.connect(lp); o2.connect(lp);
+    lp.connect(g); g.connect(audioCtx.destination);
+    o1.start(now); o2.start(now);
+    _drone = { o1, o2, gain: g, lp };
+  }
+
+  function setDroneLevel(level=0.018){
+    if(!_drone || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    _drone.gain.gain.cancelScheduledValues(now);
+    _drone.gain.gain.setTargetAtTime(level, now, 0.4);
+  }
+
+  // Pizzicato pluk — kort, gedempt, met snel attack en exponentiële decay
+  function playPizz(freq, when, dur=0.32, gainAmt=0.018, type="triangle"){
     if(!audioCtx || _audioMuted) return;
     const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(type === 'square' ? 1800 : 2400, when);
     o.type = type;
     o.frequency.setValueAtTime(freq, when);
-    if(detune) o.detune.setValueAtTime(detune, when);
+    // Body-resonance simulatie: korte freq-zak na attack
+    o.frequency.exponentialRampToValueAtTime(Math.max(40, freq * 0.985), when + 0.09);
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(1600, when);
+    lp.frequency.exponentialRampToValueAtTime(420, when + dur);
+    const g = audioCtx.createGain();
     g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(gain, when + 0.01);
-    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, gain*0.55), when + dur*0.55);
+    g.gain.exponentialRampToValueAtTime(gainAmt, when + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(filter).connect(g).connect(audioCtx.destination);
+    o.connect(lp).connect(g).connect(audioCtx.destination);
     o.start(when);
-    o.stop(when + dur + 0.03);
+    o.stop(when + dur + 0.05);
+  }
+
+  // Distant clang — rinkelende metalen weergalm in de verte
+  function playDistantClang(when, gainAmt=0.012){
+    if(!audioCtx || _audioMuted) return;
+    // Drie hoge sine-tonen die snel decayen — klinkt als verre kerkbel
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = audioCtx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = f * (1 + (Math.random()-0.5) * 0.01);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001, when + i * 0.025);
+      g.gain.exponentialRampToValueAtTime(gainAmt * (i === 0 ? 1 : 0.55), when + i * 0.025 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + i * 0.025 + 1.2);
+      const hp = audioCtx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 600;
+      o.connect(hp).connect(g).connect(audioCtx.destination);
+      o.start(when + i * 0.025);
+      o.stop(when + i * 0.025 + 1.4);
+    });
+  }
+
+  // Industrieel low-rumble — rolling thunder-achtig geluid in de verte
+  function playRumble(when, dur=0.9, gainAmt=0.014){
+    if(!audioCtx || _audioMuted) return;
+    const size = Math.max(1, (audioCtx.sampleRate * dur)|0);
+    const buf = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<size;i++){
+      const env = Math.sin(Math.PI * (i / size)); // bell-curve envelope
+      data[i] = (Math.random()*2-1) * env;
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 220;
+    lp.Q.value = 0.6;
+    const g = audioCtx.createGain();
+    g.gain.value = gainAmt;
+    src.connect(lp).connect(g).connect(audioCtx.destination);
+    src.start(when);
+  }
+
+  // Industrieel kick — minder dansvloer, meer "klap in lege fabriek"
+  function playKickHorror(when, gainAmt=0.022){
+    if(!audioCtx) return;
+    const o = audioCtx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(120, when);
+    o.frequency.exponentialRampToValueAtTime(34, when + 0.18);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(gainAmt, when + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(when);
+    o.stop(when + 0.25);
   }
 
 function updateMusic(){
   if(!audioCtx || !state.running) return;
+
+  // Drone start hier (na user-interaction die audio context unlocked) en blijft staan
+  ensureDrone();
 
   const t = audioCtx.currentTime;
 
@@ -3014,230 +3184,82 @@ function updateMusic(){
   const hpRatio = player?.maxHp ? player.hp / player.maxHp : 1;
   const bossActive = !!state.boss;
 
-  // intensiteit bepaalt hoeveel lagen / agressie / snelheid
-  let intensity = 0.32;
-  intensity += Math.min(0.30, wave * 0.022);
-  intensity += Math.min(0.18, Math.max(0, combo - 1) * 0.09);
-  intensity += bossActive ? 0.32 : 0;
-  intensity += hpRatio < 0.45 ? (0.45 - hpRatio) * 0.55 : 0;
-  intensity = Math.max(0.2, Math.min(1.0, intensity));
+  // Tension bepaalt hoe luid de drone klinkt en hoe vaak er extra accenten
+  // bovenop de ostinato komen. Geen "tempo-versnelling" — we blijven traag,
+  // want anders ben je weer terug bij de arcade-loop.
+  let tension = 0.3;
+  tension += Math.min(0.30, wave * 0.020);
+  tension += Math.min(0.15, Math.max(0, combo - 1) * 0.06);
+  tension += bossActive ? 0.30 : 0;
+  tension += hpRatio < 0.45 ? (0.45 - hpRatio) * 0.50 : 0;
+  tension = Math.max(0.18, Math.min(1.0, tension));
 
-  // tempo schaalt mee met spanning
-  const stepDur =
-    bossActive ? Math.max(0.092, 0.122 - intensity * 0.018)
-    : hpRatio < 0.35 ? Math.max(0.098, 0.132 - intensity * 0.02)
-    : Math.max(0.104, 0.145 - intensity * 0.024);
+  setDroneLevel(0.012 + tension * 0.022);
 
-  const scheduleAhead = 0.34 + intensity * 0.12;
+  // Tempo: bewust traag (~85 BPM, 8e noten = 0.35s), lichte versnelling bij boss.
+  // Geen sub-100ms steps zoals voorheen.
+  const stepDur = bossActive ? 0.30 : (hpRatio < 0.35 ? 0.32 : 0.36);
 
-  const kick = (when, vol=0.018, heavy=false) => {
-    if(!audioCtx) return;
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
-
-    osc.type = heavy ? "sawtooth" : "triangle";
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(220, when);
-
-    osc.frequency.setValueAtTime(heavy ? 120 : 95, when);
-    osc.frequency.exponentialRampToValueAtTime(42, when + (heavy ? 0.12 : 0.09));
-
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(vol, when + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + (heavy ? 0.16 : 0.11));
-
-    osc.connect(filter).connect(gain).connect(audioCtx.destination);
-    osc.start(when);
-    osc.stop(when + 0.18);
-  };
-
-  const hat = (when, vol=0.004, bright=7000) => {
-    if(!audioCtx) return;
-
-    const size = Math.max(1, (audioCtx.sampleRate * 0.02) | 0);
-    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for(let i=0;i<size;i++){
-      data[i] = (Math.random() * 2 - 1) * (1 - i / size);
-    }
-
-    const src = audioCtx.createBufferSource();
-    const gain = audioCtx.createGain();
-    const hp = audioCtx.createBiquadFilter();
-
-    hp.type = "highpass";
-    hp.frequency.setValueAtTime(bright, when);
-
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(vol, when + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.028);
-
-    src.buffer = buffer;
-    src.connect(hp).connect(gain).connect(audioCtx.destination);
-    src.start(when);
-    src.stop(when + 0.04);
-  };
-
-  const subDrop = (freq, when, dur, gainAmt) => {
-    if(!audioCtx) return;
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const lp = audioCtx.createBiquadFilter();
-
-    osc.type = "sine";
-    lp.type = "lowpass";
-    lp.frequency.setValueAtTime(180, when);
-
-    osc.frequency.setValueAtTime(freq, when);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(28, freq * 0.6), when + dur);
-
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(gainAmt, when + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-
-    osc.connect(lp).connect(gain).connect(audioCtx.destination);
-    osc.start(when);
-    osc.stop(when + dur + 0.03);
-  };
+  const scheduleAhead = 0.6;
 
   while(state.songClock < t + scheduleAhead){
-    state.songStep = (state.songStep + 1) % musicLead.length;
+    state.songStep = (state.songStep + 1) % ostinatoPitches.length;
     const when = Math.max(t, state.songClock);
     const step = state.songStep;
 
-    const lead = musicLead[step];
-    const harmony = musicHarmony[step];
-    const bass = musicBass[step];
-    const arp = musicArp[step];
+    const pitch = ostinatoPitches[step];
 
-    const barPos = step % 8;
-    const phrasePos = step % 16;
-    const accent = barPos === 0;
-    const danger = hpRatio < 0.35;
-    const climax = combo >= 2.4 || bossActive;
-
-    // melodische shift voor spanning
-    const leadFreq =
-      bossActive ? lead * (phrasePos >= 12 ? 0.5 : 1)
-      : danger && phrasePos >= 8 ? lead * 0.5
-      : lead;
-
-    const harmonyFreq =
-      bossActive && phrasePos % 4 === 2 ? harmony * 1.5
-      : danger ? harmony * 0.75
-      : harmony;
-
-    // hoofdlead
-    playChip(
-      leadFreq,
+    // Hoofdpluk — pizzicato op elke stap; iets harder op step 0 en 4 (down-beat)
+    const isAccent = step === 0 || step === 4;
+    playPizz(
+      pitch,
       when,
-      accent ? 0.24 : (climax ? 0.18 : 0.15),
-      accent || climax ? "sawtooth" : "square",
-      accent ? (0.030 + intensity * 0.010) : (0.018 + intensity * 0.010),
-      bossActive ? -6 : 0
+      isAccent ? 0.42 : 0.30,
+      (isAccent ? 0.022 : 0.014) + tension * 0.008,
+      "triangle"
     );
 
-    // onderste harmony laag
-    playChip(
-      harmonyFreq,
-      when + 0.018,
-      danger ? 0.18 : 0.14,
-      danger ? "sawtooth" : "triangle",
-      0.008 + intensity * 0.005,
-      danger ? -8 : 0
-    );
-
-    // bass pulse
-    playChip(
-      bass,
-      when,
-      bossActive ? 0.22 : 0.18,
-      "square",
-      0.013 + intensity * 0.008,
-      -10
-    );
-
-    // sub layer op accents / bosses
-    if(accent || bossActive){
-      subDrop(
-        Math.max(45, bass * 0.5),
-        when,
-        bossActive ? 0.18 : 0.14,
-        bossActive ? 0.018 : 0.012
+    // Octaaf-erboven echo, alleen op accent-stappen — geeft "lange gang"-galm
+    if(isAccent){
+      playPizz(
+        ostinatoOctaveUp[step],
+        when + 0.10,
+        0.55,
+        0.008 + tension * 0.005,
+        "sine"
       );
     }
 
-    // arp
-    if(step % 2 === 0){
-      playChip(
-        arp,
-        when + 0.08,
-        climax ? 0.09 : 0.075,
-        "square",
-        0.006 + intensity * 0.004,
-        bossActive ? 8 : 4
-      );
+    // Kwint-erboven harmony, gedempt op step 2 en 6
+    if(step === 2 || step === 6){
+      playPizz(pitch * 1.5, when + 0.04, 0.28, 0.010 + tension * 0.004, "triangle");
     }
 
-    // extra upper sparkle bij hoge combo / latere waves
-    if((combo >= 2 || wave >= 6) && step % 4 === 1){
-      playChip(
-        lead * 2,
-        when + 0.045,
-        0.06,
-        "triangle",
-        0.004 + intensity * 0.003,
-        10
-      );
+    // Industrieel kick alleen op de echte downbeat (step 0). Geen continue
+    // "boem-boem-boem" — meer een hartslag dan een dansbeat.
+    if(step === 0){
+      playKickHorror(when, 0.018 + tension * 0.012);
     }
 
-    // kick pattern
-    if(barPos === 0 || barPos === 4){
-      kick(when, 0.014 + intensity * 0.012, bossActive || accent);
+    // Sporadische extras — alleen ~1× per 2 cycli, geeft de muziek een
+    // "iets gebeurt"-gevoel zonder dat je het kan voorspellen.
+    if(step === 5 && Math.random() < 0.35 + tension * 0.25){
+      playDistantClang(when + 0.05, 0.008 + tension * 0.006);
     }
-    if((intensity > 0.48 && barPos === 2) || (bossActive && barPos === 6)){
-      kick(when, 0.010 + intensity * 0.008, false);
-    }
-
-    // hats
-    if(step % 2 === 1){
-      hat(when + 0.03, 0.0028 + intensity * 0.0035, bossActive ? 8200 : 7000);
-    }
-    if(intensity > 0.55){
-      hat(when + stepDur * 0.5, 0.002 + intensity * 0.0028, 9000);
+    if(step === 3 && Math.random() < 0.20 + tension * 0.20){
+      playRumble(when, 0.7 + Math.random() * 0.4, 0.010 + tension * 0.008);
     }
 
-    // snare/noise accent
-    if(barPos === 3 || barPos === 7){
-      noiseBurst(0.02 + intensity * 0.015, 0.003 + intensity * 0.0035);
+    // Boss-modus: extra dissonante tritoon (G#) bovenop de ostinato — direct
+    // herkenbaar als "iets is mis"
+    if(bossActive && step === 4){
+      playPizz(207.65, when + 0.06, 0.42, 0.010, "sawtooth"); // G#3 = tritoon t.o.v. D
     }
 
-    // boss pulse / alarm laag
-    if(bossActive && step % 4 === 0){
-      playChip(
-        Math.max(110, bass * 2),
-        when + 0.01,
-        0.11,
-        "sawtooth",
-        0.007 + intensity * 0.004,
-        -16
-      );
-    }
-
-    // low HP noodgevoel
-    if(danger && step % 8 === 6){
-      playChip(
-        Math.max(220, lead * 0.5),
-        when + 0.02,
-        0.12,
-        "sawtooth",
-        0.008 + (0.35 - hpRatio) * 0.02,
-        -18
-      );
+    // Low-HP heartbeat: korte sub-pulse op step 7 wanneer je echt op het
+    // randje staat. Beats sneller naarmate hpRatio lager is.
+    if(hpRatio < 0.35 && (step === 1 || step === 5)){
+      playKickHorror(when + 0.02, 0.012 + (0.35 - hpRatio) * 0.04);
     }
 
     state.songClock += stepDur;
@@ -9721,14 +9743,13 @@ function doDash(){
   }
 
   function rebuildHud(){
-    if(document.getElementById("ohHudRebuildStyles")) return;
-    injectHudRebuildStyles();
-    document.body.classList.add("oh-hud-rebuild");
-    normalizeHudPanels();
-    buildUnifiedHudPanels();
-    syncUnifiedHud();
-    ensureHudToggle();
-    tightenHudIfNeeded();
+    // Uitgeschakeld: dit was een eerdere poging tot HUD-redesign die nu
+    // concurreert met de schonere reorganiseHud() (bovenaan in deze IIFE).
+    // Het oh-hud-rebuild systeem voegde een breed 3-koloms grid toe op #ui,
+    // zorgde voor overlap met brand/score/Fury en plakte z'n eigen meta-panels
+    // erbovenop. We laten het hier staan voor reference maar roepen het niet
+    // meer aan. Dit is dé fix voor de "panelen lopen door elkaar" screenshot.
+    return;
   }
 
   rebuildHud();
