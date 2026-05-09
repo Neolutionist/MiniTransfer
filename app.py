@@ -6357,6 +6357,7 @@ html,body{
             <th>Bestanden</th>
             <th>Grootte</th>
             <th>Aangemaakt</th>
+            <th>Verloopt</th>
             <th>Status</th>
             <th>Downloads</th>
             <th>Laatst gedownload</th>
@@ -6381,6 +6382,7 @@ html,body{
             <td data-label="Bestanden" class="oh-stat-cell">{{ p.item_count }}</td>
             <td data-label="Grootte" class="oh-stat-cell">{{ p.size_human }}</td>
             <td data-label="Aangemaakt" class="oh-stat-cell">{{ p.created_at[:10] }}</td>
+            <td data-label="Verloopt" class="oh-stat-cell">{% if p.is_never %}—{% else %}{{ p.expires_at[:10] }}{% endif %}</td>
             <td data-label="Status">
               {% if p.is_expired %}
                 <span class="oh-badge exp">Verlopen</span>
