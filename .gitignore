@@ -34,12 +34,16 @@ data/
 uploads/
 /var/data/
 
+# CSV-exports vanuit debug_db.py
+*.csv
+
 # IDE / editor
 .vscode/
 .idea/
 *.swp
 *.swo
 .DS_Store
+Thumbs.db
 
 # Logs
 *.log
@@ -51,6 +55,8 @@ logs/
 htmlcov/
 .pytest_cache/
 .tox/
+.mypy_cache/
+.ruff_cache/
 
 # Render / deploy artefacts
 .render/
