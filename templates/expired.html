@@ -61,18 +61,28 @@ canvas{ display:block; }
   to{ filter:hue-rotate(360deg) saturate(1.22); }
 }
 
+/* ========================================================================
+   CALL OF DUTY ZOMBIES-STIJL HUD
+   - Top-left: alleen kleine brand (Olde Hanter Arcade)
+   - Top-right: minimap + mute + help + Fury (klein)
+   - Bottom-right: ammo prominent groot
+   - Bottom-left: HP-balk + score + kills (compact)
+   - Center-above-weaponbar: WAVE als grote ronde indicator
+   - Combat polish + nemesis: ingeklapt tot kleine chips
+   - #msg: alleen tijdens intro/start, niet in-game
+   ======================================================================== */
+
 #ui{
   position:fixed;
   top:14px;
   left:14px;
   z-index:20;
-  background:var(--panel);
-  border:1px solid var(--panel-border);
-  border-radius:16px;
-  padding:12px 14px;
-  backdrop-filter:blur(10px);
-  box-shadow:0 16px 34px rgba(0,0,0,.28);
-  width:min(470px, calc(100vw - 28px));
+  background:linear-gradient(180deg, rgba(8,12,22,.78), rgba(14,8,28,.62));
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:8px 12px;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 22px rgba(0,0,0,.30);
   pointer-events:none;
 }
 
@@ -80,56 +90,199 @@ canvas{ display:block; }
   display:flex;
   align-items:center;
   gap:10px;
-  margin-bottom:8px;
 }
 
 #brandMark{
-  width:38px;
-  height:38px;
-  border-radius:12px;
+  width:30px;
+  height:30px;
+  border-radius:10px;
   display:grid;
   place-items:center;
   font-weight:800;
+  font-size:12px;
   background:
     radial-gradient(circle at 50% 30%, rgba(255,255,255,.22), transparent 28%),
     linear-gradient(180deg, rgba(77,247,255,.35), rgba(255,79,216,.18));
   border:1px solid rgba(255,255,255,.14);
-  box-shadow:0 0 20px rgba(77,247,255,.16), 0 0 26px rgba(255,79,216,.14);
+  box-shadow:0 0 14px rgba(77,247,255,.14), 0 0 18px rgba(255,79,216,.10);
 }
 
-#brandText b{ display:block; font-size:14px; }
-#brandText span{ display:block; color:var(--muted); font-size:12px; }
+#brandText b{ display:block; font-size:12px; line-height:1.1; }
+#brandText span{ display:block; color:var(--muted); font-size:10px; }
 
+/* HUD-stats container — herontworpen als 2 zones (links-onder + rechts-onder) */
 #hud{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(70px,1fr));
-  gap:8px;
+  position:fixed;
+  z-index:23;
+  pointer-events:none;
+  display:contents; /* container is "leeg" — kinderen nemen eigen positie */
 }
 
+/* === Score / wave / kills BLOCK — bottom-left, compact === */
 .stat{
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:12px;
-  padding:8px 10px;
+  background:rgba(8,12,22,.78);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:10px;
+  padding:6px 10px;
+  backdrop-filter:blur(6px);
+  pointer-events:none;
 }
-
 .stat .label{
-  font-size:10px;
+  font-size:9px;
   color:var(--muted);
   text-transform:uppercase;
-  letter-spacing:.08em;
-  margin-bottom:4px;
+  letter-spacing:.10em;
+  margin-bottom:2px;
 }
 .stat .value{
-  font-size:16px;
+  font-size:15px;
   font-weight:800;
+  letter-spacing:.02em;
+}
+
+/* Specifieke positionering per stat. Zo behouden we de bestaande HTML
+   en hoeven we geen JS aan te passen. */
+.stat:has(#score){
+  position:fixed; left:14px; bottom:74px;
+  min-width:140px;
+}
+.stat:has(#score) .value{ font-size:22px; color:#ffd166; }
+
+.stat:has(#kills){
+  position:fixed; left:14px; bottom:120px;
+  min-width:140px;
+}
+
+/* HP als balk i.p.v. los nummer (zombies-style) */
+.stat:has(#hp){
+  position:fixed; left:14px; bottom:14px;
+  min-width:200px;
+}
+.stat:has(#hp) .label{ display:flex; align-items:center; justify-content:space-between; }
+.stat:has(#hp) .label::after{ content:""; }
+.stat:has(#hp) .value{
+  font-size:13px;
+  position:relative;
+  padding-right:6px;
+}
+/* Een dunne pulse-bar onder de HP-waarde — visueel duidelijker dan een getal */
+.stat:has(#hp)::after{
+  content:"";
+  display:block;
+  height:6px;
+  margin-top:6px;
+  border-radius:999px;
+  background:linear-gradient(90deg, #ff4757, #ffd166);
+  box-shadow:0 0 8px rgba(255,71,87,.35);
+}
+
+/* Wave: groot prominent rond label boven de wapenbalk (CoD Zombies "round X") */
+.stat:has(#wave){
+  position:fixed;
+  left:50%;
+  bottom:74px;
+  transform:translateX(-50%);
+  background:linear-gradient(180deg, rgba(20,8,8,.92), rgba(40,4,12,.86));
+  border:1px solid rgba(255,71,87,.45);
+  border-radius:14px;
+  padding:6px 18px;
+  box-shadow:0 0 18px rgba(255,71,87,.25), 0 6px 22px rgba(0,0,0,.45);
+  text-align:center;
+  min-width:90px;
+}
+.stat:has(#wave) .label{
+  color:rgba(255,180,180,.80);
+  font-size:9px;
+  letter-spacing:.18em;
+}
+.stat:has(#wave) .value{
+  font-size:28px;
+  color:#ff5260;
+  text-shadow:0 0 12px rgba(255,71,87,.55);
+  font-family:"Trebuchet MS", system-ui, sans-serif;
+  font-weight:900;
+}
+
+/* === Ammo BLOCK — bottom-right, groot, CoD style === */
+.stat:has(#ammoBullets),
+.stat:has(#ammoRockets),
+.stat:has(#ammoGrenades),
+.stat:has(#weaponName){
+  position:fixed;
+  right:14px;
+  background:rgba(8,12,22,.82);
+}
+.stat:has(#weaponName){ bottom:120px; min-width:160px; }
+.stat:has(#weaponName) .value{ font-size:13px; color:#9fe8ff; }
+.stat:has(#ammoBullets){ bottom:14px; right:14px; min-width:130px; }
+.stat:has(#ammoBullets) .value{ font-size:32px; color:#fff; text-shadow:0 0 8px rgba(255,255,255,.18); }
+.stat:has(#ammoBullets) .label{ font-size:9px; }
+.stat:has(#ammoRockets){ bottom:74px; right:160px; min-width:90px; }
+.stat:has(#ammoGrenades){ bottom:74px; right:14px; min-width:110px; }
+.stat:has(#ammoRockets) .value,
+.stat:has(#ammoGrenades) .value{ font-size:18px; }
+
+/* Plasma/Mines/Orbital chips: heel klein, dicht bij ability dock — onderdeel van weaponBar zone */
+.stat:has(#ammoPlasma),
+.stat:has(#ammoMine),
+.stat:has(#ammoOrbital){
+  position:fixed;
+  bottom:120px;
+  background:rgba(8,12,22,.72);
+  padding:4px 9px;
+  min-width:0;
+}
+.stat:has(#ammoPlasma){ left:50%; transform:translateX(calc(-50% - 86px)); }
+.stat:has(#ammoMine){ left:50%; transform:translateX(-50%); }
+.stat:has(#ammoOrbital){ left:50%; transform:translateX(calc(-50% + 86px)); }
+.stat:has(#ammoPlasma) .value,
+.stat:has(#ammoMine) .value,
+.stat:has(#ammoOrbital) .value{ font-size:13px; }
+
+/* Combo-chip: links boven HP-balk */
+.stat:has(#combo){
+  position:fixed;
+  left:14px;
+  bottom:166px;
+  background:rgba(20,8,30,.78);
+  border-color:rgba(255,154,255,.30);
+  min-width:90px;
+}
+.stat:has(#combo) .value{ font-size:14px; color:#ff9aff; }
+
+/* Mobile / smaller screens — verplaats stats minder agressief en stack */
+@media (max-width: 720px){
+  .stat:has(#score){ left:10px; bottom:68px; min-width:110px; }
+  .stat:has(#kills){ left:10px; bottom:108px; min-width:110px; }
+  .stat:has(#hp){ left:10px; bottom:10px; min-width:140px; }
+  .stat:has(#ammoBullets){ right:10px; bottom:10px; min-width:100px; }
+  .stat:has(#ammoBullets) .value{ font-size:24px; }
+  .stat:has(#ammoRockets){ right:120px; bottom:68px; min-width:70px; }
+  .stat:has(#ammoGrenades){ right:10px; bottom:68px; min-width:90px; }
+  .stat:has(#weaponName){ right:10px; bottom:108px; min-width:120px; }
+  .stat:has(#wave){ bottom:66px; padding:4px 14px; }
+  .stat:has(#wave) .value{ font-size:22px; }
+  .stat:has(#combo){ left:10px; right:auto; bottom:148px; min-width:70px; }
+  .stat:has(#ammoPlasma),
+  .stat:has(#ammoMine),
+  .stat:has(#ammoOrbital){ display:none; }
+}
+
+@media (max-width: 480px){
+  /* Op echt smalle schermen: minder lawaai bovenin. Kills + weapon-name verbergen,
+     die info heb je niet nodig in de heat van het moment. */
+  .stat:has(#kills),
+  .stat:has(#weaponName),
+  .stat:has(#combo){ display:none; }
+  .stat:has(#hp){ min-width:120px; }
+  .stat:has(#score){ bottom:60px; min-width:90px; }
+  .stat:has(#score) .value{ font-size:18px; }
 }
 
 #msg{
-  margin-top:8px;
-  color:var(--muted);
-  font-size:12px;
-  line-height:1.35;
+  /* Tijdens gameplay verbergen we de instructie-tekst — die staat ook al
+     in het start-scherm en in het ?-help paneel. Te veel ruis. */
+  display:none;
 }
 
 #weaponBar{
@@ -241,21 +394,57 @@ canvas{ display:block; }
   position:fixed;
   left:50%;
   top:50%;
-  width:22px;
-  height:22px;
+  width:18px;
+  height:18px;
   transform:translate(-50%,-50%);
   z-index:15;
   pointer-events:none;
-  opacity:.95;
+  opacity:.85;
 }
 #crosshair:before,#crosshair:after{
   content:"";
   position:absolute;
   background:#fff;
-  box-shadow:0 0 10px rgba(77,247,255,.8), 0 0 16px rgba(255,79,216,.5);
+  box-shadow:0 0 4px rgba(0,0,0,.55);
 }
-#crosshair:before{ left:10px; top:0; width:2px; height:22px; }
-#crosshair:after{ left:0; top:10px; width:22px; height:2px; }
+/* CoD-stijl crosshair: dunner, met centrale dot en kleinere lijnen */
+#crosshair:before{ left:8px; top:0; width:2px; height:18px; }
+#crosshair:after{ left:0; top:8px; width:18px; height:2px; }
+#crosshair{
+  /* central dot */
+  background:radial-gradient(circle, #fff 0 1.5px, transparent 1.5px);
+}
+
+/* Low-HP red vignette — pulseert als HP <= 30% (toggled via JS class) */
+#lowHpVignette{
+  position:fixed;
+  inset:0;
+  z-index:17;
+  pointer-events:none;
+  opacity:0;
+  background:radial-gradient(circle at 50% 50%,
+    rgba(255,0,0,0) 30%,
+    rgba(255,0,0,.18) 55%,
+    rgba(255,0,0,.55) 100%);
+  transition:opacity .25s ease;
+}
+body.low-hp #lowHpVignette{
+  animation:lowHpPulse 0.9s ease-in-out infinite;
+}
+@keyframes lowHpPulse{
+  0%, 100%{ opacity:.55; }
+  50%{ opacity:.95; }
+}
+
+/* Wave-pill rode pulse bij nieuwe wave (CoD Zombies "Round X" gevoel) */
+.stat:has(#wave).wave-flash{
+  animation:waveFlash 1.4s ease-out 1;
+}
+@keyframes waveFlash{
+  0%   { transform:translateX(-50%) scale(1); box-shadow:0 0 18px rgba(255,71,87,.25), 0 6px 22px rgba(0,0,0,.45); }
+  20%  { transform:translateX(-50%) scale(1.35); box-shadow:0 0 80px rgba(255,71,87,.95), 0 0 140px rgba(255,71,87,.45); }
+  100% { transform:translateX(-50%) scale(1); box-shadow:0 0 18px rgba(255,71,87,.25), 0 6px 22px rgba(0,0,0,.45); }
+}
 
 #damageFlash{
   position:fixed;
@@ -704,16 +893,16 @@ canvas{ display:block; }
 /* ========== Help / cheats button + panel ========== */
 #helpBtn{
   position:fixed;
-  top:16px;
-  right:262px;
-  width:38px;
-  height:38px;
+  top:14px;
+  right:248px; /* direct links van minimap (rechtermarge 14 + breedte 220 + 14 gap) */
+  width:34px;
+  height:34px;
   border-radius:50%;
   border:1px solid rgba(255,255,255,.2);
   background:rgba(10,14,28,.78);
   backdrop-filter:blur(8px);
   color:#e8f4ff;
-  font-size:18px;
+  font-size:16px;
   font-weight:800;
   cursor:pointer;
   z-index:30;
@@ -793,6 +982,7 @@ canvas{ display:block; }
 <div id="gameWrap"></div>
 <div id="psyOverlay"></div>
 <div id="damageFlash"></div>
+<div id="lowHpVignette"></div>
 <div id="crosshair"></div>
 
 <div id="minimapWrap"><div id="minimapLabel">Tactische kaart</div><canvas id="minimapCanvas" width="220" height="220"></canvas></div>
@@ -2967,6 +3157,8 @@ function updateMusic(){
     ui.abilityPlasma.classList.toggle("empty", player.abilities.plasma <= 0);
     ui.abilityMine.classList.toggle("empty", player.abilities.mine <= 0);
     ui.abilityOrbital.classList.toggle("empty", player.abilities.orbital <= 0);
+    // CoD Zombies-style low-HP red vignette pulse: <= 30% van max
+    document.body.classList.toggle("low-hp", player.alive && player.hp > 0 && player.hp <= player.maxHp * 0.30);
   }
   setStat();
   resetPlayerPosition();
@@ -3913,6 +4105,18 @@ function spawnWave(){
   const bossWave = isBossWave(wave);
   const spawnToken = ++state.waveSpawnToken;
   const baseCount = Math.min(5 + Math.floor(wave * 1.9 + Math.max(0, wave - 6) * 0.9), 52);
+
+  // CoD Zombies-style "Round X" pulse op de wave-pill
+  try {
+    const wavePill = ui.wave?.closest(".stat");
+    if(wavePill){
+      wavePill.classList.remove("wave-flash");
+      // Force reflow zodat de animatie opnieuw kan starten
+      void wavePill.offsetWidth;
+      wavePill.classList.add("wave-flash");
+      setTimeout(() => wavePill.classList.remove("wave-flash"), 1500);
+    }
+  } catch(_){}
 
   const batchCount =
     wave < 3 ? 1 :
@@ -7027,38 +7231,47 @@ window.addEventListener("keydown", e => {
     const style = document.createElement("style");
     style.textContent = `
       #apocHud{
-        position:fixed; right:16px; top:16px; z-index:25; width:min(320px,calc(100vw - 32px));
-        display:flex; flex-direction:column; gap:10px; pointer-events:none;
+        /* CoD Zombies-stijl: alleen een dunne fury-balk hoog rechts.
+           Knoppen verwijderd uit de visuele card (Q/V/Shift staan in ?-help).
+           Fury blijft een kerngameplay-element, maar mag niet 1/3 van het
+           scherm innemen. Onder de minimap (220x220 op top:14, right:14). */
+        position:fixed; right:14px; top:248px; z-index:25;
+        width:min(220px, calc(100vw - 32px));
+        display:flex; flex-direction:column; gap:6px; pointer-events:none;
       }
       .apoc-card{
         pointer-events:auto;
-        background:linear-gradient(180deg, rgba(8,8,18,.78), rgba(14,8,28,.64));
-        border:1px solid rgba(255,255,255,.14);
-        border-radius:16px;
-        padding:10px 12px;
-        box-shadow:0 10px 32px rgba(0,0,0,.28), 0 0 24px rgba(157,107,255,.12);
-        backdrop-filter: blur(12px) saturate(1.15);
+        background:rgba(8,8,18,.78);
+        border:1px solid rgba(255,255,255,.10);
+        border-radius:10px;
+        padding:6px 10px;
+        box-shadow:0 6px 18px rgba(0,0,0,.28);
+        backdrop-filter: blur(8px);
       }
+      /* Verberg de knoppen (laatste div in apocCard) — die zaten op pc voor
+         redundantie, terwijl Q/V/Shift al keybinds zijn. Mobile heeft een
+         eigen #apocMobileDock die wel zichtbaar blijft. */
+      #apocCard > div[style*="margin-top"]{ display:none !important; }
+      #apocCard .apoc-sub{ display:none; }
       .apoc-row{
-        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        display:flex; align-items:center; justify-content:space-between; gap:8px;
         color:#fff; font-weight:800; letter-spacing:.03em;
+        font-size:11px;
       }
-      .apoc-sub{ font-size:.8rem; color:rgba(255,255,255,.72); font-weight:700; }
+      .apoc-sub{ font-size:.74rem; color:rgba(255,255,255,.66); font-weight:700; }
       .apoc-meter{
-        height:12px; margin-top:8px; border-radius:999px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.12);
-        background:rgba(255,255,255,.08);
-        box-shadow: inset 0 0 12px rgba(255,255,255,.04);
+        height:6px; margin-top:5px; border-radius:999px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        background:rgba(255,255,255,.06);
       }
       .apoc-meter > i{
         display:block; height:100%; width:0%;
         background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600,#00f7ff);
         background-size:220% 220%;
         animation:apocFlow 3.2s linear infinite;
-        box-shadow:0 0 18px rgba(255,0,168,.22);
       }
       .apoc-ready{
-        box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 26px rgba(255,230,0,.16), 0 0 40px rgba(255,0,168,.12);
+        box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 18px rgba(255,230,0,.20);
       }
       .apoc-btn{
         appearance:none; border:0; cursor:pointer;
@@ -7733,19 +7946,27 @@ function doDash(){
     const style = document.createElement("style");
     style.textContent = `
       #nemesisHud{
-        /* Verschoof naar het midden-boven en kleiner gemaakt — was zelfde plek
-           als #combatPolishHud, wat een dichte stack gaf. Boss Phase wordt
-           verborgen totdat een boss daadwerkelijk leeft (via JS-class). */
+        /* Verbergen tijdens normale gameplay; alleen zichtbaar als er een
+           arena-event of boss actief is. */
         position:fixed;
         left:50%;
         transform:translateX(-50%);
-        top:14px;
+        top:62px;
         z-index:24;
-        width:min(280px, calc(100vw - 32px));
-        display:flex; flex-direction:row; gap:10px; pointer-events:none;
-        flex-wrap:wrap; justify-content:center;
+        max-width:min(260px, calc(100vw - 32px));
+        display:flex; flex-direction:row; gap:6px; pointer-events:none;
+        flex-wrap:nowrap; justify-content:center;
       }
-      #nemesisHud .nem-card{ padding:8px 12px; }
+      #nemesisHud .nem-card{
+        padding:4px 12px;
+        border-radius:999px;
+        font-size:11px;
+      }
+      #nemesisHud .nem-title{ display:none; }
+      #nemesisHud .nem-sub{ display:none; }
+      #nemesisHud .nem-bar{ display:none; }
+      #nemesisHud .nem-main{ font-size:11px; gap:6px; }
+      #nemesisHud:not(.event-active) .nem-card:not(.boss-card){ display:none; }
       #nemesisHud:not(.boss-active) .nem-card.boss-card{ display:none; }
       .nem-card{
         pointer-events:auto;
@@ -7886,11 +8107,13 @@ function doDash(){
       nemesis.hud.eventTime.textContent = nemesis.eventTimer.toFixed(1) + "s";
       nemesis.hud.eventDesc.textContent = nemesis.activeEvent.desc;
       nemesis.hud.eventFill.style.width = pct.toFixed(1) + "%";
+      nemesis.hud.root.classList.add("event-active");
     }else{
       nemesis.hud.eventName.textContent = "Geen event";
       nemesis.hud.eventTime.textContent = "0.0s";
       nemesis.hud.eventDesc.textContent = "De arena is stabiel.";
       nemesis.hud.eventFill.style.width = "0%";
+      nemesis.hud.root.classList.remove("event-active");
     }
 
     if(state.boss){
@@ -13013,27 +13236,42 @@ setWeapon = function(w){
     style.id = "ohCombatPolishStyles";
     style.textContent = `
       #combatPolishHud{
+        /* CoD Zombies-stijl: alleen mag-counter rechtsonder bij ammo.
+           De rest van het paneel (thermal load, weapon status, hint, best wave,
+           boss kills, best score) is overhead die in het meta-paneel achter K
+           thuishoort, niet permanent in beeld. */
         position:fixed;
-        left:16px;
-        top:16px;
+        right:14px;
+        bottom:170px;
         z-index:28;
-        /* Was: 360px brede stack. Ingeklapt tot een compacte horizontale balk
-           bovenaan; toont alleen mag/heat/weapon-status. Diepere stats
-           (boss kills, best wave, best score) zijn geen frame-kritische info en
-           passen beter in het meta-paneel achter K. */
         width:auto;
-        max-width:min(420px, calc(100vw - 32px));
-        display:flex;
-        flex-direction:row;
-        flex-wrap:wrap;
-        gap:8px;
         pointer-events:none;
       }
-      /* Verberg de uitgebreide kaarten — alleen de eerste (status) blijft.
-         Doen via CSS zodat de JS die de kaarten vult niet hoeft te wijzigen. */
       #combatPolishHud .combat-card:not(:first-child){ display:none !important; }
-      #combatPolishHud .combat-card{ padding:8px 12px; }
-      #combatPolishHud .combat-card .combat-head{ font-size:13px; }
+      #combatPolishHud .combat-card{
+        padding:6px 10px;
+        border-radius:10px;
+        background:rgba(8,12,22,.78);
+        border:1px solid rgba(255,255,255,.10);
+        backdrop-filter:blur(6px);
+      }
+      /* Verberg álles binnen de eerste kaart behalve de Mag/Heat-row.
+         Die row is .combat-head met 2 .combat-badge erin. */
+      #combatPolishHud .combat-card .combat-kicker,
+      #combatPolishHud .combat-card .combat-grid,
+      #combatPolishHud .combat-card .combat-note,
+      #combatPolishHud .combat-card .combat-mini{
+        display:none !important;
+      }
+      #combatPolishHud .combat-card .combat-head{
+        font-size:11px;
+        gap:8px;
+        margin:0;
+      }
+      #combatPolishHud .combat-card .combat-badge{
+        font-size:11px;
+        padding:2px 8px;
+      }
       .combat-card{
         pointer-events:auto;
         border-radius:18px;
@@ -14856,14 +15094,29 @@ shootWithDirection = function(dirOverride = null){
 
     const labelTex = new THREE.CanvasTexture(labelCanvas);
     labelTex.needsUpdate = true;
-    const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    // BELANGRIJK: was eerder een THREE.Sprite — die draait altijd naar de camera.
+    // Zodra je achter of opzij van de machine stond stak het label dwars door
+    // het cabinet heen ("scherm in de machine"). We gebruiken nu een platte
+    // PlaneGeometry die meedraait met het cabinet, plus polygonOffset om hem
+    // gegarandeerd net vóór het displayvlak te tekenen.
+    const labelMat = new THREE.MeshBasicMaterial({
       map: labelTex,
       transparent: true,
-      depthTest: true
-    }));
-    labelSprite.position.set(0, 1.90, 0.50);
-    labelSprite.scale.set(1.15, 0.58, 1);
-    root.add(labelSprite);
+      depthTest: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
+    });
+    const labelMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.05, 0.55),
+      labelMat
+    );
+    // Direct vóór het display-vlak (display zit op z=0.48 met dikte 0.03,
+    // dus voorkant op z≈0.495). Plane op z=0.51 — net buiten het cabinet.
+    labelMesh.position.set(0, 1.90, 0.51);
+    labelMesh.renderOrder = 2;
+    root.add(labelMesh);
 
     // Service-slot (kleine opening onder het display)
     const slot = new THREE.Mesh(
@@ -14965,14 +15218,14 @@ shootWithDirection = function(dirOverride = null){
   muteBtn.style.cssText = [
     "position:fixed",
     "top:14px",
-    "right:14px",
-    "width:46px",
-    "height:46px",
+    "right:288px", /* links van help-knop (op right:248 + 34 + 6 gap) */
+    "width:34px",
+    "height:34px",
     "border-radius:50%",
     "border:1px solid rgba(255,255,255,0.22)",
     "background:rgba(10,14,24,0.7)",
     "color:#fff",
-    "font:18px/1 system-ui,sans-serif",
+    "font:14px/1 system-ui,sans-serif",
     "cursor:pointer",
     "z-index:70",
     "display:flex",
