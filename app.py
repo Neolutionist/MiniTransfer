@@ -6077,7 +6077,63 @@ ADMIN_USERS_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Gebruikersbeheer – Admin</title>{{ head_icon|safe }}
-<style>{{ base_css }}</style></head><body>
+<style>{{ base_css }}
+/* ===== Compacte actie-balk in tabellen ===== */
+.actions-col{ width:1%; white-space:nowrap; }
+.action-bar{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+.action-bar form{ display:inline; margin:0; }
+.icon-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:30px; height:30px;
+  padding:0;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:color-mix(in oklab, var(--surface) 70%, transparent);
+  color:var(--text);
+  cursor:pointer;
+  transition:background .15s, border-color .15s, color .15s, transform .05s;
+}
+.icon-btn:hover{
+  background:color-mix(in oklab, var(--surface) 50%, var(--brand) 25%);
+  border-color:color-mix(in oklab, var(--line) 40%, var(--brand) 60%);
+  color:#fff;
+}
+.icon-btn:active{ transform:translateY(1px); }
+.icon-btn:focus-visible{
+  outline:2px solid var(--brand);
+  outline-offset:2px;
+}
+.icon-btn.danger{ color:#ef4444; }
+.icon-btn.danger:hover{
+  background:color-mix(in oklab, var(--surface) 60%, #ef4444 30%);
+  border-color:#b91c1c;
+  color:#fff;
+}
+.icon-btn svg{ display:block; }
+
+/* Reset-wachtwoord dialog */
+.action-dialog{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:1.2rem 1.4rem;
+  background:var(--surface);
+  color:var(--text);
+  max-width:380px;
+  width:90vw;
+  box-shadow:0 20px 50px rgba(0,0,0,.35);
+}
+.action-dialog::backdrop{
+  background:rgba(0,0,0,.45);
+  backdrop-filter:blur(2px);
+}
+.action-dialog h3{ color:var(--text); }
+</style></head><body>
 {{ bg|safe }}
 <div class="wrap"><div class="card" style="max-width:900px;margin:auto">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
@@ -6139,7 +6195,7 @@ ADMIN_USERS_HTML = """
     <thead><tr>
       <th>E-mail</th><th>Rol</th><th>Status</th><th>Aangemaakt</th>
       {% if show_tenant_col %}<th>Tenant</th>{% endif %}
-      <th>Acties</th>
+      <th class="actions-col">Acties</th>
     </tr></thead>
     <tbody>
       {% for u in users %}
@@ -6151,23 +6207,63 @@ ADMIN_USERS_HTML = """
         {% if show_tenant_col %}
         <td style="font-size:.85em;color:var(--muted)"><code>{{ u.tenant_id }}</code></td>
         {% endif %}
-        <td>
+        <td class="actions-col">
           {% if u.id != my_id %}
-          <form method="post" action="/admin/users/{{ u.id }}/toggle" style="display:inline">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn-pro secondary sm" type="submit">{{ 'Aanzetten' if u.disabled else 'Uitschakelen' }}</button>
-          </form>
-          <form method="post" action="/admin/users/{{ u.id }}/reset" style="display:inline;margin-left:.3rem">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <input type="text" name="password" minlength="8" placeholder="nieuw pw" required
-                   style="padding:.35rem .5rem;border:1px solid var(--line);border-radius:8px;width:140px">
-            <button class="btn-pro secondary sm" type="submit">Reset PW</button>
-          </form>
-          <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;margin-left:.3rem"
-                onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn-pro danger sm" type="submit">Verwijderen</button>
-          </form>
+          <div class="action-bar">
+            <form method="post" action="/admin/users/{{ u.id }}/toggle">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="icon-btn"
+                      type="submit"
+                      title="{{ 'Account aanzetten' if u.disabled else 'Account uitschakelen' }}"
+                      aria-label="{{ 'Account aanzetten' if u.disabled else 'Account uitschakelen' }}">
+                {% if u.disabled %}
+                  {# play / activate #}
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+                {% else %}
+                  {# pause / disable #}
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                {% endif %}
+              </button>
+            </form>
+            <button class="icon-btn"
+                    type="button"
+                    title="Wachtwoord resetten"
+                    aria-label="Wachtwoord resetten"
+                    onclick="document.getElementById('reset-{{ u.id }}').showModal()">
+              {# key #}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 9.5-9.5"/><path d="m17 6 3 3"/><path d="m20 3 1 1"/></svg>
+            </button>
+            <form method="post" action="/admin/users/{{ u.id }}/delete"
+                  onsubmit="return confirm('Zeker weten dat je {{ u.email }} wilt verwijderen? Bestanden van deze gebruiker blijven bestaan.');">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="icon-btn danger"
+                      type="submit"
+                      title="Gebruiker verwijderen"
+                      aria-label="Gebruiker verwijderen">
+                {# trash #}
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </form>
+          </div>
+
+          <dialog id="reset-{{ u.id }}" class="action-dialog">
+            <form method="post" action="/admin/users/{{ u.id }}/reset">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <h3 style="margin:0 0 .4rem">Wachtwoord resetten</h3>
+              <p style="margin:0 0 1rem;color:var(--muted);font-size:.9em">
+                Voor <strong>{{ u.email }}</strong>
+              </p>
+              <label for="pw-{{ u.id }}" style="display:block;margin-bottom:.3rem;font-size:.85em">Nieuw wachtwoord</label>
+              <input id="pw-{{ u.id }}" class="input" type="text" name="password"
+                     minlength="8" required placeholder="min. 8 tekens"
+                     style="width:100%;margin-bottom:1rem">
+              <div style="display:flex;gap:.5rem;justify-content:flex-end">
+                <button class="btn-pro secondary sm" type="button"
+                        onclick="this.closest('dialog').close()">Annuleren</button>
+                <button class="btn-pro primary sm" type="submit">Reset wachtwoord</button>
+              </div>
+            </form>
+          </dialog>
           {% else %}
           <em style="color:var(--muted)">eigen account</em>
           {% endif %}
@@ -6188,7 +6284,7 @@ ADMIN_USERS_HTML = """
     <thead><tr>
       <th>E-mail</th><th>Bedrijf</th><th>Plan</th><th>Status</th><th>Aangevraagd</th><th>Sub ID</th>
       {% if show_tenant_col %}<th>Tenant</th>{% endif %}
-      <th>Acties</th>
+      <th class="actions-col">Acties</th>
     </tr></thead>
     <tbody>
       {% for p in pending_accounts %}
@@ -6212,13 +6308,21 @@ ADMIN_USERS_HTML = """
         {% if show_tenant_col %}
         <td style="font-size:.85em;color:var(--muted)"><code>{{ p.tenant_id }}</code></td>
         {% endif %}
-        <td>
+        <td class="actions-col">
           {% if p.status in ('awaiting_payment', 'payment_started') %}
-          <form method="post" action="/admin/pending/{{ p.id }}/cancel" style="display:inline"
-                onsubmit="return confirm('Aanvraag voor {{ p.email }} annuleren? Deze rij wordt verwijderd. Als de klant later toch betaalt, wordt automatisch een nieuwe pending aangemaakt via de webhook.');">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn-pro danger sm" type="submit">Annuleren</button>
-          </form>
+          <div class="action-bar">
+            <form method="post" action="/admin/pending/{{ p.id }}/cancel"
+                  onsubmit="return confirm('Aanvraag voor {{ p.email }} annuleren? Deze rij wordt verwijderd. Als de klant later toch betaalt, wordt automatisch een nieuwe pending aangemaakt via de webhook.');">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="icon-btn danger"
+                      type="submit"
+                      title="Aanvraag annuleren"
+                      aria-label="Aanvraag annuleren">
+                {# x-circle #}
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              </button>
+            </form>
+          </div>
           {% else %}
           <em style="color:var(--muted)">-</em>
           {% endif %}
@@ -6401,9 +6505,13 @@ def admin_users_toggle(user_id):
     if user_id == me["id"]:
         _flash(error="Je kunt je eigen account niet uitschakelen.")
         return redirect(url_for("admin_users"))
+    is_root_admin = (me["email"].lower() == AUTH_EMAIL)
     conn = db()
     try:
-        row = conn.execute("SELECT disabled FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if is_root_admin:
+            row = conn.execute("SELECT disabled FROM users WHERE id = ?", (user_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT disabled FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
         if not row:
             abort(404)
         new_val = 0 if row["disabled"] else 1
@@ -6422,9 +6530,13 @@ def admin_users_reset(user_id):
     if len(pw) < 8:
         _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
         return redirect(url_for("admin_users"))
+    is_root_admin = (me["email"].lower() == AUTH_EMAIL)
     conn = db()
     try:
-        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if is_root_admin:
+            row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
         if not row:
             abort(404)
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(pw), user_id))
@@ -6441,9 +6553,13 @@ def admin_users_delete(user_id):
     if user_id == me["id"]:
         _flash(error="Je kunt je eigen account niet verwijderen.")
         return redirect(url_for("admin_users"))
+    is_root_admin = (me["email"].lower() == AUTH_EMAIL)
     conn = db()
     try:
-        row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
+        if is_root_admin:
+            row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT id FROM users WHERE id = ? AND tenant_id = ?", (user_id, me["tenant_id"])).fetchone()
         if not row:
             abort(404)
         # We verwijderen alleen de user; packages blijven bestaan (owner_user_id wordt wees)
@@ -6728,6 +6844,49 @@ html,body{
   border-radius:8px;
   gap:4px;
 }
+
+/* Compacte icon-knoppen voor de actiekolom */
+.oh-icon-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  width:28px; height:28px;
+  padding:0;
+  border-radius:8px;
+  background:rgba(15,23,42,.42);
+  color:#dbeafe;
+  border:1px solid rgba(255,255,255,.08);
+  cursor:pointer;
+  text-decoration:none;
+  transition:background .15s, border-color .15s, color .15s, transform .05s;
+}
+.oh-icon-btn:hover{
+  background:rgba(15,23,42,.65);
+  color:#fff;
+  border-color:rgba(255,255,255,.18);
+}
+.oh-icon-btn:active{ transform:translateY(1px); }
+.oh-icon-btn:focus-visible{
+  outline:2px solid var(--oh-brand, #5b86f7);
+  outline-offset:2px;
+}
+.oh-icon-btn.wide{
+  width:auto;
+  padding:0 8px;
+  font-size:11px;
+  font-weight:700;
+}
+.oh-icon-btn.danger{
+  color:#fca5a5;
+  border-color:rgba(248,113,113,.25);
+}
+.oh-icon-btn.danger:hover{
+  background:color-mix(in oklab, rgba(15,23,42,.5) 50%, #b91c1c 50%);
+  color:#fff;
+  border-color:#b91c1c;
+}
+.oh-icon-btn svg{ display:block; }
 
 /* Flash */
 .oh-flash{
@@ -7169,19 +7328,36 @@ html,body{
             <td data-label="Acties">
               <div class="oh-actions">
                 {% if not p.is_expired %}
-                <a class="oh-btn xs ghost" href="/p/{{ p.token }}" target="_blank" rel="noopener">Openen</a>
-                <button class="oh-btn xs ghost" type="button" onclick="copyLink('{{ p.share_link }}', this)">Link</button>
+                <a class="oh-icon-btn" href="/p/{{ p.token }}" target="_blank" rel="noopener"
+                   title="Pakket openen" aria-label="Pakket openen">
+                  {# external-link #}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <button class="oh-icon-btn" type="button" onclick="copyLink('{{ p.share_link }}', this)"
+                        title="Link kopiëren" aria-label="Link kopiëren">
+                  {# copy / link #}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                </button>
                 {% if not p.is_never %}
                 <form method="post" action="/uploads/{{ p.token }}/extend" style="display:inline">
                   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                  <button class="oh-btn xs ghost" type="submit" title="Verleng met 7 dagen">+7d</button>
+                  <button class="oh-icon-btn wide" type="submit"
+                          title="Verleng met 7 dagen" aria-label="Verleng met 7 dagen">
+                    {# clock #}
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                    <span>+7d</span>
+                  </button>
                 </form>
                 {% endif %}
                 {% endif %}
                 <form method="post" action="/uploads/{{ p.token }}/delete" style="display:inline"
                       onsubmit="return confirm('Pakket {{ p.title or p.token }} definitief verwijderen? Dit verwijdert ook de bestanden uit opslag.');">
                   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                  <button class="oh-btn xs danger" type="submit">Wis</button>
+                  <button class="oh-icon-btn danger" type="submit"
+                          title="Pakket verwijderen" aria-label="Pakket verwijderen">
+                    {# trash #}
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
                 </form>
               </div>
             </td>
