@@ -236,12 +236,12 @@ def is_trial_tenant() -> bool:
     return bool(current_tenant().get("is_trial"))
 
 def _compute_initials(name: str) -> str:
-    """Bereken een 1-3 letter initialen-badge uit een bedrijfsnaam.
+    """Bereken een 1-2 letter initialen-badge uit een bedrijfsnaam.
 
     Voorbeelden:
       'Vericon'                          -> 'V'
       'Rensing Bouw'                     -> 'RB'
-      'Olde Hanter Bouwconstructies'     -> 'OHB' (max 3)
+      'Olde Hanter Bouwconstructies'     -> 'OH' (max 2)
       'Bouwbedrijf B.V.'                 -> 'B'   (B.V. wordt eraf gestript)
       'Bouwbedrijf de Vries'             -> 'BV'  ('de' wordt geskipt)
       ''                                 -> 'FT'  (fallback)
@@ -268,8 +268,9 @@ def _compute_initials(name: str) -> str:
     if len(words) == 1:
         # Eén woord: alleen de eerste letter.
         return words[0][0].upper()
-    # Meerdere woorden: eerste letter van eerste 3 woorden.
-    return "".join(w[0] for w in words[:3]).upper()
+    # Meerdere woorden: eerste letter van de eerste 2 betekenisvolle woorden.
+    # Maximaal 2 letters, omdat 3 letters in een favicon slecht leesbaar is.
+    return "".join(w[0] for w in words[:2]).upper()
 
 
 def _slug_to_pretty(slug: str) -> str:
@@ -1126,14 +1127,17 @@ def _render_favicon_svg() -> str:
     # Eigen logo? Stuur dat onveranderd terug.
     if b.get("logo_svg"):
         return b["logo_svg"]
-    short = (b.get("short") or "FT")[:3]
+    # Maximaal 2 letters in de favicon; 3 letters wordt op browser-tabformaat
+    # vrijwel onleesbaar. current_brand() bepaalt per ingelogde user/tenant de
+    # juiste branding, en deze extra slice voorkomt dat oudere DB/env waarden
+    # alsnog 3 letters tonen.
+    short = (b.get("short") or "FT")[:2]
     color = (b.get("color") or "#1E3A8A").strip() or "#1E3A8A"
     # XML-escape de letters voor het geval iemand iets geks invult.
     from xml.sax.saxutils import escape as _xml_escape
     short_safe = _xml_escape(short)
-    # Lettergrootte schaalt mee met aantal karakters zodat 1, 2 én 3 letters
-    # netjes in de badge passen.
-    fs = 32 if len(short) <= 2 else 24
+    # Groot genoeg voor 1-2 letters op tabformaat.
+    fs = 32
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'
         f'<rect width="64" height="64" rx="12" fill="{color}"/>'
@@ -1145,7 +1149,14 @@ def _render_favicon_svg() -> str:
 
 @app.route("/favicon.svg")
 def favicon_svg():
-    return Response(_render_favicon_svg(), mimetype="image/svg+xml")
+    resp = Response(_render_favicon_svg(), mimetype="image/svg+xml")
+    # Favicons worden agressief gecachet door browsers. Omdat deze favicon
+    # per user/tenant verschilt, voorkomen we dat bv. de oude OHB-favicon
+    # zichtbaar blijft na wisselen van account of tenant.
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.route("/favicon.ico")
 def favicon_ico():
