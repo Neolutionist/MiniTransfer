@@ -160,27 +160,18 @@ TENANTS = {
 }
 _DEFAULT_TENANT_HOST = _tenant_host
 
-# ---- Branding per tenant ----
-# Configureerbaar via env vars zodat dezelfde codebase voor verschillende klanten
-# werkt zonder code-aanpassing. Defaults vallen terug op Olde Hanter (huidige
-# productie) zodat bestaande deploys blijven werken zonder env-wijzigingen.
-_BRAND_NAME    = os.environ.get("BRAND_NAME", "Olde Hanter Bouwconstructies").strip()
-_BRAND_SHORT   = os.environ.get("BRAND_SHORT", "OH").strip()[:3]  # 1-3 tekens voor de badge
-_BRAND_TAGLINE = os.environ.get("BRAND_TAGLINE", "Beveiligde bestandsoverdracht").strip()
-_BRAND_FOOTER  = os.environ.get("BRAND_FOOTER", f"{_BRAND_NAME} · Bestandentransfer").strip()
-# Optioneel: raw SVG voor het logo (incl. <svg>-tags). Leeg = initialen-badge.
-_BRAND_LOGO_SVG = os.environ.get("BRAND_LOGO_SVG", "").strip()
-# Optioneel: kleur van de initialen-badge (CSS color). Leeg = standaard --brand var.
-_BRAND_COLOR   = os.environ.get("BRAND_COLOR", "").strip()
-
-TENANTS[_tenant_host].update({
-    "brand_name":    _BRAND_NAME,
-    "brand_short":   _BRAND_SHORT,
-    "brand_tagline": _BRAND_TAGLINE,
-    "brand_footer":  _BRAND_FOOTER,
-    "brand_logo_svg": _BRAND_LOGO_SVG,
-    "brand_color":   _BRAND_COLOR,
-})
+# ---- Branding ----
+# Branding wordt automatisch afgeleid uit gegevens die er al zijn:
+#   * Voor klant-tenants: het 'Bedrijf'-veld uit het contactformulier
+#     (opgeslagen in pending_accounts.company en/of de tenant_brand-tabel).
+#   * Voor de hoofd-tenant (de eigenaar van de installatie zelf): een
+#     fallback-naam, omdat die geen klant-aanvraag heeft. Standaard 'Olde
+#     Hanter Bouwconstructies' om bestaande deploys ongewijzigd te laten;
+#     overrid'baar via één env var.
+#   * Voor de trial-tenant: vaste neutrale branding ('Trial').
+#   * Voor users-rows zonder bekende bedrijfsnaam: nette title-case van de slug.
+# Initialen voor de logo-badge worden dynamisch berekend uit de bedrijfsnaam.
+_HOST_BRAND_NAME = os.environ.get("HOST_BRAND_NAME", "Olde Hanter Bouwconstructies").strip()
 
 # ---- Trial-tenant (gratis variant met restricties) ----
 # Trial draait standaard op het canonieke domein onder pad /trial/...
@@ -194,23 +185,10 @@ TRIAL_ENABLED = os.environ.get("TRIAL_ENABLED", "1").lower() in ("1", "true", "y
 # nooit per ongeluk matcht op een echte Host-header.
 _TRIAL_TENANT_KEY = "__trial__"
 if TRIAL_ENABLED:
-    # Trial krijgt neutrale branding zodat trial-gebruikers niet alvast worden
-    # aangesproken als klant van de hoofd-tenant. Override-baar via env vars.
-    _TRIAL_BRAND_NAME    = os.environ.get("TRIAL_BRAND_NAME", "Trial · Bestandentransfer").strip()
-    _TRIAL_BRAND_SHORT   = os.environ.get("TRIAL_BRAND_SHORT", "TR").strip()[:3]
-    _TRIAL_BRAND_TAGLINE = os.environ.get("TRIAL_BRAND_TAGLINE", "Beveiligde bestandsoverdracht (trial)").strip()
-    _TRIAL_BRAND_FOOTER  = os.environ.get("TRIAL_BRAND_FOOTER", "Trial · Bestandentransfer").strip()
-
     TENANTS[_TRIAL_TENANT_KEY] = {
         "slug": TRIAL_TENANT_SLUG,
         "mail_to": MAIL_TO,
         "is_trial": True,
-        "brand_name":    _TRIAL_BRAND_NAME,
-        "brand_short":   _TRIAL_BRAND_SHORT,
-        "brand_tagline": _TRIAL_BRAND_TAGLINE,
-        "brand_footer":  _TRIAL_BRAND_FOOTER,
-        "brand_logo_svg": "",
-        "brand_color":   "",
     }
     # Backwards compatibility: als TRIAL_HOST expliciet is gezet, blijft de
     # oude subdomein-routing óók werken.
@@ -257,22 +235,136 @@ def current_tenant():
 def is_trial_tenant() -> bool:
     return bool(current_tenant().get("is_trial"))
 
-def current_brand() -> dict:
-    """Geeft de branding-velden voor de huidige tenant.
+def _compute_initials(name: str) -> str:
+    """Bereken een 1-3 letter initialen-badge uit een bedrijfsnaam.
 
-    Altijd dezelfde keys, met sensible defaults als een tenant onverhoopt
-    geen branding-velden heeft (oude config). Gebruik dit overal in templates
-    via de Jinja-variabele `brand` (zie context_processor).
+    Voorbeelden:
+      'Vericon'                          -> 'V'
+      'Rensing Bouw'                     -> 'RB'
+      'Olde Hanter Bouwconstructies'     -> 'OHB' (max 3)
+      'Bouwbedrijf B.V.'                 -> 'B'   (B.V. wordt eraf gestript)
+      'Bouwbedrijf de Vries'             -> 'BV'  ('de' wordt geskipt)
+      ''                                 -> 'FT'  (fallback)
     """
+    if not name:
+        return "FT"
+    import re as _re
+    # Strip rechtsvorm-suffixen vóór het splitten — anders worden ze als losse
+    # letters meegeteld (bv. 'B.V.' zou 'B' en 'V' opleveren).
+    cleaned_name = _re.sub(
+        r"\b(b\.?v\.?|n\.?v\.?|v\.?o\.?f\.?|c\.?v\.?|gmbh|ltd|llc|inc)\b\.?",
+        "",
+        name,
+        flags=_re.IGNORECASE,
+    )
+    # Filter veelgebruikte stopwoorden die niets aan de identiteit toevoegen.
+    _SKIP = {"the", "de", "het", "van", "der", "den"}
+    words = [w for w in _re.split(r"[^A-Za-zÀ-ÿ]+", cleaned_name) if w]
+    words = [w for w in words if w.lower() not in _SKIP]
+    if not words:
+        # Niets bruikbaars overgebleven; pak gewoon eerste 2 letters van de input.
+        only_letters = _re.sub(r"[^A-Za-zÀ-ÿ]", "", name)
+        return (only_letters[:2] or "FT").upper()
+    if len(words) == 1:
+        # Eén woord: alleen de eerste letter.
+        return words[0][0].upper()
+    # Meerdere woorden: eerste letter van eerste 3 woorden.
+    return "".join(w[0] for w in words[:3]).upper()
+
+
+def _slug_to_pretty(slug: str) -> str:
+    """Maak een nette weergave-naam uit een tenant-slug. Laatste vangnet als
+    er geen company-naam in de DB staat. 'rensingbouw' -> 'Rensingbouw'."""
+    if not slug:
+        return "Bestandentransfer"
+    return slug.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _lookup_company_for_tenant(slug: str) -> str:
+    """Haal de bedrijfsnaam op voor een tenant_id uit de tenant_brand-cache,
+    met fallback op de meest recente pending_accounts.company van die tenant.
+    Geeft '' terug als er niets bekend is.
+    """
+    if not slug:
+        return ""
+    try:
+        conn = db()
+        try:
+            row = conn.execute(
+                "SELECT company_name FROM tenant_brand WHERE tenant_id = ?",
+                (slug,)
+            ).fetchone()
+            if row and row["company_name"]:
+                return row["company_name"]
+            # Fallback: pak de laatste pending met een ingevulde company.
+            row = conn.execute(
+                "SELECT company FROM pending_accounts "
+                "WHERE tenant_id = ? AND company IS NOT NULL AND company != '' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (slug,)
+            ).fetchone()
+            if row and row["company"]:
+                return row["company"]
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("brand lookup failed for tenant=%s", slug)
+    return ""
+
+
+def current_brand() -> dict:
+    """Geeft de branding voor de huidige tenant — automatisch afgeleid.
+
+    Bron-volgorde:
+      1. Trial-tenant -> vaste neutrale 'Trial'-branding.
+      2. Hoofd-tenant (de eigenaar van de installatie zelf) -> HOST_BRAND_NAME
+         env var, default 'Olde Hanter Bouwconstructies'.
+      3. Klant-tenants -> company_name uit tenant_brand-tabel, met fallback op
+         meest recente pending_accounts.company, met fallback op title-case
+         van de slug.
+    Initialen voor de logo-badge worden automatisch berekend uit de naam.
+    Gecached in flask.g per request zodat herhaalde calls geen DB-hits doen.
+    """
+    # Per-request cache (g) zodat dezelfde response niet 5 DB-hits doet.
+    try:
+        cached = getattr(g, "_brand_cache", None)
+        if cached is not None:
+            return cached
+    except RuntimeError:
+        # Buiten request-context: geen caching mogelijk, val door.
+        cached = None
+
     t = current_tenant()
-    return {
-        "name":     t.get("brand_name")    or "Bestandentransfer",
-        "short":    t.get("brand_short")   or "FT",
-        "tagline":  t.get("brand_tagline") or "Beveiligde bestandsoverdracht",
-        "footer":   t.get("brand_footer")  or (t.get("brand_name") or "Bestandentransfer"),
-        "logo_svg": t.get("brand_logo_svg") or "",
-        "color":    t.get("brand_color")   or "",
+    if t.get("is_trial"):
+        name = "Trial · Bestandentransfer"
+        tagline = "Beveiligde bestandsoverdracht (trial)"
+        footer = "Trial · Bestandentransfer"
+    elif t.get("slug") == _tenant_slug:
+        # Hoofd-tenant (eigenaar van de installatie). Geen pending-aanvraag, dus
+        # branding komt uit env var met sensible default.
+        name = _HOST_BRAND_NAME
+        tagline = "Beveiligde bestandsoverdracht"
+        footer = f"{name} · Bestandentransfer"
+    else:
+        # Klant-tenant: zoek de bedrijfsnaam op in de DB.
+        company = _lookup_company_for_tenant(t.get("slug", ""))
+        name = company or _slug_to_pretty(t.get("slug", ""))
+        tagline = "Beveiligde bestandsoverdracht"
+        footer = f"{name} · Bestandentransfer"
+
+    brand = {
+        "name":     name,
+        "short":    _compute_initials(name),
+        "tagline":  tagline,
+        "footer":   footer,
+        "logo_svg": "",   # geen per-tenant logo (zou handmatig moeten)
+        "color":    "",   # geen per-tenant kleur
     }
+    try:
+        g._brand_cache = brand
+    except RuntimeError:
+        pass
+    return brand
 
 def trial_signup_url() -> str:
     """Geeft de absolute URL naar de trial-signup-pagina, of '' als trial uit staat.
@@ -388,6 +480,19 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_pending_email_tenant ON pending_accounts(email, tenant_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pending_sub ON pending_accounts(paypal_subscription_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_accounts(status)")
+
+    # ===== TENANT BRAND =====
+    # Cache van bedrijfsnaam per tenant_id, zodat de UI per ingelogde gebruiker
+    # automatisch de juiste branding kan tonen zonder env-config per tenant.
+    # Wordt gevuld vanuit pending_accounts.company op het moment dat een
+    # PayPal-aanvraag wordt geactiveerd. Eén rij per tenant_id.
+    c.execute("""
+      CREATE TABLE IF NOT EXISTS tenant_brand (
+        tenant_id TEXT PRIMARY KEY,
+        company_name TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    """)
 
     # ===== RATE LIMITING (login + package views) =====
     c.execute("""
@@ -5693,7 +5798,9 @@ def paypal_store_subscription():
 def _activate_pending_account_by_sub(sub_id: str):
     """
     Activeer een pending account o.b.v. subscription_id: maak een users-row aan
-    (als die nog niet bestaat) en markeer pending als 'activated'.
+    (als die nog niet bestaat) en markeer pending als 'activated'. Slaat ook
+    de bedrijfsnaam op in tenant_brand zodat de UI automatisch de juiste
+    branding kan tonen voor deze tenant.
 
     Returns: dict met 'email','tenant_id','created' of None als niet gevonden.
     """
@@ -5702,7 +5809,7 @@ def _activate_pending_account_by_sub(sub_id: str):
     conn = db()
     try:
         row = conn.execute(
-            """SELECT id, email, password_hash, tenant_id, plan_value, status
+            """SELECT id, email, password_hash, tenant_id, plan_value, status, company
                FROM pending_accounts
                WHERE paypal_subscription_id = ?
                LIMIT 1""",
@@ -5734,6 +5841,19 @@ def _activate_pending_account_by_sub(sub_id: str):
             "UPDATE pending_accounts SET status = 'activated', activated_at = ? WHERE id = ?",
             (datetime.now(timezone.utc).isoformat(), row["id"])
         )
+
+        # Branding: cache de bedrijfsnaam zodat de UI 'm voor deze tenant kan tonen.
+        company = (row["company"] or "").strip()
+        if company and tenant:
+            conn.execute(
+                """INSERT INTO tenant_brand(tenant_id, company_name, updated_at)
+                   VALUES(?, ?, ?)
+                   ON CONFLICT(tenant_id) DO UPDATE SET
+                     company_name = excluded.company_name,
+                     updated_at   = excluded.updated_at""",
+                (tenant, company, datetime.now(timezone.utc).isoformat())
+            )
+
         conn.commit()
         return {"email": email, "tenant_id": tenant, "created": created, "already": False}
     except Exception:
