@@ -1956,6 +1956,59 @@ renderBoard();
 
   let audioCtx = null;
   let _audioMuted = false;
+  // [AUDIO MIX] Sub-bussen — alle gameplay-sounds gaan door een dedicated bus
+  // i.p.v. direct naar audioCtx.destination. Hierdoor:
+  //   - gunBus kan 2.5× luider dan music/sfx zonder de hele mix te clippen
+  //   - één gain-node om de hele game in/uit te faden
+  //   - gunBus heeft een soft-clipper (waveshaper) zodat luide gun-stacks niet
+  //     digitaal afkappen maar warm "saturaten" — de echte CoD-impact-feel.
+  let _masterBus = null;
+  let _gunBus    = null;
+  let _musicBus  = null;
+  let _sfxBus    = null;
+  function _ensureBuses(){
+    if(!audioCtx || _masterBus) return;
+
+    _masterBus = audioCtx.createGain();
+    _masterBus.gain.value = 1.0;
+
+    // Gun bus: lekker hard, met soft-clipper voor warmte op stacks
+    _gunBus = audioCtx.createGain();
+    _gunBus.gain.value = 2.4;             // gunshots zijn nu fors luider dan music
+    const _gunSat = audioCtx.createWaveShaper();
+    {
+      // Soft-saturation curve (tanh-achtig): waarden tussen -1..+1 worden zachtjes
+      // afgerond i.p.v. afgekapt. Voorkomt brick-wall-clipping bij overlappende shots.
+      const N = 1024, curve = new Float32Array(N);
+      for(let i = 0; i < N; i++){
+        const x = (i / (N - 1)) * 2 - 1;
+        curve[i] = Math.tanh(x * 1.6) / Math.tanh(1.6);
+      }
+      _gunSat.curve = curve;
+      _gunSat.oversample = "2x";
+    }
+    _gunBus.connect(_gunSat);
+    _gunSat.connect(_masterBus);
+
+    // Music bus: rustig achtergrondniveau
+    _musicBus = audioCtx.createGain();
+    _musicBus.gain.value = 0.85;
+    _musicBus.connect(_masterBus);
+
+    // SFX bus: pickups, hits, damage etc.
+    _sfxBus = audioCtx.createGain();
+    _sfxBus.gain.value = 1.0;
+    _sfxBus.connect(_masterBus);
+
+    _masterBus.connect(audioCtx.destination);
+  }
+  // Helpers die elders aangeroepen worden om de juiste output-node te krijgen.
+  // Als de buses (om wat voor reden dan ook) niet beschikbaar zijn, fallback
+  // naar destination zodat audio nooit stilvalt.
+  function _gunOut(){   return _gunBus   || (audioCtx && audioCtx.destination); }
+  function _musicOut(){ return _musicBus || (audioCtx && audioCtx.destination); }
+  function _sfxOut(){   return _sfxBus   || (audioCtx && audioCtx.destination); }
+
   try {
     _audioMuted = localStorage.getItem("oh_muted") === "1";
   } catch(_){}
@@ -1965,6 +2018,7 @@ renderBoard();
       if(Ctx) audioCtx = new Ctx();
     }
     if(audioCtx && audioCtx.state === "suspended" && !_audioMuted) audioCtx.resume();
+    _ensureBuses();
   }
   // Globale API zodat de mute-knop (buiten deze IIFE) de state kan toggelen
   window.OHSetMuted = function(muted){
@@ -1983,7 +2037,10 @@ renderBoard();
   };
   window.OHGetAudioMuted = function(){ return _audioMuted; };
 
-  function tone(freq=440, dur=0.06, type="square", volume=0.04, slide=0){
+  // [AUDIO] tone/noiseBurst/filteredNoise accepteren een optionele `out`-node
+  // zodat caller kan kiezen of het door de sfx-bus of gun-bus loopt. Default
+  // is sfx-bus omdat de meeste callers UI/feedback-blips zijn.
+  function tone(freq=440, dur=0.06, type="square", volume=0.04, slide=0, out=null){
     if(!audioCtx || _audioMuted) return;
     const now = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -1998,12 +2055,12 @@ renderBoard();
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(out || _sfxOut());
     osc.start(now);
     osc.stop(now + dur);
   }
 
-  function noiseBurst(dur=0.06, volume=0.02){
+  function noiseBurst(dur=0.06, volume=0.02, out=null){
     if(!audioCtx || _audioMuted) return;
     const size = Math.max(1, (audioCtx.sampleRate * dur)|0);
     const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
@@ -2018,13 +2075,11 @@ renderBoard();
     src.buffer = buffer;
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(out || _sfxOut());
     src.start();
   }
 
-  // Filtered noise — bandwidth en center-frequency aanpasbaar voor variatie
-  // (kort en luid voor rifle/explosies, langer en lager voor gegrom).
-  function filteredNoise(dur=0.1, volume=0.04, opts={}){
+  function filteredNoise(dur=0.1, volume=0.04, opts={}, out=null){
     if(!audioCtx || _audioMuted) return;
     const {
       filterType = "bandpass",
@@ -2047,7 +2102,7 @@ renderBoard();
     const gain = audioCtx.createGain();
     gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+    src.connect(filter); filter.connect(gain); gain.connect(out || _sfxOut());
     src.start();
   }
 
@@ -2064,27 +2119,30 @@ renderBoard();
   // & sharp, SMGs crisp & rapid, rifles met meer body, shotguns dieper.
   function _gunshotLayered(opts){
     if(!audioCtx || _audioMuted) return;
+    // [AUDIO] CoD-Zombies-stijl gunshot: zwaardere body, langere "warehouse"-tail.
+    // Echte volumes komen ook van de _gunBus (×2.4 + soft-saturatie) — deze
+    // waarden zijn de relatieve mix tussen de 4 lagen.
     const o = Object.assign({
-      crackFreq:  4500,   // hoogfreq snap
-      crackDur:   0.012,
-      crackVol:   0.18,
-      bodyFreq:   480,    // mid-body center
-      bodyEndFreq:140,
-      bodyDur:    0.06,
-      bodyVol:    0.16,
+      crackFreq:  4500,
+      crackDur:   0.016,
+      crackVol:   0.42,    // scherpere crack
+      bodyFreq:   460,
+      bodyEndFreq:130,
+      bodyDur:    0.085,   // langere body — echt "BAM"
+      bodyVol:    0.46,    // serieus zwaarder kruit
       bodyQ:      1.4,
-      subFreq:    72,     // sub-thump
-      subEndFreq: 36,
-      subDur:     0.14,
-      subVol:     0.10,
-      tailDur:    0.18,   // omgevings-tail
-      tailVol:    0.05,
-      tailFreq:   900,
-      tailEndFreq:300,
-      tailQ:      0.6,
-      click:      false,  // mechanical hammer-click
+      subFreq:    72,
+      subEndFreq: 34,
+      subDur:     0.22,    // langere chest-rumble
+      subVol:     0.34,    // diep voelbaar
+      tailDur:    0.55,    // CoD-warehouse-galm
+      tailVol:    0.18,    // duidelijk hoorbare echo
+      tailFreq:   780,
+      tailEndFreq:240,
+      tailQ:      0.5,     // breder/wolliger voor ruimtegevoel
+      click:      false,
       clickFreq:  2200,
-      clickVol:   0.04
+      clickVol:   0.10
     }, opts || {});
     const now = audioCtx.currentTime;
 
@@ -2104,7 +2162,7 @@ renderBoard();
       const g = audioCtx.createGain();
       g.gain.setValueAtTime(o.crackVol, now);
       g.gain.exponentialRampToValueAtTime(0.0001, now + o.crackDur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now); src.stop(now + o.crackDur + 0.01);
     }
 
@@ -2127,7 +2185,7 @@ renderBoard();
       const g = audioCtx.createGain();
       g.gain.setValueAtTime(o.bodyVol, now);
       g.gain.exponentialRampToValueAtTime(0.0001, now + o.bodyDur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now); src.stop(now + o.bodyDur + 0.01);
     }
 
@@ -2141,7 +2199,7 @@ renderBoard();
       sg.gain.setValueAtTime(0.0001, now);
       sg.gain.exponentialRampToValueAtTime(o.subVol, now + 0.005);
       sg.gain.exponentialRampToValueAtTime(0.0001, now + o.subDur);
-      sub.connect(sg); sg.connect(audioCtx.destination);
+      sub.connect(sg); sg.connect(_gunOut());
       sub.start(now); sub.stop(now + o.subDur + 0.02);
     }
 
@@ -2165,7 +2223,7 @@ renderBoard();
       g.gain.setValueAtTime(0.0001, now + 0.02);
       g.gain.exponentialRampToValueAtTime(o.tailVol, now + 0.04);
       g.gain.exponentialRampToValueAtTime(0.0001, now + o.tailDur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now + 0.02); src.stop(now + o.tailDur + 0.03);
     }
 
@@ -2178,7 +2236,7 @@ renderBoard();
       c.frequency.exponentialRampToValueAtTime(800, now + 0.008);
       cg.gain.setValueAtTime(o.clickVol, now);
       cg.gain.exponentialRampToValueAtTime(0.0001, now + 0.012);
-      c.connect(cg); cg.connect(audioCtx.destination);
+      c.connect(cg); cg.connect(_gunOut());
       c.start(now); c.stop(now + 0.015);
     }
   }
@@ -2186,66 +2244,68 @@ renderBoard();
   // Per-weapon shot SFX. Allemaal gebruiken dezelfde 4-laags synthese
   // maar met andere parameters voor karakter. shootWithDirection roept
   // sfxShoot() aan; we dispatchen daar op de actieve wapen-id.
+  // [AUDIO] Profielen herbalanceerd voor CoD-Zombies feel: elk wapen heeft
+  // een herkenbare staart (warehouse-echo) en een eigen frequency-character.
   function sfxShootM1911(){
-    // Pistol — kort, scherp, lichte echo
+    // M1911 — tighte, droge knal met korte tail. Sharp & "professioneel".
     _gunshotLayered({
-      crackFreq:5200, crackVol:0.16,
-      bodyFreq:540, bodyEndFreq:160, bodyDur:0.05, bodyVol:0.14, bodyQ:1.2,
-      subFreq:78, subEndFreq:42, subDur:0.10, subVol:0.07,
-      tailDur:0.14, tailVol:0.035, tailFreq:1100, tailEndFreq:380,
-      click:true, clickFreq:2400, clickVol:0.03
+      crackFreq:5400, crackVol:0.40,
+      bodyFreq:560, bodyEndFreq:170, bodyDur:0.07,  bodyVol:0.40, bodyQ:1.2,
+      subFreq:80,  subEndFreq:42,  subDur:0.16,  subVol:0.26,
+      tailDur:0.38, tailVol:0.15, tailFreq:1100, tailEndFreq:380,
+      click:true, clickFreq:2400, clickVol:0.10
     });
   }
   function sfxShootMP5(){
-    // SMG — crisp & snappy, korte tail (loop-vriendelijk)
+    // MP5 — tight & snappy, kortere tail (hi-rate fire — niet teveel overlap).
     _gunshotLayered({
-      crackFreq:4800, crackVol:0.14, crackDur:0.010,
-      bodyFreq:620, bodyEndFreq:200, bodyDur:0.04, bodyVol:0.12, bodyQ:1.5,
-      subFreq:80, subEndFreq:46, subDur:0.07, subVol:0.05,
-      tailDur:0.09, tailVol:0.025, tailFreq:1200, tailEndFreq:480,
+      crackFreq:4900, crackVol:0.34, crackDur:0.012,
+      bodyFreq:640, bodyEndFreq:210, bodyDur:0.055, bodyVol:0.34, bodyQ:1.5,
+      subFreq:84, subEndFreq:48,  subDur:0.13, subVol:0.22,
+      tailDur:0.30, tailVol:0.11, tailFreq:1200, tailEndFreq:440,
       click:false
     });
   }
   function sfxShootM14(){
-    // Semi-auto rifle — meer body en tail (battle rifle "BAM")
+    // M14 — battle rifle "BAM": dikke body, lange tail, voelt zwaar.
     _gunshotLayered({
-      crackFreq:4200, crackVol:0.20,
-      bodyFreq:380, bodyEndFreq:120, bodyDur:0.08, bodyVol:0.20, bodyQ:1.2,
-      subFreq:64, subEndFreq:32, subDur:0.16, subVol:0.12,
-      tailDur:0.24, tailVol:0.06, tailFreq:780, tailEndFreq:200, tailQ:0.8,
-      click:true, clickFreq:1800, clickVol:0.04
+      crackFreq:4200, crackVol:0.46,
+      bodyFreq:360, bodyEndFreq:115, bodyDur:0.115, bodyVol:0.52, bodyQ:1.2,
+      subFreq:60, subEndFreq:30, subDur:0.26, subVol:0.36,
+      tailDur:0.65, tailVol:0.22, tailFreq:760, tailEndFreq:200, tailQ:0.55,
+      click:true, clickFreq:1800, clickVol:0.10
     });
   }
   function sfxShootAK(){
-    // AK74u — full-auto rifle, mid-body
+    // AK74u — full-auto, mid-body met agressieve crack.
     _gunshotLayered({
-      crackFreq:4000, crackVol:0.16,
-      bodyFreq:440, bodyEndFreq:150, bodyDur:0.06, bodyVol:0.16, bodyQ:1.3,
-      subFreq:70, subEndFreq:38, subDur:0.12, subVol:0.09,
-      tailDur:0.16, tailVol:0.04, tailFreq:900, tailEndFreq:280
+      crackFreq:4000, crackVol:0.40,
+      bodyFreq:430, bodyEndFreq:145, bodyDur:0.082, bodyVol:0.44, bodyQ:1.3,
+      subFreq:70, subEndFreq:36, subDur:0.20, subVol:0.30,
+      tailDur:0.48, tailVol:0.18, tailFreq:880, tailEndFreq:280
     });
   }
   function sfxShootGalil(){
-    // Galil — full-power AR, hardere tail
+    // Galil — vol AR-gewicht, lekker breed.
     _gunshotLayered({
-      crackFreq:3800, crackVol:0.18,
-      bodyFreq:400, bodyEndFreq:130, bodyDur:0.07, bodyVol:0.18, bodyQ:1.2,
-      subFreq:66, subEndFreq:34, subDur:0.14, subVol:0.10,
-      tailDur:0.20, tailVol:0.05, tailFreq:820, tailEndFreq:230
+      crackFreq:3800, crackVol:0.42,
+      bodyFreq:390, bodyEndFreq:125, bodyDur:0.092, bodyVol:0.46, bodyQ:1.2,
+      subFreq:64, subEndFreq:32, subDur:0.22, subVol:0.32,
+      tailDur:0.55, tailVol:0.20, tailFreq:820, tailEndFreq:230
     });
   }
   function sfxShootShotgun(){
-    // Olympia — diep "BOOM", veel low-end + lange rumble
+    // Olympia — diepe, lange "BOOM" met gigantische tail. Extreme body.
     _gunshotLayered({
-      crackFreq:2800, crackVol:0.20, crackDur:0.018,
-      bodyFreq:280, bodyEndFreq:80, bodyDur:0.10, bodyVol:0.24, bodyQ:0.9,
-      subFreq:54, subEndFreq:24, subDur:0.22, subVol:0.18,
-      tailDur:0.34, tailVol:0.08, tailFreq:600, tailEndFreq:140, tailQ:0.5,
-      click:true, clickFreq:1400, clickVol:0.05
+      crackFreq:2700, crackVol:0.50, crackDur:0.024,
+      bodyFreq:260, bodyEndFreq:75, bodyDur:0.16, bodyVol:0.62, bodyQ:0.85,
+      subFreq:50, subEndFreq:22, subDur:0.34, subVol:0.46,
+      tailDur:0.85, tailVol:0.30, tailFreq:580, tailEndFreq:130, tailQ:0.45,
+      click:true, clickFreq:1400, clickVol:0.13
     });
   }
   function sfxShootPlasma(){
-    // Plasma rifle / Ray Gun — sci-fi energie-zap (geen kruit-body)
+    // Plasma rifle / Ray Gun — sci-fi energie-zap (geen kruit-body). BOOSTED.
     if(!audioCtx || _audioMuted) return;
     const now = audioCtx.currentTime;
     // Hoge zap-toon die snel afdaalt
@@ -2254,22 +2314,22 @@ renderBoard();
     o1.frequency.setValueAtTime(1400, now);
     o1.frequency.exponentialRampToValueAtTime(220, now + 0.10);
     const g1 = audioCtx.createGain();
-    g1.gain.setValueAtTime(0.10, now);
-    g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-    o1.connect(g1); g1.connect(audioCtx.destination);
-    o1.start(now); o1.stop(now + 0.13);
-    // Filtered noise voor "energie-fizz"
-    filteredNoise(0.10, 0.04, { filterType:"bandpass", freqStart:2400, freqEnd:600, Q:1.5 });
-    // Lichte sub voor punch
+    g1.gain.setValueAtTime(0.22, now);
+    g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.13);
+    o1.connect(g1); g1.connect(_gunOut());
+    o1.start(now); o1.stop(now + 0.14);
+    // Filtered noise voor "energie-fizz" — door gun-bus voor consistent volume
+    filteredNoise(0.12, 0.10, { filterType:"bandpass", freqStart:2400, freqEnd:600, Q:1.5 }, _gunOut());
+    // Sub voor punch — meer dan eerst
     const sub = audioCtx.createOscillator();
     sub.type = "sine";
     sub.frequency.setValueAtTime(80, now);
-    sub.frequency.exponentialRampToValueAtTime(40, now + 0.10);
+    sub.frequency.exponentialRampToValueAtTime(40, now + 0.12);
     const sg = audioCtx.createGain();
-    sg.gain.setValueAtTime(0.05, now);
-    sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-    sub.connect(sg); sg.connect(audioCtx.destination);
-    sub.start(now); sub.stop(now + 0.13);
+    sg.gain.setValueAtTime(0.14, now);
+    sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    sub.connect(sg); sg.connect(_gunOut());
+    sub.start(now); sub.stop(now + 0.15);
   }
 
   // Hoofd sfxShoot dispatcht op het actieve CoD-wapen via OHInv. Default
@@ -2319,7 +2379,7 @@ renderBoard();
       const g = audioCtx.createGain();
       g.gain.setValueAtTime(0.18, now);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now); src.stop(now + dur + 0.005);
     }
 
@@ -2342,7 +2402,7 @@ renderBoard();
       const g = audioCtx.createGain();
       g.gain.setValueAtTime(0.16, now);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now); src.stop(now + dur + 0.02);
     }
 
@@ -2356,7 +2416,7 @@ renderBoard();
       sg.gain.setValueAtTime(0.0001, now);
       sg.gain.exponentialRampToValueAtTime(0.18, now + 0.005);
       sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-      sub.connect(sg); sg.connect(audioCtx.destination);
+      sub.connect(sg); sg.connect(_gunOut());
       sub.start(now); sub.stop(now + 0.24);
     }
   }
@@ -2380,7 +2440,7 @@ renderBoard();
       const g = audioCtx.createGain();
       g.gain.setValueAtTime(0.10, now);
       g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-      src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+      src.connect(f); f.connect(g); g.connect(_gunOut());
       src.start(now); src.stop(now + dur + 0.01);
     }
     // Tonale "thunk"
@@ -2391,7 +2451,7 @@ renderBoard();
     const og = audioCtx.createGain();
     og.gain.setValueAtTime(0.08, now);
     og.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-    o.connect(og); og.connect(audioCtx.destination);
+    o.connect(og); og.connect(_gunOut());
     o.start(now); o.stop(now + 0.14);
   }
 
@@ -2446,24 +2506,273 @@ renderBoard();
       g.gain.setValueAtTime(0.0001, now + i * 0.03);
       g.gain.exponentialRampToValueAtTime(0.05, now + i * 0.03 + 0.08);
       g.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
-      o.connect(g); g.connect(audioCtx.destination);
+      o.connect(g); g.connect(_sfxOut());
       o.start(now + i * 0.03);
       o.stop(now + 1.6);
     });
   }
 
-  // Enemy growl — random gegrom voor sfeer (cadans-getrigger vanuit game-loop)
-  function sfxGrowl(){
+  // ================================================================
+  // [AUDIO] CoD-stijl zombie-vocals
+  // ================================================================
+  // Echte zombie-stemmen in CoD klinken niet als een sine-grom maar als
+  // een raspende, gorgelende stem die formant-resonanties heeft (de
+  // mond-/keelvorm kleurt het geluid). We simuleren dat met:
+  //   1) een lage sawtooth/triangle "stembanden" (50-130Hz, met vibrato)
+  //   2) ruis bovenop voor de raspy/wet-keel kwaliteit
+  //   3) twee parallel bandpass-filters op typische voice-formanten
+  //      (~700Hz "ah" en ~1100Hz "uh") die het geluid "menselijk" kleuren
+  //   4) een lange amplitude-envelope met natuurlijke wobble
+  //
+  // 5 varianten:
+  //   "shamble"  — laag, traag, rustig (default ambient)
+  //   "alert"    — feller, hoger pitch, korter
+  //   "lunge"    — snauw vlak voor aanval (luid + scherp)
+  //   "gurgle"   — wet/keelgeluid (variatie)
+  //   "snort"    — kort snuiven (variatie, ~30% kans)
+  // ================================================================
+
+  function _zombieVocal(opts){
     if(!audioCtx || _audioMuted) return;
-    const baseFreq = 80 + Math.random() * 40;
-    tone(baseFreq, 0.32, "sawtooth", 0.022, -10 + Math.random() * 20);
-    filteredNoise(0.30, 0.018, {
-      filterType:"lowpass",
-      freqStart: 250 + Math.random() * 120,
-      freqEnd: 140,
-      Q: 0.6
-    });
+    const o = Object.assign({
+      baseFreq: 75,        // grondtoon stembanden (Hz)
+      freqEnd: 55,         // pitch-zak naar einde
+      dur: 0.85,           // totale lengte
+      formant1: 720,       // eerste formant (klinker-kleur)
+      formant2: 1180,      // tweede formant
+      formantQ: 6,         // hoe scherp de formant-resonantie is
+      sawVol: 0.13,        // stembanden-niveau
+      noiseVol: 0.08,      // raspy noise erbovenop
+      vibratoHz: 5.5,      // pitch-wiebel snelheid
+      vibratoCents: 18,    // hoe ver pitch heen-en-weer beweegt
+      attack: 0.06,        // hoe snel het inzet
+      releaseTail: 0.20    // staart-tijd
+    }, opts || {});
+    const now = audioCtx.currentTime;
+    const stop = now + o.dur + o.releaseTail + 0.02;
+    const out = _sfxOut();
+
+    // === LAAG 1: stembanden (saw + triangle gestapeld) ===
+    // Saw = scherpe boventonen → klinkt "rasperig"
+    // Triangle een octaaf hoger zachtjes mee → body
+    const saw = audioCtx.createOscillator();
+    saw.type = "sawtooth";
+    saw.frequency.setValueAtTime(o.baseFreq, now);
+    saw.frequency.linearRampToValueAtTime(Math.max(30, o.freqEnd), now + o.dur);
+
+    // Vibrato LFO op de saw — dat is wat het écht "stem" laat klinken
+    // (zonder vibrato is het een drone). LFO module pitch via detune (cents).
+    const vibLFO = audioCtx.createOscillator();
+    vibLFO.type = "sine";
+    vibLFO.frequency.value = o.vibratoHz;
+    const vibGain = audioCtx.createGain();
+    vibGain.gain.value = o.vibratoCents;
+    vibLFO.connect(vibGain);
+    vibGain.connect(saw.detune);
+
+    // === LAAG 2: raspy noise (wet-throat) ===
+    const noiseSize = Math.max(1, (audioCtx.sampleRate * (o.dur + o.releaseTail))|0);
+    const noiseBuf = audioCtx.createBuffer(1, noiseSize, audioCtx.sampleRate);
+    const nd = noiseBuf.getChannelData(0);
+    for(let i = 0; i < noiseSize; i++){
+      // Niet helemaal pure ruis — we modulen 'm met een trage golf zodat hij
+      // ademt (in/uit ademhaling). En een touch flutter erbovenop voor wet-feel.
+      const t = i / noiseSize;
+      const breath = 0.55 + 0.45 * Math.sin(t * Math.PI * 2 * 1.8);
+      const flutter = 0.85 + 0.15 * Math.sin(t * Math.PI * 2 * 30);
+      nd[i] = (Math.random() * 2 - 1) * breath * flutter;
+    }
+    const noiseSrc = audioCtx.createBufferSource();
+    noiseSrc.buffer = noiseBuf;
+
+    // Mengpunt voor saw + noise vóór ze door de formant-filters gaan
+    const preFmt = audioCtx.createGain();
+    preFmt.gain.value = 1.0;
+
+    const sawGain = audioCtx.createGain();
+    sawGain.gain.value = o.sawVol;
+    saw.connect(sawGain).connect(preFmt);
+
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.value = o.noiseVol;
+    // Pre-shape de noise iets met een lowpass zodat het niet als "tape-hiss"
+    // klinkt maar als keel-resonantie
+    const noiseLP = audioCtx.createBiquadFilter();
+    noiseLP.type = "lowpass";
+    noiseLP.frequency.value = 1800;
+    noiseLP.Q.value = 0.7;
+    noiseSrc.connect(noiseLP).connect(noiseGain).connect(preFmt);
+
+    // === LAAG 3: dubbele formant-filtering (mond/keel-vorm) ===
+    // Twee bandpass-filters parallel — sommeer hun output. Dit is een
+    // klassieke vocal-synthesis-trick: de twee resonantie-pieken geven
+    // het geluid "klinker"-karakter. Voor zombies niet stabiel houden;
+    // lichte beweging in de formanten = "kaakbeweging".
+    const f1 = audioCtx.createBiquadFilter();
+    f1.type = "bandpass";
+    f1.frequency.setValueAtTime(o.formant1, now);
+    f1.frequency.linearRampToValueAtTime(o.formant1 * 0.92, now + o.dur);
+    f1.Q.value = o.formantQ;
+
+    const f2 = audioCtx.createBiquadFilter();
+    f2.type = "bandpass";
+    f2.frequency.setValueAtTime(o.formant2, now);
+    f2.frequency.linearRampToValueAtTime(o.formant2 * 1.05, now + o.dur);
+    f2.Q.value = o.formantQ * 0.85;
+
+    preFmt.connect(f1);
+    preFmt.connect(f2);
+
+    const fmtMix = audioCtx.createGain();
+    fmtMix.gain.value = 0.5;
+    f1.connect(fmtMix);
+    f2.connect(fmtMix);
+
+    // === LAAG 4: bypass van een deel van de droge stembanden ===
+    // De formanten alleen kunnen iets te "filtered/synth" klinken; we mengen
+    // er een klein beetje van de pré-formant terug in voor body.
+    const dryBypass = audioCtx.createGain();
+    dryBypass.gain.value = 0.15;
+    preFmt.connect(dryBypass);
+
+    // === LAAG 5: master amp envelope (attack + sustain + release) ===
+    const ampEnv = audioCtx.createGain();
+    ampEnv.gain.setValueAtTime(0.0001, now);
+    ampEnv.gain.exponentialRampToValueAtTime(1.0, now + o.attack);
+    // Klein "sustain"-niveau plateau in het midden
+    ampEnv.gain.linearRampToValueAtTime(0.85, now + o.dur * 0.55);
+    ampEnv.gain.exponentialRampToValueAtTime(0.0001, now + o.dur + o.releaseTail);
+
+    fmtMix.connect(ampEnv);
+    dryBypass.connect(ampEnv);
+
+    // Klein highpass eraan om sub-rommel te dempen
+    const hp = audioCtx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 80;
+    hp.Q.value = 0.5;
+    ampEnv.connect(hp);
+    hp.connect(out);
+
+    // Start alles
+    saw.start(now);          saw.stop(stop);
+    vibLFO.start(now);       vibLFO.stop(stop);
+    noiseSrc.start(now);     noiseSrc.stop(stop);
   }
+
+  // Enemy growl — random gegrom voor sfeer (cadans-getrigger vanuit game-loop)
+  // Dispatcher die de juiste vocal-variant kiest met aanrandende randomization.
+  function sfxGrowl(variant){
+    if(!audioCtx || _audioMuted) return;
+    // Als geen specifieke variant: kies random uit shamble-pool
+    if(!variant){
+      const r = Math.random();
+      if(r < 0.55)      variant = "shamble";
+      else if(r < 0.78) variant = "gurgle";
+      else if(r < 0.90) variant = "snort";
+      else              variant = "alert";
+    }
+
+    // Randomisatie: elke vocal krijgt jitter zodat geen twee identiek zijn
+    const jit = (base, range) => base + (Math.random() - 0.5) * range;
+
+    switch(variant){
+      case "shamble":
+        // Lange, lage, rustige grom — het meest gehoord
+        _zombieVocal({
+          baseFreq:    jit(78, 14),
+          freqEnd:     jit(58, 12),
+          dur:         jit(0.85, 0.30),
+          formant1:    jit(720, 80),
+          formant2:    jit(1180, 120),
+          formantQ:    jit(6, 1.5),
+          sawVol:      jit(0.12, 0.03),
+          noiseVol:    jit(0.07, 0.02),
+          vibratoHz:   jit(5.5, 1.5),
+          vibratoCents:jit(18, 6),
+          attack:      0.07,
+          releaseTail: 0.20
+        });
+        break;
+
+      case "alert":
+        // Hoger, scherper — "hij heeft je gezien"
+        _zombieVocal({
+          baseFreq:    jit(120, 20),
+          freqEnd:     jit(95, 15),
+          dur:         jit(0.55, 0.15),
+          formant1:    jit(820, 60),
+          formant2:    jit(1450, 100),
+          formantQ:    jit(7, 1.5),
+          sawVol:      jit(0.16, 0.03),
+          noiseVol:    jit(0.10, 0.03),
+          vibratoHz:   jit(7, 2),
+          vibratoCents:jit(28, 8),
+          attack:      0.03,
+          releaseTail: 0.14
+        });
+        break;
+
+      case "lunge":
+        // Korte, agressieve snauw — luid, formant-zwaai voor "klap"-effect
+        _zombieVocal({
+          baseFreq:    jit(140, 25),
+          freqEnd:     jit(85, 20),
+          dur:         jit(0.32, 0.08),
+          formant1:    jit(900, 80),
+          formant2:    jit(1600, 150),
+          formantQ:    jit(8, 1),
+          sawVol:      jit(0.22, 0.04),
+          noiseVol:    jit(0.15, 0.03),
+          vibratoHz:   jit(8, 2),
+          vibratoCents:jit(35, 10),
+          attack:      0.015,
+          releaseTail: 0.10
+        });
+        break;
+
+      case "gurgle":
+        // Wet keel-geluid — formant-Q laag, meer noise, ademen-feel
+        _zombieVocal({
+          baseFreq:    jit(70, 12),
+          freqEnd:     jit(50, 10),
+          dur:         jit(0.95, 0.25),
+          formant1:    jit(560, 80),
+          formant2:    jit(900, 120),
+          formantQ:    jit(4, 1),
+          sawVol:      jit(0.09, 0.02),
+          noiseVol:    jit(0.13, 0.03), // meer noise = wet
+          vibratoHz:   jit(4, 1),
+          vibratoCents:jit(25, 8),
+          attack:      0.10,
+          releaseTail: 0.28
+        });
+        break;
+
+      case "snort":
+        // Kort snuiven — vrijwel alleen noise + korte formant-flits
+        _zombieVocal({
+          baseFreq:    jit(90, 15),
+          freqEnd:     jit(70, 10),
+          dur:         jit(0.18, 0.06),
+          formant1:    jit(680, 50),
+          formant2:    jit(1300, 100),
+          formantQ:    jit(5, 1),
+          sawVol:      jit(0.06, 0.02),
+          noiseVol:    jit(0.18, 0.03), // dominant noise
+          vibratoHz:   jit(6, 2),
+          vibratoCents:jit(15, 5),
+          attack:      0.012,
+          releaseTail: 0.08
+        });
+        break;
+    }
+  }
+
+  // Expose voor andere IIFE's (zombie ambient pakket gebruikt deze ook)
+  try {
+    window.OHSfxGrowl = sfxGrowl;
+  } catch(_){}
 
   const scene = new THREE.Scene();
   // Zombies-feel: donkere oranje/bruine fog ipv paars-blauw. Closer fog start
@@ -2773,6 +3082,43 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   }
   window.__getFloorHeightAt = getFloorHeightAt;
 
+  // Bullet/granaat-vs-vloer crossing check. Returns de Y-hoogte van een
+  // platform/ramp die TUSSEN y0 en y1 zit op (x,z), of null als er geen vloer
+  // gekruist wordt. Wordt gebruikt door updateBullets om te voorkomen dat
+  // projectielen DOOR het balkon-deck heen vliegen (in beide richtingen:
+  // schoten van onderaf en granaten die van bovenaf droppen).
+  function getCrossedFloorY(x, z, y0, y1){
+    const yMin = Math.min(y0, y1);
+    const yMax = Math.max(y0, y1);
+    // 0.04u marge zodat we de daadwerkelijke deck-bovenkant raken, niet de
+    // exacte y-grens (anders schiet hij er nét overheen door precisie-fouten).
+    const eps = 0.04;
+    let bestY = null;
+    for(const r of floorRegions){
+      if(x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) continue;
+      let h;
+      if(r.type === 'platform'){
+        h = r.height;
+      } else {
+        let t;
+        if(r.axis === 'x')      t = (x - r.minX) / (r.maxX - r.minX);
+        else if(r.axis === '-x') t = (r.maxX - x) / (r.maxX - r.minX);
+        else if(r.axis === 'z')  t = (z - r.minZ) / (r.maxZ - r.minZ);
+        else                      t = (r.maxZ - z) / (r.maxZ - r.minZ);
+        h = r.hLow + (r.hHigh - r.hLow) * t;
+      }
+      if(h >= yMin - eps && h <= yMax + eps){
+        // Bullet kruist deze vloer. Kies de DICHTSTBIJZIJNDE vloer voor het
+        // geval er meerdere zijn (zou niet moeten, maar veiligheidshalve).
+        if(bestY === null || Math.abs(h - y1) < Math.abs(bestY - y1)){
+          bestY = h;
+        }
+      }
+    }
+    return bestY;
+  }
+  window.__getCrossedFloorY = getCrossedFloorY;
+
   // Wall / door materials
   const wallMat = new THREE.MeshStandardMaterial({
     color: 0x2a241c, emissive: 0x1a140e, emissiveIntensity: 0.06,
@@ -3024,7 +3370,11 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       addBox(w, 2.6, d, x, 1.3, z, color, { preventOverlap:false });
     }
     function pillar(x, z, r = 0.9, color = 0x1a1410){
-      addCylinderCollider(r, 4.6, x, 2.3, z, color);
+      // FIX: hoogte verlaagd van 4.6 → 3.8 zodat pilaren onder het balkon-deck
+      // (y=4.0) blijven. Eerder staken ze 0.6u boven het balkon uit en konden
+      // ze als obstakel verschijnen op de bovenverdieping (zichtbaar als
+      // donkere kolom die door het balkon-vlak heen prikt).
+      addCylinderCollider(r, 3.8, x, 1.9, z, color);
     }
 
     // ============ ATRIUM (KINO LOBBY) — 52×52 multi-floor ============
@@ -3090,9 +3440,31 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     //    over kunt steken.
     addPlatform(-16, -16, 16, -8, 4);
 
-    // West-balkon, oost-balkon en zuid-balkon
-    addPlatform(-22, -10, -10, 18, 4);     // west-balkon
-    addPlatform( 10, -10,  22, 18, 4);     // oost-balkon
+    // West-balkon en oost-balkon vermijden nu de TRAP-FOOTPRINTS in z. Trap NW
+    // loopt op x[-22,-16] van z=-16 (top) tot z=-2 (voet), trap NE idem op
+    // x[16,22]. Eerder was het trapgat slechts z[-16,-10] (4u kort) en dekte
+    // het west/oost-balkon (vanaf z=-10) de helft van de trap-helling af. Dat
+    // gaf "kop-stoten" tijdens trap-lopen en het gevoel van een "muur" aan de
+    // rand van het trapgat omdat speler tegen het balkon-deck boven hem aanliep.
+    //
+    // FIX: balkon-vloer-segmenten zijn nu zo verdeeld dat:
+    //   1) De TRAP-FOOTPRINTS (x[-22,-16] en x[16,22]) over de gehele lengte
+    //      z[-16,-2] ZONDER balkon-deck erboven zitten — trap heeft volledige
+    //      headroom. Het gat is dus net zo lang als de trap zelf.
+    //   2) De rest van het balkon (links/rechts van de trap-strip op x[-16,-10]
+    //      resp. x[10,16]) blijft begaanbaar via een smalle verbindings-strook.
+    //   3) Het zuid-balkon en de Pack-a-Punch op x=0 z=21 blijft volledig bereikbaar.
+
+    // West-balkon zuid-deel: vermijdt trap-zone in z (begint bij z=-2 i.p.v. -10)
+    addPlatform(-22, -2, -10, 18, 4);
+    // West-balkon verbindings-strook: smalle vloer NAAST de NW-trap zodat speler
+    // van het tussen-strook-centrum naar de zuid-deel kan lopen. Alleen op
+    // x[-16,-10] zodat de trap-x-range x[-22,-16] vrij blijft.
+    addPlatform(-16, -10, -10, -2, 4);
+
+    // Oost-balkon spiegelbeeld
+    addPlatform( 10, -2,  22, 18, 4);
+    addPlatform( 10, -10, 16, -2, 4);
     addPlatform(-22,  18, 22, 22, 4);      // zuid-balkon
 
     // Visuele dekken (decor zonder colliders) — match de platform-layout
@@ -3111,8 +3483,16 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     // Langer dan het gat zodat speler comfortabel onder kan lopen.
     _decorBox(32, 0.4, 8, 0, 4.2, -12, 0x3a2e1a);
     // West/Oost/Zuid balkons (ongewijzigd)
-    _decorBox(12, 0.4, 28, -16, 4.2, 4, 0x3a2e1a);
-    _decorBox(12, 0.4, 28, 16, 4.2, 4, 0x3a2e1a);
+    // West/Oost/Zuid balkon-decor — match de nieuwe platform-layout. De trap-
+    // strips (x[-22,-16] en x[16,22]) krijgen GEEN decor boven de trap-helling
+    // zodat speler vrije headroom heeft tijdens trap-lopen.
+    // West-balkon zuid-deel decor: x[-22,-10], z[-2,18] = 12 wide × 20 deep
+    _decorBox(12, 0.4, 20, -16, 4.2, 8, 0x3a2e1a);
+    // West-balkon verbindings-strook decor: x[-16,-10], z[-10,-2] = 6 × 8
+    _decorBox( 6, 0.4,  8, -13, 4.2, -6, 0x3a2e1a);
+    // Oost-balkon spiegelbeeld
+    _decorBox(12, 0.4, 20,  16, 4.2, 8, 0x3a2e1a);
+    _decorBox( 6, 0.4,  8,  13, 4.2, -6, 0x3a2e1a);
     _decorBox(44, 0.4, 4, 0, 4.2, 20, 0x3a2e1a);
 
     // ---- BALKON-RAILINGS ---- (nu mét colliders zodat speler/zombies er
@@ -3143,6 +3523,19 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     railing(-10, 18, 10, 18);    // zuid-rand schacht
     railing(-10, -8, -10, 18);   // west-rand schacht
     railing( 10, -8,  10, 18);   // oost-rand schacht
+
+    // Railings rond de TRAPGATEN. Nu het gat net zo lang is als de trap
+    // (z[-16,-2] i.p.v. z[-16,-10]) zijn er nieuwe randen waar speler vanaf
+    // kan vallen. We zetten railings aan:
+    //  - de oost-rand van NW-trapgat (x=-16, z[-15,-2])  — voorkomt val in gat
+    //    Begint op z=-15 (i.p.v. -16) zodat speler bovenaan de trap vrij van
+    //    de trap-top (z=-16) oost kan oversteken naar het centrum-balkon.
+    //  - de zuid-rand van NW-trapgat (z=-2,  x[-22,-16]) — voorkomt val op trap-voet
+    //  - spiegelbeeld voor NE-trap
+    railing(-16, -15, -16, -2);  // NW trapgat oost-rand
+    railing(-22,  -2, -16, -2);  // NW trapgat zuid-rand
+    railing( 16, -15,  16, -2);  // NE trapgat west-rand
+    railing( 16,  -2,  22, -2);  // NE trapgat zuid-rand
 
     // De trapgaten zijn nu de smalle 2-unit strook op z[-12,-10] aan
     // x[-22,-16] (NW) en x[16,22] (NE). Geen aparte railings nodig — de
@@ -4584,6 +4977,49 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     camera.position.y += (Math.random()-0.5) * state.cameraShake * 0.04;
   }
 
+  // Cache de statische obstakel-layer van de minimap. Colliders zijn voor 99%
+  // statisch (muren, balkons, pilaren) — die elk frame opnieuw tekenen met
+  // ctx.fillRect kost veel canvas draw-calls op late waves. We renderen de
+  // colliders één keer naar een offscreen canvas relatief tot wereld-origo
+  // (0,0), en bliten die offscreen met een player-offset. Bij elke wijziging
+  // in colliders-list-lengte wordt de cache geïnvalideerd.
+  let _minimapObstacleCache = null;
+  let _minimapObstacleCacheKey = "";
+  function _getMinimapObstacleLayer(w, h, scale){
+    // Cache-grootte > viewport zodat we niet hoeven te re-renderen als de
+    // speler beweegt. Wereld is ~120x120, met scale 3.2 → 384x384 in canvas.
+    const cacheSize = 420;
+    const key = colliders.length + ":" + scale;
+    if(_minimapObstacleCache && _minimapObstacleCacheKey === key){
+      return _minimapObstacleCache;
+    }
+    const off = (typeof OffscreenCanvas !== "undefined")
+      ? new OffscreenCanvas(cacheSize, cacheSize)
+      : document.createElement("canvas");
+    off.width = cacheSize; off.height = cacheSize;
+    const octx = off.getContext("2d");
+    octx.fillStyle = "rgba(120,135,155,.22)";
+    // Wereld-origo (0,0) staat in het midden van de cache.
+    const cx = cacheSize / 2;
+    const cy = cacheSize / 2;
+    for(const obs of colliders){
+      const b = obs.box;
+      // Skip onzichtbare stair-enclosure colliders (geen echte mesh).
+      if(!obs.mesh || obs.mesh.isMesh === false) continue;
+      const x = cx + b.min.x * scale;
+      const y = cy + b.min.z * scale;
+      const ww = (b.max.x - b.min.x) * scale;
+      const hh = (b.max.z - b.min.z) * scale;
+      octx.fillRect(x, y, ww, hh);
+    }
+    _minimapObstacleCache = off;
+    _minimapObstacleCacheKey = key;
+    return off;
+  }
+  // Invalidate-handle voor wanneer colliders bijgewerkt worden (b.v. door
+  // het openen van deuren die nieuwe kamer-colliders toevoegen).
+  window.__invalidateMinimapCache = () => { _minimapObstacleCache = null; };
+
 function drawMinimap(){
   const c = ui.minimapCanvas;
   const ctx = minimapCtx;
@@ -4616,16 +5052,16 @@ function drawMinimap(){
   const ox = w / 2 - player.pos.x * scale;
   const oy = h / 2 - player.pos.z * scale;
 
-  // obstakels
-  for(const obs of colliders){
-    const b = obs.box;
-    const x = ox + b.min.x * scale;
-    const y = oy + b.min.z * scale;
-    const ww = (b.max.x - b.min.x) * scale;
-    const hh = (b.max.z - b.min.z) * scale;
-
-    ctx.fillStyle = "rgba(120,135,155,.22)";
-    ctx.fillRect(x, y, ww, hh);
+  // obstakels — blit van de gecachede offscreen layer
+  // Cache is ge-render rond wereld-origo (0,0) in midden van cacheSize-canvas.
+  // We schuiven de blit zodat de speler-positie correct gealigneerd is.
+  const obstacleLayer = _getMinimapObstacleLayer(w, h, scale);
+  if(obstacleLayer){
+    // Speler-pos in cache: cacheSize/2 + player.pos * scale
+    // Speler-pos in viewport: w/2, h/2
+    // Dus blit-offset = w/2 - (cacheSize/2 + player.pos*scale) = ox - cacheSize/2
+    const cacheSize = obstacleLayer.width;
+    ctx.drawImage(obstacleLayer, ox - cacheSize / 2, oy - cacheSize / 2);
   }
 
   // pickups / boosters
@@ -4755,18 +5191,68 @@ function drawMinimap(){
   //   D - F - A - D' - C - A - F - D
   // ================================================================
 
-  const ostinatoPitches = [146.83, 174.61, 220.00, 293.66, 261.63, 220.00, 174.61, 146.83];
-  const ostinatoOctaveUp = ostinatoPitches.map(f => f * 2);
+  // ================================================================
+  // [AUDIO] CoD-Zombies inspired ambient music
+  // ================================================================
+  // Stilistisch model: "Kino der Toten" main theme. De drone-pad blijft
+  // doorlopen, daarbovenop een eenzaam minor piano-motief met lange
+  // hall-galm, industriële clangs op onverwachte momenten, en sub-rumble
+  // voor onrust. Geen drum-loop — geen dans, het hoort dreigend te zijn.
+  //
+  // Schaal: D minor natural (D, E, F, G, A, Bb, C). Het motief beweegt
+  // door deze noten in een onvoorspelbaar maar herkenbaar patroon.
+  //
+  // Hall-effect zonder echte ConvolverNode: gebruik een feedback-delay
+  // met lowpass eroverheen zodat herhalingen donkerder worden = ruimte.
+  // ================================================================
+
+  // D natural minor — pitches in Hz (low octave + mid octave)
+  const _COD_LOW  = [73.42, 82.41, 87.31, 98.00, 110.00, 116.54, 130.81]; // D2..C3
+  const _COD_MID  = [146.83, 164.81, 174.61, 196.00, 220.00, 233.08, 261.63]; // D3..C4
+  const _COD_HIGH = [293.66, 329.63, 349.23, 392.00, 440.00, 466.16, 523.25]; // D4..C5
+  // Theme-melodie: indices in _COD_MID, met -1 = stilte. Looped lengte 16.
+  // Nadrukkelijk niet-symmetrisch zodat het niet als "ringtone" voelt.
+  const _COD_THEME = [
+    0, -1, 4, -1,  3, -1, -1, 2,
+   -1,  0, -1, 5,  -1, 4, -1, -1
+  ];
 
   // Continuous drone-pad — wordt 1× gestart en blijft draaien zolang er
   // muziek nodig is. Ranged via een gain die we per frame updaten.
   let _drone = null;
+  // [AUDIO] Hall-bus — alle music-elementen die "ruimte" moeten hebben
+  // (piano, clang, choir-bell) gaan hierdoor. Een feedback-delay met lowpass
+  // simuleert de grote, donkere hal-galm zonder een impulse-response te
+  // hoeven laden. Wordt lazy-initialised bij eerste muziek-call.
+  let _hallSend = null;       // input naar de hal-galm (caller connect hier op)
+  let _hallReturnGain = null; // niveau van de galm
+  function _ensureHall(){
+    if(_hallSend || !audioCtx) return;
+    const send = audioCtx.createGain();    send.gain.value = 0.65;
+    const dly  = audioCtx.createDelay(2.0); dly.delayTime.value = 0.32;
+    const fb   = audioCtx.createGain();    fb.gain.value   = 0.42;
+    const lp   = audioCtx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 1200; lp.Q.value = 0.6;
+    const ret  = audioCtx.createGain();    ret.gain.value = 0.85;
+    // send -> dly -> lp -> ret -> musicBus
+    //              ^___ fb ___|
+    send.connect(dly);
+    dly.connect(lp);
+    lp.connect(fb);
+    fb.connect(dly);
+    lp.connect(ret);
+    ret.connect(_musicOut());
+    _hallSend = send;
+    _hallReturnGain = ret;
+  }
+  function _hallOut(){ _ensureHall(); return _hallSend || _musicOut(); }
+
   function ensureDrone(){
     if(!audioCtx || _audioMuted) return;
     if(_drone) return;
     const now = audioCtx.currentTime;
-    // Twee oscillatoren: D2 (laag) + A2 (kwint erboven). Lichte detune voor
-    // chorus/dread effect. Lowpass-filter eroverheen om scherp te dempen.
+    // Drie oscillatoren voor een echte CoD-pad: D2 root + A2 (5e) + F3 (b3 = mineur).
+    // Lichte detune voor chorus/dread. Lowpass eroverheen om scherp te dempen.
     const o1 = audioCtx.createOscillator();
     o1.type = "sawtooth";
     o1.frequency.value = 73.42; // D2
@@ -4775,20 +5261,24 @@ function drawMinimap(){
     o2.type = "sawtooth";
     o2.frequency.value = 110.00; // A2
     o2.detune.value = +4;
+    const o3 = audioCtx.createOscillator();
+    o3.type = "triangle";
+    o3.frequency.value = 174.61; // F3 — mineure terts erbovenop
+    o3.detune.value = -6;
     const lp = audioCtx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 360;
-    lp.Q.value = 0.7;
+    lp.frequency.value = 480;
+    lp.Q.value = 0.8;
     const g = audioCtx.createGain();
     g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.018, now + 2.5);
-    o1.connect(lp); o2.connect(lp);
-    lp.connect(g); g.connect(audioCtx.destination);
-    o1.start(now); o2.start(now);
-    _drone = { o1, o2, gain: g, lp };
+    g.gain.exponentialRampToValueAtTime(0.030, now + 3.0); // forser dan voorheen
+    o1.connect(lp); o2.connect(lp); o3.connect(lp);
+    lp.connect(g); g.connect(_musicOut());
+    o1.start(now); o2.start(now); o3.start(now);
+    _drone = { o1, o2, o3, gain: g, lp };
   }
 
-  function setDroneLevel(level=0.018){
+  function setDroneLevel(level=0.030){
     if(!_drone || !audioCtx) return;
     const now = audioCtx.currentTime;
     _drone.gain.gain.cancelScheduledValues(now);
@@ -4796,12 +5286,12 @@ function drawMinimap(){
   }
 
   // Pizzicato pluk — kort, gedempt, met snel attack en exponentiële decay
+  // Gaat door de hal-bus zodat hij in de ruimte echoot.
   function playPizz(freq, when, dur=0.32, gainAmt=0.018, type="triangle"){
     if(!audioCtx || _audioMuted) return;
     const o = audioCtx.createOscillator();
     o.type = type;
     o.frequency.setValueAtTime(freq, when);
-    // Body-resonance simulatie: korte freq-zak na attack
     o.frequency.exponentialRampToValueAtTime(Math.max(40, freq * 0.985), when + 0.09);
     const lp = audioCtx.createBiquadFilter();
     lp.type = "lowpass";
@@ -4811,15 +5301,84 @@ function drawMinimap(){
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(gainAmt, when + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(lp).connect(g).connect(audioCtx.destination);
+    o.connect(lp).connect(g).connect(_hallOut());
     o.start(when);
     o.stop(when + dur + 0.05);
+  }
+
+  // [AUDIO] CoD-piano-noot — eenzame piano met sharp attack en lange decay.
+  // Gebruikt twee gestapelde sines (fundamental + 2e harmoniek) met een vlugge
+  // amplitude-envelope; de "piano-feel" komt van het korte attack + lange
+  // exponentiële tail in combinatie met de hal-galm.
+  function playPianoNote(freq, when, dur=1.6, gainAmt=0.040){
+    if(!audioCtx || _audioMuted) return;
+    // Fundamentele sine
+    const o1 = audioCtx.createOscillator();
+    o1.type = "triangle";
+    o1.frequency.value = freq;
+    // 2e harmoniek (octaaf) — geeft body
+    const o2 = audioCtx.createOscillator();
+    o2.type = "sine";
+    o2.frequency.value = freq * 2.003; // lichte detune voor levendigheid
+    // 3e harmoniek (kwint+octaaf) — geeft glans, zachtjes mee
+    const o3 = audioCtx.createOscillator();
+    o3.type = "sine";
+    o3.frequency.value = freq * 3.0;
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(2400, when);
+    lp.frequency.exponentialRampToValueAtTime(600, when + dur);
+    const g1 = audioCtx.createGain();
+    const g2 = audioCtx.createGain();
+    const g3 = audioCtx.createGain();
+    // Piano envelope: vlugge attack (5ms), lange exponentiële decay
+    g1.gain.setValueAtTime(0.0001, when);
+    g1.gain.exponentialRampToValueAtTime(gainAmt, when + 0.005);
+    g1.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    g2.gain.setValueAtTime(0.0001, when);
+    g2.gain.exponentialRampToValueAtTime(gainAmt * 0.45, when + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.85);
+    g3.gain.setValueAtTime(0.0001, when);
+    g3.gain.exponentialRampToValueAtTime(gainAmt * 0.18, when + 0.005);
+    g3.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.5);
+    o1.connect(g1); g1.connect(lp);
+    o2.connect(g2); g2.connect(lp);
+    o3.connect(g3); g3.connect(lp);
+    lp.connect(_hallOut());
+    o1.start(when); o2.start(when); o3.start(when);
+    o1.stop(when + dur + 0.1);
+    o2.stop(when + dur + 0.1);
+    o3.stop(when + dur + 0.1);
+  }
+
+  // [AUDIO] Choir-pad — synth-koor-zacht "aaaah" voor diepe atmosfeer.
+  // Korte cluster van 3 mineure noten; staat lang aan met soft attack.
+  // Wordt sporadisch geactiveerd als layer onder de melodie.
+  function playChoirSwell(when, root=146.83, dur=4.5, gainAmt=0.025){
+    if(!audioCtx || _audioMuted) return;
+    // D-mineur triade: D + F + A
+    const freqs = [root, root * 1.189, root * 1.498];
+    freqs.forEach((f, i) => {
+      const o = audioCtx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = f;
+      o.detune.value = (i - 1) * 6; // chorus-spread
+      const lp = audioCtx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 900;
+      lp.Q.value = 0.7;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.exponentialRampToValueAtTime(gainAmt * (i === 0 ? 1 : 0.75), when + 1.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      o.connect(lp).connect(g).connect(_hallOut());
+      o.start(when); o.stop(when + dur + 0.2);
+    });
   }
 
   // Distant clang — rinkelende metalen weergalm in de verte
   function playDistantClang(when, gainAmt=0.012){
     if(!audioCtx || _audioMuted) return;
-    // Drie hoge sine-tonen die snel decayen — klinkt als verre kerkbel
     [880, 1175, 1568].forEach((f, i) => {
       const o = audioCtx.createOscillator();
       o.type = "sine";
@@ -4831,7 +5390,7 @@ function drawMinimap(){
       const hp = audioCtx.createBiquadFilter();
       hp.type = "highpass";
       hp.frequency.value = 600;
-      o.connect(hp).connect(g).connect(audioCtx.destination);
+      o.connect(hp).connect(g).connect(_hallOut());
       o.start(when + i * 0.025);
       o.stop(when + i * 0.025 + 1.4);
     });
@@ -4844,7 +5403,7 @@ function drawMinimap(){
     const buf = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
     const data = buf.getChannelData(0);
     for(let i=0;i<size;i++){
-      const env = Math.sin(Math.PI * (i / size)); // bell-curve envelope
+      const env = Math.sin(Math.PI * (i / size));
       data[i] = (Math.random()*2-1) * env;
     }
     const src = audioCtx.createBufferSource();
@@ -4855,7 +5414,7 @@ function drawMinimap(){
     lp.Q.value = 0.6;
     const g = audioCtx.createGain();
     g.gain.value = gainAmt;
-    src.connect(lp).connect(g).connect(audioCtx.destination);
+    src.connect(lp).connect(g).connect(_musicOut());
     src.start(when);
   }
 
@@ -4870,7 +5429,7 @@ function drawMinimap(){
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(gainAmt, when + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
-    o.connect(g).connect(audioCtx.destination);
+    o.connect(g).connect(_musicOut());
     o.start(when);
     o.stop(when + 0.25);
   }
@@ -4878,19 +5437,19 @@ function drawMinimap(){
 function updateMusic(){
   if(!audioCtx || !state.running) return;
 
-  // Drone start hier (na user-interaction die audio context unlocked) en blijft staan
+  // [AUDIO] CoD-Zombies-stijl scheduler: trage piano-melodie (D-mineur)
+  // met sporadische choir-swells, distant clangs en industriële rumble.
+  // De drone-pad eronder modulert op tension. Géén drum-loop.
   ensureDrone();
 
   const t = audioCtx.currentTime;
-
   const wave = player?.wave || 1;
   const combo = state?.combo || 1;
   const hpRatio = player?.maxHp ? player.hp / player.maxHp : 1;
   const bossActive = !!state.boss;
 
-  // Tension bepaalt hoe luid de drone klinkt en hoe vaak er extra accenten
-  // bovenop de ostinato komen. Geen "tempo-versnelling" — we blijven traag,
-  // want anders ben je weer terug bij de arcade-loop.
+  // Tension-curve gelijk aan voorheen, maar drone is iets harder en heeft
+  // F3 (mineure terts) erbij voor donkerder timbre.
   let tension = 0.3;
   tension += Math.min(0.30, wave * 0.020);
   tension += Math.min(0.15, Math.max(0, combo - 1) * 0.06);
@@ -4898,72 +5457,82 @@ function updateMusic(){
   tension += hpRatio < 0.45 ? (0.45 - hpRatio) * 0.50 : 0;
   tension = Math.max(0.18, Math.min(1.0, tension));
 
-  setDroneLevel(0.012 + tension * 0.022);
+  setDroneLevel(0.022 + tension * 0.030);
 
-  // Tempo: bewust traag (~85 BPM, 8e noten = 0.35s), lichte versnelling bij boss.
-  // Geen sub-100ms steps zoals voorheen.
-  const stepDur = bossActive ? 0.30 : (hpRatio < 0.35 ? 0.32 : 0.36);
-
+  // Tempo: sloom (~70 BPM, kwartnoot ≈ 0.86s, achtste ≈ 0.43s).
+  // Bij boss iets sneller; laag-HP heartbeat alleen door extra kick op step 7.
+  const stepDur = bossActive ? 0.40 : (hpRatio < 0.35 ? 0.43 : 0.50);
   const scheduleAhead = 0.6;
 
   while(state.songClock < t + scheduleAhead){
-    state.songStep = (state.songStep + 1) % ostinatoPitches.length;
+    state.songStep = (state.songStep + 1) % _COD_THEME.length;
     const when = Math.max(t, state.songClock);
     const step = state.songStep;
+    const cycleStart = step === 0;
 
-    const pitch = ostinatoPitches[step];
+    // === Piano-melodie ===
+    // _COD_THEME bevat indices in _COD_MID; -1 = stilte.
+    const idx = _COD_THEME[step];
+    if(idx >= 0){
+      const isBeat1 = step === 0;
+      const pitch = _COD_MID[idx];
+      // Gain stijgt licht met tension — speler voelt het oplopen
+      const noteGain = (isBeat1 ? 0.052 : 0.038) + tension * 0.010;
+      // Lange decay bij start-noot, korter bij tussen-noten — geeft "frasering"
+      const noteDur = isBeat1 ? 1.8 : 1.2;
+      playPianoNote(pitch, when, noteDur, noteGain);
 
-    // Hoofdpluk — pizzicato op elke stap; iets harder op step 0 en 4 (down-beat)
-    const isAccent = step === 0 || step === 4;
-    playPizz(
-      pitch,
-      when,
-      isAccent ? 0.42 : 0.30,
-      (isAccent ? 0.022 : 0.014) + tension * 0.008,
-      "triangle"
-    );
-
-    // Octaaf-erboven echo, alleen op accent-stappen — geeft "lange gang"-galm
-    if(isAccent){
-      playPizz(
-        ostinatoOctaveUp[step],
-        when + 0.10,
-        0.55,
-        0.008 + tension * 0.005,
-        "sine"
-      );
+      // Op accent-noten: zachte octaaf-eronder-bel voor body
+      if(isBeat1 || step === 8){
+        playPianoNote(_COD_LOW[idx], when + 0.015, noteDur * 0.9, noteGain * 0.45);
+      }
+      // Heel sporadische glittering octaaf-erboven (fades fast)
+      if((step === 2 || step === 12) && Math.random() < 0.55){
+        playPianoNote(_COD_HIGH[idx], when + 0.04, 0.9, 0.020 + tension * 0.005);
+      }
     }
 
-    // Kwint-erboven harmony, gedempt op step 2 en 6
-    if(step === 2 || step === 6){
-      playPizz(pitch * 1.5, when + 0.04, 0.28, 0.010 + tension * 0.004, "triangle");
+    // === Choir-swell — komt elke 2 cycli aan begin terug ===
+    // Maakt het stuk filmisch zonder druk te worden. Niet bij boss-active
+    // (daar overheerst de tritoon-stinger hieronder al).
+    if(cycleStart && !bossActive){
+      // Houd een interne teller in state zodat we elke 2e cyclus triggeren
+      state._musicChoirCycle = ((state._musicChoirCycle || 0) + 1) % 2;
+      if(state._musicChoirCycle === 0){
+        // Wissel root tussen D en F voor variatie (i-VI in D-mineur)
+        const root = (Math.random() < 0.5) ? 73.42 : 87.31;
+        playChoirSwell(when, root, 5.0 + tension * 1.5, 0.020 + tension * 0.012);
+      }
     }
 
-    // Industrieel kick alleen op de echte downbeat (step 0). Geen continue
-    // "boem-boem-boem" — meer een hartslag dan een dansbeat.
-    if(step === 0){
-      playKickHorror(when, 0.018 + tension * 0.012);
+    // === Distant clang — onverwacht moment, geeft jump-scare-vibe ===
+    // Iets vaker bij hoge tension; nooit op step 0 (overlapt piano-attack).
+    if(step === 5 && Math.random() < 0.25 + tension * 0.30){
+      playDistantClang(when + 0.05, 0.014 + tension * 0.010);
     }
 
-    // Sporadische extras — alleen ~1× per 2 cycli, geeft de muziek een
-    // "iets gebeurt"-gevoel zonder dat je het kan voorspellen.
-    if(step === 5 && Math.random() < 0.35 + tension * 0.25){
-      playDistantClang(when + 0.05, 0.008 + tension * 0.006);
-    }
-    if(step === 3 && Math.random() < 0.20 + tension * 0.20){
-      playRumble(when, 0.7 + Math.random() * 0.4, 0.010 + tension * 0.008);
+    // === Low rumble — donderende low-end op onverwachte momenten ===
+    if(step === 11 && Math.random() < 0.18 + tension * 0.20){
+      playRumble(when, 1.0 + Math.random() * 0.6, 0.014 + tension * 0.010);
     }
 
-    // Boss-modus: extra dissonante tritoon (G#) bovenop de ostinato — direct
-    // herkenbaar als "iets is mis"
+    // === Industrial kick — alleen op cycle-start, een hartslag i.p.v. beat
+    if(cycleStart){
+      playKickHorror(when, 0.022 + tension * 0.014);
+    }
+
+    // === Boss-modus: dissonante tritoon (G#) bovenop het stuk ===
     if(bossActive && step === 4){
-      playPizz(207.65, when + 0.06, 0.42, 0.010, "sawtooth"); // G#3 = tritoon t.o.v. D
+      playPizz(207.65, when + 0.06, 0.7, 0.018, "sawtooth");
+      // En een tweede tritoon-trap een fractie later — voelt als scheur
+      playPizz(207.65 * 1.5, when + 0.18, 0.5, 0.012, "sawtooth");
     }
 
-    // Low-HP heartbeat: korte sub-pulse op step 7 wanneer je echt op het
-    // randje staat. Beats sneller naarmate hpRatio lager is.
-    if(hpRatio < 0.35 && (step === 1 || step === 5)){
-      playKickHorror(when + 0.02, 0.012 + (0.35 - hpRatio) * 0.04);
+    // === Low-HP heartbeat: dubbele kick (boem-boem) op step 7 + 8 ===
+    if(hpRatio < 0.35 && step === 7){
+      const intensity = 0.014 + (0.35 - hpRatio) * 0.06;
+      playKickHorror(when + 0.02, intensity);
+      playKickHorror(when + 0.22, intensity * 0.85);
     }
 
     state.songClock += stepDur;
@@ -5101,18 +5670,21 @@ function updateMusic(){
     ui.chipOrbital.classList.remove("active");
   }
 
+  // [PERF] HP-bar element één keer cachen — voorheen werd querySelector
+  // elke setStat() call uitgevoerd (DOM-scan op elke score/HP update).
+  let _hpStatEl = null;
   function setStat(){
     ui.score.textContent = Math.floor(player.score);
     ui.wave.textContent = player.wave;
     ui.hp.textContent = Math.max(0, Math.floor(player.hp));
     // HP-bar vulling via CSS variable — leegt en vult mee met regen
-    try {
-      const hpStat = document.querySelector(".stat-hp");
-      if(hpStat && player.maxHp){
-        const ratio = Math.max(0, Math.min(1, player.hp / player.maxHp));
-        hpStat.style.setProperty("--hp-ratio", ratio.toFixed(3));
-      }
-    } catch(_){}
+    if(_hpStatEl == null){
+      _hpStatEl = document.querySelector(".stat-hp") || false;
+    }
+    if(_hpStatEl && player.maxHp){
+      const ratio = Math.max(0, Math.min(1, player.hp / player.maxHp));
+      _hpStatEl.style.setProperty("--hp-ratio", ratio.toFixed(3));
+    }
     if(typeof updateHealthWeaponTheme === "function") updateHealthWeaponTheme();
     ui.kills.textContent = player.kills;
     ui.ammoBullets.textContent = player.ammo.bullet;
@@ -5376,6 +5948,9 @@ function updateMusic(){
     }
     return false;
   }
+  // [SPAWN] Expose voor andere IIFE's (bv. mystery-box placement zoekt
+  // een vrije plek in de kamer en heeft deze check nodig).
+  try { window.OHCollidesAt = collidesAt; } catch(_){}
 
   function collidesAtPlayerY(x, z, radius=player.radius){
     // Voor speler-fysica: check op huidige speler-floor-Y
@@ -6689,19 +7264,22 @@ function spawnWave(){
     createShockwave(position, color, radius);
     createFlash(position, color, 4.2, radius * 5.2, 0.22);
 
+    // [OPT] inline distance i.p.v. position.clone() per enemy — bespaart een
+    // Vector3-allocatie per enemy per explosion (24 enemies × 5 grenades = 120
+    // alloc/burst). hitPos.y forceer naar 1.7 (chest-height) door dy=position.y-1.7.
+    const px = position.x, py = position.y, pz = position.z, r2 = radius * radius;
     for(let i=state.enemies.length-1;i>=0;i--){
       const e = state.enemies[i];
-      const hitPos = e.mesh.position.clone();
-      hitPos.y = 1.7;
-      const d = hitPos.distanceTo(position);
-      if(d < radius){
-      
+      const ep = e.mesh.position;
+      const dx = ep.x - px, dy = 1.7 - py, dz = ep.z - pz;
+      const d2 = dx*dx + dy*dy + dz*dz;
+      if(d2 < r2){
+      const d = Math.sqrt(d2);
+    // [OPT] console.warn weg uit hot AOE-loop; fallback-logic blijft intact.
     if(!Number.isFinite(e.hp)){
-          console.warn("Enemy hp corrupt before damage", e);
           e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
         }
         if(!Number.isFinite(e.maxHp) || e.maxHp <= 0){
-          console.warn("Enemy maxHp corrupt", e);
           e.maxHp = Math.max(1, Number.isFinite(e.hp) ? e.hp : 1);
         }
 
@@ -6714,9 +7292,9 @@ function spawnWave(){
     }
 
     if(state.boss){
-      const bp = state.boss.mesh.position.clone();
-      bp.y = 2.2;
-      const d = bp.distanceTo(position);
+      const bp = state.boss.mesh.position;
+      const dx = bp.x - px, dy = 2.2 - py, dz = bp.z - pz;
+      const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
       if(d < radius){
         state.boss.hp -= damage * (1 - d / radius);
         updateBossBar();
@@ -7960,6 +8538,21 @@ function findPlasmaTarget(plasma){
   return best;
 }
 
+// Module-level shared resources voor de fallback dismember-stumps in
+// spawnLimbStump. Geometries en materials worden hier één keer geïnstantieerd
+// en hergebruikt — anders zou er per limb-loss een nieuwe MeshStandardMaterial
+// en geometry naar de GPU geüpload worden.
+const _FALLBACK_STUMP_MAT = new THREE.MeshStandardMaterial({
+  color: 0xeae0d2, roughness: 0.85, metalness: 0.05
+});
+const _FALLBACK_FLESH_MAT = new THREE.MeshStandardMaterial({
+  color: 0x6a0c10, roughness: 0.9, metalness: 0.0
+});
+const _FALLBACK_STUMP_ARM_GEO = new THREE.CylinderGeometry(0.07, 0.06, 0.10, 6);
+const _FALLBACK_STUMP_LEG_GEO = new THREE.CylinderGeometry(0.09, 0.08, 0.10, 6);
+const _FALLBACK_FLESH_ARM_GEO = new THREE.SphereGeometry(0.10, 8, 6);
+const _FALLBACK_FLESH_LEG_GEO = new THREE.SphereGeometry(0.13, 8, 6);
+
 function updateBullets(dt){
   const BULLET_WALL_RADIUS = 0.14;
   const PLAYER_HIT_RADIUS = 1.15;
@@ -7988,7 +8581,9 @@ function updateBullets(dt){
       minSize:.04, maxSize:.10, minLife:.18, maxLife:.42, gravity:6.4
     });
     // Visuele bone-stump op de body (als het overhaul-pad niet draait,
-    // hebben we hier toch een fallback).
+    // hebben we hier toch een fallback). Performance: gebruikt module-level
+    // shared materials & geometries (zie _FALLBACK_STUMP_* hieronder) zodat
+    // er geen per-event allocaties zijn.
     try {
       const body = enemy.mesh.userData?.body || enemy.mesh;
       if(body && part !== "head"){
@@ -7996,21 +8591,15 @@ function updateBullets(dt){
         const sx = part.endsWith("L") ? -1 : 1;
         const stumpY = isArm ? 1.55 : 0.55;
         const stumpX = sx * (isArm ? 0.30 : 0.24);
-        const stumpMat = new THREE.MeshStandardMaterial({
-          color: 0xeae0d2, roughness: 0.85, metalness: 0.05
-        });
         const stump = new THREE.Mesh(
-          new THREE.CylinderGeometry(isArm ? 0.07 : 0.09, isArm ? 0.06 : 0.08, 0.10, 6),
-          stumpMat
+          isArm ? _FALLBACK_STUMP_ARM_GEO : _FALLBACK_STUMP_LEG_GEO,
+          _FALLBACK_STUMP_MAT
         );
         stump.position.set(stumpX, stumpY, 0);
         body.add(stump);
-        const fleshMat = new THREE.MeshStandardMaterial({
-          color: 0x6a0c10, roughness: 0.9, metalness: 0.0
-        });
         const flesh = new THREE.Mesh(
-          new THREE.SphereGeometry(isArm ? 0.10 : 0.13, 8, 6),
-          fleshMat
+          isArm ? _FALLBACK_FLESH_ARM_GEO : _FALLBACK_FLESH_LEG_GEO,
+          _FALLBACK_FLESH_MAT
         );
         flesh.position.set(stumpX, stumpY, 0);
         flesh.scale.set(1, 0.7, 1);
@@ -8375,20 +8964,30 @@ function updateBullets(dt){
     const bullet = state.bullets[index];
     if(!bullet) return;
     if(bullet.mesh) scene.remove(bullet.mesh);
-    state.bullets.splice(index, 1);
+    // [PERF] Swap-and-pop. Veilig binnen reverse-iteratie loops (bullet-tick
+    // gaat van length-1 omlaag); het laatste element dat we naar `index`
+    // kopiëren is al door de loop verwerkt op een hogere index.
+    const last = state.bullets.length - 1;
+    if(index !== last) state.bullets[index] = state.bullets[last];
+    state.bullets.pop();
   }
 
   function removeEnemyBullet(index){
     const bullet = state.enemyBullets[index];
     if(!bullet) return;
     if(bullet.mesh) scene.remove(bullet.mesh);
-    state.enemyBullets.splice(index, 1);
+    const last = state.enemyBullets.length - 1;
+    if(index !== last) state.enemyBullets[index] = state.enemyBullets[last];
+    state.enemyBullets.pop();
   }
 
   for(let i = state.bullets.length - 1; i >= 0; i--){
     const b = state.bullets[i];
     if(!b?.mesh){
-      state.bullets.splice(i, 1);
+      // [PERF] swap-pop binnen reverse-loop (zie comment in removePlayerBullet)
+      const last = state.bullets.length - 1;
+      if(i !== last) state.bullets[i] = state.bullets[last];
+      state.bullets.pop();
       continue;
     }
 
@@ -8416,6 +9015,11 @@ function updateBullets(dt){
     }
   }
 }
+
+// Bewaar vorige positie zodat we floor-crossing kunnen detecteren. Anders
+// gaan snelle projectielen (bullets, rockets) in één frame DOOR het balkon-
+// deck heen omdat we alleen de nieuwe positie checken.
+const _prevBy = b.mesh.position.y;
 
 b.mesh.position.addScaledVector(b.vel, dt);
 
@@ -8457,22 +9061,41 @@ if(b.gravity){
       }
     }
 
-    // Grond/vloer impact voor arcing projectiles + rockets (Ray Gun, RPG,
-    // Mustang etc.). Voorheen alleen check op y<=0.2 (begane grond), maar
-    // dan vlogen grenades vanaf het balkon door het deck heen i.p.v. te
-    // ontploffen op de balkon-vloer. Nu gebruiken we getFloorHeightAt om
-    // ook ramps en platforms (balkon op y=4) te detecteren.
-    if(!remove && (b.type === "grenade" || b.type === "plasma" || b.type === "rocket")){
+    // Vloer/plafond crossing — geldt voor ALLE projectielen (bullets ook).
+    // Voorheen vlogen tracer-bullets dwars door het balkon-deck heen omdat
+    // ze geen floor-check hadden, en granaten droogden door het deck als
+    // ze tussen frames door een platform-Y heen reisden (te snel om de
+    // simpele "by <= floorY" check te halen). Door de Y-traject in dit
+    // frame (prevBy → by) te checken vs alle floorRegions vangen we beide.
+    if(!remove){
       const bx = b.mesh.position.x;
       const by = b.mesh.position.y;
       const bz = b.mesh.position.z;
-      // Floor-hoogte op deze XZ — kan ground (0), ramp (0..4) of platform (4) zijn.
-      // getFloorHeightAt is buildArena-scoped; gebruik de window-export.
-      const floorY = (typeof window.__getFloorHeightAt === "function")
-        ? window.__getFloorHeightAt(bx, bz)
-        : 0;
-      // Bullet zit OP of ONDER de vloer → impact
-      if(by <= floorY + 0.20){
+      const crossedFloorY = (typeof window.__getCrossedFloorY === "function")
+        ? window.__getCrossedFloorY(bx, bz, _prevBy, by)
+        : null;
+      if(crossedFloorY !== null){
+        // Snap impact-positie naar de vloer-Y zodat explosies op het juiste
+        // niveau gebeuren (anders explodeert hij iets onder of boven het deck).
+        b.mesh.position.y = crossedFloorY;
+        if(isExplosiveBullet(b)){
+          explodeProjectile(b);
+        } else {
+          // Tracer: kleine impact-spark, geen explosion
+          createBurst(b.mesh.position, b.explosionColor, 5, 2.0);
+        }
+        remove = true;
+      }
+    }
+
+    // Begane-grond impact voor arcing/explosive projectiles. Voor projectielen
+    // die zijwaarts boven y=0 vliegen zonder een vloer te kruisen (b.v. een
+    // rocket vlak boven de vloer): expliciete check op y=0 zodat hij toch
+    // ontploft als hij erop landt.
+    if(!remove && (b.type === "grenade" || b.type === "plasma" || b.type === "rocket")){
+      const by = b.mesh.position.y;
+      if(by <= 0.20){
+        b.mesh.position.y = 0.05;
         explodeProjectile(b);
         remove = true;
       }
@@ -8556,6 +9179,10 @@ if(b.gravity){
       continue;
     }
 
+    // Bewaar prev-Y zoals bij player-bullets (zie hierboven) voor de
+    // floor-crossing check, anders schieten zombies vanaf het balkon
+    // dwars door de begane-grond-vloer.
+    const _ePrevBy = b.mesh.position.y;
     b.mesh.position.addScaledVector(b.vel, dt);
     b.life -= dt;
 
@@ -8563,6 +9190,18 @@ if(b.gravity){
 
     if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
       remove = true;
+    }
+
+    // Floor/ceiling crossing — voorkomt dat enemy-bullets door balkon-deck
+    // of ramps vliegen. Dezelfde Y-aware check als bij player-bullets.
+    if(!remove){
+      const eby = b.mesh.position.y;
+      const crossedFloorY = (typeof window.__getCrossedFloorY === "function")
+        ? window.__getCrossedFloorY(b.mesh.position.x, b.mesh.position.z, _ePrevBy, eby)
+        : null;
+      if(crossedFloorY !== null){
+        remove = true;
+      }
     }
 
     if(!remove){
@@ -8685,7 +9324,10 @@ if(b.gravity){
     }
     const dx = _targetX - e.mesh.position.x;
     const dz = _targetZ - e.mesh.position.z;
-    const dist = Math.max(0.001, Math.hypot(dx, dz));
+    // Inline sqrt is ~2x sneller dan Math.hypot in V8 — significant in hot
+    // loop dat per enemy per frame draait. Geen overflow-risico hier (dx,dz
+    // zijn beide < 200 in world-space).
+    const dist = Math.max(0.001, Math.sqrt(dx*dx + dz*dz));
     const dirX = dx / dist;
     const dirZ = dz / dist;
     const sideX = -dirZ;
@@ -8829,16 +9471,17 @@ if(b.gravity){
       e._lastPos = { x: e.mesh.position.x, z: e.mesh.position.z };
       e._stuckTimer = 0;
     }
-    const movedDist = Math.hypot(
-      e.mesh.position.x - e._lastPos.x,
-      e.mesh.position.z - e._lastPos.z
-    );
+    // Stuck-detection: vergelijk gekwadrateerde afstanden (geen sqrt nodig).
+    const moveDx = e.mesh.position.x - e._lastPos.x;
+    const moveDz = e.mesh.position.z - e._lastPos.z;
+    const movedDistSq = moveDx*moveDx + moveDz*moveDz;
     // Update reference elke ~0.3s — anders meet je per-frame deltas die
     // door wobble alleen al niet 0 zijn.
     e._stuckSampleTimer = (e._stuckSampleTimer || 0) - dt;
     if(e._stuckSampleTimer <= 0){
       e._stuckSampleTimer = 0.3;
-      if(movedDist < 0.05 && dist > 1.8){
+      // 0.05² = 0.0025
+      if(movedDistSq < 0.0025 && dist > 1.8){
         // Niet bewogen EN niet bij speler → echt vast
         e._stuckTimer = (e._stuckTimer || 0) + 0.3;
       } else {
@@ -8862,8 +9505,11 @@ if(b.gravity){
         if(collidesAt(ex, ez, e.radius)) continue;
         // Check dat we niet ver van speler weg gaan (sta toe tot +20%
         // van huidige afstand zodat hij om obstakel heen kan).
-        const newDist = Math.hypot(_targetX - ex, _targetZ - ez);
-        if(newDist < dist * 1.25){
+        // Gekwadrateerde vergelijking: newDist < dist*1.25 → newDistSq < (dist*1.25)²
+        const ndx = _targetX - ex, ndz = _targetZ - ez;
+        const newDistSq = ndx*ndx + ndz*ndz;
+        const limit = dist * 1.25;
+        if(newDistSq < limit * limit){
           e.mesh.position.x = ex;
           e.mesh.position.z = ez;
           escaped = true;
@@ -9140,20 +9786,30 @@ if(b.gravity){
       // krimpen de particles snel weg. Daarbovenop nog de optionele per-frame
       // shrink-factor.
       if(p.shrink) p.mesh.scale.multiplyScalar(p.shrink);
-      const lifeFrac = p.maxLife > 0 ? clamp(p.life / p.maxLife, 0, 1) : 0;
+      // Inline clamp — function-call overhead is meetbaar op N particles × 60Hz.
+      let lifeFrac = 0;
+      if(p.maxLife > 0){
+        lifeFrac = p.life / p.maxLife;
+        if(lifeFrac < 0) lifeFrac = 0;
+        else if(lifeFrac > 1) lifeFrac = 1;
+      }
       if(lifeFrac < 0.3){
         const fade = lifeFrac / 0.3; // 1 → 0 in de laatste 30%
         const target = (p.baseScale || 1) * fade;
         // Pak het kleinste van (huidige scale) en (target) — anders zou een grote
         // baseScale de shrink-factor weer ongedaan maken.
         const current = p.mesh.scale.x;
-        if(target < current) p.mesh.scale.setScalar(Math.max(0.001, target));
+        if(target < current) p.mesh.scale.setScalar(target < 0.001 ? 0.001 : target);
       }
       if(p.rotate) p.mesh.rotation.y += p.rotate * dt;
       if(p.life <= 0){
         scene.remove(p.mesh);
-        // Geen material.dispose() — material is shared en blijft in cache.
-        state.particles.splice(i,1);
+        // [PERF] Swap-and-pop i.p.v. splice — splice(i,1) shift-t alle latere
+        // elementen O(n); swap-pop is O(1). Volgorde van particles maakt niet
+        // uit voor visuele rendering. Bij 200 particles per frame meetbaar.
+        const last = state.particles.length - 1;
+        if(i !== last) state.particles[i] = state.particles[last];
+        state.particles.pop();
       }
     }
   }
@@ -9255,7 +9911,10 @@ if(b.gravity){
             try{ m && m.dispose(); }catch(_){}
           }
         }
-        state.ragdolls.splice(i,1);
+        // [PERF] swap-pop binnen reverse-loop
+        const last = state.ragdolls.length - 1;
+        if(i !== last) state.ragdolls[i] = state.ragdolls[last];
+        state.ragdolls.pop();
       }
     }
   }
@@ -9283,9 +9942,11 @@ if(b.gravity){
             const dist = e.mesh.position.distanceTo(h.mesh.position);
             if(dist < h.radius){
               e.hp -= 10;
-              const arcPos = e.mesh.position.clone().lerp(h.mesh.position, 0.45).add(new THREE.Vector3(0,1.2,0));
-              createBurst(arcPos, 0x8bf0ff, 4, 2.2, { minLife:.12, maxLife:.24, gravity:0.2, shrink:0.92 });
-              createFlash(arcPos, 0x8bf0ff, 1.5, 5, 0.08);
+              // [OPT] _tmpA hergebruikt — bespaart 2 Vector3-allocaties per enemy per mine-tick
+              _tmpA.copy(e.mesh.position).lerp(h.mesh.position, 0.45);
+              _tmpA.y += 1.2;
+              createBurst(_tmpA, 0x8bf0ff, 4, 2.2, { minLife:.12, maxLife:.24, gravity:0.2, shrink:0.92 });
+              createFlash(_tmpA, 0x8bf0ff, 1.5, 5, 0.08);
               if(dist < h.triggerRadius) h.life = Math.min(h.life, 0.08);
               if(e.hp <= 0){
                 killEnemy(e);
@@ -9313,24 +9974,26 @@ if(b.gravity){
         if(h.tick <= 0){
           h.tick = 0.2;
           h.strikes += 1;
-          const strike = h.mesh.position.clone();
-          strike.y = 0.4;
-          createFlash(strike.clone().add(new THREE.Vector3(0,10,0)), 0xff8cc0, 2.2, 10, 0.12);
-          createBurst(strike.clone().add(new THREE.Vector3(0,0.8,0)), 0xff8cc0, 10, 5.2, { minLife:.16, maxLife:.38, gravity:0.8, shrink:0.94 });
+          // [OPT] _tmpA + _tmpB hergebruikt — bespaart 4 Vector3-allocaties per strike
+          _tmpA.copy(h.mesh.position); _tmpA.y = 0.4;
+          _tmpB.copy(_tmpA); _tmpB.y += 10;
+          createFlash(_tmpB, 0xff8cc0, 2.2, 10, 0.12);
+          _tmpB.copy(_tmpA); _tmpB.y += 0.8;
+          createBurst(_tmpB, 0xff8cc0, 10, 5.2, { minLife:.16, maxLife:.38, gravity:0.8, shrink:0.94 });
           if(h.strikes < 5){
-            explodeAt(strike, Math.max(2.6, h.radius * 0.45), 14, 0xff8cc0);
+            explodeAt(_tmpA, Math.max(2.6, h.radius * 0.45), 14, 0xff8cc0);
           }
         }
         if(h.life <= 0){
-          const strike = h.mesh.position.clone();
-          strike.y = 0.4;
-          for(let n=0;n<6;n++) createFlash(strike, 0xff6ea1, 7, 22, 0.2);
+          // [OPT] geen clone — _tmpA hergebruikt
+          _tmpA.copy(h.mesh.position); _tmpA.y = 0.4;
+          for(let n=0;n<6;n++) createFlash(_tmpA, 0xff6ea1, 7, 22, 0.2);
           if(h.beam){
             h.beam.material.opacity = 0.5;
             h.beam.scale.set(1.6, 1.0, 1.6);
           }
-          createShockwave(strike, 0xff6ea1, h.radius);
-          explodeAt(strike, h.radius, h.damage, 0xff6ea1);
+          createShockwave(_tmpA, 0xff6ea1, h.radius);
+          explodeAt(_tmpA, h.radius, h.damage, 0xff6ea1);
         }
       }
       if(h.life <= 0){
@@ -9338,7 +10001,10 @@ if(b.gravity){
         if(h.aura) scene.remove(h.aura);
         if(h.inner) scene.remove(h.inner);
         if(h.beam) scene.remove(h.beam);
-        state.hazards.splice(i,1);
+        // [PERF] swap-pop binnen reverse-loop
+        const last = state.hazards.length - 1;
+        if(i !== last) state.hazards[i] = state.hazards[last];
+        state.hazards.pop();
       }
     }
   }
@@ -9417,8 +10083,10 @@ if(b.gravity){
         const dx0 = player.pos.x - p.mesh.position.x;
         const dz0 = player.pos.z - p.mesh.position.z;
         const dy0 = (player.pos.y + 1.0) - p.mesh.position.y;
-        const flatDist = Math.hypot(dx0, dz0);
-        if(flatDist < 4.5){
+        // Inline sqrt is sneller dan Math.hypot (geen overflow-check overhead).
+        const flatDistSq = dx0*dx0 + dz0*dz0;
+        if(flatDistSq < 20.25){  // 4.5² = 20.25
+          const flatDist = Math.sqrt(flatDistSq);
           const pull = (1 - flatDist / 4.5) * 14 * dt;
           const norm = Math.max(0.001, flatDist);
           p.mesh.position.x += (dx0 / norm) * pull;
@@ -9435,7 +10103,9 @@ if(b.gravity){
       // Pickup-radius — power-ups iets groter (2.0) zodat ze met magnet
       // sneller gepakt worden, gewone pickups normaal (1.5).
       const pickRadius = p._isPowerup ? 2.0 : 1.5;
-      if(player.pos.distanceTo(p.mesh.position) < pickRadius){
+      // distanceToSquared is ~2x sneller dan distanceTo (geen sqrt).
+      const pickRadiusSq = pickRadius * pickRadius;
+      if(player.pos.distanceToSquared(p.mesh.position) < pickRadiusSq){
         if(p.kind === "ammo"){
           const gain = 12 + Math.floor(Math.random()*10);
           player.ammo.bullet += gain;
@@ -9514,14 +10184,21 @@ if(b.gravity){
           sfxPickup();
         }
         scene.remove(p.mesh);
-        state.pickups.splice(i,1);
+        // [PERF] swap-pop binnen reverse-loop
+        {
+          const last = state.pickups.length - 1;
+          if(i !== last) state.pickups[i] = state.pickups[last];
+          state.pickups.pop();
+        }
         setStat();
         continue;
       }
 
       if(p.life <= 0){
         scene.remove(p.mesh);
-        state.pickups.splice(i,1);
+        const last = state.pickups.length - 1;
+        if(i !== last) state.pickups[i] = state.pickups[last];
+        state.pickups.pop();
       }
     }
   }
@@ -9581,24 +10258,36 @@ if(b.gravity){
       }
     }
 
-    // Ambient zombies-gegrom: af en toe als er minstens 2 vijanden binnen
-    // 22m van de speler staan, een lage growl-tone. Veel goedkoper dan
-    // per-enemy audio en geeft toch het horror-vibe gevoel.
+    // [AUDIO] Ambient zombie-vocals — varianten gebaseerd op afstand:
+    //   < 3.5m  → "lunge"  (vlak voor melee, fel)
+    //   < 9m    → "alert"  (in vechtafstand, scherper)
+    //   anders  → random uit shamble-pool (rustig schuifelen)
+    // De timer schaalt licht omlaag als er veel zombies dichtbij zijn —
+    // hoe drukker het is, hoe vaker je ze hoort.
     state._growlTimer = (state._growlTimer || 0) - dt;
     if(state._growlTimer <= 0){
-      state._growlTimer = 1.4 + Math.random() * 2.6;
-      let nearby = 0;
+      let nearby = 0, closest2 = Infinity;
       for(const e of state.enemies){
         if(!e?.mesh) continue;
         const dx = e.mesh.position.x - player.pos.x;
         const dz = e.mesh.position.z - player.pos.z;
-        if(dx*dx + dz*dz < 22*22){
+        const d2 = dx*dx + dz*dz;
+        if(d2 < 22*22){
           nearby++;
-          if(nearby >= 2) break;
+          if(d2 < closest2) closest2 = d2;
         }
       }
-      if(nearby >= 2 && state.running && player.alive){
-        try { sfxGrowl(); } catch(_){}
+      // Volgende tick: hoe meer enemies dichtbij, hoe sneller volgende vocal
+      const crowdMul = Math.max(0.45, 1 - Math.min(0.55, nearby * 0.05));
+      state._growlTimer = (1.1 + Math.random() * 2.2) * crowdMul;
+
+      if(nearby >= 1 && state.running && player.alive){
+        const closest = Math.sqrt(closest2);
+        let variant;
+        if(closest < 3.5)      variant = "lunge";
+        else if(closest < 9)   variant = "alert";
+        else                   variant = undefined; // random shamble/gurgle/snort
+        try { sfxGrowl(variant); } catch(_){}
       }
     }
 
@@ -9624,85 +10313,11 @@ if(b.gravity){
     setStat();
   }
 
-  function animate(now){
-    requestAnimationFrame(animate);
-    const dt = Math.min(0.033, (now - state.lastTime) / 1000 || 0.016);
-    state.lastTime = now;
-
-    stars.rotation.y += dt * 0.01;
-    skyline.position.x = Math.sin(now * 0.00006) * 1.6;
-    arenaDeco.crystalClusters.children.forEach((crystal, i) => {
-      crystal.position.y = crystal.userData.baseY + Math.sin(now * 0.0011 + crystal.userData.floatOffset + i) * 0.08;
-      crystal.rotation.y += dt * 0.35;
-    });
-    arenaDeco.fogWisps.children.forEach((fog, i) => {
-      fog.position.x = fog.userData.base.x + Math.sin(now * 0.00025 * (i+1) + fog.userData.phase) * 3.2;
-      fog.position.z = fog.userData.base.z + Math.cos(now * 0.0002 * (i+1) + fog.userData.phase) * 2.4;
-      fog.position.y = fog.userData.base.y + Math.sin(now * 0.0008 + fog.userData.phase) * 0.22;
-    });
-    arenaDeco.searchlights.children.forEach((item, i) => {
-      if(item.userData.spot){
-        item.rotation.y = Math.sin(now * 0.00045 + item.userData.phase) * 1.2;
-        item.rotation.x = -0.26 + Math.sin(now * 0.00033 + item.userData.phase) * 0.12;
-        const spot = item.userData.spot;
-        const dir = new THREE.Vector3(0, -1, -1).applyEuler(item.rotation).normalize();
-        spot.position.copy(item.position);
-        spot.target.position.copy(item.position).add(dir.multiplyScalar(36));
-        spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
-      }
-    });
-    arenaDeco.skyBands.children.forEach((band, i) => {
-      band.position.y = band.userData.baseY + Math.sin(now * 0.00035 + band.userData.phase) * 1.6;
-      band.position.x = Math.sin(now * 0.00022 + band.userData.phase) * 12;
-      band.material.opacity = 0.05 + Math.sin(now * 0.0008 + band.userData.phase) * 0.03;
-      band.rotation.z = Math.sin(now * 0.00012 + i) * 0.07;
-    });
-    arenaDeco.floatingShards.children.forEach((shard, i) => {
-      shard.position.x = shard.userData.base.x + Math.sin(now * 0.0006 + shard.userData.phase + i) * 1.1;
-      shard.position.y = shard.userData.base.y + Math.sin(now * 0.0012 + shard.userData.phase) * 0.48;
-      shard.position.z = shard.userData.base.z + Math.cos(now * 0.00055 + shard.userData.phase) * 1.1;
-      shard.rotation.x += dt * shard.userData.spin;
-      shard.rotation.y += dt * shard.userData.spin * 0.8;
-    });
-    arenaDeco.monoliths.children.forEach((monolith, i) => {
-      monolith.material.emissiveIntensity = 0.08 + Math.sin(now * 0.0011 + i) * 0.05;
-    });
-    emberField.children.forEach((ember, i) => {
-      ember.position.y = ember.userData.baseY + Math.sin(now * 0.001 * ember.userData.speed + i) * 0.18;
-      ember.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
-    });
-    neonA.position.x = Math.sin(now * 0.00045) * 12;
-    neonA.position.z = Math.cos(now * 0.00042) * 10;
-    neonB.position.x = Math.cos(now * 0.0005) * -12;
-    neonB.position.z = Math.sin(now * 0.00047) * 10;
-    moonGlow.intensity = 0.7 + Math.sin(now * 0.00035) * 0.1;
-
-    if(state.running){
-      updateMusic();
-      updateTimers(dt);
-      updateMovement(dt);
-      updateBullets(dt);
-      updateEnemies(dt);
-      updateHazards(dt);
-      updateParticles(dt);
-      updateEffects(dt);
-      updateRagdolls(dt);
-      updatePickups(dt);
-      tryAdvanceWave();
-
-      if(state.fireHeld && !isTouch && player.weapon === "bullet"){
-        shootWithDirection();
-      }
-    } else {
-      updateViewWeapon(dt);
-      updateEffects(dt);
-      updateParticles(dt);
-      updateRagdolls(dt);
-    }
-
-    drawMinimap();
-    renderer.render(scene, camera);
-  }
+  // [OPT] Verwijderd: dode `function animate()` + helpers (_searchlightDir, _decoTick).
+  // Werd geshadowd door de tweede `function animate()` (regel ~10477) in dezelfde
+  // IIFE-scope. JavaScript hijst beide hoist-declaraties; de tweede wint, dus
+  // de eerste werd nooit aangeroepen. Identieke decor-animaties zitten nu in
+  // coreUpdateAmbientDecor() (regel ~10174), met dezelfde Vector3-pooling.
 
   function clearCurrentWaveForCheat(){
   state.waveSpawnToken++;
@@ -9930,88 +10545,95 @@ function coreDrainArray(arr){
 }
 
 function coreUpdateAmbientDecor(now, dt){
+  // [OPT] forEach -> for-loops (geen per-call closure-allocatie),
+  // children-arrays gecached, optional-chaining beperkt tot één begin-check.
   if(stars) stars.rotation.y += dt * 0.01;
   if(skyline) skyline.position.x = Math.sin(now * 0.00006) * 1.6;
 
-  if(arenaDeco?.crystalClusters?.children){
-    arenaDeco.crystalClusters.children.forEach((crystal, i) => {
-      crystal.position.y =
-        crystal.userData.baseY +
-        Math.sin(now * 0.0011 + crystal.userData.floatOffset + i) * 0.08;
-      crystal.rotation.y += dt * 0.35;
-    });
+  const ad = arenaDeco;
+  if(ad){
+    let arr, n, i, item;
+
+    if(ad.crystalClusters && (arr = ad.crystalClusters.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        item = arr[i];
+        item.position.y = item.userData.baseY + Math.sin(now * 0.0011 + item.userData.floatOffset + i) * 0.08;
+        item.rotation.y += dt * 0.35;
+      }
+    }
+
+    if(ad.fogWisps && (arr = ad.fogWisps.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        item = arr[i];
+        const ip1 = i + 1, ph = item.userData.phase, b = item.userData.base;
+        item.position.x = b.x + Math.sin(now * 0.00025 * ip1 + ph) * 3.2;
+        item.position.z = b.z + Math.cos(now * 0.0002 * ip1 + ph) * 2.4;
+        item.position.y = b.y + Math.sin(now * 0.0008 + ph) * 0.22;
+      }
+    }
+
+    if(ad.searchlights && (arr = ad.searchlights.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        item = arr[i];
+        const spot = item.userData.spot;
+        if(!spot) continue;
+        const ph = item.userData.phase;
+        item.rotation.y = Math.sin(now * 0.00045 + ph) * 1.2;
+        item.rotation.x = -0.26 + Math.sin(now * 0.00033 + ph) * 0.12;
+        CORE_TMP_SEARCH_DIR.set(0, -1, -1).applyEuler(item.rotation).normalize();
+        spot.position.copy(item.position);
+        spot.target.position.copy(item.position).add(CORE_TMP_SEARCH_DIR.multiplyScalar(36));
+        spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
+      }
+    }
+
+    if(ad.skyBands && (arr = ad.skyBands.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        item = arr[i];
+        const ph = item.userData.phase;
+        item.position.y = item.userData.baseY + Math.sin(now * 0.00035 + ph) * 1.6;
+        item.position.x = Math.sin(now * 0.00022 + ph) * 12;
+        item.material.opacity = 0.05 + Math.sin(now * 0.0008 + ph) * 0.03;
+        item.rotation.z = Math.sin(now * 0.00012 + i) * 0.07;
+      }
+    }
+
+    if(ad.floatingShards && (arr = ad.floatingShards.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        item = arr[i];
+        const b = item.userData.base, ph = item.userData.phase, sp = item.userData.spin;
+        item.position.x = b.x + Math.sin(now * 0.0006 + ph + i) * 1.1;
+        item.position.y = b.y + Math.sin(now * 0.0012 + ph) * 0.48;
+        item.position.z = b.z + Math.cos(now * 0.00055 + ph) * 1.1;
+        item.rotation.x += dt * sp;
+        item.rotation.y += dt * sp * 0.8;
+      }
+    }
+
+    if(ad.monoliths && (arr = ad.monoliths.children)){
+      for(i = 0, n = arr.length; i < n; i++){
+        arr[i].material.emissiveIntensity = 0.08 + Math.sin(now * 0.0011 + i) * 0.05;
+      }
+    }
   }
 
-  if(arenaDeco?.fogWisps?.children){
-    arenaDeco.fogWisps.children.forEach((fog, i) => {
-      fog.position.x =
-        fog.userData.base.x +
-        Math.sin(now * 0.00025 * (i + 1) + fog.userData.phase) * 3.2;
-      fog.position.z =
-        fog.userData.base.z +
-        Math.cos(now * 0.0002 * (i + 1) + fog.userData.phase) * 2.4;
-      fog.position.y =
-        fog.userData.base.y +
-        Math.sin(now * 0.0008 + fog.userData.phase) * 0.22;
-    });
-  }
-
-  if(arenaDeco?.searchlights?.children){
-    arenaDeco.searchlights.children.forEach((item, i) => {
-      if(!item.userData.spot) return;
-      item.rotation.y = Math.sin(now * 0.00045 + item.userData.phase) * 1.2;
-      item.rotation.x = -0.26 + Math.sin(now * 0.00033 + item.userData.phase) * 0.12;
-
-      const spot = item.userData.spot;
-      CORE_TMP_SEARCH_DIR.set(0, -1, -1).applyEuler(item.rotation).normalize();
-      spot.position.copy(item.position);
-      spot.target.position.copy(item.position).add(CORE_TMP_SEARCH_DIR.multiplyScalar(36));
-      spot.intensity = 1.15 + Math.sin(now * 0.0011 + i) * 0.18;
-    });
-  }
-
-  if(arenaDeco?.skyBands?.children){
-    arenaDeco.skyBands.children.forEach((band, i) => {
-      band.position.y = band.userData.baseY + Math.sin(now * 0.00035 + band.userData.phase) * 1.6;
-      band.position.x = Math.sin(now * 0.00022 + band.userData.phase) * 12;
-      band.material.opacity = 0.05 + Math.sin(now * 0.0008 + band.userData.phase) * 0.03;
-      band.rotation.z = Math.sin(now * 0.00012 + i) * 0.07;
-    });
-  }
-
-  if(arenaDeco?.floatingShards?.children){
-    arenaDeco.floatingShards.children.forEach((shard, i) => {
-      shard.position.x = shard.userData.base.x + Math.sin(now * 0.0006 + shard.userData.phase + i) * 1.1;
-      shard.position.y = shard.userData.base.y + Math.sin(now * 0.0012 + shard.userData.phase) * 0.48;
-      shard.position.z = shard.userData.base.z + Math.cos(now * 0.00055 + shard.userData.phase) * 1.1;
-      shard.rotation.x += dt * shard.userData.spin;
-      shard.rotation.y += dt * shard.userData.spin * 0.8;
-    });
-  }
-
-  if(arenaDeco?.monoliths?.children){
-    arenaDeco.monoliths.children.forEach((monolith, i) => {
-      monolith.material.emissiveIntensity = 0.08 + Math.sin(now * 0.0011 + i) * 0.05;
-    });
-  }
-
-  if(emberField?.children){
-    emberField.children.forEach((ember, i) => {
-      ember.position.y = ember.userData.baseY + Math.sin(now * 0.001 * ember.userData.speed + i) * 0.18;
-      ember.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
-    });
+  if(emberField){
+    const arr = emberField.children;
+    for(let i = 0, n = arr.length; i < n; i++){
+      const item = arr[i];
+      item.position.y = item.userData.baseY + Math.sin(now * 0.001 * item.userData.speed + i) * 0.18;
+      item.position.x += Math.sin(now * 0.0002 + i) * 0.0008;
+    }
   }
 
   if(neonA){
     neonA.position.x = Math.sin(now * 0.00045) * 12;
     neonA.position.z = Math.cos(now * 0.00042) * 10;
   }
-
   if(neonB){
     neonB.position.x = Math.cos(now * 0.0005) * -12;
     neonB.position.z = Math.sin(now * 0.00047) * 10;
   }
-
   if(moonGlow){
     moonGlow.intensity = 0.7 + Math.sin(now * 0.00035) * 0.1;
   }
@@ -18946,6 +19568,10 @@ shootWithDirection = function(dirOverride = null){
     const idx = colliders.indexOf(door.colliderEntry);
     if(idx >= 0) colliders.splice(idx, 1);
 
+    // Invalideer minimap obstacle-cache zodat de muren-tekening de nieuwe
+    // collider-list reflecteert (anders blijft de deur op de minimap zichtbaar).
+    try { window.__invalidateMinimapCache?.(); } catch(_){}
+
     // Audio (klein "thud"-puff via bestaande sound-engine als die er is)
     if(typeof playSound === "function"){
       try { playSound("explosion", 0.4); } catch(_){}
@@ -19335,10 +19961,19 @@ shootWithDirection = function(dirOverride = null){
       lastCreak = now;
       playWoodCreak(0.05 + Math.random() * 0.04);
     }
-    // Zombie groan — gemiddeld elke 8-18s
+    // [AUDIO] Zombie ambient-groan: gebruikt de nieuwe formant-vocal-engine
+    // i.p.v. de oude lokale playZombieGroan() (die was een simpele saw-drone).
+    // Wisselt tussen "shamble" en "gurgle" voor variatie.
     if(now - lastGroan > (8000 + Math.random() * 10000) / intensity){
       lastGroan = now;
-      playZombieGroan(0.03 + Math.random() * 0.03);
+      try {
+        if(typeof window.OHSfxGrowl === "function"){
+          window.OHSfxGrowl(Math.random() < 0.6 ? "shamble" : "gurgle");
+        } else {
+          // Fallback naar oude lokale impl als de nieuwe nog niet geladen is
+          playZombieGroan(0.03 + Math.random() * 0.03);
+        }
+      } catch(_){}
     }
     // Window bang — gemiddeld elke 15-30s op wave 1, sneller later
     if(now - lastBang > (15000 + Math.random() * 15000) / intensity){
@@ -22616,24 +23251,97 @@ shootWithDirection = function(dirOverride = null){
     return opened[Math.floor(Math.random() * opened.length)];
   }
 
+  // [SPAWN] Box-positie-zoeker: gegeven de "anchor" (een hoek-positie zoals
+  // (45,0)), zoek een speelbare locatie:
+  //   - kist staat dichter naar het kamer-midden i.p.v. tegen de muur
+  //   - voorkant van de kist (lid scharniert open richting +Z na rotatie)
+  //     wijst naar het midden van de map
+  //   - er is gegarandeerd vrije ruimte vóór de kist (clearance) zodat de
+  //     speler er goed bij kan + het 3D weapon-model erboven niet clippt
+  //
+  // Aanpak: van anchor naar map-midden ligt een lijn. We proberen meerdere
+  // afstanden vanaf de anchor (eerst dichter bij de muur, dan stapsgewijs
+  // verder naar binnen) en kiezen de eerste positie waar:
+  //   1) de box zelf collision-vrij staat (radius ≈ 1.2, dekt de 2.0×1.4 kist)
+  //   2) er een open corridor van ≥ 2.5 m vrij is in de "voor"-richting
+  //
+  // Als geen enkele kandidaat-positie werkt: fallback op een sweep rond de
+  // anchor (cirkel met 8 hoeken, oplopende straal).
+  const BOX_BODY_RADIUS = 1.2;     // box-collision-radius
+  const BOX_FRONT_CLEARANCE = 2.8; // m vrij voor de kist (player + weapon view)
+  const BOX_FRONT_RADIUS = 0.6;    // smalle vrije corridor (geen hele bal)
+
+  function _hasFrontClearance(x, z, dirX, dirZ){
+    // Test 3 punten op increasing distance vóór de box, allemaal moeten vrij
+    if(!window.OHCollidesAt) return true; // geen check beschikbaar = aannemen ok
+    const steps = [1.2, 2.0, BOX_FRONT_CLEARANCE];
+    for(const d of steps){
+      const tx = x + dirX * d;
+      const tz = z + dirZ * d;
+      if(window.OHCollidesAt(tx, tz, BOX_FRONT_RADIUS)) return false;
+    }
+    return true;
+  }
+
+  function _findBoxPlacement(anchorX, anchorZ){
+    // Richting van anchor naar map-midden — dat is de "voor"-richting
+    const dx = 0 - anchorX;
+    const dz = 0 - anchorZ;
+    const dist = Math.hypot(dx, dz) || 1;
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+
+    // 1) Probeer langs de lijn anchor → centrum, oplopende inset
+    //    Begin met 2.5m van de anchor af (dus weg van de muur), tot 6m.
+    const insets = [2.5, 3.5, 4.5, 5.5, 6.5];
+    for(const inset of insets){
+      const x = anchorX + dirX * inset;
+      const z = anchorZ + dirZ * inset;
+      const collides = window.OHCollidesAt && window.OHCollidesAt(x, z, BOX_BODY_RADIUS);
+      if(!collides && _hasFrontClearance(x, z, dirX, dirZ)){
+        return { x, z, dirX, dirZ };
+      }
+    }
+
+    // 2) Sweep rond ankerpunt-met-inset op 8 hoeken — laatste toevlucht
+    const baseInset = 3.5;
+    const baseX = anchorX + dirX * baseInset;
+    const baseZ = anchorZ + dirZ * baseInset;
+    for(let r = 1.0; r <= 4.0; r += 1.0){
+      for(let a = 0; a < 8; a++){
+        const ang = (a / 8) * Math.PI * 2;
+        const sx = baseX + Math.cos(ang) * r;
+        const sz = baseZ + Math.sin(ang) * r;
+        const coll = window.OHCollidesAt && window.OHCollidesAt(sx, sz, BOX_BODY_RADIUS);
+        if(!coll && _hasFrontClearance(sx, sz, dirX, dirZ)){
+          return { x: sx, z: sz, dirX, dirZ };
+        }
+      }
+    }
+
+    // 3) Worst-case: blijf op anchor (oude gedrag) — beter dan crash
+    return { x: anchorX, z: anchorZ, dirX, dirZ };
+  }
+
   function moveBoxToLocation(loc){
     if(!loc || !boxState.visualGroup) return;
-    boxState.currentLocation = loc;
-    // Box op de grond plaatsen — de box-mesh heeft zijn eigen y-offset,
-    // dus group.y=0 zorgt dat de onderkant van de kist exact op de
-    // vloer rust ipv erboven te zweven.
-    boxState.visualGroup.position.set(loc.x, 0, loc.z);
+    // [SPAWN] Vind een speelbare positie i.p.v. blind op de anchor te plaatsen
+    const placement = _findBoxPlacement(loc.x, loc.z);
+    // Sla zowel anchor (voor pickNewBoxLocation tracking) als final positie op
+    boxState.currentLocation = {
+      roomId: loc.roomId,
+      x: placement.x,
+      z: placement.z,
+      anchorX: loc.x,
+      anchorZ: loc.z,
+      dirX: placement.dirX,
+      dirZ: placement.dirZ
+    };
+    boxState.visualGroup.position.set(placement.x, 0, placement.z);
     boxState.visualGroup.scale.set(1, 1, 1);
-    // Roteer de box zodat de voorkant (lid scharniert open richting +Z)
-    // naar het midden van de map kijkt — niet meer met de achterkant
-    // tegen de speler. atan2(dx, dz) waarbij +Z na rotatie naar (0,0).
-    const dx = 0 - loc.x;
-    const dz = 0 - loc.z;
-    if(dx !== 0 || dz !== 0){
-      boxState.visualGroup.rotation.y = Math.atan2(dx, dz);
-    } else {
-      boxState.visualGroup.rotation.y = 0;
-    }
+    // Voorkant wijst naar de richting waar we vandaan kwamen (= speler-pad)
+    // dirX/dirZ wijst FROM box TO map-center, dus rotation.y = atan2(dirX, dirZ)
+    boxState.visualGroup.rotation.y = Math.atan2(placement.dirX, placement.dirZ);
     if(boxState.glow) boxState.glow.intensity = 1.2;
     boxState.visualGroup.visible = true;
     boxState.available = true;
@@ -22818,7 +23526,12 @@ shootWithDirection = function(dirOverride = null){
     const itemSprite = new THREE.Sprite(itemMat);
     itemSprite.scale.set(2.5, 0.83, 1);
     const loc = boxState.currentLocation;
-    itemSprite.position.set(loc.x, 1.0 + 2.0, loc.z);
+    // [SPAWN] Sprite iets vóór de kist plaatsen (richting speler/centrum)
+    // i.p.v. recht erbovenop, zodat het zwevende 3D-weapon-model er niet
+    // in clipt en de speler bij het naderen meteen de naam goed leest.
+    const sx = (loc.dirX != null) ? (loc.x + loc.dirX * 0.6) : loc.x;
+    const sz = (loc.dirZ != null) ? (loc.z + loc.dirZ * 0.6) : loc.z;
+    itemSprite.position.set(sx, 3.0, sz);
     scene.add(itemSprite);
 
     let cycleI = 0;
@@ -23125,21 +23838,28 @@ shootWithDirection = function(dirOverride = null){
   const ENEMY_FOOT_OFFSET = 0.5;
 
   // Hardcoded ramp-zones (matchen de addRamp-calls in atrium-setup):
-  // Ramp NW: x[-22,-16], z[-15,-2], y gaat van 4 (z=-15) naar 0 (z=-2)
-  // Ramp NE: x[16,22], z[-15,-2], y gaat van 4 (z=-15) naar 0 (z=-2)
+  // Ramp NW: x[-22,-16], z[-16,-2], y gaat van 4 (z=-16) naar 0 (z=-2)
+  // Ramp NE: x[16,22], z[-16,-2], y gaat van 4 (z=-16) naar 0 (z=-2)
   const RAMP_ZONES = [
-    { minX: -22, maxX: -16, minZ: -15, maxZ: -2, hHigh: 4, hLow: 0, axis: "-z" },
-    { minX:  16, maxX:  22, minZ: -15, maxZ: -2, hHigh: 4, hLow: 0, axis: "-z" }
+    { minX: -22, maxX: -16, minZ: -16, maxZ: -2, hHigh: 4, hLow: 0, axis: "-z" },
+    { minX:  16, maxX:  22, minZ: -16, maxZ: -2, hHigh: 4, hLow: 0, axis: "-z" }
   ];
 
   // Hardcoded balcony platform-regions (matchen addPlatform calls).
   // Een zombie op tier=1 die hier NIET in valt heeft geen vloer onder
   // zich en moet dus vallen.
+  //
+  // UPDATED: trapgaten lopen nu over de hele trap-lengte (z[-16,-2] op
+  // x[-22,-16] en x[16,22]). West-balkon en oost-balkon eindigen daarom
+  // pas bij z=-2, met smalle verbindings-stroken naast de trap-zones
+  // op x[-16,-10] resp. x[10,16].
   const BALCONY_PLATFORMS = [
     { minX: -22, maxX:  22, minZ: -22, maxZ: -16 },  // noord-balkon (vol)
-    { minX: -12, maxX:  12, minZ: -16, maxZ: -10 },  // centrale strook (na trapgaten)
-    { minX: -22, maxX: -10, minZ: -10, maxZ:  18 },  // west-balkon
-    { minX:  10, maxX:  22, minZ: -10, maxZ:  18 },  // oost-balkon
+    { minX: -16, maxX:  16, minZ: -16, maxZ:  -8 },  // tussen-strook (centrum)
+    { minX: -22, maxX: -10, minZ:  -2, maxZ:  18 },  // west-balkon zuid-deel
+    { minX: -16, maxX: -10, minZ: -10, maxZ:  -2 },  // west-balkon verbinding (naast NW-trap)
+    { minX:  10, maxX:  22, minZ:  -2, maxZ:  18 },  // oost-balkon zuid-deel
+    { minX:  10, maxX:  16, minZ: -10, maxZ:  -2 },  // oost-balkon verbinding (naast NE-trap)
     { minX: -22, maxX:  22, minZ:  18, maxZ:  22 }   // zuid-balkon
   ];
   function isOnBalconyPlatform(x, z){
@@ -23936,11 +24656,13 @@ shootWithDirection = function(dirOverride = null){
 
   // Atrium-balkon regions waar enemies kunnen spawnen (op y=4).
   // Past bij de balcony platform-layout (zie atrium-setup hierboven).
+  // UPDATED: trapgaten nu volledige trap-lengte (z[-16,-2]) — west/oost balkon
+  // splits in zuid-deel + verbindings-strook naast trap.
   const ATRIUM_BALCONY_REGIONS = [
     { minX: -22, maxX:  22, minZ: -22, maxZ: -16 },  // noord-balkon
-    { minX: -12, maxX:  12, minZ: -16, maxZ: -10 },  // centrale strook
-    { minX: -22, maxX: -10, minZ: -10, maxZ:  18 },  // west-balkon
-    { minX:  10, maxX:  22, minZ: -10, maxZ:  18 },  // oost-balkon
+    { minX: -16, maxX:  16, minZ: -16, maxZ:  -8 },  // tussen-strook (centrum)
+    { minX: -22, maxX: -10, minZ:  -2, maxZ:  18 },  // west-balkon zuid-deel
+    { minX:  10, maxX:  22, minZ:  -2, maxZ:  18 },  // oost-balkon zuid-deel
     { minX: -22, maxX:  22, minZ:  18, maxZ:  22 }   // zuid-balkon
   ];
   function pickBalconySpawnIn(roomId){
@@ -24361,6 +25083,15 @@ shootWithDirection = function(dirOverride = null){
   const RAG_GEO = new THREE.PlaneGeometry(0.18, 0.32);
   const WOUND_GEO = new THREE.SphereGeometry(0.08, 8, 6);
 
+  // Shared geometries voor dismember-stumps (zie dismemberRandomLimb).
+  // Voorheen werd er per dismember-event 2 nieuwe geometries geüpload naar
+  // de GPU; bij druk gevecht 30+/sec. Nu hergebruikt en geschaald via
+  // mesh.scale.
+  const STUMP_ARM_GEO = new THREE.CylinderGeometry(0.07, 0.06, 0.10, 6);
+  const STUMP_LEG_GEO = new THREE.CylinderGeometry(0.09, 0.08, 0.10, 6);
+  const FLESH_ARM_GEO = new THREE.SphereGeometry(0.10, 8, 6);
+  const FLESH_LEG_GEO = new THREE.SphereGeometry(0.13, 8, 6);
+
   // Bot-materiaal voor uitstekende botten
   const BONE_MAT = new THREE.MeshStandardMaterial({
     color: 0xc8b89a, roughness: 0.85, metalness: 0.0,
@@ -24693,22 +25424,24 @@ shootWithDirection = function(dirOverride = null){
 
     // Bot-stomp: een wit cilindertje + rode flesh-rond op de plek waar
     // de limb afging. Geeft echte "uit elkaar gescheurde" zombie-look.
+    // Performance: gedeelde geometries (STUMP_ARM_GEO/STUMP_LEG_GEO etc.) —
+    // geen per-event GPU-upload meer.
     const body = enemy.mesh.userData?.body || enemy.mesh;
     if(body && pick !== "head"){
       const isArm = pick.startsWith("arm");
       const sx = pick.endsWith("L") ? -1 : 1;
       const stumpY = isArm ? 1.55 : 0.55;
       const stumpX = sx * (isArm ? 0.30 : 0.24);
-      // Bot-stuk
+      // Bot-stuk (shared geometry)
       const stump = new THREE.Mesh(
-        new THREE.CylinderGeometry(isArm ? 0.07 : 0.09, isArm ? 0.06 : 0.08, 0.10, 6),
+        isArm ? STUMP_ARM_GEO : STUMP_LEG_GEO,
         BONE_MAT
       );
       stump.position.set(stumpX, stumpY, 0);
       body.add(stump);
-      // Vlees-rond eromheen
+      // Vlees-rond eromheen (shared geometry)
       const flesh = new THREE.Mesh(
-        new THREE.SphereGeometry(isArm ? 0.10 : 0.13, 8, 6),
+        isArm ? FLESH_ARM_GEO : FLESH_LEG_GEO,
         FLESH_MAT
       );
       flesh.position.set(stumpX, stumpY, 0);
@@ -25189,15 +25922,29 @@ shootWithDirection = function(dirOverride = null){
       killed++;
     }
 
-    // Boss: heavy damage (1500) maar geen instant-kill voor balans
+    // Boss: heavy damage, schaalbaar met wave zodat hij ook late-game
+    // effectief blijft. Voorheen vaste 1500dmg — bosses op wave 15+
+    // hebben echter 2500+ HP waardoor de Thundergun nauwelijks zichtbaar
+    // effect had. Nu: base 3500 + 200 per wave boven 5, capped op 9000.
     if(window.state?.boss){
-      const b = state.boss;
-      const dx = b.mesh.position.x - originPos.x;
-      const dz = b.mesh.position.z - originPos.z;
+      const bs = state.boss;
+      const dx = bs.mesh.position.x - originPos.x;
+      const dz = bs.mesh.position.z - originPos.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
       if(dist < cfg.coneRange){
-        b.hp = Math.max(1, b.hp - 1500);
+        const w = (player?.wave || 1);
+        const bossDmg = Math.min(9000, 3500 + Math.max(0, w - 5) * 200);
+        bs.hp = Math.max(1, bs.hp - bossDmg);
         if(typeof window.updateBossBar === "function") updateBossBar();
+        // Visuele feedback dat boss is geraakt
+        try {
+          if(typeof window.createBurst === "function"){
+            createBurst(bs.mesh.position.clone().setY(3), 0x4df7ff, 16, 5.5);
+          }
+          if(typeof window.createFlash === "function"){
+            createFlash(bs.mesh.position.clone().setY(3), 0xafffff, 4.5, 10, 0.20);
+          }
+        } catch(_){}
       }
     }
 
@@ -25211,36 +25958,78 @@ shootWithDirection = function(dirOverride = null){
   // Wunderwaffe special: chain lightning
   function fireWunderwaffe(originPos, dirVec){
     const enemies = window.state?.enemies;
-    if(!enemies?.length) return;
     const cfg = WEAPON_BEHAVIOR.wunderwaffe;
 
-    // Vind het eerste doel: dichtsbijzijnde zombie binnen ~25u in de kijkrichting
+    // === MUZZLE POSITION — bepaal echte wereldpositie van de wapen-tip ===
+    // Daarmee start de bliksem visueel UIT het wapen i.p.v. uit de camera.
+    let muzzlePos = originPos.clone();
+    muzzlePos.y += 0.1;
+    try {
+      const flash = window.weaponRig?.userData?.flash;
+      if(flash && typeof flash.getWorldPosition === "function"){
+        const wp = new THREE.Vector3();
+        flash.getWorldPosition(wp);
+        muzzlePos.copy(wp);
+      }
+    } catch(_){}
+
+    // === ALTIJD: muzzle-burst aan het wapen, ongeacht of er een target is ===
+    // Dit geeft de speler altijd visuele feedback dat hij geschoten heeft.
+    _wunderwaffeMuzzleBurst(muzzlePos, dirVec);
+
+    if(!enemies?.length){
+      // Geen vijanden in de scene — alleen de muzzle burst + een korte voorwaartse bliksem
+      _wunderwaffeForwardArc(muzzlePos, dirVec, 18);
+      return;
+    }
+
+    // Vind het eerste doel: dichtsbijzijnde zombie/BOSS binnen ~25u in de
+    // kijkrichting. FIX: state.boss zit in een aparte property (niet in
+    // state.enemies), dus we moeten hem expliciet toevoegen aan de candidate
+    // pool — anders raakt de Wunderwaffe nooit een boss.
+    const targets = enemies.slice();
+    if(window.state?.boss?.mesh && (window.state.boss.hp || 0) > 0){
+      targets.push(window.state.boss);
+    }
+
     let firstTarget = null, bestScore = -1;
-    for(const e of enemies){
+    for(const e of targets){
       if(!e?.mesh) continue;
       const dx = e.mesh.position.x - originPos.x;
       const dz = e.mesh.position.z - originPos.z;
       const dist = Math.sqrt(dx*dx + dz*dz);
-      if(dist < 1 || dist > 25) continue;
+      // Bosses zijn groter — iets ruimere afstand-tolerantie zodat de speler
+      // ze niet hoeft te "lickle precies" raken om de chain te starten.
+      const maxRange = e.isBoss ? 30 : 25;
+      if(dist < 1 || dist > maxRange) continue;
       const inv = 1 / dist;
       const dot = (dx * inv) * dirVec.x + (dz * inv) * dirVec.z;
-      if(dot < 0.7) continue; // moet redelijk recht voor de speler zijn
+      // Bosses: soepelere cone-eis (cos 0.55 ≈ ±57°) zodat ze raakbaar zijn
+      // ook op kortere afstand met grote silhouet.
+      const minDot = e.isBoss ? 0.55 : 0.7;
+      if(dot < minDot) continue;
       const score = dot - dist * 0.02;
       if(score > bestScore){
         bestScore = score;
         firstTarget = e;
       }
     }
-    if(!firstTarget) return;
+    if(!firstTarget){
+      // Geen target geraakt — toch een voorwaartse bliksem laten zien
+      _wunderwaffeForwardArc(muzzlePos, dirVec, 18);
+      return;
+    }
 
-    // Ketting: tot chainCount zombies, elk binnen chainRange van vorige
+    // Ketting: tot chainCount zombies, elk binnen chainRange van vorige.
+    // Bosses kunnen óók in de chain zitten — vanuit een boss kan de
+    // bliksem naar nabije gewone zombies overspringen of andersom.
     const chained = new Set();
     chained.add(firstTarget);
     let current = firstTarget;
     const chain = [firstTarget];
     for(let i = 0; i < cfg.chainCount; i++){
       let next = null, nextDist = cfg.chainRange;
-      for(const e of enemies){
+      for(const e of targets){
         if(!e?.mesh || chained.has(e)) continue;
         const d = Math.hypot(e.mesh.position.x - current.mesh.position.x,
                               e.mesh.position.z - current.mesh.position.z);
@@ -25255,29 +26044,49 @@ shootWithDirection = function(dirOverride = null){
       current = next;
     }
 
-    // Visueel: lightning-line van origin → first → 2nd → 3rd ...
+    // Visueel: lightning-line van muzzle → first → 2nd → 3rd ...
     if(typeof window.createFlash === "function"){
       try {
+        // Grote flash bij de muzzle zelf
+        createFlash(muzzlePos.clone(), 0xafe8ff, 4.0, 8, 0.22);
         for(const e of chain){
-          createFlash(e.mesh.position.clone().setY(2), 0xafe8ff, 2.5, 5, 0.18);
+          const fy = e.isBoss ? 3.0 : 2.0;
+          createFlash(e.mesh.position.clone().setY(fy), 0xafe8ff, 2.8, 6, 0.22);
         }
       } catch(_){}
     }
-    drawLightningLines(originPos, chain);
+    drawLightningLines(muzzlePos, chain);
 
-    // Damage + dismember elke gechainde zombie
+    // Damage + dismember elke gechainde target. Bosses krijgen vaste boss-damage
+    // (geen instakill — gebalanceerd voor PvE) en blijven dus in de scene.
+    // Gewone zombies sterven instant.
     for(let i = chain.length - 1; i >= 0; i--){
       const e = chain[i];
-      e.hp = (e.hp || 0) - cfg.chainDmg;
-      // 2 random limbs er af voor visuele oomph
-      dismemberRandomLimb(e, 1);
-      dismemberRandomLimb(e, 1);
-      if(e.hp <= 0){
-        if(typeof window.killEnemy === "function"){
-          try { window.killEnemy(e); } catch(_){}
+      if(e.isBoss){
+        // Boss: substantiële damage, geen kill, hp wordt geclampt op 1
+        const bossDmg = cfg.chainDmg;  // 1800 per zap — schaalbaar via cfg
+        e.hp = Math.max(1, (e.hp || 0) - bossDmg);
+        if(typeof window.updateBossBar === "function"){
+          try { window.updateBossBar(); } catch(_){}
         }
-        const idx = enemies.indexOf(e);
-        if(idx !== -1) enemies.splice(idx, 1);
+        // Visuele impact zonder dismember
+        try {
+          if(typeof window.createBurst === "function"){
+            createBurst(e.mesh.position.clone().setY(2.5), 0xafe8ff, 12, 4.5);
+          }
+        } catch(_){}
+      } else {
+        // Gewone zombie: damage + 2 limbs eraf, kill als hp ≤ 0
+        e.hp = (e.hp || 0) - cfg.chainDmg;
+        dismemberRandomLimb(e, 1);
+        dismemberRandomLimb(e, 1);
+        if(e.hp <= 0){
+          if(typeof window.killEnemy === "function"){
+            try { window.killEnemy(e); } catch(_){}
+          }
+          const idx = enemies.indexOf(e);
+          if(idx !== -1) enemies.splice(idx, 1);
+        }
       }
     }
 
@@ -25285,34 +26094,168 @@ shootWithDirection = function(dirOverride = null){
     if(window.state) state.cameraShake = Math.min(1.8, (state.cameraShake || 0) + 0.6);
   }
 
-  // Trek lightning visueel — gebruik particles als lijn
+  // ============================================================
+  // WUNDERWAFFE VISUAL HELPERS
+  // ============================================================
+  // _wunderwaffeMuzzleBurst — dikke elektrische flits + sparkles aan de muzzle.
+  // Wordt ALTIJD aangeroepen bij elk schot (zelfs als er geen target is) zodat
+  // de speler altijd ziet dat het wapen vuurde.
+  //
+  // PERFORMANCE: gebruikt setTimeout cleanup + shared materials (cyaan/wit)
+  // i.p.v. per-particle requestAnimationFrame loops. Een 14-particle burst
+  // creëerde voorheen 14 RAF callbacks die elke frame liepen — duurder dan
+  // nodig.
+  function _wunderwaffeMuzzleBurst(pos, dir){
+    if(!THREE || !window.scene) return;
+
+    // 1) Felle puls-bol bij de muzzle — krimpt-en-fade via tijd-gebaseerde animatie.
+    //    Gebruikt 1 RAF loop (niet per-particle).
+    const burst = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45, 10, 6),  // iets lagere poly (was 12,8)
+      new THREE.MeshBasicMaterial({
+        color: 0xcaf2ff, transparent: true, opacity: 0.92, depthWrite: false
+      })
+    );
+    burst.position.copy(pos);
+    scene.add(burst);
+    const burstStart = performance.now();
+    const burstTick = () => {
+      const elapsed = (performance.now() - burstStart) / 1000;
+      const lifeT = elapsed / 0.45;
+      if(lifeT >= 1){
+        if(burst.parent) burst.parent.remove(burst);
+        burst.geometry.dispose();
+        burst.material.dispose();
+        return;
+      }
+      const s = 1 + lifeT * 2.0;
+      burst.scale.set(s, s, s);
+      burst.material.opacity = 0.92 * (1 - lifeT);
+      requestAnimationFrame(burstTick);
+    };
+    requestAnimationFrame(burstTick);
+
+    // 2) PointLight via _flashPool als die bestaat (hergebruikt slots, geen
+    //    shader-recompile). Anders fallback naar één nieuwe light.
+    try {
+      if(typeof window.createFlash === "function"){
+        // createFlash gebruikt de _flashPool — geen lekke lights.
+        window.createFlash(pos.clone(), 0xafe8ff, 6.0, 14, 0.20);
+      }
+    } catch(_){}
+
+    // 3) Sparkles — gebruik het bestaande particles-systeem (één update-loop
+    //    voor alles). createBurst spawnt direct in state.particles met shared
+    //    materials, dus geen per-particle RAF nodig.
+    try {
+      if(typeof window.createBurst === "function"){
+        // Twee bursts in elkaar: witte kern + cyaan flare, beide in dir
+        createBurst(pos.clone(), 0xffffff, 6, 5.5,
+          { minSize:0.05, maxSize:0.10, minLife:0.18, maxLife:0.35, maxUp:0.3, drag:0.86, gravity:1.5, shrink:0.94 });
+        createBurst(pos.clone(), 0xafe8ff, 8, 4.0,
+          { minSize:0.06, maxSize:0.12, minLife:0.25, maxLife:0.45, maxUp:0.3, drag:0.88, gravity:1.2, shrink:0.95 });
+      }
+    } catch(_){}
+
+    // 4) Pomp de wapen-rig flash voor zichtbare muzzle-glow op het wapen-model
+    try {
+      if(window.weaponRig?.userData?.flash){
+        window.weaponRig.userData.flash.intensity = 8.0;
+      }
+    } catch(_){}
+  }
+
+  // _wunderwaffeForwardArc — bliksem-streak vooruit ook zonder target. Gebruikt
+  // wanneer speler vuurt maar geen vijand in de kegel staat. Geeft visuele
+  // bevestiging dat het schot heeft gewerkt.
+  function _wunderwaffeForwardArc(from, dir, distance = 18){
+    if(!THREE || !window.scene) return;
+    const end = from.clone().addScaledVector(dir, distance);
+    end.y = Math.max(0.3, end.y);  // niet door de vloer
+    // Maak een fake "chain" met één virtueel mikpunt zodat drawLightningLines
+    // een dikke streak kan tekenen.
+    const fakeChain = [{ mesh: { position: end } }];
+    drawLightningLines(from, fakeChain);
+  }
+
+  // Shared geometries & materials voor de lightning bolt (vermijdt per-spawn
+  // uploads naar de GPU). Geometrie wordt hergebruikt; alleen mesh.scale en
+  // mesh.position muteren we per-instance.
+  const _LIGHTNING_GLOW_GEO = new THREE.SphereGeometry(0.20, 6, 5);
+  const _LIGHTNING_CORE_GEO = new THREE.SphereGeometry(0.10, 5, 4);
+  const _LIGHTNING_GLOW_MAT = new THREE.MeshBasicMaterial({
+    color: 0x80d8ff, transparent: true, opacity: 0.85, depthWrite: false
+  });
+  const _LIGHTNING_CORE_MAT = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.98, depthWrite: false
+  });
+  const _LIGHTNING_BRANCH_MAT = new THREE.MeshBasicMaterial({
+    color: 0xc8f0ff, transparent: true, opacity: 0.9, depthWrite: false
+  });
+
+  // Trek lightning visueel — dikke crackling beam met witte kern + cyaan glow.
+  // origin = muzzle wereldpositie, chain = lijst zombies in damage-ketting.
+  // Performance: gebruikt shared geometry + materials i.p.v. per-instance
+  // allocaties. Cleanup gebeurt via één setTimeout per mesh (geen RAF-loop).
   function drawLightningLines(origin, chain){
     if(!THREE || !window.scene) return;
-    const points = [origin.clone().setY(2.1)];
+    const points = [origin.clone()];
     for(const e of chain){
       points.push(e.mesh.position.clone().setY(1.7));
     }
     for(let i = 0; i < points.length - 1; i++){
       const p1 = points[i], p2 = points[i + 1];
-      const segments = 8;
-      // Plaats kleine glow-cubes op willekeurige offsets langs de lijn
+      const segLen = p1.distanceTo(p2);
+      // Lagere segment-count voor performance — visueel is het verschil minimaal
+      // omdat er nog branches overheen komen voor crackling-look.
+      const segments = Math.max(8, Math.min(20, Math.round(segLen * 1.1)));
+      const dxLine = p2.x - p1.x, dyLine = p2.y - p1.y, dzLine = p2.z - p1.z;
       for(let s = 0; s < segments; s++){
         const t = s / segments;
-        const px = p1.x + (p2.x - p1.x) * t + (Math.random() - 0.5) * 0.6;
-        const py = p1.y + (p2.y - p1.y) * t + (Math.random() - 0.5) * 0.4;
-        const pz = p1.z + (p2.z - p1.z) * t + (Math.random() - 0.5) * 0.6;
-        const m = new THREE.Mesh(
-          new THREE.SphereGeometry(0.10 + Math.random() * 0.06, 6, 4),
-          new THREE.MeshBasicMaterial({ color: 0xafe8ff, transparent: true, opacity: 0.95 })
-        );
-        m.position.set(px, py, pz);
-        scene.add(m);
-        // Auto-remove na korte tijd
+        const jitter = 0.85;
+        const px = p1.x + dxLine * t + (Math.random() - 0.5) * jitter;
+        const py = p1.y + dyLine * t + (Math.random() - 0.5) * 0.55;
+        const pz = p1.z + dzLine * t + (Math.random() - 0.5) * jitter;
+        // Glow (shared mat) — schaal voor variabele dikte
+        const glow = new THREE.Mesh(_LIGHTNING_GLOW_GEO, _LIGHTNING_GLOW_MAT);
+        glow.position.set(px, py, pz);
+        const gs = 0.9 + Math.random() * 0.5;
+        glow.scale.setScalar(gs);
+        scene.add(glow);
+        // Witte kern (shared mat)
+        const core = new THREE.Mesh(_LIGHTNING_CORE_GEO, _LIGHTNING_CORE_MAT);
+        core.position.set(px, py, pz);
+        const cs = 0.8 + Math.random() * 0.5;
+        core.scale.setScalar(cs);
+        scene.add(core);
+        // Auto-remove na korte tijd — alleen mesh uit scene; NIET disposen
+        // (gedeelde resources).
+        const life = 260 + Math.random() * 140;
         setTimeout(() => {
-          if(m.parent) m.parent.remove(m);
-          m.geometry.dispose();
-          m.material.dispose();
-        }, 220 + Math.random() * 180);
+          if(glow.parent) glow.parent.remove(glow);
+          if(core.parent) core.parent.remove(core);
+        }, life);
+      }
+      // Korte takken — verlaagd van 2-3 naar 1-2 per segment voor performance
+      const branches = 1 + Math.floor(Math.random() * 2);
+      for(let b = 0; b < branches; b++){
+        const t = 0.25 + Math.random() * 0.55;
+        const bx = p1.x + dxLine * t;
+        const by = p1.y + dyLine * t;
+        const bz = p1.z + dzLine * t;
+        const bDirX = (Math.random() - 0.5) * 2;
+        const bDirY = (Math.random() - 0.3) * 1.2;
+        const bDirZ = (Math.random() - 0.5) * 2;
+        for(let n = 0; n < 3; n++){
+          const tt = n / 3;
+          const bf = new THREE.Mesh(_LIGHTNING_GLOW_GEO, _LIGHTNING_BRANCH_MAT);
+          bf.position.set(bx + bDirX * tt, by + bDirY * tt, bz + bDirZ * tt);
+          bf.scale.setScalar(0.6 + Math.random() * 0.3);
+          scene.add(bf);
+          setTimeout(() => {
+            if(bf.parent) bf.parent.remove(bf);
+          }, 180 + Math.random() * 80);
+        }
       }
     }
   }
@@ -26790,7 +27733,13 @@ shootWithDirection = function(dirOverride = null){
     detachBoxWeapon();
     const mesh = getCachedWeapon(id);
     if(!mesh) return;
-    mesh.position.set(box.currentLocation.x, 2.6, box.currentLocation.z);
+    // [SPAWN] Iets vóór de kist (richting waar de speler vandaan komt)
+    // zodat het wapen vrij staat en niet in de pickup-sprite of de
+    // open-deksel beweging clipt.
+    const cl = box.currentLocation;
+    const fx = (cl.dirX != null) ? (cl.x + cl.dirX * 0.55) : cl.x;
+    const fz = (cl.dirZ != null) ? (cl.z + cl.dirZ * 0.55) : cl.z;
+    mesh.position.set(fx, 2.4, fz);
     mesh.scale.setScalar(1.6);
     mesh.rotation.set(0, 0, 0);
     window.scene.add(mesh);
@@ -26835,9 +27784,13 @@ shootWithDirection = function(dirOverride = null){
       const t = performance.now() * 0.001;
       const box2 = window.OHBoxState;
       if(box2?.currentLocation){
-        boxWeaponMesh.position.x = box2.currentLocation.x;
-        boxWeaponMesh.position.z = box2.currentLocation.z;
-        boxWeaponMesh.position.y = 2.6 + Math.sin(t * 1.8) * 0.18;
+        const cl = box2.currentLocation;
+        // [SPAWN] zelfde voorkant-offset als attachBoxWeapon
+        const fx = (cl.dirX != null) ? (cl.x + cl.dirX * 0.55) : cl.x;
+        const fz = (cl.dirZ != null) ? (cl.z + cl.dirZ * 0.55) : cl.z;
+        boxWeaponMesh.position.x = fx;
+        boxWeaponMesh.position.z = fz;
+        boxWeaponMesh.position.y = 2.4 + Math.sin(t * 1.8) * 0.18;
       }
       boxWeaponMesh.rotation.y += 0.035;
     }
