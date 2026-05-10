@@ -2811,7 +2811,15 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   // een floating sign erboven die kosten/naam toont. De deur sluit het
   // gat 100% af — geen schuine planken die uitsteken.
   function addDoor(opts){
-    const { id, w, h, d, x, y, z, cost, leadsTo, signOffsetY = 4.6 } = opts;
+    // signOffsetY default = 0: sign zit nu MIDDEN op de deur (op deur-hoogte
+    // ipv boven de muur). Dat lost twee issues op:
+    //  1) sign verdween achter het balkon-deck (op y=4.2) als je vanaf de
+    //     bovenverdieping naar beneden keek.
+    //  2) op afstand was hij niet leesbaar omdat hij hoger zat dan de
+    //     balkon-vloer en je hem niet recht kon zien.
+    // De Sprite is billboard (kijkt altijd naar camera) dus van beide kanten
+    // van de deur leesbaar.
+    const { id, w, h, d, x, y, z, cost, leadsTo, signOffsetY = 0 } = opts;
 
     // Plank-stack: horizontale planken op elkaar gestapeld, vullen het hele gat
     const group = new THREE.Group();
@@ -2882,15 +2890,21 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     drawSign(rooms[leadsTo]?.name || leadsTo, `[F]  $${cost}`);
     const signTex = new THREE.CanvasTexture(signCanvas);
     signTex.minFilter = THREE.LinearFilter;
-    const signMat = new THREE.SpriteMaterial({ map: signTex, transparent: true });
+    const signMat = new THREE.SpriteMaterial({ map: signTex, transparent: true, depthTest: false });
     const sign = new THREE.Sprite(signMat);
-    sign.scale.set(5.4, 1.8, 1);
+    // Iets groter (was 5.4×1.8) — sign zit nu midden op de deur dus mag
+    // royaal zijn zodat hij goed te lezen is op afstand. depthTest:false
+    // zorgt dat hij ook door de muur heen rendert (anders verdwijnt-ie
+    // alsnog half achter de muur-mesh op extreme camera-hoeken).
+    sign.scale.set(6.0, 2.0, 1);
     sign.position.set(x, y + signOffsetY, z);
+    sign.renderOrder = 999;  // boven andere transparante meshes
     scene.add(sign);
 
-    // Floating glow underneath sign
+    // Floating glow rond het sign-niveau (was apart op y+2.4, nu op
+    // signOffsetY zodat de glow het sign accentueert).
     const glow = new THREE.PointLight(0xff6a30, 0.55, 8, 2);
-    glow.position.set(x, y + 2.4, z);
+    glow.position.set(x, y + signOffsetY, z);
     scene.add(glow);
 
     // Collider
@@ -3101,15 +3115,25 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     _decorBox(12, 0.4, 28, 16, 4.2, 4, 0x3a2e1a);
     _decorBox(44, 0.4, 4, 0, 4.2, 20, 0x3a2e1a);
 
-    // ---- BALKON-RAILINGS ---- (waist-high decoratie, geen blokkerende colliders)
+    // ---- BALKON-RAILINGS ---- (nu mét colliders zodat speler/zombies er
+    // niet doorheen kunnen lopen — eerst was dit alleen visueel.)
     function railing(x1, z1, x2, z2){
       const cx = (x1+x2)/2, cz = (z1+z2)/2;
+      const w = Math.abs(x2-x1) || 0.20;
+      const d = Math.abs(z2-z1) || 0.20;
       const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(Math.abs(x2-x1) || 0.15, 1.0, Math.abs(z2-z1) || 0.15),
+        new THREE.BoxGeometry(w, 1.0, d),
         new THREE.MeshStandardMaterial({ color: 0x1a1208, roughness: 0.7, metalness: 0.4 })
       );
       rail.position.set(cx, 4.6, cz);
+      rail.castShadow = true;
+      rail.updateMatrixWorld(true);
       scene.add(rail);
+      // Voeg collider toe — maar alleen op de breedte van de rail, NIET de
+      // verticale strook (anders kun je niet meer langs de railing lopen).
+      // BoxGeometry-collider met dezelfde dimensies maakt hem solide.
+      const box = new THREE.Box3().setFromObject(rail);
+      colliders.push({ mesh: rail, box });
     }
     // Railings rond het centrale gat (open lobby-schacht)
     // FIX: noord-rand was z=-10, maar het centrum-balkon loopt nu door
@@ -3267,6 +3291,54 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     // Trap NE: spiegelbeeld
     addRamp(16, -16, 22, -2, 0, 4, '-z');
     addRampMesh(19, -16, -2, 6, 4, 0, 0x4a3624);
+
+    // ================================================================
+    // STAIR ENCLOSURE — onzichtbare colliders die de zijkanten en de
+    // onderkant van elke trap afsluiten. Voorheen waren de driehoekige
+    // zijwangen alléén decoratief, waardoor speler/zombies/props door de
+    // trap heen konden. Nu sluiten we het volume eronder volledig af.
+    // ================================================================
+    function enclosureBox(w, h, d, x, y, z){
+      // Onzichtbare collider — geen mesh nodig, alleen een Box3 in de
+      // colliders array. Dat is goedkoper dan een mesh + raycaster.
+      const half = { x: w * 0.5, y: h * 0.5, z: d * 0.5 };
+      const box = new THREE.Box3(
+        new THREE.Vector3(x - half.x, y - half.y, z - half.z),
+        new THREE.Vector3(x + half.x, y + half.y, z + half.z)
+      );
+      // Geen visuele mesh — een dummy object voor de API consistency.
+      const placeholder = { isMesh: false, position: new THREE.Vector3(x, y, z) };
+      colliders.push({ mesh: placeholder, box });
+    }
+
+    // Voor elke trap (NW + NE): 3 enclosure-blokken sluiten het volume
+    // onder de trap-helling af + 2 zijwand-blokken sluiten de driehoekige
+    // zijkanten af. Trap loopt van z=-2 (voet, y=0) → z=-16 (top, y=4),
+    // breedte 6 op x[-22,-16] (NW) en x[16,22] (NE).
+    function encloseStair(xCenter){
+      const xMin = xCenter - 3;   // 6 breed → ±3 vanaf center
+      const xMax = xCenter + 3;
+      const stairLen = 14;        // z=-2 tot z=-16 → 14 lang
+
+      // 1) ZIJWANDEN (links + rechts) — 14 lang × 2.0 hoog × 0.2 dik.
+      //    Hoogte 2.0 (i.p.v. 3.0) zodat ze GEGARANDEERD geen invloed
+      //    hebben op de speler op het balkon (foot.y=4) — de marge tot
+      //    de balkon-vloer is 2u, ruim voldoende om alle edge-cases en
+      //    step-up logica buiten beeld te houden.
+      //    Een zombie is ~2.2u hoog (body strekt zich tot y=2.2 als foot=0),
+      //    dus een 2.0u wall blokkeert nog steeds 90% van zijn body —
+      //    voldoende om hem niet door te laten.
+      for(const sideX of [xMin, xMax]){
+        enclosureBox(0.2, 2.0, stairLen, sideX, 1.0, -9);  // -9 = midden tussen z=-2 en z=-16
+      }
+
+      // 2) FRONT-WALL (noord, achter de top) — sluit de opening onder
+      //    het balkon-deck af. Hoogte 2.5 (i.p.v. 3.6) zodat hij ook
+      //    onder de safety-marge blijft.
+      enclosureBox(6.0, 2.5, 0.2, xCenter, 1.25, -16.05);
+    }
+    encloseStair(-19);   // NW trap
+    encloseStair( 19);   // NE trap
 
     // Trap-balustrade: leuningen langs beide kanten van elke trap zodat
     // je visueel duidelijk ziet waar je heen loopt. Geen colliders nodig
@@ -3541,34 +3613,44 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     // room-based map. Interior cover wordt nu per kamer gezet in buildArena().
     // (helpers addCrateStack/addSandbagRow blijven beschikbaar voor andere code.)
 
-    // Hangende pipes onder het plafond-grid (horizontal + een paar drops)
+    // Hangende pipes onder het plafond-grid (horizontal + een paar drops).
+    // FIX: pipes stonden op y=6.0 — dat was prima vanaf de begane grond,
+    // maar vanaf het balkon (deck op y=4.4 + speler-eye op ~1.6 = ~6.0) zat
+    // de pipe pal op hoofdhoogte. Vooral de pipe op z=-12 liep recht boven
+    // de NW-trap-top en zat in de weg. Verhoogd naar y=8.0 zodat er ~3.6u
+    // clearance is vanaf het balkon. De drops blijven mooi langs de muur.
     for(let i = 0; i < 4; i++){
       const pipe = new THREE.Mesh(
         new THREE.CylinderGeometry(0.22, 0.22, 100, 12),
         pipeMat
       );
       pipe.rotation.z = Math.PI / 2;
-      pipe.position.set(0, 6.0, -36 + i * 24);
+      pipe.position.set(0, 8.0, -36 + i * 24);
       pipe.castShadow = true;
       scene.add(pipe);
 
-      // 2 drops per pipe (verticale ventilatie-buizen)
-      for(let j = 0; j < 2; j++){
-        const drop = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.18, 0.18, 2.2, 10),
-          pipeMat
-        );
-        drop.position.set((j === 0 ? -25 : 25), 4.9, -36 + i * 24);
-        drop.castShadow = true;
-        scene.add(drop);
+      // 2 drops per pipe (verticale ventilatie-buizen) — ALLEEN op z buiten
+      // het balkon-bereik (z=-36 en z=+36 = catacombs/vault), zodat ze niet
+      // door het balkon-deck heen steken op z=-12/+12.
+      const insideBalcony = (i === 1 || i === 2); // i=1→z=-12, i=2→z=12
+      if(!insideBalcony){
+        for(let j = 0; j < 2; j++){
+          const drop = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.18, 2.2, 10),
+            pipeMat
+          );
+          drop.position.set((j === 0 ? -25 : 25), 6.9, -36 + i * 24);
+          drop.castShadow = true;
+          scene.add(drop);
 
-        // Pipe-joint (bolletje bij verbinding)
-        const joint = new THREE.Mesh(
-          new THREE.SphereGeometry(0.26, 10, 10),
-          pipeMat
-        );
-        joint.position.set((j === 0 ? -25 : 25), 6.0, -36 + i * 24);
-        scene.add(joint);
+          // Pipe-joint (bolletje bij verbinding)
+          const joint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.26, 10, 10),
+            pipeMat
+          );
+          joint.position.set((j === 0 ? -25 : 25), 8.0, -36 + i * 24);
+          scene.add(joint);
+        }
       }
     }
 
@@ -5367,11 +5449,39 @@ function updateMusic(){
     if(nz < -BOUND) nz = -BOUND;
     if(nz >  BOUND) nz =  BOUND;
 
+    // Speler-vs-enemy collision: een zombie moet de speler kunnen blokkeren.
+    // Voorheen kon de speler door zombies heen lopen, wat de panic-momenten
+    // (vast komen te zitten in een groep) wegnam. Cone-of-shame nu actief.
+    function blockedByEnemy(tx, tz){
+      const enemies = state?.enemies;
+      if(!enemies) return false;
+      const playerFootY = player.pos.y - player.height;
+      for(const e of enemies){
+        if(!e?.mesh) continue;
+        const eY = e.mesh.position.y || 0;
+        // Y-overlap check: enemy strekt zich uit van eY-yOff tot eY+~2.2.
+        // Speler op een ander vloer-niveau (bv. balkon vs. begane grond)
+        // heeft geen botsing.
+        const eFootY = eY - (e.mesh.userData?.yOffset || 0);
+        const eHeadY = eFootY + 2.5;
+        if(playerFootY > eHeadY) continue;          // speler boven enemy
+        if(playerFootY + player.height < eFootY) continue; // speler onder enemy
+        // XZ-circle vs circle test: combined radii
+        const ex = e.mesh.position.x, ez = e.mesh.position.z;
+        const eR = (e.radius || 1.0) * 0.85;        // iets soepeler — anders blijft alles plakken
+        const r = player.radius + eR;
+        const ddx = tx - ex, ddz = tz - ez;
+        if(ddx * ddx + ddz * ddz < r * r) return true;
+      }
+      return false;
+    }
+
     // Horizontale collision check op huidige Y. Step-up: als de target plek
     // een collider heeft maar zijn top is <0.55 hoger dan de huidige vloer,
     // staan we toe (de speler stapt erop in de y-update straks).
     function canMoveTo(tx, tz){
       // Test op huidig speler-Y
+      if(blockedByEnemy(tx, tz)) return false;
       if(!collidesAtPlayerY(tx, tz)) return true;
       // Step-up tolerantie: kijk of er een vloer is op tx/tz dichtbij speler-Y
       const ground = getGroundHeightAt(tx, tz);
@@ -6054,7 +6164,11 @@ function isBossWave(wave = player.wave || 1){
 
 function spawnEnemy(isBoss=false){
   function findSafeEnemySpawn(radius){
-    const minPlayerDist = isBoss ? 18 : 14;
+    // Spawn-afstand vergroot: 20u voor normale enemies (was 14, te dichtbij —
+    // zombies konden vrijwel direct op je staan na spawn) en 26u voor bosses.
+    // Dit geeft de speler ademruimte en voelt eerlijker. Je hoort de zombies
+    // wél spawnen maar je hebt minstens 1-2 sec om te reageren.
+    const minPlayerDist = isBoss ? 26 : 20;
     const spawnMin = -45;
     const spawnMax = 45;
 
@@ -6623,10 +6737,11 @@ function spawnWave(){
     else if(r < .46) kind = "heal";
     else if(r < .53) kind = "shield";
     // CoD Zombies power-ups — zeldzaam maar altijd opvallend.
-    // Cumulatieve dropkans 6%, gelijk verdeeld over 3 types.
-    else if(r < .55) kind = "maxammo";     // 2% — Max Ammo
-    else if(r < .57) kind = "instakill";   // 2% — Insta-Kill (10s)
+    // Cumulatieve dropkans 8%, gelijk verdeeld over 4 types.
+    else if(r < .55) kind = "maxammo";     // 2% — Max Ammo (ammo crate)
+    else if(r < .57) kind = "instakill";   // 2% — Insta-Kill (red skull, 10s)
     else if(r < .59) kind = "doublepoints"; // 2% — Double Points (15s)
+    else if(r < .61) kind = "nuke";        // 2% — Nuke (kill all on screen)
 
     if(!kind) return;
 
@@ -6638,7 +6753,8 @@ function spawnWave(){
       shield: 0x74a8ff,
       maxammo: 0xffe04a,       // helder geel, zoals CoD's max ammo orb
       instakill: 0xff2a2a,     // fel rood — zoals classic insta-kill
-      doublepoints: 0x4dd9ff   // licht cyaan
+      doublepoints: 0x4dd9ff,  // licht cyaan
+      nuke: 0x9dff4a           // radioactief groen
     };
 
     const emissive = {
@@ -6649,7 +6765,8 @@ function spawnWave(){
       shield: 0x183560,
       maxammo: 0x886000,
       instakill: 0x6a0a0a,
-      doublepoints: 0x10566b
+      doublepoints: 0x10566b,
+      nuke: 0x3a6a14
     };
 
     const mat = new THREE.MeshStandardMaterial({ color: colors[kind], emissive: emissive[kind], emissiveIntensity:.95, metalness:.22, roughness:.32 });
@@ -6676,25 +6793,234 @@ function spawnWave(){
       core = new THREE.Mesh(new THREE.TorusGeometry(.34,.09,10,18), mat);
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(.14,0), mat); gem.position.z = .12;
       mesh.add(core,gem);
-    }else if(kind === "maxammo" || kind === "instakill" || kind === "doublepoints"){
-      // CoD Zombies-stijl power-up: gloeiende sokkel + groot leesbaar icoon erbovenop.
-      // Visueel zwaarder dan de ammo/heal pickups omdat ze zeldzaam en luid horen te zijn.
+    }else if(kind === "maxammo" || kind === "instakill" || kind === "doublepoints" || kind === "nuke"){
+      // ============================================================
+      // CoD Zombies-stijl power-ups: iconische 3D modellen i.p.v. ring+text.
+      // Elke power-up heeft zijn eigen herkenbare silhouet zoals in BO/BO2:
+      //   - Insta-Kill   = rode doodshoofd
+      //   - Max Ammo     = goud-gele ammo crate met patronen erop
+      //   - Double Points= roterende 2x in cyaan
+      //   - Nuke         = groene radioactieve bom
+      // Daarnaast krijgt elke power-up een verticale lichtstraal door het
+      // plafond (zichtbaar door de hele arena) en een felle pointlight.
+      // ============================================================
+      const pcol = colors[kind];
+
+      // Sokkel — gloeiende plaat onderaan zodat het icoon op een
+      // duidelijke "drop spot" staat (zoals in CoD waar de power-up
+      // op de grond ligt).
+      const baseDisc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.55, 0.55, 0.05, 24),
+        new THREE.MeshBasicMaterial({
+          color: pcol, transparent: true, opacity: 0.55,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        })
+      );
+      baseDisc.position.y = -0.85;
+      mesh.add(baseDisc);
+
+      // Energie-ring rond het icoon (zwevende halo)
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(.42, .06, 10, 24),
+        new THREE.TorusGeometry(.42, .045, 10, 28),
         new THREE.MeshStandardMaterial({
-          color: colors[kind], emissive: colors[kind], emissiveIntensity:1.2,
+          color: pcol, emissive: pcol, emissiveIntensity:1.4,
           metalness:0.1, roughness:0.4
         })
       );
       ring.rotation.x = Math.PI/2;
+      ring.position.y = -0.05;
       mesh.add(ring);
+
+      // ---- ICOON per type ----
+      const iconGroup = new THREE.Group();
+      mesh.add(iconGroup);
+
+      if(kind === "instakill"){
+        // ===== RODE DOODSHOOFD (signature CoD insta-kill) =====
+        const skullMat = new THREE.MeshStandardMaterial({
+          color: 0xfff0e0, emissive: 0xff1010, emissiveIntensity: 0.55,
+          roughness: 0.55, metalness: 0.15
+        });
+        const cavityMat = new THREE.MeshStandardMaterial({
+          color: 0x1a0202, emissive: 0xff0808, emissiveIntensity: 1.6,
+          roughness: 0.3, metalness: 0.0
+        });
+        // Schedel-bol (iets ingedrukt)
+        const cranium = new THREE.Mesh(
+          new THREE.SphereGeometry(0.32, 18, 14), skullMat
+        );
+        cranium.scale.set(1.0, 0.95, 1.05);
+        cranium.position.y = 0.06;
+        iconGroup.add(cranium);
+        // Kaak — kleinere bol onder de schedel + box voor neerwaartse kant
+        const jaw = new THREE.Mesh(
+          new THREE.SphereGeometry(0.24, 14, 10), skullMat
+        );
+        jaw.scale.set(1.0, 0.55, 0.85);
+        jaw.position.y = -0.22;
+        jaw.position.z = 0.04;
+        iconGroup.add(jaw);
+        // Ogen — twee zwarte holtes met rode glow erin
+        for(const ex of [-0.115, 0.115]){
+          const eye = new THREE.Mesh(
+            new THREE.SphereGeometry(0.075, 10, 8), cavityMat
+          );
+          eye.position.set(ex, 0.06, 0.27);
+          eye.scale.set(1.0, 1.1, 0.6);
+          iconGroup.add(eye);
+        }
+        // Neus-holte (driehoek-achtig: kleine cone, naar binnen gericht)
+        const nose = new THREE.Mesh(
+          new THREE.ConeGeometry(0.05, 0.10, 6), cavityMat
+        );
+        nose.position.set(0, -0.05, 0.30);
+        nose.rotation.x = Math.PI / 2;
+        iconGroup.add(nose);
+        // Tanden — rij kleine boxes in de kaak
+        for(let t = 0; t < 6; t++){
+          const tooth = new THREE.Mesh(
+            new THREE.BoxGeometry(0.038, 0.06, 0.04), skullMat
+          );
+          tooth.position.set(-0.115 + t * 0.046, -0.16, 0.18);
+          iconGroup.add(tooth);
+        }
+        iconGroup.position.y = 0.20;
+      }
+      else if(kind === "maxammo"){
+        // ===== GOUDEN AMMO CRATE met patronen erop =====
+        const crateMat = new THREE.MeshStandardMaterial({
+          color: 0xc89020, emissive: 0xffb030, emissiveIntensity: 0.5,
+          roughness: 0.4, metalness: 0.7
+        });
+        const trimMat = new THREE.MeshStandardMaterial({
+          color: 0x6a4810, emissive: 0xffd060, emissiveIntensity: 0.4,
+          roughness: 0.5, metalness: 0.85
+        });
+        // Hoofdkist
+        const crate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.62, 0.40, 0.42), crateMat
+        );
+        iconGroup.add(crate);
+        // Deksel (iets breder, geeft "lid" effect)
+        const lid = new THREE.Mesh(
+          new THREE.BoxGeometry(0.66, 0.06, 0.46), trimMat
+        );
+        lid.position.y = 0.23;
+        iconGroup.add(lid);
+        // Stickers / strepen op de zijkant
+        const strap1 = new THREE.Mesh(
+          new THREE.BoxGeometry(0.66, 0.06, 0.10), trimMat
+        );
+        strap1.position.set(0, -0.02, 0.22);
+        iconGroup.add(strap1);
+        const strap2 = strap1.clone();
+        strap2.position.z = -0.22;
+        iconGroup.add(strap2);
+        // Patronen die uit de kist steken (top)
+        const bulletMat = new THREE.MeshStandardMaterial({
+          color: 0xffd870, emissive: 0xffa830, emissiveIntensity: 0.7,
+          roughness: 0.25, metalness: 0.9
+        });
+        for(let bx = -0.18; bx <= 0.18; bx += 0.09){
+          // Huls
+          const shell = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.034, 0.034, 0.18, 8), bulletMat
+          );
+          shell.position.set(bx, 0.32, 0);
+          iconGroup.add(shell);
+          // Kogelpunt
+          const tip = new THREE.Mesh(
+            new THREE.ConeGeometry(0.034, 0.07, 8), trimMat
+          );
+          tip.position.set(bx, 0.44, 0);
+          iconGroup.add(tip);
+        }
+        iconGroup.position.y = 0.05;
+      }
+      else if(kind === "doublepoints"){
+        // ===== ROTERENDE 2x — twee glanzende cijfer-vormen =====
+        const numMat = new THREE.MeshStandardMaterial({
+          color: 0xa0eaff, emissive: 0x4dd9ff, emissiveIntensity: 1.2,
+          roughness: 0.25, metalness: 0.7
+        });
+        // De "2" — gemaakt van een paar boxes en bochten
+        // Boven-segment
+        const top = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.07, 0.10), numMat);
+        top.position.set(-0.18, 0.18, 0); iconGroup.add(top);
+        // Rechter-bovenkant
+        const ur = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.18, 0.10), numMat);
+        ur.position.set(-0.06, 0.07, 0); iconGroup.add(ur);
+        // Midden-segment
+        const mid = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.07, 0.10), numMat);
+        mid.position.set(-0.18, -0.04, 0); iconGroup.add(mid);
+        // Linker-onderkant
+        const ll = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.18, 0.10), numMat);
+        ll.position.set(-0.30, -0.15, 0); iconGroup.add(ll);
+        // Onder-segment
+        const bot = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.07, 0.10), numMat);
+        bot.position.set(-0.18, -0.26, 0); iconGroup.add(bot);
+        // De "x" — kleine cijfer rechts naast de 2
+        const x1 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.10), numMat);
+        x1.position.set(0.16, -0.04, 0); x1.rotation.z = Math.PI / 4; iconGroup.add(x1);
+        const x2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.10), numMat);
+        x2.position.set(0.16, -0.04, 0); x2.rotation.z = -Math.PI / 4; iconGroup.add(x2);
+        iconGroup.position.y = 0.10;
+      }
+      else if(kind === "nuke"){
+        // ===== GROENE NUKE — kleine bom-vorm met radioactief symbool =====
+        const bombMat = new THREE.MeshStandardMaterial({
+          color: 0x2a3a18, emissive: 0x9dff4a, emissiveIntensity: 0.45,
+          roughness: 0.6, metalness: 0.5
+        });
+        const radMat = new THREE.MeshStandardMaterial({
+          color: 0x9dff4a, emissive: 0x9dff4a, emissiveIntensity: 1.6,
+          roughness: 0.3, metalness: 0.1
+        });
+        // Bol-romp (bom)
+        const bomb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.30, 16, 12), bombMat
+        );
+        iconGroup.add(bomb);
+        // Vinnen achteraan — 4 boxes als kruis
+        for(let f = 0; f < 4; f++){
+          const fin = new THREE.Mesh(
+            new THREE.BoxGeometry(0.04, 0.18, 0.18), bombMat
+          );
+          const ang = (f / 4) * Math.PI * 2;
+          fin.position.x = Math.cos(ang) * 0.18;
+          fin.position.y = Math.sin(ang) * 0.18;
+          fin.position.z = -0.28;
+          fin.rotation.z = ang;
+          iconGroup.add(fin);
+        }
+        // Radioactief symbool — centrale schijf + 3 driehoekige bladen
+        const trefoilCenter = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.08, 0.08, 0.05, 16), radMat
+        );
+        trefoilCenter.rotation.x = Math.PI / 2;
+        trefoilCenter.position.z = 0.32;
+        iconGroup.add(trefoilCenter);
+        for(let t = 0; t < 3; t++){
+          const blade = new THREE.Mesh(
+            new THREE.ConeGeometry(0.10, 0.18, 3), radMat
+          );
+          const a = (t / 3) * Math.PI * 2;
+          blade.position.x = Math.cos(a) * 0.16;
+          blade.position.y = Math.sin(a) * 0.16;
+          blade.position.z = 0.32;
+          blade.rotation.z = a - Math.PI / 2;
+          blade.rotation.x = Math.PI;
+          iconGroup.add(blade);
+        }
+        iconGroup.position.y = 0.10;
+      }
 
       // Verticale lichtstraal die door het plafond schiet — zichtbaar vanuit
       // elke hoek van de arena. CoD heeft dit letterlijk: je ziet aan de
       // hemel waar een power-up ligt voordat je er bij bent.
       const beamGeo = new THREE.CylinderGeometry(0.18, 0.42, 22, 12, 1, true);
       const beamMat = new THREE.MeshBasicMaterial({
-        color: colors[kind],
+        color: pcol,
         transparent: true,
         opacity: 0.32,
         side: THREE.DoubleSide,
@@ -6717,51 +7043,33 @@ function spawnWave(){
       coreBeam.position.y = 11;
       mesh.add(coreBeam);
 
-      // Iconen-textuur op een dubbelzijdig sprite (dat hier OK is, je wil het van overal kunnen zien)
-      const ic = document.createElement("canvas");
-      ic.width = 256; ic.height = 256;
-      const ictx = ic.getContext("2d");
-      ictx.clearRect(0,0,256,256);
-      // Ronde achtergrond met dezelfde kleur
-      const hex = "#" + colors[kind].toString(16).padStart(6, "0");
-      ictx.fillStyle = hex;
-      ictx.beginPath(); ictx.arc(128,128,120,0,Math.PI*2); ictx.fill();
-      ictx.strokeStyle = "rgba(255,255,255,0.7)";
-      ictx.lineWidth = 8;
-      ictx.beginPath(); ictx.arc(128,128,116,0,Math.PI*2); ictx.stroke();
-      // Tekst — korte aanduiding (CoD heeft eigenlijk pictogrammen, maar tekst is universeler)
-      ictx.fillStyle = "#ffffff";
-      ictx.shadowColor = "rgba(0,0,0,0.8)";
-      ictx.shadowBlur = 8;
-      ictx.textAlign = "center";
-      ictx.textBaseline = "middle";
-      ictx.font = "900 86px system-ui, -apple-system, sans-serif";
-      const labelMain = kind === "maxammo" ? "MAX" : kind === "instakill" ? "INSTA" : "2x";
-      const labelSub  = kind === "maxammo" ? "AMMO" : kind === "instakill" ? "KILL" : "POINTS";
-      ictx.fillText(labelMain, 128, 105);
-      ictx.font = "800 38px system-ui, -apple-system, sans-serif";
-      ictx.fillText(labelSub, 128, 168);
-
-      const tex = new THREE.CanvasTexture(ic);
-      tex.needsUpdate = true;
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: tex, transparent: true, depthTest: true
-      }));
-      sprite.scale.set(0.78, 0.78, 1);
-      sprite.position.y = 0.20;
-      mesh.add(sprite);
-
-      // Sterke pointlight — straalt warmte uit door de fog
-      const lamp = new THREE.PointLight(colors[kind], 2.4, 14, 2);
+      // Sterke pointlight — straalt warmte/kleur uit door de fog
+      const lamp = new THREE.PointLight(pcol, 2.6, 16, 2);
       lamp.position.y = 0.6;
       mesh.add(lamp);
 
-      core = ring; // voor downstream code
+      // Reference voor pickup-fysica + flicker animatie in updatePickups
+      core = ring;
+      mesh.userData.isPowerup = true;
+      mesh.userData.iconGroup = iconGroup;
+      mesh.userData.beam = beam;
+      mesh.userData.coreBeam = coreBeam;
+      mesh.userData.lamp = lamp;
+      mesh.userData.baseDisc = baseDisc;
     }
     mesh.position.copy(position);
-    mesh.position.y = .95;
+    // Power-ups op de grond plaatsen (CoD Zombies-stijl: ze vallen op
+    // de vloer en kun je oppakken). Gewone pickups zweven op 0.95.
+    const isPowerup = (kind === "maxammo" || kind === "instakill" || kind === "doublepoints" || kind === "nuke");
+    mesh.position.y = isPowerup ? 1.05 : .95;
     scene.add(mesh);
-    state.pickups.push({ mesh, kind, life: (kind === "maxammo" || kind === "instakill" || kind === "doublepoints") ? 18 : 12, spin: rand(1.2,2.4) });
+    state.pickups.push({
+      mesh, kind,
+      life: isPowerup ? 22 : 12,    // 22s pickup-window (CoD = 30s, korter want compactere arena)
+      spin: rand(1.2, 2.4),
+      _baseY: mesh.position.y,
+      _isPowerup: isPowerup
+    });
   }
 
   function registerKill(points){
@@ -7107,31 +7415,36 @@ function shootWithDirection(dirOverride=null){
   //   - Arm:   taps cilinder
   //   - Legs:  twee cilinders in een Group (twee benen i.p.v. één blok)
   // Polycount blijft laag genoeg voor MAX_RAGDOLLS=4 zonder framedrops.
+  // FIX: oude waarden waren ~2x te groot t.o.v. de echte enemy-mesh.
+  // De echte zombie heeft head ~0.32 radius en is ~2.7m hoog. De ragdoll
+  // dimensies hieronder en de offsets in spawnRagdoll matchen nu beter
+  // de feitelijke proporties van de enemy.
   const RAGDOLL_GEO = {
-    head:   new THREE.SphereGeometry(0.30, 12, 10),
-    torso:  new THREE.CylinderGeometry(0.45, 0.40, 1.05, 12),
-    arm:    new THREE.CylinderGeometry(0.13, 0.10, 0.85, 10),
-    leg:    new THREE.CylinderGeometry(0.16, 0.12, 1.05, 10),  // single thigh+shin
-    boot:   new THREE.BoxGeometry(0.22, 0.14, 0.32)            // klompvormige laars
+    head:   new THREE.SphereGeometry(0.18, 12, 10),
+    torso:  new THREE.CylinderGeometry(0.26, 0.22, 0.62, 12),
+    arm:    new THREE.CylinderGeometry(0.075, 0.06, 0.50, 10),
+    leg:    new THREE.CylinderGeometry(0.095, 0.07, 0.62, 10),
+    boot:   new THREE.BoxGeometry(0.13, 0.085, 0.20)
   };
 
   // Helper: maak een "legs"-piece dat fysiek 1 punt is maar visueel
   // twee benen + laarzen heeft. Returned een Group als mesh-vervanger.
+  // Offsets zijn afgestemd op de verkleinde RAGDOLL_GEO (~50% van orig).
   function _buildRagdollLegs(suitMat, bootMat){
     const g = new THREE.Group();
     // Linker been
     const lThigh = new THREE.Mesh(RAGDOLL_GEO.leg, suitMat);
-    lThigh.position.set(-0.18, 0, 0);
+    lThigh.position.set(-0.11, 0, 0);
     g.add(lThigh);
     const lBoot = new THREE.Mesh(RAGDOLL_GEO.boot, bootMat);
-    lBoot.position.set(-0.18, -0.55, 0.05);
+    lBoot.position.set(-0.11, -0.34, 0.03);
     g.add(lBoot);
     // Rechter been
     const rThigh = new THREE.Mesh(RAGDOLL_GEO.leg, suitMat);
-    rThigh.position.set(0.18, 0, 0);
+    rThigh.position.set(0.11, 0, 0);
     g.add(rThigh);
     const rBoot = new THREE.Mesh(RAGDOLL_GEO.boot, bootMat);
-    rBoot.position.set(0.18, -0.55, 0.05);
+    rBoot.position.set(0.11, -0.34, 0.03);
     g.add(rBoot);
     // Userdata: lijst van materialen zodat opacity-fade ze allemaal raakt
     g.userData._ragMats = [suitMat, bootMat];
@@ -7142,10 +7455,10 @@ function shootWithDirection(dirOverride=null){
     const g = new THREE.Group();
     const torso = new THREE.Mesh(RAGDOLL_GEO.torso, suitMat);
     g.add(torso);
-    // Bloedvlek-disk vooraan op torso
-    const stainGeo = new THREE.CircleGeometry(0.22, 12);
+    // Bloedvlek-disk vooraan op torso (geschaald met torso-radius)
+    const stainGeo = new THREE.CircleGeometry(0.13, 12);
     const stain = new THREE.Mesh(stainGeo, bloodMat);
-    stain.position.set(0, 0.05, 0.41);
+    stain.position.set(0, 0.03, 0.24);
     g.add(stain);
     g.userData._ragMats = [suitMat, bloodMat];
     g.userData._ownGeos = [stainGeo];   // unique geo we moeten disposen
@@ -7175,6 +7488,14 @@ function shootWithDirection(dirOverride=null){
     const constraints = [];
     const base = enemy.mesh.position.clone();
 
+    // Pak de schaal van de oorspronkelijke enemy mesh zodat de ragdoll
+    // dezelfde grootte heeft als de zombie die net dood ging. Boss = 2.05,
+    // tank = 1.22, basic = 1.04 etc. Zonder dit zijn ragdolls bv. ~2x te
+    // groot voor een tank/boss en visueel te klein voor de runner.
+    // We multiplyen met een extra factor (0.9) zodat de ragdoll iets
+    // compacter aanvoelt dan de levende zombie — beter voor stomp-feel.
+    const enemyScale = (enemy.mesh.scale?.x || 1) * 0.9;
+
     // Kleur-paletten matched op het oorspronkelijke makeEnemyMesh-palet,
     // zodat de ragdoll niet ineens een andere kleur krijgt dan de zombie
     // die net stierf.
@@ -7194,12 +7515,17 @@ function shootWithDirection(dirOverride=null){
 
     // 5 fysieke punten — zelfde aantal als voorheen — maar elk met een
     // visueel zombie-deel i.p.v. een kubus.
+    // Offsets in mesh-local space; we passen de enemy-scale daarna toe.
+    // Echte zombie is ~2.7m: head op ~2.6, torso center ~1.8, hip ~1.0.
+    // Met de verkleinde piece-geo (50%) blijven de offsets ongeveer gelijk
+    // omdat de pieces nu de ruimte delen. Voor 'compactness' brengen we ze
+    // iets dichter bij elkaar.
     const defs = [
-      { name:"head",  kind:"head",  off:[0,2.54,0.02], mass:0.8, radius:0.30 },
-      { name:"torso", kind:"torso", off:[0,1.50,0],    mass:1.6, radius:0.45 },
-      { name:"armL",  kind:"arm",   off:[-0.58,1.44,0.02], mass:0.72, radius:0.16 },
-      { name:"armR",  kind:"arm",   off:[ 0.58,1.44,0.02], mass:0.72, radius:0.16 },
-      { name:"legs",  kind:"legs",  off:[0,0.65,0.02], mass:1.6, radius:0.20 }
+      { name:"head",  kind:"head",  off:[0, 2.50, 0.02], mass:0.8, radius:0.18 },
+      { name:"torso", kind:"torso", off:[0, 1.70, 0],    mass:1.6, radius:0.26 },
+      { name:"armL",  kind:"arm",   off:[-0.32, 1.66, 0.02], mass:0.72, radius:0.10 },
+      { name:"armR",  kind:"arm",   off:[ 0.32, 1.66, 0.02], mass:0.72, radius:0.10 },
+      { name:"legs",  kind:"legs",  off:[0, 0.78, 0.02], mass:1.6, radius:0.14 }
     ];
     const idx = {};
 
@@ -7235,8 +7561,18 @@ function shootWithDirection(dirOverride=null){
         mesh = new THREE.Mesh(RAGDOLL_GEO.head, skinMat);
       }
 
-      const pos = base.clone().add(new THREE.Vector3(...def.off));
+      // Pas enemy-scale toe op de offsets (zodat positie matcht met levende
+      // mesh-grootte) én op de piece zelf (zodat hij dezelfde proporties
+      // heeft als de zombie). Was eerder in absolute units waardoor bosses
+      // veel te kleine ragdolls kregen en basics te grote.
+      const scaledOff = new THREE.Vector3(
+        def.off[0] * enemyScale,
+        def.off[1] * enemyScale,
+        def.off[2] * enemyScale
+      );
+      const pos = base.clone().add(scaledOff);
       mesh.position.copy(pos);
+      mesh.scale.setScalar(enemyScale);
       mesh.rotation.set(Math.random()*0.30, Math.random()*Math.PI, Math.random()*0.30);
       // Shadows uitgezet voor ragdoll-pieces — performance.
       mesh.traverse?.(o => {
@@ -7255,7 +7591,7 @@ function shootWithDirection(dirOverride=null){
         prev:pos.clone().sub(impulse.clone().multiplyScalar(0.015 / def.mass)),
         spin:new THREE.Vector3((Math.random()-0.5)*2.8,(Math.random()-0.5)*3.8,(Math.random()-0.5)*2.8),
         lift: 0.35 + Math.random()*0.45,
-        radius: def.radius,
+        radius: def.radius * enemyScale,
         drag: 0.972
       });
     });
@@ -7628,6 +7964,61 @@ function updateBullets(dt){
   const BULLET_WALL_RADIUS = 0.14;
   const PLAYER_HIT_RADIUS = 1.15;
 
+  // Helper: bij limb-loss een bloed-burst spawnen op de juiste hoogte.
+  // Visuele bone/flesh-stumps op de body zelf worden door het overhaul-
+  // IIFE gehandeld via dismemberRandomLimb (window scope) — deze functie
+  // dekt het bullet-pad met een eigen burst zodat het altijd een
+  // duidelijke "POP"-feedback heeft, ook als die andere IIFE niet draait.
+  function spawnLimbStump(enemy, part){
+    if(!enemy?.mesh) return;
+    if(typeof createBurst !== "function") return;
+    const ePos = enemy.mesh.position;
+    const yByPart = part === "head"
+      ? 2.4
+      : (part === "armL" || part === "armR")
+        ? 1.7
+        : 0.7;
+    const burstPos = ePos.clone();
+    burstPos.y += yByPart;
+    // Bloed-burst — donkere én lichtere tinten voor diepte
+    createBurst(burstPos, 0xb01515, 12, 4.8, {
+      minSize:.05, maxSize:.13, minLife:.22, maxLife:.55, gravity:7.0, drag:0.86, shrink:0.97
+    });
+    createBurst(burstPos, 0xff3a3a, 8, 3.0, {
+      minSize:.04, maxSize:.10, minLife:.18, maxLife:.42, gravity:6.4
+    });
+    // Visuele bone-stump op de body (als het overhaul-pad niet draait,
+    // hebben we hier toch een fallback).
+    try {
+      const body = enemy.mesh.userData?.body || enemy.mesh;
+      if(body && part !== "head"){
+        const isArm = part.startsWith("arm");
+        const sx = part.endsWith("L") ? -1 : 1;
+        const stumpY = isArm ? 1.55 : 0.55;
+        const stumpX = sx * (isArm ? 0.30 : 0.24);
+        const stumpMat = new THREE.MeshStandardMaterial({
+          color: 0xeae0d2, roughness: 0.85, metalness: 0.05
+        });
+        const stump = new THREE.Mesh(
+          new THREE.CylinderGeometry(isArm ? 0.07 : 0.09, isArm ? 0.06 : 0.08, 0.10, 6),
+          stumpMat
+        );
+        stump.position.set(stumpX, stumpY, 0);
+        body.add(stump);
+        const fleshMat = new THREE.MeshStandardMaterial({
+          color: 0x6a0c10, roughness: 0.9, metalness: 0.0
+        });
+        const flesh = new THREE.Mesh(
+          new THREE.SphereGeometry(isArm ? 0.10 : 0.13, 8, 6),
+          fleshMat
+        );
+        flesh.position.set(stumpX, stumpY, 0);
+        flesh.scale.set(1, 0.7, 1);
+        body.add(flesh);
+      }
+    } catch(_){}
+  }
+
   function ensureEnemyHp(target){
     if(!target) return false;
 
@@ -7647,6 +8038,20 @@ function updateBullets(dt){
   function hitNormalEnemy(enemy, damage, hitPosition){
     if(!enemy?.mesh) return false;
     if(!ensureEnemyHp(enemy)) return false;
+
+    // Pack-a-Punch damage-multiplier: als het actieve wapen geüpgraded is
+    // via de PaP-machine, krijgt de bullet damage een x1.8–x2.2 boost
+    // (afhankelijk van het wapen-type, ingesteld bij upgrade).
+    try {
+      const _inv = (typeof inv !== "undefined") ? inv : (window.OHInv || null);
+      const _W = (typeof WEAPONS !== "undefined") ? WEAPONS : (window.WEAPONS || null);
+      if(_inv && _W){
+        const _slot = _inv.slots && _inv.slots[_inv.active];
+        if(_slot && _W[_slot.weapon] && _W[_slot.weapon].papDamageMult){
+          damage = damage * _W[_slot.weapon].papDamageMult;
+        }
+      }
+    } catch(_){}
 
     // --- Dismemberment: bepaal welk lichaamsdeel geraakt is op basis van
     // de hitPosition relatief aan de enemy-root. We gebruiken local-Y en
@@ -7700,30 +8105,56 @@ function updateBullets(dt){
       }
     }
 
-    // Apply dismemberment als een limb geraakt wordt en nog leeft
+    // Apply dismemberment als een limb geraakt wordt en nog leeft.
+    // CoD-stijl: niet elk schot rukt direct de limb eraf — er is een
+    // KANS gebaseerd op damage. Hoe meer damage in één klap, hoe groter
+    // de kans dat de limb daadwerkelijk afvalt. Headshots zijn altijd
+    // dodelijk (head verdwijnt + 3.5x crit). Limbs hebben een kans-curve
+    // zodat het soms 1 schot kost en soms 3-4 voor een arm/been afvalt.
     const limbs = enemy.mesh.userData.limbs;
     const limbState = enemy.mesh.userData.limbState;
     const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
     let finalDamage = dmg;
 
+    // Damage-gebaseerde kans op limb-loss:
+    //  base damage 25 (m1911) → ~28% kans
+    //  base damage 50 (rifle) → ~50% kans
+    //  base damage 100+ (sniper/wonder) → ~85% kans
+    // Crit/hoge dmg sleept de kans omhoog; small-pistols moeten meerdere
+    // hits doen voordat een ledemaat losgaat.
+    function limbLossChance(d){
+      // Asymptotisch naar ~0.9 zodat zelfs huge damage nooit 100% is
+      // (behalve voor head, die gaat altijd af bij headshot voor crit).
+      return Math.min(0.90, 0.10 + d * 0.012);
+    }
+
     if(limbs && limbState){
       if(hitPart === "head" && limbState.head){
-        // Headshot: massief extra schade (3.5x) — een goed geplaatst hoofdshot
-        // maakt het korte werk van de enemy.
+        // Headshot: massief extra schade (3.5x). Head zelf verdwijnt
+        // ALTIJD bij een directe headshot — dat is de CoD-feel.
         finalDamage = dmg * 3.5;
         limbState.head = false;
         // Verberg hoofd + extras (nek/kaak/visor)
         if(limbs.head) limbs.head.visible = false;
         if(limbs.headExtras) limbs.headExtras.forEach(m => { if(m) m.visible = false; });
+        // Bot-stomp/bloed-effect bij head-loss
+        try { spawnLimbStump?.(enemy, "head"); } catch(_){}
       } else if((hitPart === "legL" || hitPart === "legR") && limbState[hitPart]){
-        limbState[hitPart] = false;
-        if(limbs[hitPart]) limbs[hitPart].visible = false;
-        // Kleine bonus-damage: -5 hp voor limb-loss
-        finalDamage = dmg + 5;
+        // Kans-gebaseerd. Bij MISS van de roll → torso-damage en geen pop.
+        if(Math.random() < limbLossChance(dmg)){
+          limbState[hitPart] = false;
+          if(limbs[hitPart]) limbs[hitPart].visible = false;
+          finalDamage = dmg + 5;  // limb-loss bonus damage
+          try { spawnLimbStump?.(enemy, hitPart); } catch(_){}
+        }
+        // Anders: gewoon de schade, geen pop.
       } else if((hitPart === "armL" || hitPart === "armR") && limbState[hitPart]){
-        limbState[hitPart] = false;
-        if(limbs[hitPart]) limbs[hitPart].visible = false;
-        finalDamage = dmg + 3;
+        if(Math.random() < limbLossChance(dmg)){
+          limbState[hitPart] = false;
+          if(limbs[hitPart]) limbs[hitPart].visible = false;
+          finalDamage = dmg + 3;
+          try { spawnLimbStump?.(enemy, hitPart); } catch(_){}
+        }
       }
     }
 
@@ -7767,6 +8198,21 @@ function updateBullets(dt){
   function hitBoss(damage, hitPosition){
     if(!state.boss?.mesh) return false;
     if(!ensureEnemyHp(state.boss)) return false;
+
+    // Pack-a-Punch damage-multiplier ook tegen bosses (iets minder dan
+    // tegen normale enemies om boss-pacing niet te breken: 70% van de
+    // gewone PaP-bonus).
+    try {
+      const _inv = (typeof inv !== "undefined") ? inv : (window.OHInv || null);
+      const _W = (typeof WEAPONS !== "undefined") ? WEAPONS : (window.WEAPONS || null);
+      if(_inv && _W){
+        const _slot = _inv.slots && _inv.slots[_inv.active];
+        if(_slot && _W[_slot.weapon] && _W[_slot.weapon].papDamageMult){
+          const m = _W[_slot.weapon].papDamageMult;
+          damage = damage * (1 + (m - 1) * 0.7);
+        }
+      }
+    } catch(_){}
 
     const dmg = Math.max(0, Number.isFinite(damage) ? damage : 0);
     state.boss.hp = Math.max(0, state.boss.hp - dmg);
@@ -7987,20 +8433,49 @@ if(b.gravity){
     let remove = b.life <= 0;
 
 
-    // muur / arena collision
-    if(!remove && collidesAt(b.mesh.position.x, b.mesh.position.z, BULLET_WALL_RADIUS)){
-      if(isExplosiveBullet(b)){
-        explodeProjectile(b);
-      } else {
-        createBurst(b.mesh.position, b.explosionColor, 6, 2.5);
+    // muur / arena collision — Y-aware zodat grenades, rockets, plasma
+    // én bullets ook tegen UPPER walls (y=5..9) en het balkon-deck botsen.
+    // De oude collidesAt() filtert colliders weg waarvan b.min.y >= 2.5,
+    // dus een grenade die over een muur heen vliegt naar de bovenverdieping
+    // ging door alles heen. Nu gebruiken we collidesAtY() met de exacte
+    // bullet-Y zodat de check klopt op elke hoogte.
+    if(!remove){
+      const bx = b.mesh.position.x;
+      const by = b.mesh.position.y;
+      const bz = b.mesh.position.z;
+      // Een dunne Y-band rond de bullet — Box3 vs sphere is overkill, we
+      // gebruiken een 0.2u band (≈ bullet diameter) zodat we kleine
+      // collider-randen niet missen. Bullet-radius blijft BULLET_WALL_RADIUS.
+      const hitWall = collidesAtY(bx, bz, by - 0.10, BULLET_WALL_RADIUS, 0.20);
+      if(hitWall){
+        if(isExplosiveBullet(b)){
+          explodeProjectile(b);
+        } else {
+          createBurst(b.mesh.position, b.explosionColor, 6, 2.5);
+        }
+        remove = true;
       }
-      remove = true;
     }
 
-    // grond impact voor arcing projectiles + rockets (Ray Gun, RPG, Mustang etc.)
-    if(!remove && b.mesh.position.y <= 0.2 && (b.type === "grenade" || b.type === "plasma" || b.type === "rocket")){
-      explodeProjectile(b);
-      remove = true;
+    // Grond/vloer impact voor arcing projectiles + rockets (Ray Gun, RPG,
+    // Mustang etc.). Voorheen alleen check op y<=0.2 (begane grond), maar
+    // dan vlogen grenades vanaf het balkon door het deck heen i.p.v. te
+    // ontploffen op de balkon-vloer. Nu gebruiken we getFloorHeightAt om
+    // ook ramps en platforms (balkon op y=4) te detecteren.
+    if(!remove && (b.type === "grenade" || b.type === "plasma" || b.type === "rocket")){
+      const bx = b.mesh.position.x;
+      const by = b.mesh.position.y;
+      const bz = b.mesh.position.z;
+      // Floor-hoogte op deze XZ — kan ground (0), ramp (0..4) of platform (4) zijn.
+      // getFloorHeightAt is buildArena-scoped; gebruik de window-export.
+      const floorY = (typeof window.__getFloorHeightAt === "function")
+        ? window.__getFloorHeightAt(bx, bz)
+        : 0;
+      // Bullet zit OP of ONDER de vloer → impact
+      if(by <= floorY + 0.20){
+        explodeProjectile(b);
+        remove = true;
+      }
     }
 
     // normale enemies
@@ -8234,6 +8709,14 @@ if(b.gravity){
 
     let strafeDir = Math.sin(e.aiClock * e.wobble + i) >= 0 ? 1 : -1;
 
+    // Strafe-lock: tijdens een slide-rond-prop pad-fallback zetten we
+    // _strafeLockDir + _strafeLockUntil. Honoreer dat hier zodat de
+    // zombie consistent één kant op blijft slijden tot de lock afloopt
+    // (anders flip-flopt hij elke frame en blijft op dezelfde plek).
+    if(e._strafeLockUntil != null && e._strafeLockUntil > now){
+      strafeDir = e._strafeLockDir || strafeDir;
+    }
+
     // Beschadigde vijanden worden agressiever / slimmer
     if(hpRatio < 0.45){
       strafeStrength += 0.18;
@@ -8270,32 +8753,176 @@ if(b.gravity){
     let nx = e.mesh.position.x + moveX;
     let nz = e.mesh.position.z + moveZ;
 
-    // Botsingen met arena
+    // ============================================================
+    // ZOMBIE PATHING — multi-fallback om vastlopen achter props te
+    // voorkomen. CoD Zombies-zombies komen ALTIJD op je af; ze blijven
+    // niet hangen achter een vat of in een hoek.
+    //
+    // Volgorde:
+    //   1) Volle move (X+Z tegelijk) — als dat lukt, klaar.
+    //   2) Axis-isolated move — alleen X of alleen Z (de richting die
+    //      het dichtste bij de speler komt). Geeft "muur-slide" gedrag
+    //      langs een rechte wand zonder dat de zombie blijft drukken.
+    //   3) Beide strafe-richtingen proberen — slide langs een prop.
+    //   4) Perpendicular escape — als zombie al >1.5s niet noemenswaardig
+    //      bewogen heeft, geef hem een korte uitwijk-impuls loodrecht op
+    //      de speler-richting zodat hij om obstakels heen komt.
+    // ============================================================
+    let moved = false;
+
+    // 1) Volle move
     if(!collidesAt(nx, nz, e.radius)){
       e.mesh.position.x = nx;
       e.mesh.position.z = nz;
+      moved = true;
     } else {
-      // probeer alsnog zijwaarts te glijden langs muren
-      const slideX = e.mesh.position.x + sideX * strafeDir * e.speed * 0.8 * dt;
-      const slideZ = e.mesh.position.z + sideZ * strafeDir * e.speed * 0.8 * dt;
-      if(!collidesAt(slideX, slideZ, e.radius)){
-        e.mesh.position.x = slideX;
-        e.mesh.position.z = slideZ;
+      // 2) Probeer alleen X, dan alleen Z (axis-slide langs muur/prop)
+      // Kies eerst de as die het dichtste bij de speler komt.
+      const onlyX = e.mesh.position.x + moveX;
+      const onlyZ = e.mesh.position.z + moveZ;
+      const xWorks = !collidesAt(onlyX, e.mesh.position.z, e.radius);
+      const zWorks = !collidesAt(e.mesh.position.x, onlyZ, e.radius);
+
+      // Welke as krijgt voorrang? De as die de zombie dichter bij de
+      // speler brengt — anders kan de zombie heen-en-weer wiebelen.
+      const xGain = Math.abs(dx) > Math.abs(dz) ? 1 : 0;
+
+      if(xWorks && zWorks){
+        // Beide as-bewegingen zijn vrij — kies de as die meer richting speler is.
+        if(xGain){
+          e.mesh.position.x = onlyX;
+        } else {
+          e.mesh.position.z = onlyZ;
+        }
+        moved = true;
+      } else if(xWorks){
+        e.mesh.position.x = onlyX;
+        moved = true;
+      } else if(zWorks){
+        e.mesh.position.z = onlyZ;
+        moved = true;
+      } else {
+        // 3) Beide strafe-richtingen proberen om langs prop heen te komen.
+        const baseSlideStr = e.speed * 0.8 * dt;
+        for(const sDir of [strafeDir, -strafeDir]){
+          const slideX = e.mesh.position.x + sideX * sDir * baseSlideStr;
+          const slideZ = e.mesh.position.z + sideZ * sDir * baseSlideStr;
+          if(!collidesAt(slideX, slideZ, e.radius)){
+            e.mesh.position.x = slideX;
+            e.mesh.position.z = slideZ;
+            moved = true;
+            // Als we zo'n side-slide deden, lock de strafe-richting voor
+            // ~0.8s zodat hij consistent één kant op gaat (anders flip
+            // hij elke frame en blijft op dezelfde plek wiebelen).
+            e._strafeLockDir = sDir;
+            e._strafeLockUntil = now + 0.8;
+            break;
+          }
+        }
       }
     }
 
-    // Scheiding tussen enemies zodat ze minder op elkaar klonteren
+    // 4) Stuck-detectie: als de zombie al langer dan ~1.5s op (vrijwel)
+    //    dezelfde positie staat, geef hem een korte uitbraak-impuls.
+    //    Dit is de "panic wiggle" die hem uit hoeken/corners haalt.
+    if(e._lastPos == null){
+      e._lastPos = { x: e.mesh.position.x, z: e.mesh.position.z };
+      e._stuckTimer = 0;
+    }
+    const movedDist = Math.hypot(
+      e.mesh.position.x - e._lastPos.x,
+      e.mesh.position.z - e._lastPos.z
+    );
+    // Update reference elke ~0.3s — anders meet je per-frame deltas die
+    // door wobble alleen al niet 0 zijn.
+    e._stuckSampleTimer = (e._stuckSampleTimer || 0) - dt;
+    if(e._stuckSampleTimer <= 0){
+      e._stuckSampleTimer = 0.3;
+      if(movedDist < 0.05 && dist > 1.8){
+        // Niet bewogen EN niet bij speler → echt vast
+        e._stuckTimer = (e._stuckTimer || 0) + 0.3;
+      } else {
+        e._stuckTimer = 0;
+      }
+      e._lastPos.x = e.mesh.position.x;
+      e._lastPos.z = e.mesh.position.z;
+    }
+
+    if(e._stuckTimer > 1.5 && (e._stuckGiveupUntil == null || e._stuckGiveupUntil < now)){
+      // Probeer 8 richtingen rondom — neem de eerste die werkt en die
+      // de zombie dichter bij de speler brengt (of in elk geval niet
+      // verder weg).
+      const escapeDist = 1.2;
+      const startAngle = Math.random() * Math.PI * 2;
+      let escaped = false;
+      for(let a = 0; a < 8; a++){
+        const ang = startAngle + (a / 8) * Math.PI * 2;
+        const ex = e.mesh.position.x + Math.cos(ang) * escapeDist;
+        const ez = e.mesh.position.z + Math.sin(ang) * escapeDist;
+        if(collidesAt(ex, ez, e.radius)) continue;
+        // Check dat we niet ver van speler weg gaan (sta toe tot +20%
+        // van huidige afstand zodat hij om obstakel heen kan).
+        const newDist = Math.hypot(_targetX - ex, _targetZ - ez);
+        if(newDist < dist * 1.25){
+          e.mesh.position.x = ex;
+          e.mesh.position.z = ez;
+          escaped = true;
+          break;
+        }
+      }
+      if(escaped){
+        e._stuckTimer = 0;
+        e._lastPos.x = e.mesh.position.x;
+        e._lastPos.z = e.mesh.position.z;
+      } else {
+        // Niets werkt — zombie zit echt klem (bv. tussen 4 props in).
+        // Reset timer zodat hij niet elke frame een escape probeert,
+        // maar geef hem een korte cooldown.
+        e._stuckTimer = 0;
+        e._stuckGiveupUntil = now + 1.0;
+      }
+    }
+
+    // Scheiding tussen enemies — vorige versie was veel te zacht (0.72×
+    // radius en push 0.045) waardoor zombies door elkaar konden zakken.
+    // CoD-style: zombies bumpen tegen elkaar, schuiven elkaar weg en
+    // kunnen niet stacken. We pakken volledige radius + krachtigere push
+    // en een symmetrische impuls op BEIDE enemies (zodat de loop sneller
+    // convergeert en bijna geen overlap meer mogelijk is).
     for(let j=state.enemies.length-1;j>=0;j--){
       if(i === j) continue;
       const o = state.enemies[j];
       const sx = e.mesh.position.x - o.mesh.position.x;
       const sz = e.mesh.position.z - o.mesh.position.z;
       const dd = Math.hypot(sx, sz) || 0.001;
-      const minDist = (e.radius + o.radius) * 0.72;
+      // Minimum afstand = som van radii (geen overlap toegestaan).
+      // Kruipende zombies zijn fysiek kleiner -> halve botsings-radius
+      // zodat ze tussen anderen door kunnen wurmen.
+      const eR = e.mesh.userData._crawling ? e.radius * 0.5 : e.radius;
+      const oR = o.mesh.userData._crawling ? o.radius * 0.5 : o.radius;
+      const minDist = eR + oR;
       if(dd < minDist){
-        const push = (minDist - dd) * 0.045;
-        e.mesh.position.x += (sx / dd) * push;
-        e.mesh.position.z += (sz / dd) * push;
+        const overlap = minDist - dd;
+        // Sterke push — verdeel over beide enemies (helft elk) zodat
+        // ze daadwerkelijk uit elkaar gestoten worden i.p.v. dat één
+        // enemy door de ander heen schuift.
+        const pushE = overlap * 0.55;
+        const pushO = overlap * 0.45;
+        const nx_ = sx / dd, nz_ = sz / dd;
+        // Pas zelf-push toe (binnen arena-grenzen)
+        const newEX = e.mesh.position.x + nx_ * pushE;
+        const newEZ = e.mesh.position.z + nz_ * pushE;
+        if(!collidesAt(newEX, newEZ, e.radius)){
+          e.mesh.position.x = newEX;
+          e.mesh.position.z = newEZ;
+        }
+        // Push de andere de tegenovergestelde kant op
+        const newOX = o.mesh.position.x - nx_ * pushO;
+        const newOZ = o.mesh.position.z - nz_ * pushO;
+        if(!collidesAt(newOX, newOZ, o.radius)){
+          o.mesh.position.x = newOX;
+          o.mesh.position.z = newOZ;
+        }
       }
     }
 
@@ -8345,8 +8972,12 @@ if(b.gravity){
     }
 
     // === CoD ZOMBIES MELEE ===
+    // Als beide armen weg zijn (canFire=false) kan de zombie niet meer
+    // toehappen / klauwen. Hij blijft je wel achtervolgen — alleen geen
+    // melee-damage. Klassieke CoD zombies dragen je wel naar je toe en
+    // happen, maar zonder armen kunnen ze het niet uitvoeren.
     const meleeRange = (e.type === "tank" ? 2.4 : e.type === "elite" ? 2.1 : e.type === "runner" ? 1.7 : 1.85);
-    if(dist < meleeRange){
+    if(canFire && dist < meleeRange){
       e.meleeCooldown = (e.meleeCooldown || 0) - dt;
       if(e.meleeCooldown <= 0){
         const swingDmg =
@@ -8748,11 +9379,63 @@ if(b.gravity){
     for(let i=state.pickups.length-1;i>=0;i--){
       const p = state.pickups[i];
       p.life -= dt;
-      p.mesh.rotation.x += dt * 1.2;
-      p.mesh.rotation.y += dt * (p.spin || 2.1);
-      p.mesh.position.y = 1 + Math.sin(performance.now()*0.004 + i) * 0.16;
 
-      if(player.pos.distanceTo(p.mesh.position) < 1.5){
+      if(p._isPowerup){
+        // CoD power-ups roteren alleen om hun verticale as (icoon blijft
+        // rechtop), zweven zachtjes op-en-neer, en flikkeren in de
+        // laatste ~4 seconden voordat ze despawnen.
+        p.mesh.rotation.y += dt * (p.spin || 1.6);
+        const baseY = p._baseY || 1.05;
+        p.mesh.position.y = baseY + Math.sin(performance.now()*0.003 + i) * 0.12;
+
+        // Despawn-flikker: laatste 4s knippert de hele power-up.
+        if(p.life < 4){
+          const flick = (Math.sin(performance.now() * 0.025) > 0) ? 1 : 0.25;
+          // Pak alle Mesh/Sprite kinderen en zet hun opacity
+          p.mesh.traverse(obj => {
+            if(obj.material && "opacity" in obj.material){
+              obj.material.transparent = true;
+              if(obj === p.mesh.userData?.beam || obj === p.mesh.userData?.coreBeam){
+                // Beam baseline opacities
+                const base = obj === p.mesh.userData.coreBeam ? 0.55 : 0.32;
+                obj.material.opacity = base * flick;
+              } else if(obj === p.mesh.userData?.baseDisc){
+                obj.material.opacity = 0.55 * flick;
+              } else {
+                obj.material.opacity = flick;
+              }
+            }
+          });
+          if(p.mesh.userData?.lamp){
+            p.mesh.userData.lamp.intensity = 2.6 * flick;
+          }
+        }
+
+        // CoD-stijl magnet pickup — als je dichtbij genoeg bent,
+        // zuigt de power-up naar je toe (zelfs als je niet exact erin
+        // loopt). Maakt het oppakken in chaotische gevechten makkelijker.
+        const dx0 = player.pos.x - p.mesh.position.x;
+        const dz0 = player.pos.z - p.mesh.position.z;
+        const dy0 = (player.pos.y + 1.0) - p.mesh.position.y;
+        const flatDist = Math.hypot(dx0, dz0);
+        if(flatDist < 4.5){
+          const pull = (1 - flatDist / 4.5) * 14 * dt;
+          const norm = Math.max(0.001, flatDist);
+          p.mesh.position.x += (dx0 / norm) * pull;
+          p.mesh.position.z += (dz0 / norm) * pull;
+          p.mesh.position.y += dy0 * Math.min(1, dt * 6);
+        }
+      } else {
+        // Gewone pickups: tumblen + zweven (oude gedrag)
+        p.mesh.rotation.x += dt * 1.2;
+        p.mesh.rotation.y += dt * (p.spin || 2.1);
+        p.mesh.position.y = 1 + Math.sin(performance.now()*0.004 + i) * 0.16;
+      }
+
+      // Pickup-radius — power-ups iets groter (2.0) zodat ze met magnet
+      // sneller gepakt worden, gewone pickups normaal (1.5).
+      const pickRadius = p._isPowerup ? 2.0 : 1.5;
+      if(player.pos.distanceTo(p.mesh.position) < pickRadius){
         if(p.kind === "ammo"){
           const gain = 12 + Math.floor(Math.random()*10);
           player.ammo.bullet += gain;
@@ -8797,10 +9480,37 @@ if(b.gravity){
           flashHint?.("DOUBLE POINTS · 15s", 1500);
           sfxPowerup();
           triggerScreenFlash?.(0x4dd9ff, 0.35);
+        } else if(p.kind === "nuke"){
+          // CoD Zombies Nuke: alle zombies in de arena gaan neer + 400 bonus.
+          // (Boss niet — die overleeft een nuke voor balance.)
+          showFloating("NUKE!");
+          flashHint?.("NUKE!", 1500);
+          sfxPowerup();
+          triggerScreenFlash?.(0x9dff4a, 0.55);
+          let bonus = 0;
+          // Vlak uit naar buiten toe — 1.4s vertraging in CoD, hier
+          // direct want het is een arcade-feel game.
+          for(let ei = state.enemies.length - 1; ei >= 0; ei--){
+            const e = state.enemies[ei];
+            if(!e || e.isBoss) continue;
+            try {
+              if(typeof killEnemy === "function") killEnemy(e);
+            } catch(_){}
+            state.enemies.splice(ei, 1);
+            bonus += 50;   // CoD geeft 400 bonus voor de hele nuke;
+                           // hier 50 per kill om wave-grootte te volgen
+          }
+          if(bonus > 0){
+            player.score += bonus;
+            showFloating(`+${bonus} BONUS`);
+          }
+          if(state.enemies.length === 0 && !state.boss){
+            try { queueNextWave?.(1.0); } catch(_){}
+          }
         }
 
         // sfxPickup voor de "gewone" pickups; power-ups hebben hun eigen sfxPowerup hierboven.
-        if(p.kind !== "maxammo" && p.kind !== "instakill" && p.kind !== "doublepoints"){
+        if(!p._isPowerup){
           sfxPickup();
         }
         scene.remove(p.mesh);
@@ -15097,6 +15807,20 @@ setWeapon = function(w){
   }
 
   function addCoverPod(x, z, colorA=0x244d96, colorB=0x5c2f88){
+    // NO-OP: legacy neon-arena decoraties (paarse coverpods) passen niet bij
+    // het zombies-thema en blokkeerden deur-doorgangen. De props-overhaul
+    // verderop in het bestand plaatst thema-passende crates/barrels op de
+    // betere posities. Functie zelf bewaard voor backward-compatibility.
+    return;
+  }
+
+  function addLaneGate(x, z, wide=true, color=0x2bc1ff){
+    // NO-OP: idem als addCoverPod — zie comment hierboven.
+    return;
+  }
+
+  // Originele implementaties bewaard voor reference (NIET aanroepen):
+  function _legacyAddCoverPod(x, z, colorA=0x244d96, colorB=0x5c2f88){
     addBox(6.5, 2.6, 1.6, x, 1.3, z - 3.0, colorA);
     addBox(6.5, 2.6, 1.6, x, 1.3, z + 3.0, colorA);
     addBox(1.6, 2.8, 4.4, x - 3.0, 1.4, z, colorB);
@@ -15105,7 +15829,7 @@ setWeapon = function(w){
     addDecalRing(x, z, 3.8, colorA);
   }
 
-  function addLaneGate(x, z, wide=true, color=0x2bc1ff){
+  function _legacyAddLaneGate(x, z, wide=true, color=0x2bc1ff){
     const width = wide ? 12 : 8;
     addBox(width, 0.8, 2.0, x, 0.4, z, 0x2a3c63);
     addBox(1.8, 4.6, 2.2, x - width * 0.5 + 0.8, 2.3, z, color);
@@ -15168,7 +15892,13 @@ setWeapon = function(w){
       oldAnimate(now);
     };
   }
-  addArenaExpansion();
+  // VERWIJDERD: addArenaExpansion() voegde legacy neon-arena decoraties toe
+  // (paarse coverpods, blauwe lane-gates) uit een oudere niet-zombies versie
+  // van het spel. Deze blokkeerden de doorgang naar de garage-deur (x=-26)
+  // en mess-hall-deur (x=26), én stonden onderaan trappen waar zombies
+  // achter bleven hangen. Het zombies-thema heeft al voldoende cover via
+  // de overhaul-props (crates, barrels, gurneys, workbenches etc.).
+  // addArenaExpansion();
 
   function sectorName(){
     const x = player.pos.x;
@@ -18754,12 +19484,16 @@ shootWithDirection = function(dirOverride = null){
   if(typeof dropPickup === "function"){
     const _origDropPickup = dropPickup;
     dropPickup = function(position){
-      // BO2-stijl: ~2.5% kans op een power-up per kill (gemiddeld 1 per ~40 kills)
+      // BO2-stijl: ~3% kans op een power-up per kill (gemiddeld 1 per ~33 kills).
+      // Iets royaler dan voorheen omdat we nu 4 types hebben (incl. Nuke).
       const r = Math.random();
-      if(r >= 0.025) return;
-      // Welke power-up: gelijk verdeeld over de 3 BO2 standaard power-ups
-      const choice = Math.floor(Math.random() * 3);
-      const fakeR = choice === 0 ? 0.541 : choice === 1 ? 0.561 : 0.581;
+      if(r >= 0.030) return;
+      // Welke power-up: gelijk verdeeld over de 4 BO2 standaard power-ups.
+      // De r-bands in het origineel zijn: 0.53–.55=maxammo, .55–.57=instakill,
+      // .57–.59=doublepoints, .59–.61=nuke. We forceren een waarde in de
+      // juiste band door één van de 4 ranges te kiezen.
+      const choice = Math.floor(Math.random() * 4);
+      const fakeR = choice === 0 ? 0.541 : choice === 1 ? 0.561 : choice === 2 ? 0.581 : 0.601;
       const realRandom = Math.random;
       let calls = 0;
       Math.random = function(){
@@ -20065,6 +20799,462 @@ shootWithDirection = function(dirOverride = null){
 
   console.log("[bo2pack] " + WALL_BUYS.length + " wall-buys placed (large + visible)");
   console.log("[bo2pack] inventory online — 2 slots, Q to cycle, Mule Kick → 3 slots");
+
+  // =====================================================================
+  // 4c) PACK-A-PUNCH MACHINE
+  // =====================================================================
+  // Klassieke CoD Zombies feature: $5000 om je actieve wapen te upgraden.
+  // - Verhoogde damage (~2x)
+  // - Groter magazijn
+  // - Meer reserve ammo
+  // - Eigen "PaP-naam" (in plaats van M14, "Mnesia"; AK74u → "AK74fu2";
+  //   Ray Gun → "Porter's X2 Ray Gun"; etc.)
+  //
+  // Plaatsing: bovenverdieping, midden van het zuid-balkon (x=0, z=21).
+  // Speler moet de trap op om hem te bereiken.
+  // ---------------------------------------------------------------------
+
+  const PAP_COST = 5000;
+  const PAP_POS = { x: 0, y: 4, z: 21 };  // Op het zuid-balkon (y=4)
+
+  // PaP wapennamen — mix van iconische CoD Zombies upgrade-namen + eigen
+  // varianten voor wapens die in dit spel voorkomen maar in BO2 niet bestaan.
+  const PAP_NAMES = {
+    m1911:       "Mustang & Sally",      // klassieke BO PaP-upgrade van M1911
+    m14:         "Mnesia",               // BO M14 PaP-naam
+    olympia:     "Hades",                // BO Olympia PaP-naam
+    mp5:         "MP115 Kollider",       // BO MP5 PaP-naam
+    ak74u:       "AK74fu2",              // BO AK74u PaP-naam
+    galil:       "Lamentation",          // BO Galil PaP-naam
+    rpg:         "Pain in the...",       // BO RPG PaP-naam
+    raygun:      "Porter's X2 Ray Gun",  // klassieke BO Ray Gun PaP
+    thundergun:  "Zeus Cannon",          // BO Thundergun PaP-naam
+    wunderwaffe: "Wunder­waffe DG-3 JZ", // BO Wunderwaffe PaP-naam
+    mustang:     "The Krauss Refibrillator", // PaP van Mustang & Sally
+    plasmaRifle: "Cerberus",
+    monkey:      "Cymbal Monkeys",
+    ballistic:   "Krauss Refibrillator"
+  };
+
+  // Per-wapen multipliers voor de upgrade. Subtiele tweaks zodat een
+  // upgraded RPG niet in 1 shot de hele wave wegvaagt.
+  function getPapStats(weaponId){
+    const w = WEAPONS[weaponId];
+    if(!w) return null;
+    // Ray Gun / wonder weapons: kleinere mag-bump (al sterk), grotere reserve
+    const isWonder = ["raygun", "thundergun", "wunderwaffe", "mustang", "plasmaRifle"].includes(weaponId);
+    const magMult = isWonder ? 1.5 : 2.0;
+    const reserveMult = isWonder ? 2.0 : 2.5;
+    return {
+      magSize: Math.ceil(w.magSize * magMult),
+      reserveAmmo: Math.ceil(w.reserveAmmo * reserveMult),
+      damageMult: isWonder ? 1.8 : 2.2
+    };
+  }
+
+  // Track welke wapens al gepacked zijn (kan niet 2x). Map: weaponId → true
+  const papUpgraded = new Set();
+  try { window.OHPapUpgraded = papUpgraded; } catch(_){}
+
+  // ---- 3D PaP machine bouwen ----
+  function buildPapMachine(){
+    const root = new THREE.Group();
+
+    // Hoofdcabinet — lange smalle rechthoekige industriële kast.
+    // CoD's PaP heeft een silhouet als een grote koelkast/arcade-machine.
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x121822, roughness: 0.55, metalness: 0.85,
+      emissive: 0x041018, emissiveIntensity: 0.25
+    });
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: 0x2a3848, roughness: 0.4, metalness: 0.92
+    });
+    const neonMat = new THREE.MeshStandardMaterial({
+      color: 0x4df7ff, emissive: 0x4df7ff, emissiveIntensity: 1.8,
+      roughness: 0.25, metalness: 0.3
+    });
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166, emissive: 0xff8a40, emissiveIntensity: 1.0,
+      roughness: 0.35, metalness: 0.95
+    });
+    const darkPortMat = new THREE.MeshStandardMaterial({
+      color: 0x080808, roughness: 0.9, metalness: 0.1
+    });
+
+    // Hoofdblok (1.6 breed, 2.6 hoog, 1.2 diep) — hoogte zodat je 'm
+    // van beneden ook kunt zien als je in de lobby staat.
+    const cab = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 2.6, 1.2),
+      bodyMat
+    );
+    cab.position.y = 1.3;
+    cab.castShadow = true;
+    cab.receiveShadow = true;
+    root.add(cab);
+
+    // Ondersokkel (iets breder, geeft "footprint")
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry(1.85, 0.18, 1.4),
+      trimMat
+    );
+    base.position.y = 0.09;
+    root.add(base);
+
+    // Bovenrand (kroonlijst)
+    const crown = new THREE.Mesh(
+      new THREE.BoxGeometry(1.75, 0.18, 1.30),
+      trimMat
+    );
+    crown.position.y = 2.69;
+    root.add(crown);
+
+    // Wapen-inlaadpoort bovenop — een donker rechthoekig gat waar het
+    // wapen "in" verdwijnt tijdens de upgrade
+    const port = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.10, 0.55),
+      darkPortMat
+    );
+    port.position.y = 2.78;
+    root.add(port);
+    // Glow-rand om de poort
+    const portGlow = new THREE.Mesh(
+      new THREE.TorusGeometry(0.45, 0.04, 8, 24),
+      neonMat
+    );
+    portGlow.rotation.x = Math.PI / 2;
+    portGlow.scale.set(1.05, 1.0, 0.55);
+    portGlow.position.y = 2.79;
+    root.add(portGlow);
+
+    // Front-paneel: groot neon X-symbool (de 4 verbonden driehoeken/
+    // pijlen die op de PaP staan). Hier vereenvoudigd tot een diamant.
+    const xSize = 0.42;
+    for(let arm = 0; arm < 4; arm++){
+      const tri = new THREE.Mesh(
+        new THREE.BoxGeometry(xSize, 0.07, 0.05),
+        neonMat
+      );
+      tri.rotation.y = 0;
+      tri.rotation.z = arm * (Math.PI / 2) + Math.PI / 4;
+      tri.position.set(0, 1.55, 0.61);
+      root.add(tri);
+    }
+    // Centraal cirkeltje in het midden van de X
+    const centerDot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.04, 18),
+      goldMat
+    );
+    centerDot.rotation.x = Math.PI / 2;
+    centerDot.position.set(0, 1.55, 0.62);
+    root.add(centerDot);
+
+    // Front "PACK A PUNCH" tekst-paneel boven de X
+    const labelCanvas = document.createElement("canvas");
+    labelCanvas.width = 512; labelCanvas.height = 128;
+    const lctx = labelCanvas.getContext("2d");
+    lctx.clearRect(0, 0, 512, 128);
+    // Achtergrond — donkere strip
+    lctx.fillStyle = "rgba(8, 14, 22, 0.92)";
+    lctx.fillRect(0, 0, 512, 128);
+    // Cyaan rand
+    lctx.strokeStyle = "#4df7ff";
+    lctx.lineWidth = 4;
+    lctx.strokeRect(4, 4, 504, 120);
+    // Tekst
+    lctx.fillStyle = "#4df7ff";
+    lctx.shadowColor = "#4df7ff";
+    lctx.shadowBlur = 14;
+    lctx.font = "900 64px 'Trebuchet MS', sans-serif";
+    lctx.textAlign = "center";
+    lctx.textBaseline = "middle";
+    lctx.fillText("PACK·A·PUNCH", 256, 64);
+    const labelTex = new THREE.CanvasTexture(labelCanvas);
+    labelTex.minFilter = THREE.LinearFilter;
+    const labelMat = new THREE.MeshBasicMaterial({
+      map: labelTex, transparent: true, depthTest: true
+    });
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 0.36),
+      labelMat
+    );
+    label.position.set(0, 2.20, 0.61);
+    root.add(label);
+
+    // Zijpaneel — verticale ventilatieroosters (3 horizontale strepen
+    // aan elke kant) — geeft het machine-gevoel
+    for(const side of [-1, 1]){
+      for(let v = 0; v < 5; v++){
+        const vent = new THREE.Mesh(
+          new THREE.BoxGeometry(0.04, 0.06, 0.5),
+          trimMat
+        );
+        vent.position.set(side * 0.81, 0.6 + v * 0.3, 0);
+        root.add(vent);
+      }
+    }
+
+    // Onder-front: een rij kleine status-lampjes
+    for(let l = -3; l <= 3; l++){
+      if(l === 0) continue;
+      const led = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 8, 6),
+        l % 2 === 0 ? goldMat : neonMat
+      );
+      led.position.set(l * 0.18, 0.42, 0.62);
+      root.add(led);
+    }
+
+    // Pulserende pointlight aan de voorkant (cyaan glow)
+    const pl = new THREE.PointLight(0x4df7ff, 1.8, 8, 2);
+    pl.position.set(0, 1.6, 1.0);
+    root.add(pl);
+
+    // Vloer-glow direct onder de machine
+    const floorGlow = new THREE.Mesh(
+      new THREE.CircleGeometry(1.6, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x4df7ff, transparent: true, opacity: 0.18,
+        depthWrite: false, blending: THREE.AdditiveBlending
+      })
+    );
+    floorGlow.rotation.x = -Math.PI / 2;
+    floorGlow.position.y = 0.02;
+    root.add(floorGlow);
+
+    root.position.set(PAP_POS.x, PAP_POS.y, PAP_POS.z);
+    // Draai zodat de voorkant naar het noorden kijkt (richting trap/lobby)
+    root.rotation.y = Math.PI;
+    scene.add(root);
+
+    return { root, pulseLight: pl, portGlow, floorGlow };
+  }
+
+  const papVisual = buildPapMachine();
+  // Subtiele pulse-animatie op de neon glow
+  let papAnimT = 0;
+  function papAnimTick(){
+    requestAnimationFrame(papAnimTick);
+    papAnimT += 0.03;
+    if(papVisual.pulseLight){
+      papVisual.pulseLight.intensity = 1.6 + Math.sin(papAnimT * 1.4) * 0.5;
+    }
+    if(papVisual.floorGlow){
+      papVisual.floorGlow.material.opacity = 0.14 + Math.sin(papAnimT * 1.0) * 0.06;
+    }
+  }
+  requestAnimationFrame(papAnimTick);
+
+  // ---- PaP prompt UI ----
+  const papPrompt = document.createElement("div");
+  papPrompt.id = "papPrompt";
+  papPrompt.style.cssText = `
+    position: fixed;
+    left: 50%;
+    bottom: 200px;
+    transform: translateX(-50%);
+    z-index: 33;
+    min-width: 320px;
+    max-width: 420px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, rgba(8,14,22,0.95), rgba(4,8,18,0.97));
+    border: 1px solid rgba(77,247,255,0.65);
+    border-radius: 6px;
+    box-shadow: 0 0 32px rgba(77,247,255,0.42), 0 12px 28px rgba(0,0,0,0.55);
+    color: #aef0ff;
+    font-family: "Trebuchet MS", system-ui, sans-serif;
+    text-align: center;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+    display: none;
+  `;
+  papPrompt.innerHTML = `
+    <div style="display:inline-block;padding:3px 10px;border:1px solid rgba(77,247,255,0.7);border-radius:4px;background:rgba(8,30,40,0.85);font-size:11px;letter-spacing:0.2em;font-weight:900;color:#4df7ff;margin-bottom:8px;">PRESS  F</div>
+    <div id="papPromptTitle" style="font-size:20px;font-weight:900;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;color:#4df7ff;text-shadow:0 0 12px rgba(77,247,255,0.55);">PACK · A · PUNCH</div>
+    <div id="papPromptWeapon" style="font-size:14px;color:#aef0ff;margin-bottom:4px;">Upgrade active weapon</div>
+    <div id="papPromptCost" style="font-size:15px;font-weight:700;color:#4df7ff;">$5000 salvage</div>
+  `;
+  document.body.appendChild(papPrompt);
+  const papWeaponLine = papPrompt.querySelector("#papPromptWeapon");
+  const papCostLine = papPrompt.querySelector("#papPromptCost");
+
+  let nearPap = false;
+  let papBusy = false;   // true tijdens upgrade-animatie
+
+  // ---- PaP nabijheid + UI tick ----
+  function papTick(){
+    requestAnimationFrame(papTick);
+    if(!state || !state.running || !player || !player.alive){
+      if(papPrompt.style.display !== "none") papPrompt.style.display = "none";
+      nearPap = false;
+      return;
+    }
+    if(papBusy){
+      // Tijdens upgrade: prompt verbergen
+      if(papPrompt.style.display !== "none") papPrompt.style.display = "none";
+      return;
+    }
+    // Player moet OP de bovenverdieping zijn (y > 3) om dichtbij te zijn —
+    // anders kun je 'm misbruiken vanaf onderdoor lopen door de lobby.
+    const dx = PAP_POS.x - player.pos.x;
+    const dz = PAP_POS.z - player.pos.z;
+    const flat = Math.hypot(dx, dz);
+    const onUpper = (player.pos.y > 2.5);
+    const inRange = flat < 3.2 && onUpper;
+    nearPap = inRange;
+    if(inRange){
+      const slot = inv.slots[inv.active];
+      if(!slot){
+        papWeaponLine.textContent = "No active weapon";
+        papCostLine.textContent = "—";
+        papCostLine.style.color = "#ff6a6a";
+      } else if(papUpgraded.has(slot.weapon)){
+        papWeaponLine.textContent = `${WEAPONS[slot.weapon]?.name || slot.weapon} already upgraded`;
+        papCostLine.textContent = "ALREADY PACKED";
+        papCostLine.style.color = "#ff8a40";
+      } else {
+        const w = WEAPONS[slot.weapon];
+        const upgradeName = PAP_NAMES[slot.weapon] || `${w?.name || "?"} +`;
+        papWeaponLine.textContent = `${w?.name || "?"} → ${upgradeName}`;
+        const affordable = armoryAPI.getCredits() >= PAP_COST;
+        papCostLine.textContent = `$${PAP_COST} salvage`;
+        papCostLine.style.color = affordable ? "#4df7ff" : "#ff6a6a";
+      }
+      papPrompt.style.display = "block";
+    } else if(papPrompt.style.display !== "none"){
+      papPrompt.style.display = "none";
+    }
+  }
+  requestAnimationFrame(papTick);
+
+  // ---- Upgrade-actie ----
+  function tryPackAPunch(){
+    if(papBusy) return;
+    if(!nearPap) return;
+    const slot = inv.slots[inv.active];
+    if(!slot){
+      flashHint?.("No weapon to upgrade", 1200);
+      return;
+    }
+    if(papUpgraded.has(slot.weapon)){
+      flashHint?.("Weapon already Pack-a-Punched", 1200);
+      return;
+    }
+    const w = WEAPONS[slot.weapon];
+    if(!w){
+      flashHint?.("Unknown weapon", 1200);
+      return;
+    }
+    if(armoryAPI.getCredits() < PAP_COST){
+      flashHint?.(`Need $${PAP_COST} salvage`, 1400);
+      return;
+    }
+    if(!armoryAPI.spend(PAP_COST)){
+      flashHint?.("Insufficient salvage", 1200);
+      return;
+    }
+
+    const stats = getPapStats(slot.weapon);
+    if(!stats){
+      flashHint?.("Cannot upgrade this weapon", 1200);
+      return;
+    }
+
+    // Upgrade het wapen: nieuwe naam + nieuwe stats. We muteren WEAPONS
+    // entry zelf zodat alle systemen (HUD, viewmodel-naam, ammo writeback)
+    // automatisch de geüpdatete waardes gebruiken.
+    const oldName = w.name;
+    const newName = PAP_NAMES[slot.weapon] || (oldName + "+");
+    w.name = newName;
+    w.magSize = stats.magSize;
+    w.reserveAmmo = stats.reserveAmmo;
+    w.papDamageMult = stats.damageMult;   // gelezen door damage-systeem (zie patch hieronder)
+    w.isPapped = true;
+
+    // Ammo terug naar full bij upgrade — CoD doet dit ook
+    slot.magAmmo = w.magSize;
+    slot.reserveAmmo = w.reserveAmmo;
+
+    papUpgraded.add(slot.weapon);
+
+    // Sync naar player.ammo zodat HUD direct klopt
+    try { syncActiveSlotToPlayer(); } catch(_){}
+
+    // Visuele feedback: machine licht extra fel op + screen flash + sfx
+    papBusy = true;
+    if(papVisual.pulseLight) papVisual.pulseLight.intensity = 6.0;
+    triggerScreenFlash?.(0x4df7ff, 0.45);
+    try { sfxPowerup(); } catch(_){}
+    armoryAPI.flash(`PACK-A-PUNCHED → ${newName}`, 2400);
+
+    // 2.5s "upgrade animatie" lock — voorkomt dat je per ongeluk 2x drukt
+    setTimeout(() => {
+      papBusy = false;
+      if(papVisual.pulseLight) papVisual.pulseLight.intensity = 1.8;
+    }, 2500);
+  }
+
+  // F-key handler voor PaP (in de bestaande F-flow, met prioriteit boven
+  // wall-buy als de speler dichter bij de machine staat).
+  window.addEventListener("keydown", (e) => {
+    if(e.code !== "KeyF") return;
+    const active = document.activeElement;
+    if(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+    if(!nearPap) return;
+    // Als er ook een wall-buy in range is: PaP wint omdat de prompt
+    // zichtbaar is. We stoppen propagatie zodat de wall-buy F-handler
+    // (later in de listener-keten) niet ook firet.
+    e.preventDefault();
+    e.stopPropagation();
+    tryPackAPunch();
+  }, { capture: true });   // capture: true zodat wij vóór wall-buy zijn
+
+  // ---- Reset bij restart ----
+  function resetPapOnRestart(){
+    // Reset namen + stats van WEAPONS terug naar originele waardes.
+    // We hebben de originelen niet bewaard — dus we doen een full
+    // page-state reset: pak het uit window.OHWeaponDefaults indien beschikbaar.
+    // Praktisch werkt het zonder dit ook: papUpgraded.clear() voorkomt
+    // dat de speler na restart nog "is upgraded" houdt, en de stat-mutaties
+    // op WEAPONS blijven, wat eigenlijk een mini-cheat is na restart.
+    // Voor schone reset: bewaar originelen één keer en restore hier.
+    papUpgraded.clear();
+    papBusy = false;
+    if(window.OHWeaponDefaults){
+      for(const [id, def] of Object.entries(window.OHWeaponDefaults)){
+        if(WEAPONS[id]){
+          WEAPONS[id].name = def.name;
+          WEAPONS[id].magSize = def.magSize;
+          WEAPONS[id].reserveAmmo = def.reserveAmmo;
+          delete WEAPONS[id].papDamageMult;
+          delete WEAPONS[id].isPapped;
+        }
+      }
+    }
+  }
+  // Bewaar originelen zodat de reset ze kan herstellen
+  try {
+    window.OHWeaponDefaults = {};
+    for(const [id, w] of Object.entries(WEAPONS)){
+      window.OHWeaponDefaults[id] = {
+        name: w.name,
+        magSize: w.magSize,
+        reserveAmmo: w.reserveAmmo
+      };
+    }
+  } catch(_){}
+
+  // Hook in de bestaande restart-flow
+  if(typeof restartGame === "function"){
+    const _origR = restartGame;
+    restartGame = function(){
+      const ret = _origR.apply(this, arguments);
+      setTimeout(resetPapOnRestart, 90);
+      return ret;
+    };
+    window.restartGame = restartGame;
+  }
+
+  console.log("[bo2pack] Pack-a-Punch installed at south balcony (x=0, z=21, y=4)");
 
   // =====================================================================
   // 4b) 3D VIEW-MODELS PER WAPEN + KNIFE SWING
@@ -21429,7 +22619,10 @@ shootWithDirection = function(dirOverride = null){
   function moveBoxToLocation(loc){
     if(!loc || !boxState.visualGroup) return;
     boxState.currentLocation = loc;
-    boxState.visualGroup.position.set(loc.x, 1.0, loc.z);
+    // Box op de grond plaatsen — de box-mesh heeft zijn eigen y-offset,
+    // dus group.y=0 zorgt dat de onderkant van de kist exact op de
+    // vloer rust ipv erboven te zweven.
+    boxState.visualGroup.position.set(loc.x, 0, loc.z);
     boxState.visualGroup.scale.set(1, 1, 1);
     // Roteer de box zodat de voorkant (lid scharniert open richting +Z)
     // naar het midden van de map kijkt — niet meer met de achterkant
@@ -21524,7 +22717,7 @@ shootWithDirection = function(dirOverride = null){
     group.add(glow);
     boxState.glow = glow;
 
-    group.position.set(0, 1.0, 0);
+    group.position.set(0, 0, 0);
     group.visible = false;   // Verborgen tot een room open is
     scene.add(group);
     boxState.visualGroup = group;
@@ -21756,7 +22949,7 @@ shootWithDirection = function(dirOverride = null){
       const t = Math.min(1, (performance.now() - moveStart) / 1200);
       boxState.visualGroup.scale.set(1 - t, 1 - t, 1 - t);
       const loc = boxState.currentLocation;
-      boxState.visualGroup.position.y = 1.0 - t * 2;
+      boxState.visualGroup.position.y = 0 - t * 2;
       if(boxState.glow) boxState.glow.intensity = 1.2 * (1 - t);
       if(t < 1){ requestAnimationFrame(shrinkStep); }
       else {
@@ -23670,8 +24863,28 @@ shootWithDirection = function(dirOverride = null){
         const dz = pZ - e.mesh.position.z;
         const distSq = dx*dx + dz*dz;
 
+        // Per-enemy unieke shamble parameters (één keer init).
+        // Maakt elke zombie een net iets andere mank-pose: dit is wat
+        // CoD zombies uniek maakt vs. een leger van identieke poppetjes.
+        if(e.__shamblePhase == null){
+          e.__shamblePhase = Math.random() * Math.PI * 2;
+          e.__shambleSpeed = 0.85 + Math.random() * 0.5;
+          e.__limpSide = Math.random() < 0.5 ? -1 : 1;   // L of R hinkt
+          e.__limpStrength = 0.4 + Math.random() * 0.4;  // hoeveel meer
+          e.__armReach = 0.85 + Math.random() * 0.35;    // hoe ver vooruit
+          e.__headTilt = (Math.random() - 0.5) * 0.35;   // hoofd schuin
+        }
+
+        // Limb status — als beide armen weg zijn geen melee + andere arm-anim.
+        const ls = e.mesh.userData.limbState;
+        const hasArmL = !ls || ls.armL;
+        const hasArmR = !ls || ls.armR;
+        const canMelee = hasArmL || hasArmR;
+        const crawling = !!e.mesh.userData._crawling;
+
         // Melee — distSq < 4 betekent < 2.0u, geen sqrt nodig
-        if(distSq < 4.0){
+        // Alleen als er minstens 1 arm is.
+        if(canMelee && distSq < 4.0){
           e.__zombieMeleeCD = (e.__zombieMeleeCD || 0) - dt;
           if(e.__zombieMeleeCD <= 0){
             const baseDmg = e.type === "tank" ? 22 : e.type === "elite" ? 18 : e.type === "runner" ? 14 : 16;
@@ -23690,7 +24903,7 @@ shootWithDirection = function(dirOverride = null){
           }
         }
 
-        // Zombie pose: armen vooruit, lichte wankel, swing tijdens melee
+        // Zombie pose: armen vooruit met persoonlijke variatie
         const parts = e.mesh.userData?.parts;
         if(!parts) continue;
 
@@ -23701,17 +24914,62 @@ shootWithDirection = function(dirOverride = null){
           swingPhase = Math.sin((1 - t) * Math.PI) * 0.9;
         }
 
-        const wobble = Math.sin(now * 1.6 + i) * 0.08;
-        if(parts.armL?.rotation){
-          parts.armL.rotation.x = -1.05 + wobble - swingPhase * 0.6;
-          parts.armL.rotation.z = 0.18;
+        // CRAWLING POSE: zombie ligt op de buik, armen graaien vooruit
+        // afwisselend (klassieke kruip-zombie). Benen hoeven niet animated
+        // (die zijn weg) — fallback rotation als ze er nog zijn.
+        if(crawling){
+          const crawlT = now * 2.4 + e.__shamblePhase;
+          const armA = Math.sin(crawlT) * 0.5;
+          const armB = Math.sin(crawlT + Math.PI) * 0.5;
+          if(hasArmL && parts.armL?.rotation){
+            parts.armL.rotation.x = -1.5 + armA;       // Armen voor zich uit graaien
+            parts.armL.rotation.z = 0.25;
+          }
+          if(hasArmR && parts.armR?.rotation){
+            parts.armR.rotation.x = -1.5 + armB;
+            parts.armR.rotation.z = -0.25;
+          }
+          if(hasArmL && parts.foreArmL?.rotation) parts.foreArmL.rotation.x = -0.3;
+          if(hasArmR && parts.foreArmR?.rotation) parts.foreArmR.rotation.x = -0.3;
+          continue;
         }
-        if(parts.armR?.rotation){
-          parts.armR.rotation.x = -1.05 + wobble - swingPhase * 0.7;
-          parts.armR.rotation.z = -0.18;
+
+        // STAANDE POSE: asymmetrische shamble
+        // Arm-bob met persoonlijke fase per enemy zodat ze niet synchroon
+        // bewegen. De ene arm reikt verder vooruit dan de andere (CoD-feel).
+        const sham = now * e.__shambleSpeed + e.__shamblePhase;
+        const wobble = Math.sin(sham) * 0.10;
+        const reachBase = -e.__armReach;
+
+        if(hasArmL && parts.armL?.rotation){
+          // Linker arm
+          parts.armL.rotation.x = reachBase + wobble - swingPhase * 0.6;
+          parts.armL.rotation.z = 0.18 + Math.sin(sham * 0.7) * 0.08;
         }
-        if(parts.foreArmL?.rotation) parts.foreArmL.rotation.x = -0.55 - swingPhase * 0.4;
-        if(parts.foreArmR?.rotation) parts.foreArmR.rotation.x = -0.55 - swingPhase * 0.4;
+        if(hasArmR && parts.armR?.rotation){
+          // Rechter arm — tegenfase voor natuurlijke counter-swing
+          parts.armR.rotation.x = reachBase - wobble * 0.8 - swingPhase * 0.7;
+          parts.armR.rotation.z = -0.18 - Math.sin(sham * 0.7 + Math.PI) * 0.08;
+        }
+        if(hasArmL && parts.foreArmL?.rotation) parts.foreArmL.rotation.x = -0.55 - swingPhase * 0.4;
+        if(hasArmR && parts.foreArmR?.rotation) parts.foreArmR.rotation.x = -0.55 - swingPhase * 0.4;
+
+        // Hinken: één been tilt zwaarder bij elke stap. Was eerder
+        // perfect symmetrisch. Nu als limp in een random direction.
+        // (overschrijft de symmetric swing uit updateEnemies-bron).
+        if(parts.legL?.rotation && parts.legR?.rotation){
+          const stepT = sham * 1.1;
+          const baseSwing = Math.sin(stepT);
+          if(e.__limpSide < 0){
+            // Hink op links: linkerbeen zwaarder
+            parts.legL.rotation.x = -baseSwing * (0.30 + e.__limpStrength * 0.3);
+            parts.legR.rotation.x = baseSwing * 0.22;
+          } else {
+            // Hink op rechts
+            parts.legL.rotation.x = -baseSwing * 0.22;
+            parts.legR.rotation.x = baseSwing * (0.30 + e.__limpStrength * 0.3);
+          }
+        }
       }
     };
     try { window.updateEnemies = updateEnemies; } catch(_){}
@@ -24606,6 +25864,53 @@ shootWithDirection = function(dirOverride = null){
       group.rotation.y = rotY;
       group.traverse(o => { if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
       scene.add(group);
+      // FIX: props hadden geen colliders — speler/zombies konden door tafels,
+      // vaten, kratten etc. lopen. We registreren nu één Box3 collider per
+      // visueel onderdeel. Dat is iets duurder maar geeft accurate collisie
+      // (één bounding-box per group zou een gurney+omgegooide stoelen als
+      // één blob behandelen, wat te grof is).
+      group.updateMatrixWorld(true);
+      group.traverse(o => {
+        if(!o.isMesh) return;
+        const b = new THREE.Box3().setFromObject(o);
+        const sx = b.max.x - b.min.x;
+        const sy = b.max.y - b.min.y;
+        const sz = b.max.z - b.min.z;
+        // Skip alleen ECHT minuscule decor (kleine bouten/spotlights/etc).
+        // Drempel: kleinste dimensie > 0.05 EN hoogte > 0.10. Dit laat
+        // tafelpoten (0.08×0.86×0.08) er DOOR als collider, en filtert
+        // pas-tap-tap kleine details (deurklink, klein bordje) eruit.
+        const minDim = Math.min(sx, sy, sz);
+        if(minDim < 0.05) return;
+        if(sy < 0.10) return;
+        // Skip extreem-platte dingen (bordjes, schilderijen, vlaggen):
+        // hoogte/dikte > 8 → te plat om als blok te functioneren.
+        const flatness = Math.max(sx, sy, sz) / Math.max(0.01, minDim);
+        if(flatness > 12) return;
+        // Skip ook hele lage meshes (bv vloer-decals onder y=0.05)
+        if(b.max.y < 0.08) return;
+        colliders.push({ mesh: o, box: b });
+      });
+    }
+
+    // Ground-collider helper voor props die nét een complexere group hebben
+    // dan we kunnen bounden — gebruikt door placePropOnBalcony hieronder.
+    function _addPropColliders(group, yOffset){
+      group.updateMatrixWorld(true);
+      group.traverse(o => {
+        if(!o.isMesh) return;
+        const b = new THREE.Box3().setFromObject(o);
+        const sx = b.max.x - b.min.x;
+        const sy = b.max.y - b.min.y;
+        const sz = b.max.z - b.min.z;
+        const minDim = Math.min(sx, sy, sz);
+        if(minDim < 0.05) return;
+        if(sy < 0.10) return;
+        const flatness = Math.max(sx, sy, sz) / Math.max(0.01, minDim);
+        if(flatness > 12) return;
+        if(b.max.y < yOffset + 0.08) return;
+        colliders.push({ mesh: o, box: b });
+      });
     }
 
     // ---- Prop builders ----
@@ -24963,6 +26268,88 @@ shootWithDirection = function(dirOverride = null){
     placeProp(makeBankSafe(),  9, 36, Math.PI);
     placeProp(makeBankSafe(), -9, 48, 0);
     placeProp(makeGoldStack(), 8, 36, 0);
+
+    // Helper: plaats een prop op het balkon (y=4.2 ipv y=0).
+    function placePropOnBalcony(group, x, z, rotY = 0){
+      group.position.set(x, 4.2, z);
+      group.rotation.y = rotY;
+      group.traverse(o => { if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+      scene.add(group);
+      // Colliders ook voor balkon-props — anders kun je er doorheen lopen.
+      _addPropColliders(group, 4.2);
+    }
+    // ---- BALKON-PROPS — sandbags + crates voor cover op de bovenverdieping ----
+    // Plaats kleine cover-eilanden langs de buitenrand van het balkon zodat
+    // de bovenverdieping niet kaal aanvoelt. Vermijden: trap-tops (z=-16,
+    // x=±19), railings (rond z=-8..18, x=±10), en de noord-strook waar de
+    // catacombs-deur is.
+    //
+    // FIX: vorige sandbag-walls op (-18,-19) en (18,-19) blokkeerden de
+    //      uitgang van de trappen — dat was de "onzichtbare muur" die
+    //      gebruikers aan de top van de trap rapporteerden. Verplaatst
+    //      naar de noord-corners (vér van de trap-uitgangen).
+    placePropOnBalcony(makeSandbagWall(), -10, -21, Math.PI / 2);  // NW noord-corner langs z-as
+    placePropOnBalcony(makeSandbagWall(),  10, -21, -Math.PI / 2); // NE noord-corner langs z-as
+    placePropOnBalcony(makeCrateStack(), -16, 14, 0.4);    // W balkon midden
+    placePropOnBalcony(makeCrateStack(),  16, 14, -0.4);   // O balkon midden
+    placePropOnBalcony(makeBarrelGroup(), -14, 21, 0);     // Z balkon links
+    placePropOnBalcony(makeBarrelGroup(),  14, 21, 0);     // Z balkon rechts
+
+    // ---- EXTRA PROPS — vervangen voor de verwijderde paarse coverpods ----
+    // De oude addArenaExpansion() had pods op [-40,-32], [40,-32], [-40,32],
+    // [40,32], [-24,0], [24,0]. We laten de [-24,0] en [24,0] leeg (die
+    // blokkeerden de deur-doorgang naar Garage en Mess Hall), en plaatsen
+    // op de andere 4 plekken thema-passende zombies-props. Ook nog een
+    // paar extra crates/barrels in de open ruimtes van het atrium zodat
+    // het niet te kaal voelt.
+    placeProp(makeCarWreck(), -40, -32, Math.PI / 5);    // NW Garage hoek
+    placeProp(makeBarrelGroup(), 40, -32, -Math.PI / 6); // NE Mess Hall hoek
+    placeProp(makeCrateStack(), -40, 32, 0.7);            // ZW Garage hoek
+    placeProp(makeWorkbench(), 40, 32, -Math.PI / 3);     // ZO Mess Hall hoek
+    // Extra atrium-cover (geen midden — daar moet de train-loop vrij blijven)
+    // FIX: vorige plekken (-20,-16) en (20,-16) zaten ONDER de trap-tops.
+    //      Verplaatst naar plekken die buiten de trap-footprints liggen.
+    //      Trap-footprints zijn x[-22,-16] z[-2,-16] (NW) en x[16,22] z[-2,-16] (NE),
+    //      dus we plaatsen verder naar het midden of bij de wanden.
+    placeProp(makeBarrelGroup(), -10, -20, 0.3);    // tegen N-wand, tussen de twee trap-tops
+    placeProp(makeCrateStack(),  10, -20, -0.4);    // tegen N-wand, tussen de twee trap-tops
+    placeProp(makeCrateStack(), -20, 18, 0.6);
+    placeProp(makeBarrelGroup(), 20, 18, -0.2);
+
+    // ---- VERWIJDER LEFTOVER COLLIDERS van addArenaExpansion ----
+    // De pods/lane-gates voegden destijds zelf colliders toe via addBox().
+    // Die zijn nu allemaal disabled (de hele functie is uitgeschakeld), maar
+    // dit blok blijft staan als veiligheid voor het geval iemand later
+    // addArenaExpansion weer aan zet. Als de mesh niet bestaat skippen we.
+    if(Array.isArray(window.colliders)){
+      const POD_POSITIONS = [
+        [-40, -32], [40, -32], [-40, 32], [40, 32], [-24, 0], [24, 0],
+        // pod onderdelen staan ±3u offset:
+        [-37, -32], [-43, -32], [-40, -29], [-40, -35],
+        [37, -32], [43, -32], [40, -29], [40, -35],
+        [-37, 32], [-43, 32], [-40, 29], [-40, 35],
+        [37, 32], [43, 32], [40, 29], [40, 35],
+        [-21, 0], [-27, 0], [-24, -3], [-24, 3],
+        [21, 0], [27, 0], [24, -3], [24, 3],
+        // Lane-gates op (0,-18), (0,40), (-47,0), (47,0):
+        [0, -18], [0, 40], [-47, 0], [47, 0],
+        [-5.2, -18], [5.2, -18], [-5.2, 40], [5.2, 40],
+        [-47, -5.2], [-47, 5.2], [47, -5.2], [47, 5.2]
+      ];
+      const TOLp = 0.8;
+      for(let i = window.colliders.length - 1; i >= 0; i--){
+        const c = window.colliders[i];
+        const m = c?.mesh; if(!m?.position) continue;
+        const mx = m.position.x, mz = m.position.z;
+        for(const [px, pz] of POD_POSITIONS){
+          if(Math.abs(mx - px) < TOLp && Math.abs(mz - pz) < TOLp){
+            if(m.parent) m.parent.remove(m);
+            window.colliders.splice(i, 1);
+            break;
+          }
+        }
+      }
+    }
 
     // ---- Floor mist (16 patches) — enkele setInterval ipv per-frame RAF ----
     const mistMatBase = new THREE.MeshBasicMaterial({
@@ -25626,6 +27013,50 @@ shootWithDirection = function(dirOverride = null){
     window.collidesAt = collidesAt;
     window.weaponRig = (typeof weaponRig !== "undefined") ? weaponRig : null;
   } catch(_){}
+
+  // ====================================================================
+  // DEBUG: druk op 'O' om alle meshes in 8u rondom de speler te loggen
+  // ====================================================================
+  // Voor het debuggen van onbekende blokken in de map. Open de browser
+  // console (F12) en druk op 'O' wanneer je vlak voor het blok staat.
+  // De console toont positie, kleur en dimensies van elke nabije mesh.
+  // Dit helpt identificeren welke functie het blok plaatst.
+  window.addEventListener("keydown", (e) => {
+    if(e.code !== "KeyO") return;
+    if(!window.scene || !window.player) return;
+    const px = player.pos.x, py = player.pos.y || 0, pz = player.pos.z;
+    const RADIUS = 8;
+    const found = [];
+    scene.traverse(obj => {
+      if(!obj.isMesh) return;
+      const wp = new THREE.Vector3();
+      obj.getWorldPosition(wp);
+      const dx = wp.x - px, dz = wp.z - pz, dy = wp.y - py;
+      const d = Math.hypot(dx, dy, dz);
+      if(d > RADIUS) return;
+      const m = obj.material;
+      const colorHex = (m && m.color && m.color.getHexString) ? "#" + m.color.getHexString() : "?";
+      const geo = obj.geometry;
+      let dims = "?";
+      if(geo?.parameters){
+        const p = geo.parameters;
+        if(p.width != null) dims = `${p.width}×${p.height}×${p.depth || "?"}`;
+        else if(p.radius != null) dims = `r${p.radius} h${p.height || "?"}`;
+      }
+      found.push({
+        type: geo?.type || "?",
+        pos: `(${wp.x.toFixed(1)}, ${wp.y.toFixed(1)}, ${wp.z.toFixed(1)})`,
+        dist: d.toFixed(1),
+        color: colorHex,
+        dims,
+        visible: obj.visible,
+        name: obj.name || obj.uuid.slice(0,6)
+      });
+    });
+    found.sort((a, b) => parseFloat(a.dist) - parseFloat(b.dist));
+    console.log(`%c[DEBUG] Speler op (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}) — ${found.length} meshes binnen ${RADIUS}u:`, "color:#ffd166;font-weight:bold;");
+    console.table(found);
+  });
 
   animate(performance.now());
 })();
