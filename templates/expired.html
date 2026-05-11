@@ -1658,8 +1658,9 @@ body.instakill-active.doublepoints-active::after{ bottom:198px; }
       <div class="help-section">
         <h4>Cheats <span class="muted">(typ tijdens spelen)</span></h4>
         <ul class="cheat-list">
-          <li><code>god</code> · onsterfelijk + oneindig ammo</li>
+          <li><code>god</code> · onsterfelijk + oneindig ammo (ook wonder weapons)</li>
           <li><code>superguns</code> · Ray Gun + Wunderwaffe (max ammo)</li>
+          <li><code>allweapons</code> · alle wapens — Q/scroll om te cyclen</li>
           <li><code>next</code> · skip huidige wave</li>
           <li><code>heal</code> · HP terug naar max</li>
           <li><code>cash</code> · +5000 salvage</li>
@@ -2532,238 +2533,639 @@ renderBoard();
   //   "snort"    — kort snuiven (variatie, ~30% kans)
   // ================================================================
 
+  // ================================================================
+  // Lazy-built convolver impulse-response voor zombie-vocals.
+  // Geeft een korte, "natte" hall (alsof gegromd in een holle ruimte)
+  // — vooral effectief voor de wet-throat varianten. We bouwen 'm één
+  // keer en hergebruiken via een gedeelde convolver-node.
+  // ================================================================
+  let _zVocalConv = null;
+  let _zVocalConvWet = null;
+  function _ensureZombieReverb(){
+    if(!audioCtx) return null;
+    if(_zVocalConv) return _zVocalConv;
+    const sr = audioCtx.sampleRate;
+    const len = Math.floor(sr * 0.55); // 550ms tail — kort, niet wattig
+    const ir = audioCtx.createBuffer(2, len, sr);
+    for(let ch = 0; ch < 2; ch++){
+      const data = ir.getChannelData(ch);
+      for(let i = 0; i < len; i++){
+        const t = i / len;
+        const decay = Math.pow(1 - t, 2.4);
+        // Early reflections op ~12ms, 28ms, 52ms voor "stenen ruimte"
+        const er = (i < sr*0.012 ? 0.0 :
+                    i < sr*0.018 ? 0.6 :
+                    i < sr*0.028 ? 0.0 :
+                    i < sr*0.034 ? 0.45 :
+                    i < sr*0.052 ? 0.0 :
+                    i < sr*0.060 ? 0.30 : 0.0);
+        data[i] = ((Math.random()*2-1) * decay + er * (Math.random()*2-1)) * 0.85;
+      }
+    }
+    _zVocalConv = audioCtx.createConvolver();
+    _zVocalConv.buffer = ir;
+    _zVocalConvWet = audioCtx.createGain();
+    _zVocalConvWet.gain.value = 0.22;
+    _zVocalConv.connect(_zVocalConvWet);
+    _zVocalConvWet.connect(_sfxOut());
+    return _zVocalConv;
+  }
+
+  // Waveshaper voor lichte distortion (op aggressieve varianten)
+  function _makeZombieDistortionCurve(amount){
+    const n = 512;
+    const curve = new Float32Array(n);
+    const k = amount;
+    for(let i = 0; i < n; i++){
+      const x = (i / (n-1)) * 2 - 1;
+      // Soft-clip tanh, licht asymmetrisch voor "vies" timbre
+      const sx = x + 0.08 * x * x * Math.sign(x);
+      curve[i] = Math.tanh(sx * k) / Math.tanh(k);
+    }
+    return curve;
+  }
+
   function _zombieVocal(opts){
     if(!audioCtx || _audioMuted) return;
     const o = Object.assign({
-      baseFreq: 75,        // grondtoon stembanden (Hz)
-      freqEnd: 55,         // pitch-zak naar einde
-      dur: 0.85,           // totale lengte
-      formant1: 720,       // eerste formant (klinker-kleur)
-      formant2: 1180,      // tweede formant
-      formantQ: 6,         // hoe scherp de formant-resonantie is
-      sawVol: 0.13,        // stembanden-niveau
-      noiseVol: 0.08,      // raspy noise erbovenop
-      vibratoHz: 5.5,      // pitch-wiebel snelheid
-      vibratoCents: 18,    // hoe ver pitch heen-en-weer beweegt
-      attack: 0.06,        // hoe snel het inzet
-      releaseTail: 0.20    // staart-tijd
+      // === BASIS PITCH ===
+      baseFreq: 68,        // lager dan voorheen (~75) — minder "stem", meer beest
+      freqEnd: 42,         // sterke pitch-zak (38% drop) — dier-met-pijn cadans
+      dur: 0.85,
+      // === FORMANT (mond/keel-vorm) ===
+      formant1: 540,       // lager: meer "uhh", minder "ah"
+      formant2: 980,
+      formantQ: 4.5,       // breder: niet metalisch piek-resonant
+      // === LAYER VOLUMES ===
+      sawVol: 0.16,        // stacked saws: chorus-rijk
+      noiseVol: 0.14,      // veel meer noise: gravel-feel
+      pulseVol: 0.22,      // glottal-pulses (de echte "stem"-laag)
+      growlVol: 0.07,      // ring-mod groans (inharmonisch)
+      // === MODULATIE ===
+      vibratoHz: 2.2,      // VEEL trager: 2 Hz, niet 5-9 Hz (geen blaat-kenmerk)
+      vibratoCents: 10,    // kleiner: subtiel, niet zang-vibrato
+      waverHz: 0.4,        // ultra-traag voor stem-instabiliteit
+      waverCents: 25,
+      // === ARTEFACTEN ===
+      crackChance: 0.35,   // hogere kans op pitch-cracks
+      crackDepth: 90,
+      throatHit: 0.55,     // initiële noise-burst (alsof de mond opengaat)
+      // === ENVELOPES ===
+      attack: 0.04,
+      releaseTail: 0.22,
+      // === EFFECTEN ===
+      subVol: 0.22,
+      reverbSend: 0.35,
+      distortion: 1.6,     // ALTIJD wat distortion (anders te schoon)
+      bitcrush: 0.40,      // 0 = geen, 1 = sterk
+      wetThroat: true
     }, opts || {});
     const now = audioCtx.currentTime;
-    const stop = now + o.dur + o.releaseTail + 0.02;
+    const stop = now + o.dur + o.releaseTail + 0.08;
     const out = _sfxOut();
+    const reverb = _ensureZombieReverb();
 
-    // === LAAG 1: stembanden (saw + triangle gestapeld) ===
-    // Saw = scherpe boventonen → klinkt "rasperig"
-    // Triangle een octaaf hoger zachtjes mee → body
-    const saw = audioCtx.createOscillator();
-    saw.type = "sawtooth";
-    saw.frequency.setValueAtTime(o.baseFreq, now);
-    saw.frequency.linearRampToValueAtTime(Math.max(30, o.freqEnd), now + o.dur);
+    // ====================================================================
+    // LAYER A: SUB-BASS (lichamelijke dreiging onder de stem)
+    // ====================================================================
+    const sub = audioCtx.createOscillator();
+    sub.type = "sine";
+    const subFreq = Math.max(28, o.baseFreq * 0.5);
+    const subFreqEnd = Math.max(22, o.freqEnd * 0.5);
+    sub.frequency.setValueAtTime(subFreq, now);
+    sub.frequency.exponentialRampToValueAtTime(subFreqEnd, now + o.dur);
+    const subGain = audioCtx.createGain();
+    subGain.gain.value = o.subVol;
 
-    // Vibrato LFO op de saw — dat is wat het écht "stem" laat klinken
-    // (zonder vibrato is het een drone). LFO module pitch via detune (cents).
+    // ====================================================================
+    // LAYER B: STACKED DETUNED SAWS (3x) — vette, brutere stem-basis
+    // Drie saws licht gedetuneerd geeft natuurlijk "chorus"-effect, klinkt
+    // veel groter en groffer dan een enkele saw. Cruciaal om "synth"-feel
+    // weg te halen.
+    // ====================================================================
+    const saws = [];
+    const sawDetunes = [-9, 0, 11];  // cents — kleine spread, geen chord
+    for(let k = 0; k < 3; k++){
+      const s = audioCtx.createOscillator();
+      s.type = "sawtooth";
+      s.frequency.setValueAtTime(o.baseFreq, now);
+      s.frequency.exponentialRampToValueAtTime(Math.max(30, o.freqEnd), now + o.dur);
+      s.detune.value = sawDetunes[k];
+      saws.push(s);
+    }
+
+    // Vibrato LFO — TRAAG (geen geblaat-frequentie)
     const vibLFO = audioCtx.createOscillator();
     vibLFO.type = "sine";
-    vibLFO.frequency.value = o.vibratoHz;
+    vibLFO.frequency.value = o.vibratoHz + (Math.random() - 0.5) * 0.5;
     const vibGain = audioCtx.createGain();
     vibGain.gain.value = o.vibratoCents;
     vibLFO.connect(vibGain);
-    vibGain.connect(saw.detune);
+    saws.forEach(s => vibGain.connect(s.detune));
 
-    // === LAAG 2: raspy noise (wet-throat) ===
-    const noiseSize = Math.max(1, (audioCtx.sampleRate * (o.dur + o.releaseTail))|0);
-    const noiseBuf = audioCtx.createBuffer(1, noiseSize, audioCtx.sampleRate);
+    // Wavering — ultra-traag, grillig
+    const waver = audioCtx.createOscillator();
+    waver.type = "triangle";
+    waver.frequency.value = o.waverHz + Math.random() * 0.3;
+    const waverGain = audioCtx.createGain();
+    waverGain.gain.value = o.waverCents;
+    waver.connect(waverGain);
+    saws.forEach(s => waverGain.connect(s.detune));
+    waverGain.connect(sub.detune);
+
+    // Pitch-cracks (kapotte stembanden)
+    if(Math.random() < o.crackChance && o.dur > 0.20){
+      const crackT = now + o.dur * (0.20 + Math.random() * 0.55);
+      const crackDown = -o.crackDepth - Math.random() * 50;
+      saws.forEach(s => {
+        s.detune.setValueAtTime(s.detune.value, crackT);
+        s.detune.linearRampToValueAtTime(s.detune.value + crackDown, crackT + 0.03);
+        s.detune.linearRampToValueAtTime(s.detune.value, crackT + 0.13);
+      });
+    }
+
+    // ====================================================================
+    // LAYER C: GLOTTAL-PULSE TRAIN — nabootsing echte stembanden
+    // We bouwen een noise-buffer waar elke ~10-14 ms een korte noise-burst
+    // zit (≈ 75-100 Hz pulse rate, samen met de baseFreq van de saws). Dit
+    // is wat echte menselijke groans dat "stemmige" geeft i.p.v. een zoem.
+    // ====================================================================
+    const sr = audioCtx.sampleRate;
+    const totalLen = Math.max(1, ((o.dur + o.releaseTail) * sr) | 0);
+    const pulseBuf = audioCtx.createBuffer(1, totalLen, sr);
+    const pData = pulseBuf.getChannelData(0);
+    // Pulse-rate volgt baseFreq-glide
+    let phase = 0;
+    let lastPulse = -1;
+    for(let i = 0; i < totalLen; i++){
+      const t = i / totalLen;
+      // Pulse-frequentie zakt mee met de pitch
+      const pulseFreq = o.baseFreq + (o.freqEnd - o.baseFreq) * t;
+      const pulsePeriod = sr / Math.max(20, pulseFreq);
+      // Op pulse-momenten een korte noise-burst (~3 ms)
+      if(i - lastPulse >= pulsePeriod){
+        lastPulse = i;
+      }
+      const sincePulse = i - lastPulse;
+      const burstLen = Math.max(1, (sr * 0.003) | 0);
+      if(sincePulse < burstLen){
+        // Exponentiële decay binnen elke burst → klinkt als click-tje
+        const decay = Math.exp(-sincePulse / (burstLen * 0.3));
+        pData[i] = (Math.random() * 2 - 1) * decay * 0.9;
+      } else {
+        // Stille fase tussen pulses (een beetje achtergrondruis)
+        pData[i] = (Math.random() * 2 - 1) * 0.06;
+      }
+    }
+    const pulseSrc = audioCtx.createBufferSource();
+    pulseSrc.buffer = pulseBuf;
+    const pulseGain = audioCtx.createGain();
+    pulseGain.gain.value = o.pulseVol;
+
+    // ====================================================================
+    // LAYER D: INHARMONIC GROWL — ring-modulated low oscs
+    // Twee lage sines die ring-moduleren produceren niet-harmonische zij-banden.
+    // Geeft een "monstrous/inhuman" karakter dat geen enkel dier of mens
+    // alleen kan produceren. Subtiel mengen.
+    // ====================================================================
+    const growlA = audioCtx.createOscillator();
+    growlA.type = "sine";
+    growlA.frequency.value = o.baseFreq * 1.3;
+    const growlB = audioCtx.createOscillator();
+    growlB.type = "sine";
+    growlB.frequency.value = o.baseFreq * 1.41;  // niet-harmonisch (verhouding ~1.085)
+    // Ring-mod via een GainNode aangestuurd door growlB
+    const growlRing = audioCtx.createGain();
+    growlRing.gain.value = 0;
+    growlA.connect(growlRing);
+    growlB.connect(growlRing.gain);
+    const growlGain = audioCtx.createGain();
+    growlGain.gain.value = o.growlVol;
+    growlRing.connect(growlGain);
+
+    // ====================================================================
+    // LAYER E: WET-THROAT NOISE — gemoduleerd voor ademhaling/slijm
+    // ====================================================================
+    const noiseBuf = audioCtx.createBuffer(1, totalLen, sr);
     const nd = noiseBuf.getChannelData(0);
-    for(let i = 0; i < noiseSize; i++){
-      // Niet helemaal pure ruis — we modulen 'm met een trage golf zodat hij
-      // ademt (in/uit ademhaling). En een touch flutter erbovenop voor wet-feel.
-      const t = i / noiseSize;
-      const breath = 0.55 + 0.45 * Math.sin(t * Math.PI * 2 * 1.8);
-      const flutter = 0.85 + 0.15 * Math.sin(t * Math.PI * 2 * 30);
-      nd[i] = (Math.random() * 2 - 1) * breath * flutter;
+    for(let i = 0; i < totalLen; i++){
+      const t = i / totalLen;
+      const breath = 0.55
+        + 0.30 * Math.sin(t * Math.PI * 2 * 1.6)
+        + 0.15 * Math.sin(t * Math.PI * 2 * 3.7 + 1.3);
+      const flutter = 0.78 + 0.22 * Math.sin(t * Math.PI * 2 * 42);
+      const wetSpike = (o.wetThroat && Math.random() < 0.0012) ? 2.2 : 1.0;
+      nd[i] = (Math.random() * 2 - 1) * breath * flutter * wetSpike;
     }
     const noiseSrc = audioCtx.createBufferSource();
     noiseSrc.buffer = noiseBuf;
+    const noiseLP = audioCtx.createBiquadFilter();
+    noiseLP.type = "lowpass";
+    noiseLP.frequency.value = 2200;
+    noiseLP.Q.value = 0.7;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.value = o.noiseVol;
+    noiseSrc.connect(noiseLP).connect(noiseGain);
 
-    // Mengpunt voor saw + noise vóór ze door de formant-filters gaan
+    // ====================================================================
+    // LAYER F: THROAT-HIT — initiële burst aan het begin van de vocal
+    // Korte luide noise-spike die het effect geeft van "mond gaat plots open"
+    // ====================================================================
+    const hitLen = Math.max(1, (sr * 0.05) | 0);
+    const hitBuf = audioCtx.createBuffer(1, hitLen, sr);
+    const hd = hitBuf.getChannelData(0);
+    for(let i = 0; i < hitLen; i++){
+      const decay = Math.pow(1 - i / hitLen, 1.8);
+      hd[i] = (Math.random() * 2 - 1) * decay;
+    }
+    const hitSrc = audioCtx.createBufferSource();
+    hitSrc.buffer = hitBuf;
+    const hitBP = audioCtx.createBiquadFilter();
+    hitBP.type = "bandpass";
+    hitBP.frequency.value = 800;
+    hitBP.Q.value = 1.5;
+    const hitGain = audioCtx.createGain();
+    hitGain.gain.value = o.throatHit;
+    hitSrc.connect(hitBP).connect(hitGain);
+
+    // ====================================================================
+    // PRE-FORMANT MIX — verzamelt alle bronnen vóór de mond/keel-filters
+    // ====================================================================
     const preFmt = audioCtx.createGain();
     preFmt.gain.value = 1.0;
 
-    const sawGain = audioCtx.createGain();
-    sawGain.gain.value = o.sawVol;
-    saw.connect(sawGain).connect(preFmt);
+    const sawSum = audioCtx.createGain();
+    sawSum.gain.value = o.sawVol / 3;  // gedeeld over 3 saws
+    saws.forEach(s => s.connect(sawSum));
+    sawSum.connect(preFmt);
 
-    const noiseGain = audioCtx.createGain();
-    noiseGain.gain.value = o.noiseVol;
-    // Pre-shape de noise iets met een lowpass zodat het niet als "tape-hiss"
-    // klinkt maar als keel-resonantie
-    const noiseLP = audioCtx.createBiquadFilter();
-    noiseLP.type = "lowpass";
-    noiseLP.frequency.value = 1800;
-    noiseLP.Q.value = 0.7;
-    noiseSrc.connect(noiseLP).connect(noiseGain).connect(preFmt);
+    pulseSrc.connect(pulseGain).connect(preFmt);
+    noiseGain.connect(preFmt);
+    hitGain.connect(preFmt);
+    growlGain.connect(preFmt);
 
-    // === LAAG 3: dubbele formant-filtering (mond/keel-vorm) ===
-    // Twee bandpass-filters parallel — sommeer hun output. Dit is een
-    // klassieke vocal-synthesis-trick: de twee resonantie-pieken geven
-    // het geluid "klinker"-karakter. Voor zombies niet stabiel houden;
-    // lichte beweging in de formanten = "kaakbeweging".
+    // ====================================================================
+    // FORMANT FILTERS — dubbele bandpass, beweegt tijdens vocal
+    // ====================================================================
     const f1 = audioCtx.createBiquadFilter();
     f1.type = "bandpass";
     f1.frequency.setValueAtTime(o.formant1, now);
-    f1.frequency.linearRampToValueAtTime(o.formant1 * 0.92, now + o.dur);
+    f1.frequency.linearRampToValueAtTime(o.formant1 * 0.78, now + o.dur);
     f1.Q.value = o.formantQ;
 
     const f2 = audioCtx.createBiquadFilter();
     f2.type = "bandpass";
     f2.frequency.setValueAtTime(o.formant2, now);
-    f2.frequency.linearRampToValueAtTime(o.formant2 * 1.05, now + o.dur);
+    f2.frequency.linearRampToValueAtTime(o.formant2 * 1.15, now + o.dur);
     f2.Q.value = o.formantQ * 0.85;
 
     preFmt.connect(f1);
     preFmt.connect(f2);
 
     const fmtMix = audioCtx.createGain();
-    fmtMix.gain.value = 0.5;
+    fmtMix.gain.value = 0.55;
     f1.connect(fmtMix);
     f2.connect(fmtMix);
 
-    // === LAAG 4: bypass van een deel van de droge stembanden ===
-    // De formanten alleen kunnen iets te "filtered/synth" klinken; we mengen
-    // er een klein beetje van de pré-formant terug in voor body.
+    // Dry bypass voor body
     const dryBypass = audioCtx.createGain();
-    dryBypass.gain.value = 0.15;
+    dryBypass.gain.value = 0.20;
     preFmt.connect(dryBypass);
 
-    // === LAAG 5: master amp envelope (attack + sustain + release) ===
+    // ====================================================================
+    // DISTORTION (waveshaper) — ALTIJD wat, zelfs op shamble
+    // ====================================================================
+    let postShape = null;
+    if(o.distortion > 0){
+      postShape = audioCtx.createWaveShaper();
+      postShape.curve = _makeZombieDistortionCurve(o.distortion);
+      postShape.oversample = "2x";
+    }
+
+    // ====================================================================
+    // BITCRUSH-LITE — via ScriptProcessor zou heavy zijn; in plaats daarvan
+    // gebruiken we een waveshaper met een step-curve voor lo-fi grain.
+    // ====================================================================
+    let crusher = null;
+    if(o.bitcrush > 0){
+      crusher = audioCtx.createWaveShaper();
+      const levels = Math.max(8, Math.floor(64 * (1 - o.bitcrush) + 8));
+      const n = 1024;
+      const curve = new Float32Array(n);
+      for(let i = 0; i < n; i++){
+        const x = (i / (n - 1)) * 2 - 1;
+        // Stepped quantization
+        curve[i] = Math.round(x * levels) / levels;
+      }
+      crusher.curve = curve;
+      crusher.oversample = "none";
+    }
+
+    // ====================================================================
+    // MASTER AMP ENVELOPE
+    // ====================================================================
     const ampEnv = audioCtx.createGain();
     ampEnv.gain.setValueAtTime(0.0001, now);
     ampEnv.gain.exponentialRampToValueAtTime(1.0, now + o.attack);
-    // Klein "sustain"-niveau plateau in het midden
     ampEnv.gain.linearRampToValueAtTime(0.85, now + o.dur * 0.55);
     ampEnv.gain.exponentialRampToValueAtTime(0.0001, now + o.dur + o.releaseTail);
 
     fmtMix.connect(ampEnv);
     dryBypass.connect(ampEnv);
 
-    // Klein highpass eraan om sub-rommel te dempen
+    // Sub heeft eigen envelope (mag niet door HP/distortion)
+    const subEnv = audioCtx.createGain();
+    subEnv.gain.setValueAtTime(0.0001, now);
+    subEnv.gain.exponentialRampToValueAtTime(1.0, now + Math.max(o.attack, 0.04));
+    subEnv.gain.exponentialRampToValueAtTime(0.0001, now + o.dur + o.releaseTail);
+    sub.connect(subGain).connect(subEnv);
+
+    // High-pass alleen op mid/high-pad
     const hp = audioCtx.createBiquadFilter();
     hp.type = "highpass";
-    hp.frequency.value = 80;
+    hp.frequency.value = 90;
     hp.Q.value = 0.5;
     ampEnv.connect(hp);
-    hp.connect(out);
 
-    // Start alles
-    saw.start(now);          saw.stop(stop);
+    // Effects chain
+    const finalMix = audioCtx.createGain();
+    finalMix.gain.value = 1.0;
+
+    let chainHead = hp;
+    if(postShape){
+      chainHead.connect(postShape);
+      chainHead = postShape;
+    }
+    if(crusher){
+      chainHead.connect(crusher);
+      chainHead = crusher;
+    }
+    chainHead.connect(finalMix);
+    subEnv.connect(finalMix);
+    finalMix.connect(out);
+
+    // Reverb-send (alleen mid/high)
+    if(reverb && o.reverbSend > 0){
+      const sendGain = audioCtx.createGain();
+      sendGain.gain.value = o.reverbSend;
+      hp.connect(sendGain);
+      sendGain.connect(reverb);
+    }
+
+    // START ALLES
+    saws.forEach(s => { s.start(now); s.stop(stop); });
+    sub.start(now);          sub.stop(stop);
     vibLFO.start(now);       vibLFO.stop(stop);
+    waver.start(now);        waver.stop(stop);
+    growlA.start(now);       growlA.stop(stop);
+    growlB.start(now);       growlB.stop(stop);
     noiseSrc.start(now);     noiseSrc.stop(stop);
+    pulseSrc.start(now);     pulseSrc.stop(stop);
+    hitSrc.start(now);
   }
 
   // Enemy growl — random gegrom voor sfeer (cadans-getrigger vanuit game-loop)
   // Dispatcher die de juiste vocal-variant kiest met aanrandende randomization.
   function sfxGrowl(variant){
     if(!audioCtx || _audioMuted) return;
-    // Als geen specifieke variant: kies random uit shamble-pool
+    // Distributie:
+    //  - shamble: standaard schuifel-grom (50%)
+    //  - gurgle: wet/verstikt (20%)
+    //  - snort: kort agressief (12%)
+    //  - alert: hij heeft je gezien (11%)
+    //  - scream: zeldzame paniek-schreeuw (4%)
+    //  - roar: zware bestiale brul (3%)
     if(!variant){
       const r = Math.random();
-      if(r < 0.55)      variant = "shamble";
-      else if(r < 0.78) variant = "gurgle";
-      else if(r < 0.90) variant = "snort";
-      else              variant = "alert";
+      if(r < 0.50)      variant = "shamble";
+      else if(r < 0.70) variant = "gurgle";
+      else if(r < 0.82) variant = "snort";
+      else if(r < 0.93) variant = "alert";
+      else if(r < 0.97) variant = "scream";
+      else              variant = "roar";
     }
 
-    // Randomisatie: elke vocal krijgt jitter zodat geen twee identiek zijn
     const jit = (base, range) => base + (Math.random() - 0.5) * range;
+
+    // ==========================================================
+    // BELANGRIJKE WIJZIGING: alle varianten gebruiken nu TRAGE
+    // vibrato (1-3 Hz, niet 5-9 Hz). De 5-9 Hz vibrato was wat de
+    // groans als "geblaat van een lammetje" liet klinken. Trage
+    // vibrato + bitcrush + glottal-pulses geven nu een echte
+    // human-broken-throat-feel.
+    // ==========================================================
 
     switch(variant){
       case "shamble":
-        // Lange, lage, rustige grom — het meest gehoord
+        // Lange lage grom — meest gehoord. Diepe sub + veel pulse-rate.
         _zombieVocal({
-          baseFreq:    jit(78, 14),
-          freqEnd:     jit(58, 12),
-          dur:         jit(0.85, 0.30),
-          formant1:    jit(720, 80),
-          formant2:    jit(1180, 120),
-          formantQ:    jit(6, 1.5),
-          sawVol:      jit(0.12, 0.03),
-          noiseVol:    jit(0.07, 0.02),
-          vibratoHz:   jit(5.5, 1.5),
-          vibratoCents:jit(18, 6),
-          attack:      0.07,
-          releaseTail: 0.20
+          baseFreq:    jit(62, 10),
+          freqEnd:     jit(38, 8),
+          dur:         jit(1.05, 0.30),
+          formant1:    jit(520, 60),
+          formant2:    jit(940, 100),
+          formantQ:    jit(4.5, 1.2),
+          sawVol:      jit(0.16, 0.03),
+          noiseVol:    jit(0.15, 0.03),
+          pulseVol:    jit(0.24, 0.04),
+          growlVol:    jit(0.08, 0.02),
+          vibratoHz:   jit(2.0, 0.6),    // ZEER TRAAG
+          vibratoCents:jit(9, 3),
+          waverHz:     jit(0.45, 0.2),
+          waverCents:  jit(28, 8),
+          crackChance: 0.35,
+          crackDepth:  jit(80, 25),
+          throatHit:   jit(0.50, 0.15),
+          attack:      0.05,
+          releaseTail: 0.28,
+          subVol:      jit(0.26, 0.05),
+          reverbSend:  0.40,
+          distortion:  1.8,
+          bitcrush:    0.35,
+          wetThroat:   true
         });
         break;
 
       case "alert":
-        // Hoger, scherper — "hij heeft je gezien"
+        // Iets hoger en korter — "hij heeft je gezien". Nog steeds trage vib.
         _zombieVocal({
-          baseFreq:    jit(120, 20),
-          freqEnd:     jit(95, 15),
-          dur:         jit(0.55, 0.15),
-          formant1:    jit(820, 60),
-          formant2:    jit(1450, 100),
-          formantQ:    jit(7, 1.5),
-          sawVol:      jit(0.16, 0.03),
-          noiseVol:    jit(0.10, 0.03),
-          vibratoHz:   jit(7, 2),
-          vibratoCents:jit(28, 8),
-          attack:      0.03,
-          releaseTail: 0.14
+          baseFreq:    jit(95, 14),
+          freqEnd:     jit(64, 10),
+          dur:         jit(0.62, 0.15),
+          formant1:    jit(720, 60),
+          formant2:    jit(1280, 100),
+          formantQ:    jit(5.5, 1.2),
+          sawVol:      jit(0.20, 0.03),
+          noiseVol:    jit(0.16, 0.03),
+          pulseVol:    jit(0.26, 0.04),
+          growlVol:    jit(0.09, 0.02),
+          vibratoHz:   jit(2.8, 0.8),    // iets sneller maar nog niet "blaat"
+          vibratoCents:jit(12, 4),
+          waverHz:     jit(0.9, 0.3),
+          waverCents:  jit(22, 8),
+          crackChance: 0.45,
+          crackDepth:  jit(90, 25),
+          throatHit:   jit(0.65, 0.15),
+          attack:      0.02,
+          releaseTail: 0.18,
+          subVol:      jit(0.18, 0.04),
+          reverbSend:  0.32,
+          distortion:  2.4,
+          bitcrush:    0.45,
+          wetThroat:   true
         });
         break;
 
       case "lunge":
-        // Korte, agressieve snauw — luid, formant-zwaai voor "klap"-effect
+        // Korte aggressieve snauw vlak voor aanval. Hard distortion.
         _zombieVocal({
-          baseFreq:    jit(140, 25),
-          freqEnd:     jit(85, 20),
-          dur:         jit(0.32, 0.08),
-          formant1:    jit(900, 80),
-          formant2:    jit(1600, 150),
-          formantQ:    jit(8, 1),
-          sawVol:      jit(0.22, 0.04),
-          noiseVol:    jit(0.15, 0.03),
-          vibratoHz:   jit(8, 2),
-          vibratoCents:jit(35, 10),
-          attack:      0.015,
-          releaseTail: 0.10
+          baseFreq:    jit(110, 18),
+          freqEnd:     jit(55, 15),     // grote pitch-zak voor "klap"
+          dur:         jit(0.34, 0.08),
+          formant1:    jit(820, 80),
+          formant2:    jit(1500, 150),
+          formantQ:    jit(6, 1),
+          sawVol:      jit(0.26, 0.04),
+          noiseVol:    jit(0.20, 0.03),
+          pulseVol:    jit(0.32, 0.05),
+          growlVol:    jit(0.14, 0.03),
+          vibratoHz:   jit(2.5, 0.6),
+          vibratoCents:jit(8, 3),
+          waverHz:     jit(1.2, 0.4),
+          waverCents:  jit(15, 5),
+          crackChance: 0.65,            // bijna altijd een crack
+          crackDepth:  jit(120, 30),
+          throatHit:   jit(0.85, 0.15), // hard snauw-begin
+          attack:      0.01,
+          releaseTail: 0.12,
+          subVol:      jit(0.32, 0.05),
+          reverbSend:  0.28,
+          distortion:  3.4,             // sterk vervormd
+          bitcrush:    0.55,
+          wetThroat:   true
         });
         break;
 
       case "gurgle":
-        // Wet keel-geluid — formant-Q laag, meer noise, ademen-feel
+        // Wet keel-geluid — veel noise + pulses. Lang, gerommel.
         _zombieVocal({
-          baseFreq:    jit(70, 12),
-          freqEnd:     jit(50, 10),
-          dur:         jit(0.95, 0.25),
-          formant1:    jit(560, 80),
-          formant2:    jit(900, 120),
-          formantQ:    jit(4, 1),
-          sawVol:      jit(0.09, 0.02),
-          noiseVol:    jit(0.13, 0.03), // meer noise = wet
-          vibratoHz:   jit(4, 1),
-          vibratoCents:jit(25, 8),
+          baseFreq:    jit(56, 10),
+          freqEnd:     jit(36, 8),
+          dur:         jit(1.20, 0.25),
+          formant1:    jit(420, 70),
+          formant2:    jit(720, 110),
+          formantQ:    jit(3.5, 1),
+          sawVol:      jit(0.12, 0.03),
+          noiseVol:    jit(0.22, 0.04),
+          pulseVol:    jit(0.20, 0.04),
+          growlVol:    jit(0.10, 0.02),
+          vibratoHz:   jit(1.5, 0.5),   // TRAAGSTE — verstikt, geen ritme
+          vibratoCents:jit(8, 3),
+          waverHz:     jit(0.35, 0.15),
+          waverCents:  jit(35, 10),
+          crackChance: 0.40,
+          crackDepth:  jit(70, 20),
+          throatHit:   jit(0.35, 0.10),
           attack:      0.10,
-          releaseTail: 0.28
+          releaseTail: 0.36,
+          subVol:      jit(0.24, 0.05),
+          reverbSend:  0.50,
+          distortion:  1.4,
+          bitcrush:    0.40,
+          wetThroat:   true
         });
         break;
 
       case "snort":
-        // Kort snuiven — vrijwel alleen noise + korte formant-flits
+        // Korte gromm-burst — bijna percussief.
         _zombieVocal({
-          baseFreq:    jit(90, 15),
-          freqEnd:     jit(70, 10),
-          dur:         jit(0.18, 0.06),
-          formant1:    jit(680, 50),
-          formant2:    jit(1300, 100),
-          formantQ:    jit(5, 1),
-          sawVol:      jit(0.06, 0.02),
-          noiseVol:    jit(0.18, 0.03), // dominant noise
-          vibratoHz:   jit(6, 2),
-          vibratoCents:jit(15, 5),
-          attack:      0.012,
-          releaseTail: 0.08
+          baseFreq:    jit(75, 12),
+          freqEnd:     jit(50, 10),
+          dur:         jit(0.22, 0.06),
+          formant1:    jit(620, 60),
+          formant2:    jit(1100, 100),
+          formantQ:    jit(4, 1),
+          sawVol:      jit(0.14, 0.03),
+          noiseVol:    jit(0.28, 0.05),
+          pulseVol:    jit(0.22, 0.04),
+          growlVol:    jit(0.06, 0.02),
+          vibratoHz:   jit(2.2, 0.5),
+          vibratoCents:jit(6, 2),
+          waverHz:     jit(1.8, 0.5),
+          waverCents:  jit(8, 3),
+          crackChance: 0.15,
+          crackDepth:  jit(50, 15),
+          throatHit:   jit(0.75, 0.15),
+          attack:      0.006,
+          releaseTail: 0.10,
+          subVol:      jit(0.16, 0.04),
+          reverbSend:  0.25,
+          distortion:  2.2,
+          bitcrush:    0.50,
+          wetThroat:   true
+        });
+        break;
+
+      case "scream":
+        // Zeldzaam — paniek-schreeuw, hoog en kapot. Hier mag vibrato iets
+        // sneller (klinkt als hysterische schreeuw, niet als geit), maar
+        // nog niet de "blaat"-zone.
+        _zombieVocal({
+          baseFreq:    jit(180, 25),
+          freqEnd:     jit(85, 18),     // grote pitch-zak
+          dur:         jit(0.85, 0.20),
+          formant1:    jit(950, 90),
+          formant2:    jit(2000, 180),
+          formantQ:    jit(7, 1),
+          sawVol:      jit(0.22, 0.03),
+          noiseVol:    jit(0.18, 0.03),
+          pulseVol:    jit(0.28, 0.05),
+          growlVol:    jit(0.12, 0.03),
+          vibratoHz:   jit(3.5, 0.8),   // iets sneller — paniek
+          vibratoCents:jit(18, 5),
+          waverHz:     jit(1.8, 0.6),
+          waverCents:  jit(40, 12),     // breekt
+          crackChance: 0.95,            // crash gegarandeerd
+          crackDepth:  jit(180, 40),
+          throatHit:   jit(0.80, 0.15),
+          attack:      0.015,
+          releaseTail: 0.30,
+          subVol:      jit(0.22, 0.04),
+          reverbSend:  0.50,
+          distortion:  3.8,
+          bitcrush:    0.55,
+          wetThroat:   true
+        });
+        break;
+
+      case "roar":
+        // NIEUW: zware bestiale brul — grote zombie. Veel sub, lange dur,
+        // ultra-trage vibrato.
+        _zombieVocal({
+          baseFreq:    jit(48, 8),       // erg laag
+          freqEnd:     jit(30, 6),
+          dur:         jit(1.40, 0.30),
+          formant1:    jit(380, 60),
+          formant2:    jit(680, 100),
+          formantQ:    jit(3.5, 1),
+          sawVol:      jit(0.22, 0.04),
+          noiseVol:    jit(0.18, 0.03),
+          pulseVol:    jit(0.30, 0.05),
+          growlVol:    jit(0.18, 0.04), // veel groans
+          vibratoHz:   jit(1.2, 0.4),   // ULTRA TRAAG
+          vibratoCents:jit(7, 2),
+          waverHz:     jit(0.3, 0.1),
+          waverCents:  jit(40, 12),
+          crackChance: 0.55,
+          crackDepth:  jit(100, 30),
+          throatHit:   jit(0.95, 0.10), // zware aanzet
+          attack:      0.06,
+          releaseTail: 0.45,
+          subVol:      jit(0.40, 0.06), // maximaal sub
+          reverbSend:  0.55,
+          distortion:  3.2,
+          bitcrush:    0.40,
+          wetThroat:   true
         });
         break;
     }
@@ -3134,7 +3536,13 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   });
   const doorPlankMat = new THREE.MeshStandardMaterial({
     color: 0x6a3818, emissive: 0x2a1408, emissiveIntensity: 0.10,
-    roughness: 0.9, metalness: 0.05
+    roughness: 0.9, metalness: 0.05,
+    // [PERF FIX] Vanaf init transparent zodat opacity-fade bij openDoor()
+    // geen shader-variant-switch triggert (anders krijg je een merkbare
+    // hoofdthread-spike op het moment dat je een deur opent — Three.js
+    // moet het material dan herveriken naar transparent-mode).
+    transparent: true,
+    opacity: 1.0
   });
 
   // Lokale helper: voeg een wall toe (mesh + collider) zonder de
@@ -3212,39 +3620,51 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     group.position.set(x, y, z);
     scene.add(group);
 
-    // Sign: plaatje boven de deur met cost en next-room name
+    // Sign: kleiner plaatje op de deur met cost en next-room name.
+    // Bewust ingetogen: canvas 192x64 (was 384x128), kleinere fonts.
+    // De sprite is ~half zo groot als voorheen zodat hij niet als
+    // billboard vanaf de andere kant van de arena schreeuwt.
     const signCanvas = document.createElement("canvas");
-    signCanvas.width = 384; signCanvas.height = 128;
+    signCanvas.width = 192; signCanvas.height = 64;
     const sctx = signCanvas.getContext("2d");
     function drawSign(text1, text2){
-      sctx.clearRect(0, 0, 384, 128);
-      // BG
-      sctx.fillStyle = "rgba(20, 8, 4, 0.92)";
-      sctx.fillRect(0, 0, 384, 128);
-      sctx.strokeStyle = "rgba(255, 100, 40, 0.8)";
-      sctx.lineWidth = 4;
-      sctx.strokeRect(2, 2, 380, 124);
-      // Tekst
+      sctx.clearRect(0, 0, 192, 64);
+      // BG (iets minder opaque zodat het minder in-your-face is)
+      sctx.fillStyle = "rgba(20, 8, 4, 0.88)";
+      sctx.fillRect(0, 0, 192, 64);
+      sctx.strokeStyle = "rgba(255, 100, 40, 0.75)";
+      sctx.lineWidth = 2;
+      sctx.strokeRect(1, 1, 190, 62);
+      // Tekst — naam-regel iets kleiner, kostprijs iets groter voor leesbaarheid
       sctx.fillStyle = "#ffd9a0";
-      sctx.font = "bold 30px Trebuchet MS, sans-serif";
+      sctx.font = "bold 15px Trebuchet MS, sans-serif";
       sctx.textAlign = "center";
-      sctx.fillText(text1, 192, 50);
+      sctx.fillText(text1, 96, 25);
       sctx.fillStyle = "#ff6a30";
-      sctx.font = "bold 42px Trebuchet MS, sans-serif";
-      sctx.fillText(text2, 192, 100);
+      sctx.font = "bold 20px Trebuchet MS, sans-serif";
+      sctx.fillText(text2, 96, 50);
     }
     drawSign(rooms[leadsTo]?.name || leadsTo, `[F]  $${cost}`);
     const signTex = new THREE.CanvasTexture(signCanvas);
     signTex.minFilter = THREE.LinearFilter;
-    const signMat = new THREE.SpriteMaterial({ map: signTex, transparent: true, depthTest: false });
+    // depthTest:true zodat props (kratten, vaten, perk-stations etc.) hem
+    // correct kunnen occluden — niet meer door alles heen zichtbaar.
+    // Lichte basis-opacity die we per-frame met afstand verder fade-en.
+    const signMat = new THREE.SpriteMaterial({
+      map: signTex,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,    // sprite zelf schrijft niet naar depth-buffer
+      opacity: 1.0
+    });
     const sign = new THREE.Sprite(signMat);
-    // Iets groter (was 5.4×1.8) — sign zit nu midden op de deur dus mag
-    // royaal zijn zodat hij goed te lezen is op afstand. depthTest:false
-    // zorgt dat hij ook door de muur heen rendert (anders verdwijnt-ie
-    // alsnog half achter de muur-mesh op extreme camera-hoeken).
-    sign.scale.set(6.0, 2.0, 1);
+    // Kleiner formaat: was 6.0x2.0, nu 3.0x1.0. Past beter op de
+    // deurplanken en is op grote afstand niet meer leesbaar/aanwezig
+    // (combinatie met distance-fade in tick-loop).
+    sign.scale.set(3.0, 1.0, 1);
     sign.position.set(x, y + signOffsetY, z);
-    sign.renderOrder = 999;  // boven andere transparante meshes
+    // Geen renderOrder forcering meer — laat hem in de normale depth-pipeline
+    // mee draaien zodat occlusie door props correct werkt.
     scene.add(sign);
 
     // Floating glow rond het sign-niveau (was apart op y+2.4, nu op
@@ -4195,7 +4615,9 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
   for(let i=0;i<50;i++){
     const ember = new THREE.Mesh(
       new THREE.SphereGeometry(0.08 + Math.random()*0.05, 6, 6),
-      new THREE.MeshBasicMaterial({ color: [0x4df7ff,0xff4fd8,0x9dff7c,0xffd166][i%4] })
+      // Embers: warm vuur/as-palette i.p.v. cyaan/magenta — past bij zombie-sfeer.
+      // Vuur-oranje, dof rood (vlam), vuilgeel (sintels), asgrijs (rook-deeltje).
+      new THREE.MeshBasicMaterial({ color: [0xff7a30,0xc04020,0x8a6e2a,0x5a4a3a][i%4] })
     );
     ember.position.set(rand(-52,52), rand(0.8,4.5), rand(-52,52));
     ember.userData.baseY = ember.position.y;
@@ -4287,25 +4709,391 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       addDecalRing(cfg.x, cfg.z, idx === 0 ? 6.8 : 4.8, idx % 2 ? 0x6a2818 : 0x5a3818);
     });
 
-    for(let i=0;i<14;i++){
-      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.8 + Math.random()*0.65, 0), crystalMat.clone());
-      crystal.material.color.offsetHSL((Math.random()-0.5)*0.08, 0, 0);
-      crystal.position.set((i < 7 ? -1 : 1) * rand(20,57), 0.8 + Math.random()*0.8, rand(-48,48));
-      crystal.scale.y = 1.3 + Math.random()*2.5;
-      crystal.rotation.y = Math.random()*Math.PI;
-      crystal.castShadow = crystal.receiveShadow = true;
-      crystal.userData.baseY = crystal.position.y;
-      crystal.userData.floatOffset = Math.random()*Math.PI*2;
-      arenaDeco.crystalClusters.add(crystal);
-      // Registreer als collider zodat speler/bullets er niet doorheen gaan.
-      registerSolid(crystal);
+    // ============================================================
+    // ZOMBIE-THEMA ARENA-PROPS (vervangt voorheen 14 blauwe kristal-clusters)
+    // Drie soorten props door elkaar:
+    //   - roestige olievaten (50%): cilindrisch, donkerrood/bruin, top-rib
+    //   - grafstenen (30%): platte steen + kruis-relief, grijsbruin
+    //   - houten kratten (20%): kubus met plank-detail, vervallen bruin
+    // Allemaal statisch (geen bob/rotate) en als collider geregistreerd.
+    // ============================================================
+    // Gedeelde materialen (één keer aanmaken, hergebruiken)
+    const drumBodyMat = new THREE.MeshStandardMaterial({
+      color: 0x5a2818, roughness: 0.88, metalness: 0.45,
+      emissive: 0x1a0804, emissiveIntensity: 0.10
+    });
+    const drumRibMat = new THREE.MeshStandardMaterial({
+      color: 0x3a1810, roughness: 0.95, metalness: 0.55
+    });
+    const drumLidMat = new THREE.MeshStandardMaterial({
+      color: 0x6a3020, roughness: 0.78, metalness: 0.55
+    });
+    const tombMat = new THREE.MeshStandardMaterial({
+      color: 0x4a4238, roughness: 0.96, metalness: 0.04,
+      emissive: 0x0a0808, emissiveIntensity: 0.05
+    });
+    const tombMossMat = new THREE.MeshStandardMaterial({
+      color: 0x2a3a1e, roughness: 0.98, metalness: 0.0
+    });
+    const crateMat = new THREE.MeshStandardMaterial({
+      color: 0x5a3a1c, roughness: 0.92, metalness: 0.05,
+      emissive: 0x1a0e04, emissiveIntensity: 0.06
+    });
+    const crateTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x3a2410, roughness: 0.95, metalness: 0.08
+    });
+
+    // Helper: bouw een roestig olievat
+    function makeOilDrum(){
+      const group = new THREE.Group();
+      const r = 0.55 + Math.random() * 0.10;
+      const h = 1.55 + Math.random() * 0.20;
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r, h, 14),
+        drumBodyMat.clone()
+      );
+      // Lichte kleur-variatie per vat (oudere/nieuwere roest)
+      body.material.color.offsetHSL(0, (Math.random()-0.5)*0.08, (Math.random()-0.5)*0.10);
+      body.position.y = h / 2;
+      body.castShadow = body.receiveShadow = true;
+      group.add(body);
+      // Twee horizontale ribben (typisch olievat-profiel)
+      for(let k = 0; k < 2; k++){
+        const rib = new THREE.Mesh(
+          new THREE.TorusGeometry(r * 1.02, 0.04, 5, 18),
+          drumRibMat
+        );
+        rib.rotation.x = Math.PI / 2;
+        rib.position.y = h * (0.30 + k * 0.40);
+        rib.castShadow = true;
+        group.add(rib);
+      }
+      // Deksel met centrale dop
+      const lid = new THREE.Mesh(
+        new THREE.CylinderGeometry(r * 0.98, r * 0.98, 0.04, 14),
+        drumLidMat
+      );
+      lid.position.y = h + 0.02;
+      group.add(lid);
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.10, 0.10, 0.05, 8),
+        drumRibMat
+      );
+      cap.position.set(r * 0.45, h + 0.05, 0);
+      group.add(cap);
+      // Random rotatie en lichte kanteling (sommige liggen scheef)
+      group.rotation.y = Math.random() * Math.PI * 2;
+      if(Math.random() < 0.18){
+        group.rotation.z = (Math.random() - 0.5) * 0.18;
+      }
+      return group;
+    }
+
+    // Helper: bouw een grafsteen
+    function makeTombstone(){
+      const group = new THREE.Group();
+      const w = 0.75 + Math.random() * 0.25;
+      const h = 1.10 + Math.random() * 0.40;
+      const d = 0.18 + Math.random() * 0.08;
+      // Hoofdblok — bovenkant afgerond door bovenop een kleinere box te zetten
+      const main = new THREE.Mesh(
+        new THREE.BoxGeometry(w, h * 0.85, d),
+        tombMat.clone()
+      );
+      main.material.color.offsetHSL(0, 0, (Math.random()-0.5)*0.10);
+      main.position.y = h * 0.425;
+      main.castShadow = main.receiveShadow = true;
+      group.add(main);
+      // Rond/afgeplat topje
+      const top = new THREE.Mesh(
+        new THREE.CylinderGeometry(w/2, w/2, d, 14, 1, false, 0, Math.PI),
+        main.material
+      );
+      top.rotation.z = Math.PI / 2;
+      top.rotation.y = Math.PI / 2;
+      top.position.y = h * 0.85;
+      top.castShadow = true;
+      group.add(top);
+      // Voet/sokkel — iets breder
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 1.25, h * 0.10, d * 1.40),
+        tombMat
+      );
+      base.position.y = h * 0.05;
+      base.castShadow = base.receiveShadow = true;
+      group.add(base);
+      // Kruis-relief vooraan (twee dunne plankjes)
+      const cv = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 0.10, h * 0.45, d * 0.15),
+        tombMossMat
+      );
+      cv.position.set(0, h * 0.50, d * 0.55);
+      group.add(cv);
+      const ch = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 0.40, h * 0.10, d * 0.15),
+        tombMossMat
+      );
+      ch.position.set(0, h * 0.60, d * 0.55);
+      group.add(ch);
+      // Soms scheef gezakt
+      group.rotation.y = (Math.random() - 0.5) * 0.6;
+      if(Math.random() < 0.35){
+        group.rotation.z = (Math.random() - 0.5) * 0.25;
+        group.rotation.x = (Math.random() - 0.5) * 0.10;
+      }
+      return group;
+    }
+
+    // Helper: bouw een houten krat
+    function makeCrate(){
+      const group = new THREE.Group();
+      const s = 0.75 + Math.random() * 0.30;
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(s, s * 0.90, s),
+        crateMat.clone()
+      );
+      body.material.color.offsetHSL(0, (Math.random()-0.5)*0.06, (Math.random()-0.5)*0.10);
+      body.position.y = s * 0.45;
+      body.castShadow = body.receiveShadow = true;
+      group.add(body);
+      // Vier hoek-trim-balkjes (kruisbeslag)
+      const t = 0.05;
+      [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz]) => {
+        const post = new THREE.Mesh(
+          new THREE.BoxGeometry(t, s * 0.95, t),
+          crateTrimMat
+        );
+        post.position.set(sx * (s/2 - t/2), s * 0.45, sz * (s/2 - t/2));
+        post.castShadow = true;
+        group.add(post);
+      });
+      // Horizontale plank-band rond het midden
+      for(let side = 0; side < 4; side++){
+        const band = new THREE.Mesh(
+          new THREE.BoxGeometry(side % 2 === 0 ? s * 1.02 : t * 0.8,
+                                t * 0.8,
+                                side % 2 === 0 ? t * 0.8 : s * 1.02),
+          crateTrimMat
+        );
+        band.position.set(
+          side === 1 ? s/2 + t*0.2 : (side === 3 ? -s/2 - t*0.2 : 0),
+          s * 0.45,
+          side === 0 ? s/2 + t*0.2 : (side === 2 ? -s/2 - t*0.2 : 0)
+        );
+        group.add(band);
+      }
+      // Soms gekanteld (omgevallen of half open)
+      group.rotation.y = Math.random() * Math.PI * 2;
+      if(Math.random() < 0.20){
+        group.rotation.z = Math.PI * (0.20 + Math.random() * 0.15) * (Math.random() < 0.5 ? -1 : 1);
+      }
+      return group;
+    }
+
+    // Plaatsen: zelfde verdeling als oude crystals (langs west/oost-zijde)
+    for(let i = 0; i < 14; i++){
+      const roll = Math.random();
+      let prop;
+      if(roll < 0.50)      prop = makeOilDrum();
+      else if(roll < 0.80) prop = makeTombstone();
+      else                 prop = makeCrate();
+      prop.position.set(
+        (i < 7 ? -1 : 1) * rand(20, 57),
+        0,
+        rand(-48, 48)
+      );
+      // Markers met userData zodat de animatie-loop ze veilig negeert
+      // (we skippen de bob omdat zware props niet horen te zweven).
+      prop.userData.isStaticProp = true;
+      prop.userData.baseY = 0;
+      prop.userData.floatOffset = 0;
+      arenaDeco.crystalClusters.add(prop);
+      registerSolid(prop);
+    }
+
+    // ============================================================
+    // EXTRA SFEER-PROPS: zandzakken-stapels, bloedplassen, schedels.
+    // Deze passen bij het zombie-thema en vullen lege hoeken op.
+    // ============================================================
+
+    // Materials voor sfeer-props
+    const sandbagMat = new THREE.MeshStandardMaterial({
+      color: 0x6e5836, roughness: 0.96, metalness: 0.02
+    });
+    const bloodMat = new THREE.MeshBasicMaterial({
+      color: 0x4a0a08, transparent: true, opacity: 0.85, depthWrite: false
+    });
+    const boneMat = new THREE.MeshStandardMaterial({
+      color: 0xbab09a, roughness: 0.82, metalness: 0.04,
+      emissive: 0x1a1612, emissiveIntensity: 0.06
+    });
+
+    // --- Zandzak-stapels: kleine bunker-achtige opbouw (3x4 layout, 2 lagen) ---
+    function makeSandbagPile(){
+      const group = new THREE.Group();
+      // Onderlaag (4 zakken op een rij)
+      for(let k = 0; k < 4; k++){
+        const bag = new THREE.Mesh(
+          new THREE.BoxGeometry(0.50, 0.22, 0.34),
+          sandbagMat.clone()
+        );
+        bag.material.color.offsetHSL(0, (Math.random()-0.5)*0.04, (Math.random()-0.5)*0.08);
+        bag.position.set(-0.75 + k * 0.50, 0.11, 0);
+        bag.rotation.y = (Math.random() - 0.5) * 0.06;
+        bag.castShadow = bag.receiveShadow = true;
+        group.add(bag);
+      }
+      // Bovenlaag (3 zakken iets verschoven, klassiek metsel-patroon)
+      for(let k = 0; k < 3; k++){
+        const bag = new THREE.Mesh(
+          new THREE.BoxGeometry(0.50, 0.22, 0.34),
+          sandbagMat.clone()
+        );
+        bag.material.color.offsetHSL(0, (Math.random()-0.5)*0.04, (Math.random()-0.5)*0.08);
+        bag.position.set(-0.5 + k * 0.50, 0.33, 0);
+        bag.rotation.y = (Math.random() - 0.5) * 0.06;
+        bag.castShadow = bag.receiveShadow = true;
+        group.add(bag);
+      }
+      // Soms een topzak in het midden
+      if(Math.random() < 0.5){
+        const bag = new THREE.Mesh(
+          new THREE.BoxGeometry(0.50, 0.22, 0.34),
+          sandbagMat.clone()
+        );
+        bag.position.set(0, 0.55, 0);
+        bag.rotation.y = (Math.random() - 0.5) * 0.10;
+        bag.castShadow = true;
+        group.add(bag);
+      }
+      group.rotation.y = Math.random() * Math.PI * 2;
+      return group;
+    }
+
+    // Plaats 6 zandzak-stapels langs de noord/zuid randen
+    for(let i = 0; i < 6; i++){
+      const pile = makeSandbagPile();
+      pile.position.set(
+        rand(-50, 50),
+        0,
+        (i < 3 ? -1 : 1) * rand(38, 54)
+      );
+      pile.userData.isStaticProp = true;
+      pile.userData.baseY = 0;
+      pile.userData.floatOffset = 0;
+      arenaDeco.crystalClusters.add(pile);
+      registerSolid(pile);
+    }
+
+    // --- Bloedplassen: platte decals op de grond (geen collider) ---
+    for(let i = 0; i < 10; i++){
+      const r = 0.6 + Math.random() * 0.9;
+      const pool = new THREE.Mesh(
+        new THREE.CircleGeometry(r, 14),
+        bloodMat.clone()
+      );
+      // Onregelmatige vorm: schaal in één as iets vervormen
+      pool.scale.x = 0.7 + Math.random() * 0.6;
+      pool.rotation.x = -Math.PI / 2;             // plat op de grond
+      pool.rotation.z = Math.random() * Math.PI;
+      pool.position.set(
+        rand(-50, 50),
+        0.02,                                      // net boven grond, geen z-fight
+        rand(-50, 50)
+      );
+      pool.renderOrder = 1;
+      arenaDeco.crystalClusters.add(pool);
+      // Geen registerSolid — speler loopt erover heen.
+    }
+
+    // --- Schedel-hopen: 1-3 schedels (kleine bollen + kaak) bij donkere hoeken ---
+    function makeSkull(){
+      const group = new THREE.Group();
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.16, 8, 6),
+        boneMat
+      );
+      head.scale.set(1, 0.92, 1.18);
+      head.castShadow = true;
+      group.add(head);
+      // Oogkassen (twee donkere bolletjes ingedrukt)
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x0a0604 });
+      const eyeGeo = new THREE.SphereGeometry(0.04, 6, 5);
+      const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+      eyeL.position.set(-0.06, 0.04, 0.14);
+      const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+      eyeR.position.set( 0.06, 0.04, 0.14);
+      group.add(eyeL, eyeR);
+      // Onderkaak (kleinere box-stripe)
+      const jaw = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.05, 0.14),
+        boneMat
+      );
+      jaw.position.set(0, -0.10, 0.04);
+      jaw.castShadow = true;
+      group.add(jaw);
+      group.rotation.set(
+        Math.random() * 0.3,
+        Math.random() * Math.PI * 2,
+        (Math.random() - 0.5) * 0.5
+      );
+      return group;
+    }
+
+    // 5 schedel-hoopjes, sommige meerdere schedels samen
+    for(let i = 0; i < 5; i++){
+      const pile = new THREE.Group();
+      const count = 1 + (Math.random() < 0.5 ? 1 : 0) + (Math.random() < 0.3 ? 1 : 0);
+      for(let k = 0; k < count; k++){
+        const s = makeSkull();
+        s.position.set(
+          (Math.random() - 0.5) * 0.35,
+          0.14 + (k > 0 ? 0.18 : 0),    // gestapeld als er meerdere zijn
+          (Math.random() - 0.5) * 0.35
+        );
+        pile.add(s);
+      }
+      pile.position.set(rand(-52, 52), 0, rand(-52, 52));
+      pile.userData.isStaticProp = true;
+      pile.userData.baseY = 0;
+      pile.userData.floatOffset = 0;
+      arenaDeco.crystalClusters.add(pile);
+      // Geen registerSolid — schedels zijn klein, speler mag erover.
+    }
+
+    // --- Gebroken houten balken/planken op de grond ---
+    const plankMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2e16, roughness: 0.95, metalness: 0.02
+    });
+    for(let i = 0; i < 8; i++){
+      const len = 1.4 + Math.random() * 1.0;
+      const plank = new THREE.Mesh(
+        new THREE.BoxGeometry(len, 0.10, 0.22),
+        plankMat.clone()
+      );
+      plank.material.color.offsetHSL(0, 0, (Math.random()-0.5)*0.08);
+      plank.position.set(rand(-50, 50), 0.05, rand(-50, 50));
+      plank.rotation.y = Math.random() * Math.PI * 2;
+      // Soms gekanteld op een steen
+      if(Math.random() < 0.25){
+        plank.position.y = 0.18;
+        plank.rotation.z = (Math.random() - 0.5) * 0.4;
+      }
+      plank.castShadow = plank.receiveShadow = true;
+      plank.userData.isStaticProp = true;
+      plank.userData.baseY = plank.position.y;
+      plank.userData.floatOffset = 0;
+      arenaDeco.crystalClusters.add(plank);
+      // Geen registerSolid — planken zijn dun, niet belemmerend.
     }
 
     const fogGeo = new THREE.SphereGeometry(1.4, 10, 10);
     for(let i=0;i<18;i++){
       const fog = new THREE.Mesh(
         fogGeo,
-        new THREE.MeshBasicMaterial({ color: i % 2 ? 0x4df7ff : 0xff4fd8, transparent:true, opacity:0.06, depthWrite:false })
+        // Fog-wisps: dof bruin/grijs i.p.v. cyaan/magenta — voelt als rook/stof
+        // uit de bombardementen, niet als magisch licht.
+        new THREE.MeshBasicMaterial({ color: i % 2 ? 0x4a3828 : 0x3a3530, transparent:true, opacity:0.08, depthWrite:false })
       );
       fog.position.set(rand(-56,56), rand(0.5,2.2), rand(-56,56));
       fog.scale.setScalar(rand(1.4,3.2));
@@ -4447,8 +5235,467 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       });
       arenaDeco.floatingShards.add(shard);
     }
+
+    // ========================================================
+    // EXTRA AMBIANCE — extra sfeer-elementen voor zombie-vibes
+    // ========================================================
+
+    // Helper voor flicker-state opslag op een lamp
+    function _setupFlicker(light, baseIntensity, chance, dipMin, dipMax){
+      light.userData.flicker = {
+        base: baseIntensity,
+        chance: chance,
+        dipMin: dipMin,
+        dipMax: dipMax,
+        next: 0
+      };
+      arenaDeco._flickerLights = arenaDeco._flickerLights || [];
+      arenaDeco._flickerLights.push(light);
+    }
+
+    // ----------------------------------------------------------
+    // 1) HANGENDE KETTINGEN met haken — vanuit het plafond/dak
+    // ----------------------------------------------------------
+    const chainMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3028, roughness: 0.72, metalness: 0.85,
+      emissive: 0x0a0806, emissiveIntensity: 0.04
+    });
+    function makeChain(length, links){
+      const group = new THREE.Group();
+      const linkSize = length / links;
+      for(let k = 0; k < links; k++){
+        const link = new THREE.Mesh(
+          new THREE.TorusGeometry(linkSize * 0.32, linkSize * 0.10, 4, 8),
+          chainMat
+        );
+        link.rotation.x = (k % 2) ? Math.PI / 2 : 0;
+        link.position.y = -k * linkSize * 0.55;
+        link.castShadow = true;
+        group.add(link);
+      }
+      // Onderaan een vleeshaak (geometrische kromming via curve-mesh)
+      const hook = new THREE.Mesh(
+        new THREE.TorusGeometry(0.18, 0.04, 5, 12, Math.PI * 1.2),
+        chainMat
+      );
+      hook.position.y = -links * linkSize * 0.55 - 0.18;
+      hook.rotation.x = Math.PI / 2;
+      hook.rotation.z = Math.PI;
+      hook.castShadow = true;
+      group.add(hook);
+      return group;
+    }
+    arenaDeco.chains = new THREE.Group();
+    scene.add(arenaDeco.chains);
+    for(let i = 0; i < 8; i++){
+      const c = makeChain(3.0 + Math.random() * 1.5, 6 + ((Math.random() * 3) | 0));
+      c.position.set(rand(-44, 44), 9.5, rand(-44, 44));
+      // Soms scheef hangen voor diepte
+      c.rotation.z = (Math.random() - 0.5) * 0.30;
+      c.rotation.x = (Math.random() - 0.5) * 0.20;
+      c.userData.basePhase = Math.random() * Math.PI * 2;
+      c.userData.swingAmp = 0.08 + Math.random() * 0.10;
+      arenaDeco.chains.add(c);
+    }
+
+    // ----------------------------------------------------------
+    // 2) VLEERMUIZEN — kleine zwarte v-vormen op het plafond,
+    //    af en toe vliegen ze rond (rotatie van vleugel-segmenten)
+    // ----------------------------------------------------------
+    const batMat = new THREE.MeshStandardMaterial({
+      color: 0x0e0808, roughness: 0.95, metalness: 0
+    });
+    function makeBat(){
+      const group = new THREE.Group();
+      // Lichaam
+      const body = new THREE.Mesh(
+        new THREE.SphereGeometry(0.08, 6, 5),
+        batMat
+      );
+      body.scale.set(0.8, 1.0, 1.3);
+      group.add(body);
+      // Twee vleugels — driehoekige platte boxen
+      function makeWing(side){
+        const wing = new THREE.Group();
+        const pivot = new THREE.Mesh(
+          new THREE.BoxGeometry(0.30, 0.015, 0.18),
+          batMat
+        );
+        pivot.position.x = side * 0.18;
+        wing.add(pivot);
+        wing.userData.side = side;
+        return wing;
+      }
+      const wL = makeWing(-1);
+      const wR = makeWing(1);
+      group.add(wL);
+      group.add(wR);
+      group.userData.wingL = wL;
+      group.userData.wingR = wR;
+      group.userData.flapPhase = Math.random() * Math.PI * 2;
+      return group;
+    }
+    arenaDeco.bats = new THREE.Group();
+    scene.add(arenaDeco.bats);
+    for(let i = 0; i < 14; i++){
+      const b = makeBat();
+      // Zwerm boven de arena, op verschillende hoogtes
+      const angle = (i / 14) * Math.PI * 2 + Math.random() * 0.4;
+      const r = 22 + Math.random() * 28;
+      b.position.set(
+        Math.cos(angle) * r,
+        9.0 + Math.random() * 4.5,
+        Math.sin(angle) * r
+      );
+      b.userData.orbitCenter = new THREE.Vector3(
+        Math.cos(angle) * (r * 0.6),
+        b.position.y,
+        Math.sin(angle) * (r * 0.6)
+      );
+      b.userData.orbitR = 8 + Math.random() * 14;
+      b.userData.orbitSpeed = 0.20 + Math.random() * 0.35;
+      b.userData.orbitOffset = Math.random() * Math.PI * 2;
+      b.userData.bobAmp = 0.6 + Math.random() * 0.8;
+      arenaDeco.bats.add(b);
+    }
+
+    // ----------------------------------------------------------
+    // 3) FLIKKERENDE LANTAARN-PALEN — paal + kap + warm punt-licht
+    // ----------------------------------------------------------
+    const lampPostMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1612, roughness: 0.88, metalness: 0.55
+    });
+    const lampCapMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2218, roughness: 0.78, metalness: 0.55
+    });
+    const lampBulbMat = new THREE.MeshBasicMaterial({
+      color: 0xffb060
+    });
+    function makeLampPost(){
+      const group = new THREE.Group();
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.10, 3.5, 8),
+        lampPostMat
+      );
+      post.position.y = 1.75;
+      post.castShadow = true;
+      group.add(post);
+      // Kap
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.35, 0.18, 0.45, 8),
+        lampCapMat
+      );
+      cap.position.y = 3.45;
+      cap.castShadow = true;
+      group.add(cap);
+      // Bovenkroon (kleine bol)
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(0.10, 8, 6),
+        lampCapMat
+      );
+      crown.position.y = 3.80;
+      group.add(crown);
+      // Bulb (zichtbaar gloei-bolletje)
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.13, 10, 8),
+        lampBulbMat
+      );
+      bulb.position.y = 3.30;
+      group.add(bulb);
+      group.userData.bulb = bulb;
+      return group;
+    }
+    arenaDeco.lampPosts = new THREE.Group();
+    scene.add(arenaDeco.lampPosts);
+    // 5 lampen verspreid, vooral op de buitenring
+    const lampPositions = [
+      [-38, -38], [38, -38], [-38, 38], [38, 38], [0, -48]
+    ];
+    lampPositions.forEach(([x, z]) => {
+      const lp = makeLampPost();
+      lp.position.set(x, 0, z);
+      arenaDeco.lampPosts.add(lp);
+      registerSolid(lp);
+      // Warm point-light met flicker
+      const light = new THREE.PointLight(0xffa040, 1.4, 14, 1.6);
+      light.position.set(x, 3.30, z);
+      scene.add(light);
+      _setupFlicker(light, 1.4, 0.04, 0.20, 0.70);
+      lp.userData.light = light;
+    });
+
+    // ----------------------------------------------------------
+    // 4) GEVALLEN PILAAR-FRAGMENTEN — grote stenen rollen op de grond
+    // ----------------------------------------------------------
+    const pillarMat = new THREE.MeshStandardMaterial({
+      color: 0x4a423a, roughness: 0.95, metalness: 0.04
+    });
+    for(let i = 0; i < 7; i++){
+      const len = 2.0 + Math.random() * 2.5;
+      const piece = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          0.42 + Math.random() * 0.15,
+          0.42 + Math.random() * 0.15,
+          len, 8
+        ),
+        pillarMat.clone()
+      );
+      piece.material.color.offsetHSL(0, 0, (Math.random()-0.5)*0.10);
+      piece.position.set(rand(-50, 50), 0.42, rand(-50, 50));
+      // Ligt op zijn kant
+      piece.rotation.z = Math.PI / 2 + (Math.random()-0.5)*0.2;
+      piece.rotation.y = Math.random() * Math.PI * 2;
+      piece.castShadow = piece.receiveShadow = true;
+      piece.userData.isStaticProp = true;
+      arenaDeco.crystalClusters.add(piece);
+      registerSolid(piece);
+    }
+
+    // ----------------------------------------------------------
+    // 5) DIKKE GROND-MIST PUFFS — laag bij de grond, donkerder dan de wisps
+    // ----------------------------------------------------------
+    const groundFogGeo = new THREE.SphereGeometry(2.4, 12, 8);
+    const groundFogMat = new THREE.MeshBasicMaterial({
+      color: 0x1a1612, transparent: true, opacity: 0.18, depthWrite: false
+    });
+    arenaDeco.groundFog = new THREE.Group();
+    scene.add(arenaDeco.groundFog);
+    for(let i = 0; i < 12; i++){
+      const puff = new THREE.Mesh(groundFogGeo, groundFogMat.clone());
+      puff.scale.set(
+        2.0 + Math.random() * 1.5,
+        0.6 + Math.random() * 0.3,    // afgeplat → mist op de vloer
+        2.0 + Math.random() * 1.5
+      );
+      puff.position.set(rand(-55, 55), 0.4, rand(-55, 55));
+      puff.userData.base = puff.position.clone();
+      puff.userData.phase = Math.random() * Math.PI * 2;
+      arenaDeco.groundFog.add(puff);
+    }
+
+    // ----------------------------------------------------------
+    // 6) KRAAIEN OP DE LICHTPALEN — kleine zwarte v-vormen
+    //    (statisch, gewoon zittend; sfeerelement)
+    // ----------------------------------------------------------
+    function makeCrow(){
+      const group = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.SphereGeometry(0.10, 6, 5),
+        batMat
+      );
+      body.scale.set(0.7, 0.8, 1.5);
+      group.add(body);
+      // Snavel (klein conusje vooruit)
+      const beakMat = new THREE.MeshStandardMaterial({
+        color: 0x3a2818, roughness: 0.7, metalness: 0.2
+      });
+      const beak = new THREE.Mesh(
+        new THREE.ConeGeometry(0.025, 0.10, 5),
+        beakMat
+      );
+      beak.rotation.x = Math.PI / 2;
+      beak.position.z = 0.18;
+      group.add(beak);
+      // Staart (driehoekje achter)
+      const tail = new THREE.Mesh(
+        new THREE.ConeGeometry(0.08, 0.14, 4),
+        batMat
+      );
+      tail.rotation.x = -Math.PI / 2;
+      tail.position.z = -0.18;
+      group.add(tail);
+      return group;
+    }
+    // Plaats kraaien op enkele lantaarn-kappen en wat random plekken
+    lampPositions.forEach(([x, z], idx) => {
+      if(Math.random() < 0.6){
+        const crow = makeCrow();
+        crow.position.set(x + (Math.random()-0.5)*0.4, 3.55, z + 0.0);
+        crow.rotation.y = Math.random() * Math.PI * 2;
+        arenaDeco.lampPosts.add(crow);
+      }
+    });
+
+    // ----------------------------------------------------------
+    // 7) VERLATEN AUTO-WRAK — één centraal "props"-element
+    //    Doel: grotere visuele anchor in de arena
+    // ----------------------------------------------------------
+    const carBodyMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2018, roughness: 0.88, metalness: 0.45,
+      emissive: 0x0a0402, emissiveIntensity: 0.06
+    });
+    const carWindowMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0c10, roughness: 0.42, metalness: 0.20
+    });
+    const carWheelMat = new THREE.MeshStandardMaterial({
+      color: 0x080604, roughness: 0.92, metalness: 0.10
+    });
+    const carWreck = new THREE.Group();
+    // Onderkant
+    const carBase = new THREE.Mesh(
+      new THREE.BoxGeometry(3.2, 0.40, 1.6),
+      carBodyMat
+    );
+    carBase.position.y = 0.40;
+    carBase.castShadow = carBase.receiveShadow = true;
+    carWreck.add(carBase);
+    // Motorkap (lager, voor)
+    const hood = new THREE.Mesh(
+      new THREE.BoxGeometry(1.3, 0.45, 1.5),
+      carBodyMat
+    );
+    hood.position.set(0.95, 0.85, 0);
+    hood.castShadow = true;
+    carWreck.add(hood);
+    // Cabine (hoger, midden/achter)
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.70, 1.45),
+      carBodyMat
+    );
+    cabin.position.set(-0.6, 0.95, 0);
+    cabin.castShadow = true;
+    carWreck.add(cabin);
+    // Voorruit (kapot — donker driehoekige vorm)
+    const wind = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.55, 1.30),
+      carWindowMat
+    );
+    wind.position.set(0.20, 0.95, 0);
+    wind.rotation.z = -0.35;
+    carWreck.add(wind);
+    // Vier wielen
+    [[-1.0, -0.85], [-1.0, 0.85], [1.05, -0.85], [1.05, 0.85]].forEach(([cx, cz]) => {
+      const w = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.32, 0.32, 0.28, 12),
+        carWheelMat
+      );
+      w.rotation.x = Math.PI / 2;
+      w.position.set(cx, 0.32, cz);
+      w.castShadow = true;
+      carWreck.add(w);
+    });
+    // Op zijn kant gekanteld en helemaal verroest
+    carWreck.position.set(-32, 0, 22);
+    carWreck.rotation.y = 0.6;
+    carWreck.rotation.z = -0.15;          // licht gekanteld
+    scene.add(carWreck);
+    arenaDeco.carWreck = carWreck;
+    // Collider via grootste mesh (carBase)
+    carBase.updateMatrixWorld(true);
+    const wreckBox = new THREE.Box3().setFromObject(carWreck);
+    colliders.push({ mesh: carWreck, box: wreckBox });
+
+    // ----------------------------------------------------------
+    // 8) BARBED WIRE — verroest prikkeldraad op de vloer (decoratief)
+    //    Korte segmenten, willekeurig verspreid bij muren.
+    // ----------------------------------------------------------
+    const wireMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3020, roughness: 0.85, metalness: 0.70
+    });
+    function makeBarbedWire(len){
+      const group = new THREE.Group();
+      // Hoofddraad
+      const wire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, len, 5),
+        wireMat
+      );
+      wire.rotation.z = Math.PI / 2;
+      group.add(wire);
+      // Stekels — kleine kruisjes om de meter
+      const n = Math.max(2, Math.floor(len / 0.18));
+      for(let k = 0; k < n; k++){
+        const t = -len/2 + (k + 0.5) * (len / n);
+        for(let arm = 0; arm < 4; arm++){
+          const spike = new THREE.Mesh(
+            new THREE.BoxGeometry(0.005, 0.07, 0.005),
+            wireMat
+          );
+          spike.position.x = t;
+          spike.rotation.x = (arm * Math.PI / 2);
+          group.add(spike);
+        }
+      }
+      return group;
+    }
+    for(let i = 0; i < 6; i++){
+      const len = 1.6 + Math.random() * 1.5;
+      const bw = makeBarbedWire(len);
+      bw.position.set(rand(-52, 52), 0.10, rand(-52, 52));
+      bw.rotation.y = Math.random() * Math.PI * 2;
+      bw.castShadow = false;
+      arenaDeco.crystalClusters.add(bw);
+    }
   }
   buildSetDressing();
+
+  // ========================================================
+  // AMBIANCE UPDATE — kettingen swing, vleermuizen orbit,
+  // lampen flicker, mist drift. Aangeroepen vanuit tick-loop.
+  // ========================================================
+  function updateAmbiance(dt, now){
+    const ad = arenaDeco;
+    if(!ad) return;
+    // Kettingen — kleine swing
+    if(ad.chains){
+      const arr = ad.chains.children;
+      for(let i = 0; i < arr.length; i++){
+        const c = arr[i];
+        const t = now * 0.0008 + c.userData.basePhase;
+        c.rotation.z = (c.userData.swingAmp || 0.1) * Math.sin(t);
+      }
+    }
+    // Vleermuizen — orbit + flap
+    if(ad.bats){
+      const arr = ad.bats.children;
+      for(let i = 0; i < arr.length; i++){
+        const b = arr[i];
+        const ud = b.userData;
+        const t = now * 0.001 * (ud.orbitSpeed || 0.3) + (ud.orbitOffset || 0);
+        b.position.x = (ud.orbitCenter?.x || 0) + Math.cos(t) * ud.orbitR;
+        b.position.z = (ud.orbitCenter?.z || 0) + Math.sin(t) * ud.orbitR;
+        b.position.y = (ud.orbitCenter?.y || 10) + Math.sin(t * 1.7) * (ud.bobAmp || 0.5);
+        // Kijkrichting (naar tangent)
+        b.rotation.y = -t + Math.PI / 2;
+        // Flap
+        const flap = Math.sin(now * 0.015 + (ud.flapPhase || 0)) * 0.9;
+        if(ud.wingL) ud.wingL.rotation.z =  flap;
+        if(ud.wingR) ud.wingR.rotation.z = -flap;
+      }
+    }
+    // Flikker-lampen
+    if(ad._flickerLights){
+      for(let i = 0; i < ad._flickerLights.length; i++){
+        const l = ad._flickerLights[i];
+        const f = l.userData.flicker;
+        if(!f) continue;
+        f.next -= dt;
+        if(f.next <= 0){
+          if(Math.random() < f.chance){
+            // Flicker-dip
+            l.intensity = f.base * (f.dipMin + Math.random() * (f.dipMax - f.dipMin));
+            // Sync de bulb-emissive zichtbaarheid (zoek de bulb in parent)
+            f.next = 0.04 + Math.random() * 0.12;
+          } else {
+            l.intensity = f.base;
+            f.next = 0.10 + Math.random() * 0.40;
+          }
+        }
+      }
+    }
+    // Grond-mist driftet zachtjes
+    if(ad.groundFog){
+      const arr = ad.groundFog.children;
+      for(let i = 0; i < arr.length; i++){
+        const p = arr[i];
+        const b = p.userData.base;
+        const ph = p.userData.phase;
+        p.position.x = b.x + Math.sin(now * 0.00015 + ph) * 1.2;
+        p.position.z = b.z + Math.cos(now * 0.00012 + ph) * 0.9;
+      }
+    }
+  }
+  // Expose voor de tick-loop
+  try { window.__updateAmbiance = updateAmbiance; } catch(_){}
 
   const weaponRig = new THREE.Group();
   camera.add(weaponRig);
@@ -4920,8 +6167,11 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     const builder = WEAPON_BUILDERS[w] || _buildRifle;
     const built = builder();
 
-    // Positioneer root consistent — idem als vóór de refactor
-    built.root.position.set(0.36, -0.35, -0.68);
+    // Positioneer root consistent — idem als vóór de refactor.
+    // [MUSTANG FIX] X-positie hangt af van het wapen: mustang (akimbo)
+    // staat gecentreerd, andere wapens rechts-onder zoals voorheen.
+    const _baseXInit = (w === "mustang") ? 0.05 : 0.36;
+    built.root.position.set(_baseXInit, -0.35, -0.68);
     built.root.rotation.set(-0.08, -0.18, -0.08);
 
     weaponRig.userData.flash = built.flash;
@@ -4929,6 +6179,12 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     // Zowel bodyMat als trimMat exposen voor updateHealthWeaponTheme
     weaponRig.userData.weaponMats = built.mats;
     weaponRig.userData.currentWeapon = w;
+    // [MUSTANG FIX] Sommige wapens (akimbo = mustang & sally) staan beter
+    // gecentreerd dan rechts-onder. We slaan een per-wapen X-offset op die
+    // zowel buildViewWeapon als updateViewWeapon gebruiken als basis-X.
+    // Default = 0.36 (oude rechts-onder pose). Mustang = 0.05 zodat de twee
+    // pistols symmetrisch rond het midden van het scherm hangen.
+    weaponRig.userData.baseX = (w === "mustang") ? 0.05 : 0.36;
     // Sommige wapens (plasma, orbital) hebben een permanente idle-glow
     // zodat de flash.intensity niet naar 0 zakt tijdens de update-loop.
     weaponRig.userData.idleGlow =
@@ -4952,11 +6208,17 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     state.cameraShake = Math.max(0, state.cameraShake - dt * 2.7);
     const bobX = Math.sin(state.walkTime) * (moving ? 0.018 : 0.005);
     const bobY = Math.abs(Math.cos(state.walkTime * 1.1)) * (moving ? 0.016 : 0.004);
-    root.position.x = 0.36 + bobX + state.viewKick * 0.06;
+    // [MUSTANG FIX] basisX komt uit userData.baseX (mustang = 0.05, anders 0.36).
+    const baseX = (typeof weaponRig.userData.baseX === "number") ? weaponRig.userData.baseX : 0.36;
+    root.position.x = baseX + bobX + state.viewKick * 0.06;
     root.position.y = -0.35 - bobY - state.viewKick * 0.08;
     root.position.z = -0.68 + state.viewKick * 0.12;
+    // [MUSTANG FIX] Mustang heeft minder yaw-rotation zodat de twee pistols
+    // recht naar voren wijzen ipv schuin naar rechts.
+    const yawBase = (weaponRig.userData.currentWeapon === "mustang") ? 0.0 : -0.18;
+    const yawKick = (weaponRig.userData.currentWeapon === "mustang") ? 0.07 : 0.14;
     root.rotation.x = -0.08 + state.viewKick * 0.11;
-    root.rotation.y = -0.18 - state.viewKick * 0.14;
+    root.rotation.y = yawBase - state.viewKick * yawKick;
     root.rotation.z = -0.08 + bobX * 0.7;
 
     // Spin-animatie voor kristallen/halo's (plasma + orbital)
@@ -4966,6 +6228,30 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
         obj.rotation.x += dt * 0.9;
       }
     });
+
+    // [MUSTANG FIX] Per-pistool recoil-animatie. leftKick/rightKick worden
+    // bij elke shot op 0.18s gezet door _fireMustangSide. We tellen ze hier
+    // af en mappen ze op een Z-translatie + X-rotatie van alleen die pistool,
+    // zodat je visueel ziet welke kant net vuurde.
+    if(weaponRig.userData.currentWeapon === "mustang" && root.userData){
+      const decay = dt * 6.0;   // ~0.17s naar 0 — matches fireRate
+      if(root.userData.leftKick > 0){
+        root.userData.leftKick = Math.max(0, root.userData.leftKick - decay);
+      }
+      if(root.userData.rightKick > 0){
+        root.userData.rightKick = Math.max(0, root.userData.rightKick - decay);
+      }
+      const lp = root.userData.leftPistol;
+      const rp = root.userData.rightPistol;
+      if(lp){
+        lp.position.z = root.userData.leftKick * 0.45;   // schop naar achteren
+        lp.rotation.x = -root.userData.leftKick * 1.4;   // kantelt omhoog
+      }
+      if(rp){
+        rp.position.z = root.userData.rightKick * 0.45;
+        rp.rotation.x = -root.userData.rightKick * 1.4;
+      }
+    }
 
     // Muzzle flash decay — maar respecteer idle-glow voor plasma/orbital
     const flash = weaponRig.userData.flash;
@@ -7347,7 +8633,26 @@ function spawnWave(){
       nuke: 0x3a6a14
     };
 
-    const mat = new THREE.MeshStandardMaterial({ color: colors[kind], emissive: emissive[kind], emissiveIntensity:.95, metalness:.22, roughness:.32 });
+    // [PERF FIX] Cache gedeelde MeshStandardMaterial per pickup-type. Voorheen
+    // werd hier per drop een NIEUW material gemaakt, waardoor Three.js bij de
+    // eerste render telkens een shader moest compileren op de hoofdthread —
+    // dat is dé veroorzaker van lag-spikes wanneer een perk dropt. Door het
+    // material eenmalig te maken én via renderer.compile() warm te draaien
+    // (zie init-blok), is het na de eerste drop kosteloos.
+    if(!window.__pickupMatCache){
+      window.__pickupMatCache = {};
+    }
+    let mat = window.__pickupMatCache[kind];
+    if(!mat){
+      mat = new THREE.MeshStandardMaterial({
+        color: colors[kind],
+        emissive: emissive[kind],
+        emissiveIntensity: .95,
+        metalness: .22,
+        roughness: .32
+      });
+      window.__pickupMatCache[kind] = mat;
+    }
     const mesh = new THREE.Group();
     let core;
     if(kind === "ammo"){
@@ -7646,7 +8951,8 @@ function spawnWave(){
       life: isPowerup ? 22 : 12,    // 22s pickup-window (CoD = 30s, korter want compactere arena)
       spin: rand(1.2, 2.4),
       _baseY: mesh.position.y,
-      _isPowerup: isPowerup
+      _isPowerup: isPowerup,
+      _sharedMat: true   // [PERF FIX] Material is gedeeld via __pickupMatCache → niet disposen.
     });
   }
 
@@ -10207,6 +11513,13 @@ if(b.gravity){
     player.fireCooldown = Math.max(0, player.fireCooldown - dt);
     player.damageCooldown = Math.max(0, player.damageCooldown - dt);
 
+    // [MUSTANG FIX] Per-pistool cooldowns aftellen. Object wordt lazy
+    // aangemaakt door _fireMustangSide; check op bestaan voor de zekerheid.
+    if(player.mustangCd){
+      if(player.mustangCd.left  > 0) player.mustangCd.left  = Math.max(0, player.mustangCd.left  - dt);
+      if(player.mustangCd.right > 0) player.mustangCd.right = Math.max(0, player.mustangCd.right - dt);
+    }
+
     // === COD ZOMBIES HEALTH REGENERATION ===
     // Telt af na laatste damage. Wanneer 0: HP herstelt naar maxHp.
     // - Delay vóór regen begint: 3.5s (CoD = ~5s, korter want hier
@@ -10557,6 +11870,9 @@ function coreUpdateAmbientDecor(now, dt){
     if(ad.crystalClusters && (arr = ad.crystalClusters.children)){
       for(i = 0, n = arr.length; i < n; i++){
         item = arr[i];
+        // Statische zombie-props (vaten/grafstenen/kratten) blijven stil staan.
+        // Alleen oude bob/rotate doen voor objecten die geen isStaticProp-flag hebben.
+        if(item.userData.isStaticProp) continue;
         item.position.y = item.userData.baseY + Math.sin(now * 0.0011 + item.userData.floatOffset + i) * 0.08;
         item.rotation.y += dt * 0.35;
       }
@@ -10570,6 +11886,12 @@ function coreUpdateAmbientDecor(now, dt){
         item.position.z = b.z + Math.cos(now * 0.0002 * ip1 + ph) * 2.4;
         item.position.y = b.y + Math.sin(now * 0.0008 + ph) * 0.22;
       }
+    }
+
+    // Nieuwe ambiance-elementen: kettingen, vleermuizen, lampen-flicker,
+    // grondmist. Aparte functie zodat de tick-loop schoon blijft.
+    if(window.__updateAmbiance){
+      try { window.__updateAmbiance(dt, now); } catch(_){}
     }
 
     if(ad.searchlights && (arr = ad.searchlights.children)){
@@ -11004,7 +12326,25 @@ window.addEventListener("keydown", e => {
   });
 
   renderer.domElement.addEventListener("mousedown", e => {
-    if(e.button !== 0 || isTouch) return;
+    if(isTouch) return;
+    // [MUSTANG FIX] Mustang & Sally akimbo: links = linker pistool,
+    // rechts = rechter pistool, elk met eigen cooldown. Voor alle andere
+    // wapens blijft alleen links-klik schieten (oude gedrag).
+    const isMustang = (player.weapon === "rocket")
+                   && (typeof window.OHGetActiveWeaponId === "function")
+                   && (window.OHGetActiveWeaponId() === "mustang");
+
+    if(isMustang && (e.button === 0 || e.button === 2)){
+      e.preventDefault();
+      ensureAudio();
+      if(!state.running) return;
+      const side = (e.button === 0) ? "left" : "right";
+      _fireMustangSide(side);
+      return;
+    }
+
+    // --- Oude pad voor alle andere wapens (alleen links-klik) ---
+    if(e.button !== 0) return;
     ensureAudio();
     if(!state.running) return;
     // Auto-fire: bullet-class én ray-gun (rocket ammo maar full-auto).
@@ -11013,6 +12353,60 @@ window.addEventListener("keydown", e => {
     if(window.OHIsAutoFireWeapon && window.OHIsAutoFireWeapon()) state.fireHeld = true;
     shootWithDirection();
   });
+
+  // [MUSTANG FIX] Voorkom dat rechts-klik het browser context-menu opent
+  // als de speler in pointer-lock is of het canvas geklikt heeft. Anders
+  // krijg je een rare popup midden in een gunfight.
+  renderer.domElement.addEventListener("contextmenu", e => {
+    e.preventDefault();
+  });
+
+  // [MUSTANG FIX] Per-side fire-functie. Negeert player.fireCooldown,
+  // gebruikt in plaats daarvan player.mustangCd[side]. Daarna roept de
+  // bestaande shootWithDirection() aan zodat alle wonder-weapon-config
+  // (damage-override, projectile-visual, mag-management) blijft werken.
+  function _fireMustangSide(side){
+    if(!player.mustangCd) player.mustangCd = { left: 0, right: 0 };
+    if(player.mustangCd[side] > 0) return;
+
+    // Negeer globale cooldown voor deze shot — we gebruiken side-cd.
+    const savedGlobalCd = player.fireCooldown;
+    player.fireCooldown = 0;
+
+    // Recoil de juiste hand vóór de shot (puur visueel — wordt in
+    // updateViewWeapon afgespeeld).
+    try {
+      const root = weaponRig.userData.root;
+      if(root && root.userData){
+        if(side === "left")  root.userData.leftKick  = 0.18;
+        else                 root.userData.rightKick = 0.18;
+      }
+    } catch(_){}
+
+    const fired = shootWithDirection();
+
+    // Lees wat shootWithDirection als cooldown gezet heeft, en gebruik
+    // dat als per-side cd. Reset global zodat de andere hand niet vast
+    // zit op deze cd.
+    let newCd = player.fireCooldown;
+    player.fireCooldown = 0;
+    if(fired !== false){
+      // [MUSTANG FIX] WEAPON_BEHAVIOR.mustang.fireRate (0.22) wordt door de
+      // huidige codebase niet op de speler toegepast — shootWithDirection
+      // zet default rocket-cd op 0.42-0.55s. Voor akimbo voelt dat veel te
+      // traag. We forceren hier de wonder-config-fireRate.
+      try {
+        const cfg = window.OHWeaponBehavior ? window.OHWeaponBehavior.mustang : null;
+        if(cfg && typeof cfg.fireRate === "number"){
+          newCd = cfg.fireRate;
+        }
+      } catch(_){}
+      player.mustangCd[side] = newCd > 0 ? newCd : 0.22;
+    } else {
+      // Shot is niet doorgegaan (geen ammo o.i.d.). Herstel global cd.
+      player.fireCooldown = savedGlobalCd;
+    }
+  }
 
   window.addEventListener("mouseup", e => {
     if(e.button === 0) state.fireHeld = false;
@@ -15897,6 +17291,12 @@ setWeapon = function(w){
       flashHint?.(!name ? "Vul eerst een naam in" : "Gebruik alleen letters, cijfers en spaties in je naam");
       return false;
     }
+    // [FIX] Als de speler dood is (game-over scherm zichtbaar), nooit gewoon
+    // doorrunnen — dat zet alleen state.running=true terug zonder reset en
+    // dropt je middenin de oude wave met 0 HP. Forceer een volledige restart.
+    if(player && player.alive === false){
+      return restartGame();
+    }
     return _startGameFinalPatch();
   };
 
@@ -15906,7 +17306,21 @@ setWeapon = function(w){
       e.stopPropagation();
       if(e.key === "Enter"){
         e.preventDefault();
-        startGame();
+        // [FIX] Voorkom dat Enter een lopend/levend spel "herstart" terwijl
+        // het in feite onveranderd doorloopt. We doen niets als het spel al
+        // draait, en kiezen tussen startGame() en restartGame() op basis van
+        // of de speler dood is. Daarnaast een 600ms debounce zodat snel
+        // dubbel-Enter geen dubbele restart triggert (zoals score nog een
+        // keer indienen).
+        if(state.running) return;
+        const nowTs = performance.now();
+        if(ui.playerName._lastEnterTs && nowTs - ui.playerName._lastEnterTs < 600) return;
+        ui.playerName._lastEnterTs = nowTs;
+        if(player.alive === false){
+          restartGame();
+        } else {
+          startGame();
+        }
       }
     }, true);
     ui.playerName.addEventListener("keyup", e => e.stopPropagation(), true);
@@ -19619,12 +21033,35 @@ shootWithDirection = function(dirOverride = null){
 
     nearestDoor = null;
     nearestDist = Infinity;
+    // Distance-fade voor deur-signs:
+    //  - Vol zichtbaar binnen ~12m
+    //  - Lineair faden van 12m naar 28m
+    //  - Onzichtbaar voorbij 28m
+    // Hierdoor zijn de namen alleen leesbaar als de speler in de buurt
+    // is en niet meer vanaf het andere eind van de arena zichtbaar.
+    const SIGN_FADE_NEAR = 12;
+    const SIGN_FADE_FAR  = 28;
     for(const d of doorList){
       if(d.opened) continue;
       const dist = distToDoor(d);
       if(dist < INTERACT_RANGE && dist < nearestDist){
         nearestDist = dist;
         nearestDoor = d;
+      }
+      // Update sign-opacity per frame op basis van afstand
+      if(d.sign && d.signMat){
+        let op;
+        if(dist <= SIGN_FADE_NEAR)      op = 1.0;
+        else if(dist >= SIGN_FADE_FAR)  op = 0.0;
+        else {
+          const t = (dist - SIGN_FADE_NEAR) / (SIGN_FADE_FAR - SIGN_FADE_NEAR);
+          op = 1.0 - t;
+        }
+        // Niet overschrijven als de open-animatie zijn eigen fade beheert
+        if(!d._openingFade){
+          d.signMat.opacity = op;
+          d.sign.visible = op > 0.02;
+        }
       }
     }
 
@@ -20228,6 +21665,52 @@ shootWithDirection = function(dirOverride = null){
     flashHint?.("CHEAT · Ray Gun + Wunderwaffe (Q to cycle)", 1600);
   }
 
+  // [CHEAT FIX] Allweapons-cheat: vult de inventory met élk primair wapen
+  // (14 stuks) en zet de cheat-flag state.cheatAllWeapons. Die flag laat
+  // maxSlots() en ensureSlotsLength() de uitgebreide slot-array intact,
+  // zodat Q en scroll-wheel door alle wapens kunnen cyclen.
+  function bo2AllWeaponsCheat(){
+    if(!inv){
+      flashHint?.("CHEAT failed — inventory niet geladen", 1100);
+      return;
+    }
+    // Volgorde: van zwak naar sterk, bullet eerst dan rocket-class.
+    const ALL_PRIMARY = [
+      "m1911", "m14", "olympia", "mp5", "ak74u", "galil", "plasmaRifle",
+      "rpg", "raygun", "thundergun", "wunderwaffe", "mustang",
+      "monkey", "ballistic"
+    ];
+
+    // Filter op wapens die daadwerkelijk in WEAPONS bestaan (defensief).
+    const present = ALL_PRIMARY.filter(id => WEAPONS[id]);
+
+    // Activeer cheat-flag VÓÓR slots vullen, anders snoeit ensureSlotsLength
+    // de array terug naar 2-3 slots.
+    state.cheatAllWeapons = true;
+    state.cheatAllWeaponsCount = present.length;
+
+    inv.slots = present.map(id => {
+      const w = WEAPONS[id];
+      return { weapon: id, magAmmo: w.magSize, reserveAmmo: w.reserveAmmo };
+    });
+    for(const id of present) inv.purchased.add(id);
+    inv.active = 0;
+    syncActiveSlotToPlayer();
+    flashHint?.(`CHEAT · ALL ${present.length} WEAPONS · Q to cycle`, 1800);
+  }
+
+  // [CHEAT FIX] Wrap maxSlots zodat cheatAllWeapons de slot-cap omhoog
+  // duwt naar het aantal wapens dat we hebben gespawned. Anders zou
+  // ensureSlotsLength() (aangeroepen door cycleWeapon, buy-flow, etc.)
+  // de slots terugknippen naar 2 of 3.
+  const _origMaxSlots = maxSlots;
+  maxSlots = function(){
+    if(state.cheatAllWeapons && state.cheatAllWeaponsCount > 0){
+      return state.cheatAllWeaponsCount;
+    }
+    return _origMaxSlots();
+  };
+
   // Vervang handleTypedCheatKey volledig zodat oude cheats weg zijn
   if(typeof handleTypedCheatKey === "function"){
     handleTypedCheatKey = function(e){
@@ -20253,6 +21736,9 @@ shootWithDirection = function(dirOverride = null){
       if(b.endsWith("god"))       { state.cheatBuffer = ""; bo2GodToggle(); return; }
       // Nieuw: superguns geeft Ray Gun + Wunderwaffe
       if(b.endsWith("superguns")) { state.cheatBuffer = ""; bo2SupergunsCheat(); return; }
+      // [CHEAT FIX] Nieuw: allweapons geeft élk primair wapen — Q/scroll
+      // cyclet door alle 14 stuks.
+      if(b.endsWith("allweapons")){ state.cheatBuffer = ""; bo2AllWeaponsCheat(); return; }
       // Verwijderd: fast, mini, skip — die negeren we nu
     };
     window.handleTypedCheatKey = handleTypedCheatKey;
@@ -22634,13 +24120,22 @@ shootWithDirection = function(dirOverride = null){
         insignia.position.set(0.041, 0.060, -0.04);
         insignia.rotation.y = Math.PI / 2;
         g.add(insignia);
-        // Side-positionering en lichte naar-buiten rotation
-        g.position.x = side * 0.13;
+        // [MUSTANG FIX] Side-positionering: iets verder uit elkaar (0.18 ipv
+        // 0.13) zodat ze als duidelijke akimbo-set leesbaar zijn nu het hele
+        // viewmodel gecentreerd staat. Lichte naar-buiten rotation voor pose.
+        g.position.x = side * 0.18;
         g.rotation.y = side * 0.10;
         return g;
       }
       root.add(makePistol(-1));
       root.add(makePistol( 1));
+      // [MUSTANG FIX] Bewaar references naar de linker/rechter pistool zodat
+      // we per muis-knop alleen die kant kunnen recoilen.
+      root.userData.leftPistol  = root.children[0];   // makePistol(-1)
+      root.userData.rightPistol = root.children[1];   // makePistol( 1)
+      // Initieel side-kick-timers (in seconden, telt af in updateViewWeapon).
+      root.userData.leftKick  = 0;
+      root.userData.rightKick = 0;
       return _vmReturn(root, 0xff8a40, [0, 0.045, -0.30]);
     }
 
@@ -22941,8 +24436,15 @@ shootWithDirection = function(dirOverride = null){
           }
           weaponRig.clear();
           const built = builder();
-          built.root.position.set(0.36, -0.35, -0.68);
-          built.root.rotation.set(-0.08, -0.18, -0.08);
+          // [MUSTANG FIX] X-offset & yaw-base per wapen. Mustang (akimbo)
+          // staat gecentreerd; alle andere COD-wapens behouden de oude
+          // rechts-onder pose. Zie ook updateViewWeapon waar baseX wordt
+          // hergebruikt voor de bob-animatie.
+          const _isMust = (codWeaponId === "mustang");
+          const _baseX  = _isMust ? 0.05 : 0.36;
+          const _baseYaw = _isMust ? 0.0 : -0.18;
+          built.root.position.set(_baseX, -0.35, -0.68);
+          built.root.rotation.set(-0.08, _baseYaw, -0.08);
           weaponRig.userData.flash = built.flash;
           weaponRig.userData.root = built.root;
           weaponRig.userData.weaponMats = built.mats;
@@ -22950,6 +24452,7 @@ shootWithDirection = function(dirOverride = null){
           // de oude setWeapon-patch geen change tussen twee bullet-wapens.
           weaponRig.userData.currentWeapon = codWeaponId;
           weaponRig.userData.codWeapon = codWeaponId;
+          weaponRig.userData.baseX = _baseX;   // [MUSTANG FIX] voor updateViewWeapon
           weaponRig.userData.idleGlow = 0;
           weaponRig.userData.forceRebuild = false;
           weaponRig.userData.isKnife = false;
@@ -23344,6 +24847,8 @@ shootWithDirection = function(dirOverride = null){
     boxState.visualGroup.rotation.y = Math.atan2(placement.dirX, placement.dirZ);
     if(boxState.glow) boxState.glow.intensity = 1.2;
     boxState.visualGroup.visible = true;
+    // [FIX] Update de collider zodat de speler er niet doorheen kan lopen.
+    _updateBoxCollider();
     boxState.available = true;
     boxState.spinsLeft = BOX_SPINS_PER_CYCLE;
     armoryAPI.flash(`Mystery Box appeared in ${rs.rooms[loc.roomId].name}`, 2200);
@@ -23429,8 +24934,54 @@ shootWithDirection = function(dirOverride = null){
     group.visible = false;   // Verborgen tot een room open is
     scene.add(group);
     boxState.visualGroup = group;
+
+    // [FIX] Collider voor de mystery box. De box is 2.0 breed × 1.4 hoog × 1.4
+    // diep. We maken een Box3 die we elke verplaatsing/zichtbaarheid-toggle
+    // bijwerken. De collider zit in de globale `colliders`-array zodat zowel
+    // de speler-collision-check (collidesAt) als enemy-pathfinding hem zien.
+    // Verwijderd wanneer de box niet zichtbaar is (teleport-fase / pre-spawn).
+    boxState.colliderEntry = {
+      mesh: group,        // Hoeft geen echte Mesh te zijn voor collision-checks
+      box: new THREE.Box3(
+        new THREE.Vector3(-1.1, 0, -0.8),   // placeholder; wordt direct geupdatet
+        new THREE.Vector3( 1.1, 1.5, 0.8)
+      ),
+      _isMysteryBox: true   // Markering voor minimap-cache-skip indien gewenst
+    };
+    boxState.colliderInArray = false;
   }
   buildBox();
+
+  // [FIX] Helper: synchroniseer de collider-positie met de visualGroup, en
+  // voeg toe/verwijder uit de globale colliders-array op basis van .visible.
+  function _updateBoxCollider(){
+    const grp = boxState.visualGroup;
+    const entry = boxState.colliderEntry;
+    if(!grp || !entry) return;
+
+    if(grp.visible){
+      // Pas collider-box aan op huidige wereldpositie van de box.
+      // Box-afmetingen: 2.0×1.4×1.4. We maken hem iets ruimer (2.2×1.6×1.6)
+      // zodat de speler niet net door een hoek kan glijden.
+      const px = grp.position.x;
+      const pz = grp.position.z;
+      entry.box.min.set(px - 1.1, 0,   pz - 0.8);
+      entry.box.max.set(px + 1.1, 1.6, pz + 0.8);
+
+      if(!boxState.colliderInArray){
+        colliders.push(entry);
+        boxState.colliderInArray = true;
+        try { window.__invalidateMinimapCache?.(); } catch(_){}
+      }
+    } else {
+      if(boxState.colliderInArray){
+        const i = colliders.indexOf(entry);
+        if(i >= 0) colliders.splice(i, 1);
+        boxState.colliderInArray = false;
+        try { window.__invalidateMinimapCache?.(); } catch(_){}
+      }
+    }
+  }
 
   // ---- Mystery box prompt UI ----
   const mbPrompt = document.createElement("div");
@@ -23667,6 +25218,9 @@ shootWithDirection = function(dirOverride = null){
       if(t < 1){ requestAnimationFrame(shrinkStep); }
       else {
         boxState.visualGroup.visible = false;
+        // [FIX] Box is uit beeld → collider verwijderen zodat speler/enemies
+        // niet tegen een onzichtbare muur botsen waar de box ooit stond.
+        _updateBoxCollider();
         // Na 30s respawnt op een ANDERE locatie
         setTimeout(() => {
           const newLoc = pickNewBoxLocation();
@@ -26540,6 +28094,19 @@ shootWithDirection = function(dirOverride = null){
         const inv = window.OHInv;
         const slot = inv?.slots?.[inv.active];
         if(!slot) return false;
+        // [CHEAT FIX] godAmmo: ammo niet aftrekken, maar wel "true" returnen
+        // zodat de shot doorgaat. Anders zou thundergun/wunderwaffe alsnog
+        // stoppen op 0 ammo terwijl godmode aan staat.
+        if(window.state?.cheatGodAmmo){
+          // Slot ammo terugzetten naar max voor zekerheid (HUD-consistentie)
+          const w = window.WEAPONS && window.WEAPONS[slot.weapon];
+          if(w){
+            slot.magAmmo    = w.magSize;
+            slot.reserveAmmo = w.reserveAmmo;
+          }
+          if(typeof setStat === "function") setStat();
+          return true;
+        }
         // Totaal-ammo zit in player.ammo.rocket (specials hebben ammoType="rocket")
         if((window.player?.ammo?.rocket ?? 0) <= 0) return false;
         window.player.ammo.rocket -= 1;
@@ -26616,6 +28183,32 @@ shootWithDirection = function(dirOverride = null){
       const bulletsBefore = window.state?.bullets?.length || 0;
       const ok = _origShoot.call(this, dirOverride);
       if(!ok) return ok;
+
+      // [CHEAT FIX] Als godAmmo aanstaat: zet zowel slot.magAmmo als
+      // slot.reserveAmmo terug naar max. De bestaande godAmmo-refill (regel
+      // ~17686) herstelt alleen player.ammo.bullet/rocket — maar de HUD leest
+      // slot.magAmmo, en de wonder-config-flow gebruikt slot ammo bij mag-
+      // tracking. Zonder deze refill loopt slot.magAmmo gewoon leeg voor
+      // mustang/raygun/plasmaRifle ondanks godAmmo.
+      if(window.state?.cheatGodAmmo){
+        try {
+          const invRef = window.OHInv;
+          const slot = invRef?.slots?.[invRef.active];
+          const w = slot && window.WEAPONS && window.WEAPONS[slot.weapon];
+          if(slot && w){
+            slot.magAmmo     = w.magSize;
+            slot.reserveAmmo = w.reserveAmmo;
+            // Ook player.ammo.rocket/bullet veilig op vol zetten zodat de
+            // engine niet "out of ammo" denkt op de volgende shot.
+            if(w.ammoType === "rocket" && window.player){
+              window.player.ammo.rocket = w.magSize + w.reserveAmmo;
+            } else if(w.ammoType === "bullet" && window.player){
+              window.player.ammo.bullet = w.magSize + w.reserveAmmo;
+            }
+          }
+          if(typeof setStat === "function") setStat();
+        } catch(_){}
+      }
 
       const weaponId = getActiveWeaponId();
       const cfg = WEAPON_BEHAVIOR[weaponId];
@@ -28010,6 +29603,54 @@ shootWithDirection = function(dirOverride = null){
     console.log(`%c[DEBUG] Speler op (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)}) — ${found.length} meshes binnen ${RADIUS}u:`, "color:#ffd166;font-weight:bold;");
     console.table(found);
   });
+
+  // [PERF FIX] Pre-compile alle bestaande scene-materials zodat shader-
+  // compilatie niet op het eerste render-frame valt (klassieke Three.js
+  // start-spike). Daarnaast warmen we de pickup-material-cache vooraf,
+  // zodat de eerste perk-drop niet alsnog een spike geeft.
+  try {
+    // 1) Pickup materials alvast warmen — temporair dummy-meshes in scene
+    //    plaatsen, compilen, daarna weer verwijderen.
+    if(typeof THREE !== "undefined" && scene && camera && renderer){
+      window.__pickupMatCache = window.__pickupMatCache || {};
+      const pickupKinds = [
+        { k: "ammo",         c: 0xffd166, e: 0x7a5600 },
+        { k: "rocket",       c: 0xff7b7b, e: 0x7a2222 },
+        { k: "grenade",      c: 0x9dff7c, e: 0x215f1b },
+        { k: "heal",         c: 0x62ffb0, e: 0x14684d },
+        { k: "shield",       c: 0x74a8ff, e: 0x183560 },
+        { k: "maxammo",      c: 0xffe04a, e: 0x886000 },
+        { k: "instakill",    c: 0xff2a2a, e: 0x6a0a0a },
+        { k: "doublepoints", c: 0x4dd9ff, e: 0x10566b },
+        { k: "nuke",         c: 0x9dff4a, e: 0x3a6a14 }
+      ];
+      const _warmupMeshes = [];
+      const _warmupGeo = new THREE.BoxGeometry(0.01, 0.01, 0.01);
+      for(const p of pickupKinds){
+        if(!window.__pickupMatCache[p.k]){
+          window.__pickupMatCache[p.k] = new THREE.MeshStandardMaterial({
+            color: p.c, emissive: p.e, emissiveIntensity: .95,
+            metalness: .22, roughness: .32
+          });
+        }
+        // Plaats een onzichtbaar dummy-mesh tijdelijk in scene zodat de
+        // shader gecompileerd wordt door renderer.compile().
+        const dummy = new THREE.Mesh(_warmupGeo, window.__pickupMatCache[p.k]);
+        dummy.position.set(0, -1000, 0);   // ver onder de map
+        scene.add(dummy);
+        _warmupMeshes.push(dummy);
+      }
+      // 2) Compileer alle aanwezige shaders inclusief de pickup-warmups.
+      if(typeof renderer.compile === "function"){
+        renderer.compile(scene, camera);
+      }
+      // Dummy-meshes weer verwijderen — materials blijven in cache.
+      for(const d of _warmupMeshes) scene.remove(d);
+      _warmupGeo.dispose();
+    }
+  } catch(err){
+    console.warn("[perf] shader pre-compile skipped:", err);
+  }
 
   animate(performance.now());
 })();
