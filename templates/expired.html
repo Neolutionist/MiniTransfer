@@ -8646,6 +8646,91 @@ function spawnWave(){
     if(!window.__pickupMatCache){
       window.__pickupMatCache = {};
     }
+
+    // [PERF FIX 2] Gedeelde sub-materials per POWER-UP type. De power-up
+    // iconen (skull, crate, double-points, nuke) gebruikten elk meerdere
+    // unieke MeshStandardMaterial-instances → bij élke drop opnieuw een
+    // shader-compile-spike. Nu eenmalig per kind gemaakt en gedeeld.
+    if(!window.__powerupMats){
+      window.__powerupMats = {};
+    }
+    function _getPowerupMats(k){
+      if(window.__powerupMats[k]) return window.__powerupMats[k];
+      const set = {};
+      if(k === "instakill"){
+        set.skull = new THREE.MeshStandardMaterial({
+          color: 0xfff0e0, emissive: 0xff1010, emissiveIntensity: 0.55,
+          roughness: 0.55, metalness: 0.15
+        });
+        set.cavity = new THREE.MeshStandardMaterial({
+          color: 0x1a0202, emissive: 0xff0808, emissiveIntensity: 1.6,
+          roughness: 0.3, metalness: 0.0
+        });
+      } else if(k === "maxammo"){
+        set.crate = new THREE.MeshStandardMaterial({
+          color: 0xc89020, emissive: 0xffb030, emissiveIntensity: 0.5,
+          roughness: 0.4, metalness: 0.7
+        });
+        set.trim = new THREE.MeshStandardMaterial({
+          color: 0x6a4810, emissive: 0xffd060, emissiveIntensity: 0.4,
+          roughness: 0.5, metalness: 0.85
+        });
+        set.bullet = new THREE.MeshStandardMaterial({
+          color: 0xffd870, emissive: 0xffa830, emissiveIntensity: 0.7,
+          roughness: 0.25, metalness: 0.9
+        });
+      } else if(k === "doublepoints"){
+        set.num = new THREE.MeshStandardMaterial({
+          color: 0xa0eaff, emissive: 0x4dd9ff, emissiveIntensity: 1.2,
+          roughness: 0.25, metalness: 0.7
+        });
+      } else if(k === "nuke"){
+        set.bomb = new THREE.MeshStandardMaterial({
+          color: 0x2a3a18, emissive: 0x9dff4a, emissiveIntensity: 0.45,
+          roughness: 0.6, metalness: 0.5
+        });
+        set.rad = new THREE.MeshStandardMaterial({
+          color: 0x9dff4a, emissive: 0x9dff4a, emissiveIntensity: 1.6,
+          roughness: 0.3, metalness: 0.1
+        });
+      }
+      window.__powerupMats[k] = set;
+      return set;
+    }
+
+    // [PERF FIX 3] Gedeelde materials voor de power-up beams/discs/rings.
+    // Eén set per kleur (= per kind).
+    if(!window.__powerupFxMats){
+      window.__powerupFxMats = {};
+    }
+    function _getPowerupFxMats(k, pcol){
+      if(window.__powerupFxMats[k]) return window.__powerupFxMats[k];
+      const set = {
+        baseDisc: new THREE.MeshBasicMaterial({
+          color: pcol, transparent: true, opacity: 0.55,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        }),
+        ring: new THREE.MeshStandardMaterial({
+          color: pcol, emissive: pcol, emissiveIntensity: 1.4,
+          metalness: 0.1, roughness: 0.4
+        }),
+        beam: new THREE.MeshBasicMaterial({
+          color: pcol, transparent: true, opacity: 0.32,
+          side: THREE.DoubleSide, depthWrite: false,
+          blending: THREE.AdditiveBlending
+        }),
+        coreBeam: new THREE.MeshBasicMaterial({
+          color: 0xffffff, transparent: true, opacity: 0.55,
+          depthWrite: false, blending: THREE.AdditiveBlending
+        }),
+        glow: new THREE.MeshBasicMaterial({
+          color: pcol, transparent: true, opacity: 0.45,
+          depthWrite: false, blending: THREE.AdditiveBlending
+        })
+      };
+      window.__powerupFxMats[k] = set;
+      return set;
+    }
     let mat = window.__pickupMatCache[kind];
     if(!mat){
       mat = new THREE.MeshStandardMaterial({
@@ -8696,23 +8781,20 @@ function spawnWave(){
       // Sokkel — gloeiende plaat onderaan zodat het icoon op een
       // duidelijke "drop spot" staat (zoals in CoD waar de power-up
       // op de grond ligt).
+      // [PERF FIX] FX-materials uit cache per kind.
+      const _fxMats = _getPowerupFxMats(kind, pcol);
       const baseDisc = new THREE.Mesh(
         new THREE.CylinderGeometry(0.55, 0.55, 0.05, 24),
-        new THREE.MeshBasicMaterial({
-          color: pcol, transparent: true, opacity: 0.55,
-          blending: THREE.AdditiveBlending, depthWrite: false
-        })
+        _fxMats.baseDisc
       );
       baseDisc.position.y = -0.85;
       mesh.add(baseDisc);
 
       // Energie-ring rond het icoon (zwevende halo)
+      // [PERF FIX] Material uit cache.
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(.42, .045, 10, 28),
-        new THREE.MeshStandardMaterial({
-          color: pcol, emissive: pcol, emissiveIntensity:1.4,
-          metalness:0.1, roughness:0.4
-        })
+        _fxMats.ring
       );
       ring.rotation.x = Math.PI/2;
       ring.position.y = -0.05;
@@ -8724,14 +8806,10 @@ function spawnWave(){
 
       if(kind === "instakill"){
         // ===== RODE DOODSHOOFD (signature CoD insta-kill) =====
-        const skullMat = new THREE.MeshStandardMaterial({
-          color: 0xfff0e0, emissive: 0xff1010, emissiveIntensity: 0.55,
-          roughness: 0.55, metalness: 0.15
-        });
-        const cavityMat = new THREE.MeshStandardMaterial({
-          color: 0x1a0202, emissive: 0xff0808, emissiveIntensity: 1.6,
-          roughness: 0.3, metalness: 0.0
-        });
+        // [PERF FIX] Sub-materials nu uit gedeelde cache i.p.v. per drop nieuw.
+        const _ikMats = _getPowerupMats("instakill");
+        const skullMat = _ikMats.skull;
+        const cavityMat = _ikMats.cavity;
         // Schedel-bol (iets ingedrukt)
         const cranium = new THREE.Mesh(
           new THREE.SphereGeometry(0.32, 18, 14), skullMat
@@ -8775,14 +8853,10 @@ function spawnWave(){
       }
       else if(kind === "maxammo"){
         // ===== GOUDEN AMMO CRATE met patronen erop =====
-        const crateMat = new THREE.MeshStandardMaterial({
-          color: 0xc89020, emissive: 0xffb030, emissiveIntensity: 0.5,
-          roughness: 0.4, metalness: 0.7
-        });
-        const trimMat = new THREE.MeshStandardMaterial({
-          color: 0x6a4810, emissive: 0xffd060, emissiveIntensity: 0.4,
-          roughness: 0.5, metalness: 0.85
-        });
+        // [PERF FIX] Sub-materials uit cache.
+        const _maMats = _getPowerupMats("maxammo");
+        const crateMat = _maMats.crate;
+        const trimMat = _maMats.trim;
         // Hoofdkist
         const crate = new THREE.Mesh(
           new THREE.BoxGeometry(0.62, 0.40, 0.42), crateMat
@@ -8804,10 +8878,8 @@ function spawnWave(){
         strap2.position.z = -0.22;
         iconGroup.add(strap2);
         // Patronen die uit de kist steken (top)
-        const bulletMat = new THREE.MeshStandardMaterial({
-          color: 0xffd870, emissive: 0xffa830, emissiveIntensity: 0.7,
-          roughness: 0.25, metalness: 0.9
-        });
+        // [PERF FIX] uit cache.
+        const bulletMat = _maMats.bullet;
         for(let bx = -0.18; bx <= 0.18; bx += 0.09){
           // Huls
           const shell = new THREE.Mesh(
@@ -8826,10 +8898,9 @@ function spawnWave(){
       }
       else if(kind === "doublepoints"){
         // ===== ROTERENDE 2x — twee glanzende cijfer-vormen =====
-        const numMat = new THREE.MeshStandardMaterial({
-          color: 0xa0eaff, emissive: 0x4dd9ff, emissiveIntensity: 1.2,
-          roughness: 0.25, metalness: 0.7
-        });
+        // [PERF FIX] Sub-material uit cache.
+        const _dpMats = _getPowerupMats("doublepoints");
+        const numMat = _dpMats.num;
         // De "2" — gemaakt van een paar boxes en bochten
         // Boven-segment
         const top = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.07, 0.10), numMat);
@@ -8855,14 +8926,10 @@ function spawnWave(){
       }
       else if(kind === "nuke"){
         // ===== GROENE NUKE — kleine bom-vorm met radioactief symbool =====
-        const bombMat = new THREE.MeshStandardMaterial({
-          color: 0x2a3a18, emissive: 0x9dff4a, emissiveIntensity: 0.45,
-          roughness: 0.6, metalness: 0.5
-        });
-        const radMat = new THREE.MeshStandardMaterial({
-          color: 0x9dff4a, emissive: 0x9dff4a, emissiveIntensity: 1.6,
-          roughness: 0.3, metalness: 0.1
-        });
+        // [PERF FIX] Sub-materials uit cache.
+        const _nMats = _getPowerupMats("nuke");
+        const bombMat = _nMats.bomb;
+        const radMat = _nMats.rad;
         // Bol-romp (bom)
         const bomb = new THREE.Mesh(
           new THREE.SphereGeometry(0.30, 16, 12), bombMat
@@ -8905,35 +8972,29 @@ function spawnWave(){
       // Verticale lichtstraal die door het plafond schiet — zichtbaar vanuit
       // elke hoek van de arena. CoD heeft dit letterlijk: je ziet aan de
       // hemel waar een power-up ligt voordat je er bij bent.
+      // [PERF FIX] Materials uit cache.
       const beamGeo = new THREE.CylinderGeometry(0.18, 0.42, 22, 12, 1, true);
-      const beamMat = new THREE.MeshBasicMaterial({
-        color: pcol,
-        transparent: true,
-        opacity: 0.32,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-      const beam = new THREE.Mesh(beamGeo, beamMat);
+      const beam = new THREE.Mesh(beamGeo, _fxMats.beam);
       beam.position.y = 11; // top van beam ~ 22m hoog
       mesh.add(beam);
       // Een dunnere, fellere kern in het midden voor extra glow
       const coreBeamGeo = new THREE.CylinderGeometry(0.06, 0.12, 22, 8);
-      const coreBeamMat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-      const coreBeam = new THREE.Mesh(coreBeamGeo, coreBeamMat);
+      const coreBeam = new THREE.Mesh(coreBeamGeo, _fxMats.coreBeam);
       coreBeam.position.y = 11;
       mesh.add(coreBeam);
 
-      // Sterke pointlight — straalt warmte/kleur uit door de fog
-      const lamp = new THREE.PointLight(pcol, 2.6, 16, 2);
-      lamp.position.y = 0.6;
-      mesh.add(lamp);
+      // [PERF FIX] PointLight VERWIJDERD — een runtime-toegevoegde light
+      // forceerde Three.js om ALLE materials in de scene opnieuw te
+      // compileren (lights-count zat in shader-uniforms). Dat was de
+      // hoofd-oorzaak van de lag-spike bij elke power-up drop.
+      // Vervangen door een additieve glow-bol (zelfde visuele effect,
+      // geen shader-recompile).
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.95, 12, 10),
+        _fxMats.glow
+      );
+      glow.position.y = 0.4;
+      mesh.add(glow);
 
       // Reference voor pickup-fysica + flicker animatie in updatePickups
       core = ring;
@@ -8941,7 +9002,7 @@ function spawnWave(){
       mesh.userData.iconGroup = iconGroup;
       mesh.userData.beam = beam;
       mesh.userData.coreBeam = coreBeam;
-      mesh.userData.lamp = lamp;
+      mesh.userData.glow = glow;
       mesh.userData.baseDisc = baseDisc;
     }
     mesh.position.copy(position);
@@ -11391,8 +11452,9 @@ if(b.gravity){
               }
             }
           });
-          if(p.mesh.userData?.lamp){
-            p.mesh.userData.lamp.intensity = 2.6 * flick;
+          // [PERF FIX] lamp is vervangen door glow-bol; flicker via opacity.
+          if(p.mesh.userData?.glow){
+            p.mesh.userData.glow.material.opacity = 0.45 * flick;
           }
         }
 
@@ -29721,6 +29783,82 @@ shootWithDirection = function(dirOverride = null){
         dummy.position.set(0, -1000, 0);   // ver onder de map
         scene.add(dummy);
         _warmupMeshes.push(dummy);
+      }
+      // [PERF FIX] OOK alle power-up sub-materials en FX-materials warmen
+      // zodat de eerste drop GEEN shader-compile spike geeft. We
+      // simuleren de make-functies door directe instanties te maken die
+      // dezelfde combinaties van uniforms/blending hebben.
+      const powerupKinds = ["instakill", "maxammo", "doublepoints", "nuke"];
+      const powerupColors = { instakill: 0xff2a2a, maxammo: 0xffe04a, doublepoints: 0x4dd9ff, nuke: 0x9dff4a };
+      // Sub-mats hebben hun eigen factory; we creëren ze door dummy-add aan window
+      // en daarna te lezen. We bootsen na zonder de factory te hebben (factory
+      // staat in addPickup-scope) door directe creatie hier.
+      window.__powerupMats = window.__powerupMats || {};
+      window.__powerupFxMats = window.__powerupFxMats || {};
+      const _mkStd = (color, em, ei, rough, metal) => new THREE.MeshStandardMaterial({
+        color, emissive: em, emissiveIntensity: ei, roughness: rough, metalness: metal
+      });
+      for(const pk of powerupKinds){
+        // Sub-mats per kind
+        if(!window.__powerupMats[pk]){
+          const set = {};
+          if(pk === "instakill"){
+            set.skull = _mkStd(0xfff0e0, 0xff1010, 0.55, 0.55, 0.15);
+            set.cavity = _mkStd(0x1a0202, 0xff0808, 1.6, 0.3, 0.0);
+          } else if(pk === "maxammo"){
+            set.crate = _mkStd(0xc89020, 0xffb030, 0.5, 0.4, 0.7);
+            set.trim = _mkStd(0x6a4810, 0xffd060, 0.4, 0.5, 0.85);
+            set.bullet = _mkStd(0xffd870, 0xffa830, 0.7, 0.25, 0.9);
+          } else if(pk === "doublepoints"){
+            set.num = _mkStd(0xa0eaff, 0x4dd9ff, 1.2, 0.25, 0.7);
+          } else if(pk === "nuke"){
+            set.bomb = _mkStd(0x2a3a18, 0x9dff4a, 0.45, 0.6, 0.5);
+            set.rad  = _mkStd(0x9dff4a, 0x9dff4a, 1.6, 0.3, 0.1);
+          }
+          window.__powerupMats[pk] = set;
+        }
+        // FX-mats per kind (beam/glow/ring/baseDisc)
+        if(!window.__powerupFxMats[pk]){
+          const pcol = powerupColors[pk];
+          window.__powerupFxMats[pk] = {
+            baseDisc: new THREE.MeshBasicMaterial({
+              color: pcol, transparent: true, opacity: 0.55,
+              blending: THREE.AdditiveBlending, depthWrite: false
+            }),
+            ring: new THREE.MeshStandardMaterial({
+              color: pcol, emissive: pcol, emissiveIntensity: 1.4,
+              metalness: 0.1, roughness: 0.4
+            }),
+            beam: new THREE.MeshBasicMaterial({
+              color: pcol, transparent: true, opacity: 0.32,
+              side: THREE.DoubleSide, depthWrite: false,
+              blending: THREE.AdditiveBlending
+            }),
+            coreBeam: new THREE.MeshBasicMaterial({
+              color: 0xffffff, transparent: true, opacity: 0.55,
+              depthWrite: false, blending: THREE.AdditiveBlending
+            }),
+            glow: new THREE.MeshBasicMaterial({
+              color: pcol, transparent: true, opacity: 0.45,
+              depthWrite: false, blending: THREE.AdditiveBlending
+            })
+          };
+        }
+        // Dummy-mesh per material zodat renderer.compile() ze ALLEMAAL ziet
+        const subs = window.__powerupMats[pk];
+        for(const key in subs){
+          const d = new THREE.Mesh(_warmupGeo, subs[key]);
+          d.position.set(0, -1000, 0);
+          scene.add(d);
+          _warmupMeshes.push(d);
+        }
+        const fx = window.__powerupFxMats[pk];
+        for(const key in fx){
+          const d = new THREE.Mesh(_warmupGeo, fx[key]);
+          d.position.set(0, -1000, 0);
+          scene.add(d);
+          _warmupMeshes.push(d);
+        }
       }
       // 2) Compileer alle aanwezige shaders inclusief de pickup-warmups.
       if(typeof renderer.compile === "function"){
