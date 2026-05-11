@@ -3483,6 +3483,10 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     return best;
   }
   window.__getFloorHeightAt = getFloorHeightAt;
+  // Expose the raw floor-regions array zodat losse IIFE's (zoals de granate-
+  // physics) ook met platform/ramp data kunnen werken zonder duplicate
+  // bookkeeping. Read-only bedoeld.
+  try { window.__floorRegions = floorRegions; } catch(_){}
 
   // Bullet/granaat-vs-vloer crossing check. Returns de Y-hoogte van een
   // platform/ramp die TUSSEN y0 en y1 zit op (x,z), of null als er geen vloer
@@ -10929,7 +10933,16 @@ if(b.gravity){
     // melee-damage. Klassieke CoD zombies dragen je wel naar je toe en
     // happen, maar zonder armen kunnen ze het niet uitvoeren.
     const meleeRange = (e.type === "tank" ? 2.4 : e.type === "elite" ? 2.1 : e.type === "runner" ? 1.7 : 1.85);
-    if(canFire && dist < meleeRange){
+    // FIX: Y-aware melee — een zombie op het balkon (y=4) mag de speler op
+    // de begane grond (y=0) niet kunnen raken, ook niet als XZ-afstand klein
+    // is. We meten enemy-FOOT (mesh.position.y) tegen player-EYE/TORSO
+    // (player.pos.y + ~1.2 als torso). Een gewone zombie is ~1.8u hoog dus
+    // 2.0u verschil is acceptabel (bukken/strekken); daarboven niet.
+    const _eFootY = e.mesh.position.y;
+    const _pTorsoY = player.pos.y + 1.0;
+    const _yGap = Math.abs(_eFootY - _pTorsoY);
+    const meleeYTolerance = (e.type === "tank" ? 2.6 : 2.0);
+    if(canFire && dist < meleeRange && _yGap < meleeYTolerance){
       e.meleeCooldown = (e.meleeCooldown || 0) - dt;
       if(e.meleeCooldown <= 0){
         const swingDmg =
@@ -17155,7 +17168,30 @@ updateBullets = function(dt){
       });
     }
 
-    let explode = g.life <= 0 || g.mesh.position.y <= 0.2 || collidesAt(g.mesh.position.x, g.mesh.position.z, 0.14);
+    // Platform-aware floor check: een enemy-grenade die boven het balkon
+    // ontploft moet OP het balkon ontploffen, niet doorvallen naar y=0.
+    let _gFloorY = 0;
+    if(window.__floorRegions){
+      const regs = window.__floorRegions;
+      const gx = g.mesh.position.x, gz = g.mesh.position.z, gy = g.mesh.position.y;
+      for(let r = 0; r < regs.length; r++){
+        const fr = regs[r];
+        if(gx < fr.minX || gx > fr.maxX || gz < fr.minZ || gz > fr.maxZ) continue;
+        let h;
+        if(fr.type === 'platform'){
+          h = fr.height;
+        } else {
+          let t;
+          if(fr.axis === 'x')        t = (gx - fr.minX) / (fr.maxX - fr.minX);
+          else if(fr.axis === '-x')  t = (fr.maxX - gx) / (fr.maxX - fr.minX);
+          else if(fr.axis === 'z')   t = (gz - fr.minZ) / (fr.maxZ - fr.minZ);
+          else                       t = (fr.maxZ - gz) / (fr.maxZ - fr.minZ);
+          h = fr.hLow + (fr.hHigh - fr.hLow) * t;
+        }
+        if(h <= gy + 0.30 && h > _gFloorY) _gFloorY = h;
+      }
+    }
+    let explode = g.life <= 0 || g.mesh.position.y <= _gFloorY + 0.2 || collidesAt(g.mesh.position.x, g.mesh.position.z, 0.14);
 
     // Squared distance — vermijdt Vector3 allocatie en sqrt elke frame per grenade.
     const gPos = g.mesh.position;
@@ -25847,8 +25883,54 @@ shootWithDirection = function(dirOverride = null){
       g.vel.multiplyScalar(0.992); // air-drag
       g.pos.addScaledVector(g.vel, dt);
 
-      // Bounce op vloer (eenvoudige Y-clamp)
-      const floorY = 0.20;  // grenade bottom
+      // Bounce op vloer — platform-aware: granaat botst nu ook op het
+      // balkon-deck (y≈4) en ramps, niet alleen op de begane grond.
+      // We doen twee checks:
+      //   1) Tussen-frame crossing: als de granaat met hoge snelheid door
+      //      een vloer heen is geschoten, klap 'm op die vloer terug.
+      //   2) Statische check: hoogste vloer op die XZ ≤ huidige Y.
+      const GRENADE_BOTTOM = 0.20;  // afstand van pos.y tot daadwerkelijke onderkant
+      // Bepaal vorige Y (waar de granaat aan begin van deze frame zat)
+      // door simpelweg de Y-component van de zojuist toegepaste velocity
+      // omgekeerd toe te passen.
+      const _prevGY = g.pos.y - g.vel.y * dt;
+      // Crossed-floor check (alleen relevant als we omlaag bewegen)
+      let _crossY = null;
+      if(g.vel.y < 0 && typeof window.__getCrossedFloorY === "function"){
+        try {
+          _crossY = window.__getCrossedFloorY(g.pos.x, g.pos.z, _prevGY - GRENADE_BOTTOM, g.pos.y - GRENADE_BOTTOM);
+        } catch(_){ _crossY = null; }
+      }
+      // Statische vloer-hoogte ONDER de granaat:
+      // - Begin met 0 (begane grond)
+      // - Voor elke platform/ramp-regio: als (x,z) erbinnen valt EN
+      //   regio-hoogte ≤ huidige granaat-Y, neem het maximum.
+      let _staticFloor = 0;
+      if(window.__floorRegions){
+        const regs = window.__floorRegions;
+        for(let r = 0; r < regs.length; r++){
+          const fr = regs[r];
+          if(g.pos.x < fr.minX || g.pos.x > fr.maxX || g.pos.z < fr.minZ || g.pos.z > fr.maxZ) continue;
+          let h;
+          if(fr.type === 'platform'){
+            h = fr.height;
+          } else {
+            let t;
+            if(fr.axis === 'x')        t = (g.pos.x - fr.minX) / (fr.maxX - fr.minX);
+            else if(fr.axis === '-x')  t = (fr.maxX - g.pos.x) / (fr.maxX - fr.minX);
+            else if(fr.axis === 'z')   t = (g.pos.z - fr.minZ) / (fr.maxZ - fr.minZ);
+            else                       t = (fr.maxZ - g.pos.z) / (fr.maxZ - fr.minZ);
+            h = fr.hLow + (fr.hHigh - fr.hLow) * t;
+          }
+          // Alleen vloeren die NIET boven de granaat liggen (dus h ≤ Y + kleine marge)
+          // Marge voorkomt dat een vloer direct op granate-hoogte als "boven" telt.
+          if(h <= g.pos.y - GRENADE_BOTTOM + 0.30 && h > _staticFloor){
+            _staticFloor = h;
+          }
+        }
+      }
+      // Kies: gekruiste vloer heeft prioriteit (vangt high-velocity tunneling)
+      const floorY = (_crossY !== null ? _crossY : _staticFloor) + GRENADE_BOTTOM;
       if(g.pos.y < floorY){
         g.pos.y = floorY;
         if(g.vel.y < 0) g.vel.y *= -0.35;  // bounce demping
