@@ -3917,6 +3917,25 @@ def debug_dbcols():
     c.close()
     return jsonify(out)
 
+
+@app.route("/debug/unlock-status")
+def debug_unlock_status():
+    """Diagnostische route: toont waarom needs_unlock voor de kopieerknop wel
+    of niet aan staat. Alleen toegankelijk voor ingelogde gebruikers."""
+    if not logged_in():
+        abort(404)
+    unlocked = _get_unlocked_tokens()
+    return jsonify({
+        "MY_UPLOADS_PASSWORD_is_set": bool(MY_UPLOADS_PASSWORD),
+        "MY_UPLOADS_PASSWORD_length": len(MY_UPLOADS_PASSWORD) if MY_UPLOADS_PASSWORD else 0,
+        "MY_UPLOADS_UNLOCK_TTL_seconds": MY_UPLOADS_UNLOCK_TTL,
+        "unlocked_tokens_in_session": list(unlocked.keys()) if isinstance(unlocked, dict) else "INVALID",
+        "unlocked_tokens_count": len(unlocked) if isinstance(unlocked, dict) else 0,
+        "session_keys": [k for k in session.keys() if isinstance(k, str)],
+        "current_user_id": current_user_id(),
+        "is_logged_in": logged_in(),
+    })
+
 @app.route("/")
 def index():
     if not logged_in(): return redirect(url_for("login"))
