@@ -68,6 +68,12 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "").strip()
 
+# Extra wachtwoord voor de "Mijn uploads"-pagina (gedeeld-account scenario).
+# Leeg laten = geen extra prompt (bestaand gedrag).
+# Geldigheid van de unlock-sessie in seconden (default 30 minuten).
+MY_UPLOADS_PASSWORD = os.environ.get("MY_UPLOADS_PASSWORD", "").strip()
+MY_UPLOADS_UNLOCK_TTL = int(os.environ.get("MY_UPLOADS_UNLOCK_TTL", "1800"))
+
 # PayPal Subscriptions
 PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
 PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
@@ -7625,6 +7631,110 @@ def _package_summary(rows, now):
         "total_human": human(total),
     }
 
+# ---- Extra wachtwoordbescherming voor /uploads (gedeeld-account) ----
+# Werkt alleen als MY_UPLOADS_PASSWORD is ingesteld in de environment.
+# Naast de normale login moet de gebruiker éénmalig dit wachtwoord invoeren;
+# de unlock wordt in de sessie opgeslagen met een TTL.
+
+MY_UPLOADS_UNLOCK_KEY = "my_uploads_unlocked_until"
+
+def my_uploads_unlocked() -> bool:
+    """True als er geen extra wachtwoord nodig is, of als de huidige sessie
+    al ontgrendeld is en de TTL nog niet is verlopen."""
+    if not MY_UPLOADS_PASSWORD:
+        return True  # feature uit -> altijd toegang (mits ingelogd)
+    exp = session.get(MY_UPLOADS_UNLOCK_KEY)
+    try:
+        return bool(exp) and float(exp) > time.time()
+    except (TypeError, ValueError):
+        return False
+
+MY_UPLOADS_UNLOCK_HTML = """<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  {{ head_icon|safe }}
+  <meta name="csrf-token" content="{{ csrf_token() }}"/>
+  <title>Toegang vereist – Mijn uploads</title>
+  <style>{{ base_css|safe }}</style>
+  <style>
+    .unlock-card { max-width: 440px; margin: 6vh auto; padding: 28px; }
+    .unlock-card h1 { margin: 0 0 8px; font-size: 22px; }
+    .unlock-card p.lead { color: var(--muted, #6b7280); margin: 0 0 18px; font-size: 14px; }
+    .unlock-card label { display:block; font-size: 13px; margin: 12px 0 6px; font-weight: 600; }
+    .unlock-card input[type="password"] {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid rgba(0,0,0,.15); font-size: 15px; box-sizing: border-box;
+    }
+    .unlock-card .actions { margin-top: 18px; display: flex; gap: 8px; justify-content: flex-end; }
+    .unlock-card .err {
+      background:#fee2e2; color:#991b1b; padding:8px 12px;
+      border-radius:8px; font-size:13px; margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  {{ bg|safe }}
+  <div class="shell">
+    <div class="card unlock-card">
+      <h1>🔒 Extra toegang vereist</h1>
+      <p class="lead">Deze pagina bevat gegevens die niet voor iedereen zichtbaar zijn. Voer het wachtwoord in om door te gaan.</p>
+      {% if error %}<div class="err">{{ error }}</div>{% endif %}
+      <form method="post" action="{{ url_for('my_uploads_unlock') }}" autocomplete="off">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <label for="pw">Wachtwoord</label>
+        <input type="password" id="pw" name="password" autofocus required>
+        <div class="actions">
+          <a class="btn-pro" href="{{ url_for('index') }}">Annuleren</a>
+          <button class="btn-pro primary" type="submit">Ontgrendelen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>"""
+
+def _render_my_uploads_unlock(error=None, next_url=None):
+    return render_template_string(
+        MY_UPLOADS_UNLOCK_HTML,
+        error=error,
+        next_url=next_url or url_for("my_uploads"),
+        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+    )
+
+@app.route("/uploads/unlock", methods=["GET", "POST"])
+def my_uploads_unlock():
+    # Moet sowieso ingelogd zijn — anders eerst naar login.
+    if not logged_in():
+        return redirect(url_for("login"))
+    # Als de feature uit staat, gewoon doorsturen.
+    if not MY_UPLOADS_PASSWORD:
+        return redirect(url_for("my_uploads"))
+
+    # Alleen relatieve next-URL's accepteren (geen open redirect).
+    raw_next = (request.values.get("next") or "").strip()
+    if raw_next.startswith("/") and not raw_next.startswith("//"):
+        next_url = raw_next
+    else:
+        next_url = url_for("my_uploads")
+
+    if request.method == "POST":
+        submitted = (request.form.get("password") or "")
+        # constant-time vergelijking
+        if hmac.compare_digest(submitted, MY_UPLOADS_PASSWORD):
+            session[MY_UPLOADS_UNLOCK_KEY] = time.time() + MY_UPLOADS_UNLOCK_TTL
+            return redirect(next_url)
+        return _render_my_uploads_unlock(
+            error="Onjuist wachtwoord. Probeer het opnieuw.",
+            next_url=next_url
+        )
+
+    # GET: toon het formulier
+    return _render_my_uploads_unlock(next_url=next_url)
+
+
 @app.route("/uploads")
 def my_uploads():
     if not logged_in():
@@ -7633,6 +7743,11 @@ def my_uploads():
     if not me:
         session.clear()
         return redirect(url_for("login"))
+
+    # Extra poort: als er een MY_UPLOADS_PASSWORD is ingesteld en deze
+    # sessie nog niet is ontgrendeld -> doorsturen naar unlock-pagina.
+    if not my_uploads_unlocked():
+        return redirect(url_for("my_uploads_unlock", next=request.full_path if request.query_string else url_for("my_uploads")))
 
     show_all = bool(me["is_admin"]) and (request.args.get("scope") == "all")
     tenant = me["tenant_id"]
@@ -7747,6 +7862,9 @@ def my_uploads_delete(token):
     if not logged_in(): abort(401)
     me = current_user()
     if not me: abort(401)
+    # Extra wachtwoord-poort: ook acties moeten ontgrendeld zijn.
+    if not my_uploads_unlocked():
+        return redirect(url_for("my_uploads_unlock"))
     token = (token or "").strip()
     if not is_valid_token(token):
         _flash(error="Ongeldig token.")
@@ -7793,6 +7911,9 @@ def my_uploads_extend(token):
     if not logged_in(): abort(401)
     me = current_user()
     if not me: abort(401)
+    # Extra wachtwoord-poort: ook acties moeten ontgrendeld zijn.
+    if not my_uploads_unlocked():
+        return redirect(url_for("my_uploads_unlock"))
     token = (token or "").strip()
     if not is_valid_token(token):
         _flash(error="Ongeldig token.")
