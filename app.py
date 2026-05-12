@@ -68,19 +68,12 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 MAIL_TO   = os.environ.get("MAIL_TO", "").strip()
 
-# Extra wachtwoord voor het bekijken van pakketten van *andere* gebruikers
-# binnen hetzelfde (gedeelde) account. Voorkomt dat collega A via de
-# 'Mijn uploads'-lijst de download-pagina van collega B opent en bestanden
-# downloadt die niet voor hem bedoeld zijn.
-#
-# Werking:
-# - Bezoekers die NIET ingelogd zijn (externe ontvangers met share-link):
-#   geen extra prompt. Normaal pad.
-# - Ingelogde eigenaar of admin: geen extra prompt voor eigen pakketten.
-# - Ingelogde gebruiker die een pakket van een ander opent: moet eerst
-#   dit wachtwoord invoeren. Wordt per sessie onthouden (TTL).
-# Leeg laten = feature uit (bestaand gedrag).
-MY_UPLOADS_PASSWORD = os.environ.get("MY_UPLOADS_PASSWORD", "").strip()
+# Extra wachtwoord voor het bekijken/kopiëren van pakketten in 'Mijn uploads'.
+# HARDCODED en altijd actief: voor zowel de 'openen'- als de 'kopieer'-knop
+# moet de gebruiker dit wachtwoord per browser-sessie minstens één keer
+# invoeren, ongeacht eigenaarschap of env-config. Reden: gedeeld inlogaccount
+# tussen collega's, dus eigenaarschap is geen bruikbare beveiligingsgrens.
+MY_UPLOADS_PASSWORD = "1234"
 MY_UPLOADS_UNLOCK_TTL = int(os.environ.get("MY_UPLOADS_UNLOCK_TTL", "1800"))
 
 # PayPal Subscriptions
@@ -3916,25 +3909,6 @@ def debug_dbcols():
     out["tenants_in_packages"] = [r[0] for r in rows]
     c.close()
     return jsonify(out)
-
-
-@app.route("/debug/unlock-status")
-def debug_unlock_status():
-    """Diagnostische route: toont waarom needs_unlock voor de kopieerknop wel
-    of niet aan staat. Alleen toegankelijk voor ingelogde gebruikers."""
-    if not logged_in():
-        abort(404)
-    unlocked = _get_unlocked_tokens()
-    return jsonify({
-        "MY_UPLOADS_PASSWORD_is_set": bool(MY_UPLOADS_PASSWORD),
-        "MY_UPLOADS_PASSWORD_length": len(MY_UPLOADS_PASSWORD) if MY_UPLOADS_PASSWORD else 0,
-        "MY_UPLOADS_UNLOCK_TTL_seconds": MY_UPLOADS_UNLOCK_TTL,
-        "unlocked_tokens_in_session": list(unlocked.keys()) if isinstance(unlocked, dict) else "INVALID",
-        "unlocked_tokens_count": len(unlocked) if isinstance(unlocked, dict) else 0,
-        "session_keys": [k for k in session.keys() if isinstance(k, str)],
-        "current_user_id": current_user_id(),
-        "is_logged_in": logged_in(),
-    })
 
 @app.route("/")
 def index():
