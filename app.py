@@ -7642,15 +7642,15 @@ html,body{
             <td data-label="Acties">
               <div class="oh-actions">
                 {% if not p.is_expired %}
-                <a class="oh-icon-btn" href="/p/{{ p.token }}" target="_blank" rel="noopener"
-                   title="Pakket openen" aria-label="Pakket openen">
+                <button class="oh-icon-btn" type="button"
+                        data-share-link="{{ p.share_link or url_for('package_page', token=p.token, _external=True) }}"
+                        onclick="openPackage(this)"
+                        title="Pakket openen" aria-label="Pakket openen">
                   {# external-link #}
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                </a>
+                </button>
                 <button class="oh-icon-btn" type="button"
-                        data-copy-token="{{ p.token }}"
-                        data-needs-unlock="{{ '1' if p.needs_unlock else '0' }}"
-                        {% if not p.needs_unlock %}data-share-link="{{ p.share_link }}"{% endif %}
+                        data-share-link="{{ p.share_link or url_for('package_page', token=p.token, _external=True) }}"
                         onclick="copyLink(this)"
                         title="Link kopiëren" aria-label="Link kopiëren">
                   {# copy / link #}
@@ -7689,6 +7689,26 @@ html,body{
 </div>
 
 <script>
+// Gedeelde wachtwoord-prompt voor beide acties op deze pagina.
+// Eenvoudige bescherming tegen toevallige nieuwsgierigheid van collega's
+// die hetzelfde inlogaccount delen. Per browser-sessie 1x invoeren.
+const _UPLOAD_PW = "1234";
+const _PW_SESSION_KEY = "uploads_pw_ok";
+
+function _ensurePw(){
+  try {
+    if (sessionStorage.getItem(_PW_SESSION_KEY) === "1") return true;
+  } catch(e) { /* sessionStorage soms geblokkeerd; dan elke keer vragen */ }
+  const entered = window.prompt("Voer het wachtwoord in om deze actie uit te voeren:");
+  if (entered === null) return false; // gebruiker drukte Annuleren
+  if (entered === _UPLOAD_PW) {
+    try { sessionStorage.setItem(_PW_SESSION_KEY, "1"); } catch(e) {}
+    return true;
+  }
+  alert("Onjuist wachtwoord.");
+  return false;
+}
+
 function _copyToClipboard(link, btn){
   const orig = btn.innerHTML;
   const setTick = () => {
@@ -7704,69 +7724,16 @@ function _copyToClipboard(link, btn){
   }
 }
 
-async function copyLink(btn){
-  const needsUnlock = btn.getAttribute('data-needs-unlock') === '1';
-  const token = btn.getAttribute('data-copy-token');
+function copyLink(btn){
+  if (!_ensurePw()) return;
+  const link = btn.getAttribute('data-share-link') || '';
+  if (link) _copyToClipboard(link, btn);
+}
 
-  // Snelle pad: pakket is van jezelf of al ontgrendeld -> link staat in dataset.
-  if (!needsUnlock) {
-    const link = btn.getAttribute('data-share-link') || '';
-    if (link) { _copyToClipboard(link, btn); }
-    return;
-  }
-
-  // Vergrendeld pakket: vraag de link op via de beveiligde endpoint.
-  // De server controleert of dit pakket in deze sessie is ontgrendeld.
-  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-  const csrf = csrfMeta ? (csrfMeta.getAttribute('content') || '') : '';
-  if (!csrf) {
-    console.error('copyLink: csrf-token meta tag ontbreekt in HTML head');
-    alert('Beveiligings-token ontbreekt. Herlaad de pagina.');
-    return;
-  }
-  try {
-    const resp = await fetch('/uploads/' + encodeURIComponent(token) + '/share-link', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrf,
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({})
-    });
-    if (resp.status === 403) {
-      // Niet ontgrendeld -> stuur naar de unlock-pagina, met terugkeer naar deze lijst.
-      const next = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.href = '/p/unlock?token=' + encodeURIComponent(token) + '&next=' + next;
-      return;
-    }
-    if (!resp.ok) {
-      // Probeer de body uit te lezen voor een nuttige foutmelding.
-      let detail = '';
-      try {
-        const j = await resp.json();
-        detail = (j && j.error) ? j.error : '';
-      } catch (e) {
-        try { detail = await resp.text(); } catch (_) {}
-      }
-      console.error('copyLink failed', resp.status, detail);
-      alert('Kon de link niet ophalen (HTTP ' + resp.status + (detail ? ': ' + detail : '') + '). Probeer het opnieuw.');
-      return;
-    }
-    const data = await resp.json();
-    if (data && data.ok && data.share_link) {
-      // Cache de link op de knop zodat een tweede klik direct werkt.
-      btn.setAttribute('data-needs-unlock', '0');
-      btn.setAttribute('data-share-link', data.share_link);
-      _copyToClipboard(data.share_link, btn);
-    } else {
-      console.error('copyLink: onverwachte response', data);
-      alert('Kon de link niet ophalen.');
-    }
-  } catch (e) {
-    console.error('copyLink netwerkfout', e);
-    alert('Netwerkfout bij ophalen van de link.');
-  }
+function openPackage(btn){
+  if (!_ensurePw()) return;
+  const link = btn.getAttribute('data-share-link') || '';
+  if (link) window.open(link, '_blank', 'noopener');
 }
 
 // Client-side sortering. Werkt via klikbare tabelkoppen (desktop) én via een
