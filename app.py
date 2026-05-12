@@ -73,8 +73,13 @@ MAIL_TO   = os.environ.get("MAIL_TO", "").strip()
 # moet de gebruiker dit wachtwoord per browser-sessie minstens één keer
 # invoeren, ongeacht eigenaarschap of env-config. Reden: gedeeld inlogaccount
 # tussen collega's, dus eigenaarschap is geen bruikbare beveiligingsgrens.
-MY_UPLOADS_PASSWORD = "1234"
-MY_UPLOADS_UNLOCK_TTL = int(os.environ.get("MY_UPLOADS_UNLOCK_TTL", "1800"))
+# Wachtwoord voor de openen-/kopieer-knoppen op 'Mijn uploads'.
+# Bescherming is client-side (browser-prompt), geen server-side check.
+# Wordt via Jinja in de JS van MY_UPLOADS_HTML geïnjecteerd, dus dit is
+# de enige plek waar je het wachtwoord wijzigt.
+# Voor een gedeeld team-account voldoende om toevallige nieuwsgierigheid
+# van collega's tegen te houden. Override via env var indien gewenst.
+MY_UPLOADS_PASSWORD = os.environ.get("MY_UPLOADS_PASSWORD", "1234")
 
 # PayPal Subscriptions
 PAYPAL_CLIENT_ID     = os.environ.get("PAYPAL_CLIENT_ID")
@@ -3811,24 +3816,45 @@ def human(n: int) -> str:
         x /= 1024
     return f"{x:.1f} TB"
 
-def send_email(to_addr: str, subject: str, body: str, html: str | None = None):
+def send_email(to_addr: str, subject: str, body: str, html: str | None = None) -> bool:
     """Stuur een e-mail. Als 'html' is meegegeven, wordt een multipart-bericht
     verstuurd met zowel een plain-text versie (body) als een HTML-versie.
     Mailclients tonen dan de HTML-versie met klikbare links; oudere clients
     vallen automatisch terug op plain-text.
+
+    Returns True als de mail succesvol verstuurd is, False bij elke fout.
+    Gooit géén excepties naar callers — dat voorkomt dat e-mail-problemen
+    (SMTP down, verkeerde credentials, mailbox vol) hele requests doen falen.
     """
     if not to_addr or not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
         log.warning("E-mail niet verstuurd: SMTP niet (volledig) geconfigureerd")
-        return
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
-    msg["To"] = to_addr
-    msg.set_content(body)
-    if html:
-        msg.add_alternative(html, subtype="html")
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
-        s.starttls(); s.login(SMTP_USER, SMTP_PASS); s.send_message(msg)
+        return False
+    if not SMTP_FROM:
+        log.warning("E-mail niet verstuurd: SMTP_FROM is leeg")
+        return False
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_addr
+        msg.set_content(body)
+        if html:
+            msg.add_alternative(html, subtype="html")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        return True
+    except smtplib.SMTPException:
+        log.exception("SMTP error sending mail to %s (subject=%r)", to_addr, subject)
+        return False
+    except (OSError, TimeoutError):
+        log.exception("Network error sending mail to %s", to_addr)
+        return False
+    except Exception:
+        # Vangnet: nooit een unhandled exception laten ontsnappen uit deze functie.
+        log.exception("Unexpected error sending mail to %s", to_addr)
+        return False
 
 def send_email_async(to_addr: str, subject: str, body: str, html: str | None = None):
     """Verstuur e-mail op een achtergrondthread.
@@ -3838,10 +3864,7 @@ def send_email_async(to_addr: str, subject: str, body: str, html: str | None = N
     contactformulieren scheelt het zichtbaar de "verzenden..." wachttijd.
     """
     def _run():
-        try:
-            send_email(to_addr, subject, body, html=html)
-        except Exception:
-            log.exception("async send_email failed (to=%s, subject=%s)", to_addr, subject)
+        send_email(to_addr, subject, body, html=html)
     try:
         ex = globals().get("_bg_executor")
         if ex is not None:
@@ -3904,13 +3927,15 @@ def debug_dbcols():
     if not app.debug and os.environ.get("ENABLE_DEBUG_ROUTES") != "1":
         abort(404)
     c = db()
-    out = {}
-    for table in ["packages", "items", "subscriptions"]:
-        cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
-        out[table] = cols
-    rows = c.execute("SELECT DISTINCT tenant_id FROM packages").fetchall()
-    out["tenants_in_packages"] = [r[0] for r in rows]
-    c.close()
+    try:
+        out = {}
+        for table in ["packages", "items", "subscriptions"]:
+            cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
+            out[table] = cols
+        rows = c.execute("SELECT DISTINCT tenant_id FROM packages").fetchall()
+        out["tenants_in_packages"] = [r[0] for r in rows]
+    finally:
+        c.close()
     return jsonify(out)
 
 @app.route("/")
@@ -4603,8 +4628,9 @@ def trial_signup():
 
     # Stuur de verificatiemail. Gebruik TRIAL_HOST als die expliciet gezet is
     # (legacy subdomein-setup), anders het canonieke domein van deze server.
+    # Scheme volgt de huidige request (https in productie achter ProxyFix, http lokaal).
     _verify_host = _trial_host or _tenant_host
-    verify_url = f"https://{_verify_host}/trial/verify/{token}"
+    verify_url = f"{request.scheme}://{_verify_host}/trial/verify/{token}"
     _send_verify_email(email, verify_url)
 
     return render_template_string(TRIAL_SIGNUP_DONE_HTML, email=email,
@@ -5301,169 +5327,6 @@ def package_page(token):
         expires_human=expires_h, base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
         base_host=get_base_host()
     )
-
-# ----------------------------------------------------------------------
-# Pakket-bescherming voor ingelogde gebruikers (gedeeld account)
-# ----------------------------------------------------------------------
-# Eén login wordt door meerdere collega's gedeeld. Om te voorkomen dat
-# een collega 'even rondkijkt' in de uploads van een ander, moet hij —
-# als hij vanuit 'Mijn uploads' een pakket opent — éérst het globale
-# wachtwoord invoeren. Per pakket apart (geen globale unlock), zodat
-# één keer invoeren niet meteen het hele archief opent.
-#
-# Externe ontvangers (niet ingelogd, alleen de share-link in handen)
-# merken hier niets van — die volgen het normale pad.
-#
-# De check geldt alleen als:
-#   1. MY_UPLOADS_PASSWORD is geconfigureerd, EN
-#   2. de bezoeker ingelogd is, EN
-#   3. dit specifieke pakket nog niet ontgrendeld is in deze sessie.
-
-CROSS_USER_UNLOCK_KEY = "pkg_unlocked_tokens"  # dict: {token: exp_timestamp}
-
-def _get_unlocked_tokens() -> dict:
-    """Haal de dict met ontgrendelde tokens uit de sessie.
-
-    Read-only: schrijft NIET naar de sessie, ook niet om verlopen entries op
-    te ruimen. Anders zou elke pageload van /uploads de session-cookie
-    hertekenen. Opschoning gebeurt expliciet in _set_token_unlocked() —
-    daar schrijven we toch al.
-    """
-    raw = session.get(CROSS_USER_UNLOCK_KEY) or {}
-    if not isinstance(raw, dict):
-        return {}
-    return raw
-
-def _is_token_unlocked(token: str) -> bool:
-    """True als dit specifieke pakket in de huidige sessie nog geldig is ontgrendeld."""
-    rec = _get_unlocked_tokens().get(token)
-    if not isinstance(rec, (int, float)):
-        return False
-    return rec > time.time()
-
-def _set_token_unlocked(token: str) -> None:
-    """Markeer een pakket als ontgrendeld in deze sessie.
-
-    Schoont en passant verlopen entries op (we schrijven toch al naar de sessie).
-    """
-    raw = _get_unlocked_tokens()
-    now_ts = time.time()
-    cleaned = {tok: exp for tok, exp in raw.items()
-               if isinstance(exp, (int, float)) and exp > now_ts}
-    cleaned[token] = now_ts + MY_UPLOADS_UNLOCK_TTL
-    session[CROSS_USER_UNLOCK_KEY] = cleaned
-
-def _needs_cross_user_unlock(pkg) -> bool:
-    """True als deze request een ingelogde-gebruiker is die dit specifieke
-    pakket nog niet heeft ontgrendeld in zijn sessie. False voor anonieme
-    bezoekers (externe ontvangers) en als de feature uit staat."""
-    if not MY_UPLOADS_PASSWORD:
-        return False
-    if not logged_in():
-        return False  # externe bezoeker met share-link: niet blokkeren
-    try:
-        token = pkg["token"]
-    except (KeyError, IndexError, TypeError):
-        return False  # zonder token kunnen we niet matchen; veiliger om door te laten
-    return not _is_token_unlocked(token)
-
-CROSS_USER_UNLOCK_HTML = """<!doctype html>
-<html lang="nl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  {{ head_icon|safe }}
-  <meta name="csrf-token" content="{{ csrf_token() }}"/>
-  <title>Toegang vereist</title>
-  <style>{{ base_css|safe }}</style>
-  <style>
-    .unlock-card { max-width: 440px; margin: 6vh auto; padding: 28px; }
-    .unlock-card h1 { margin: 0 0 8px; font-size: 22px; }
-    .unlock-card p.lead { color: var(--muted, #6b7280); margin: 0 0 18px; font-size: 14px; }
-    .unlock-card label { display:block; font-size: 13px; margin: 12px 0 6px; font-weight: 600; }
-    .unlock-card input[type="password"] {
-      width: 100%; padding: 10px 12px; border-radius: 8px;
-      border: 1px solid rgba(0,0,0,.15); font-size: 15px; box-sizing: border-box;
-    }
-    .unlock-card .actions { margin-top: 18px; display: flex; gap: 8px; justify-content: flex-end; }
-    .unlock-card .err {
-      background:#fee2e2; color:#991b1b; padding:8px 12px;
-      border-radius:8px; font-size:13px; margin-bottom: 12px;
-    }
-  </style>
-</head>
-<body>
-  {{ bg|safe }}
-  <div class="shell">
-    <div class="card unlock-card">
-      <h1>🔒 Toegang vereist</h1>
-      <p class="lead">Voer het wachtwoord in om dit pakket te bekijken.</p>
-      {% if error %}<div class="err">{{ error }}</div>{% endif %}
-      <form method="post" action="{{ url_for('cross_user_unlock') }}" autocomplete="off">
-        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-        <input type="hidden" name="token" value="{{ token }}">
-        <input type="hidden" name="next" value="{{ next_url }}">
-        <label for="pw">Wachtwoord</label>
-        <input type="password" id="pw" name="password" autofocus required>
-        <div class="actions">
-          <a class="btn-pro" href="{{ url_for('my_uploads') }}">Annuleren</a>
-          <button class="btn-pro primary" type="submit">Ontgrendelen</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</body>
-</html>"""
-
-def _render_cross_user_unlock(token="", error=None, next_url=None):
-    safe_next = next_url or url_for("my_uploads")
-    return render_template_string(
-        CROSS_USER_UNLOCK_HTML,
-        token=token or "",
-        error=error,
-        next_url=safe_next,
-        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
-    )
-
-def _safe_next_url(raw: str, fallback: str) -> str:
-    """Alleen relatieve next-URL's accepteren (geen open redirect)."""
-    raw = (raw or "").strip()
-    if raw.startswith("/") and not raw.startswith("//"):
-        return raw
-    return fallback
-
-@app.route("/p/unlock", methods=["GET", "POST"])
-def cross_user_unlock():
-    # Niet-ingelogde bezoekers horen hier helemaal niet te zijn —
-    # voor hen geldt deze bescherming niet.
-    if not logged_in():
-        return redirect(url_for("login"))
-    if not MY_UPLOADS_PASSWORD:
-        return redirect(url_for("my_uploads"))
-
-    token_raw = (request.values.get("token") or "").strip().lower()
-    # Defensief: alleen ontgrendelen als token-vorm valide is.
-    if not is_valid_token(token_raw):
-        # Geen geldige token meegegeven: stuur door zonder iets te ontgrendelen.
-        return redirect(url_for("my_uploads"))
-
-    next_url = _safe_next_url(
-        request.values.get("next"),
-        url_for("package_page", token=token_raw)
-    )
-
-    if request.method == "POST":
-        submitted = request.form.get("password") or ""
-        if hmac.compare_digest(submitted, MY_UPLOADS_PASSWORD):
-            _set_token_unlocked(token_raw)
-            return redirect(next_url)
-        return _render_cross_user_unlock(
-            token=token_raw,
-            error="Onjuist wachtwoord. Probeer het opnieuw.",
-            next_url=next_url
-        )
-
-    return _render_cross_user_unlock(token=token_raw, next_url=next_url)
 
 
 def _is_pkg_expired(pkg) -> bool:
@@ -6663,8 +6526,8 @@ def admin_users_create():
     if not EMAIL_SIMPLE_RE.match(email):
         _flash(error="Ongeldig e-mailadres.")
         return redirect(url_for("admin_users"))
-    if len(pw) < 8:
-        _flash(error="Wachtwoord moet minimaal 8 tekens zijn.")
+    if len(pw) < 10:
+        _flash(error="Wachtwoord moet minimaal 10 tekens zijn.")
         return redirect(url_for("admin_users"))
 
     conn = db()
@@ -7635,14 +7498,14 @@ html,body{
               <div class="oh-actions">
                 {% if not p.is_expired %}
                 <button class="oh-icon-btn" type="button"
-                        data-share-link="{{ p.share_link or url_for('package_page', token=p.token, _external=True) }}"
+                        data-share-link="{{ p.share_link }}"
                         onclick="openPackage(this)"
                         title="Pakket openen" aria-label="Pakket openen">
                   {# external-link #}
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </button>
                 <button class="oh-icon-btn" type="button"
-                        data-share-link="{{ p.share_link or url_for('package_page', token=p.token, _external=True) }}"
+                        data-share-link="{{ p.share_link }}"
                         onclick="copyLink(this)"
                         title="Link kopiëren" aria-label="Link kopiëren">
                   {# copy / link #}
@@ -7684,20 +7547,27 @@ html,body{
 // Gedeelde wachtwoord-prompt voor beide acties op deze pagina.
 // Eenvoudige bescherming tegen toevallige nieuwsgierigheid van collega's
 // die hetzelfde inlogaccount delen. Per browser-sessie 1x invoeren.
-const _UPLOAD_PW = "1234";
+const _UPLOAD_PW = {{ uploads_pw|tojson }};
 const _PW_SESSION_KEY = "uploads_pw_ok";
 
 function _ensurePw(){
   try {
     if (sessionStorage.getItem(_PW_SESSION_KEY) === "1") return true;
   } catch(e) { /* sessionStorage soms geblokkeerd; dan elke keer vragen */ }
-  const entered = window.prompt("Voer het wachtwoord in om deze actie uit te voeren:");
-  if (entered === null) return false; // gebruiker drukte Annuleren
-  if (entered === _UPLOAD_PW) {
-    try { sessionStorage.setItem(_PW_SESSION_KEY, "1"); } catch(e) {}
-    return true;
+  // Sta maximaal 3 pogingen toe voordat we de actie helemaal afbreken,
+  // zodat een typo niet meteen om opnieuw klikken vraagt.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const promptMsg = attempt === 0
+      ? "Voer het wachtwoord in om deze actie uit te voeren:"
+      : "Onjuist wachtwoord. Probeer het opnieuw:";
+    const entered = window.prompt(promptMsg);
+    if (entered === null) return false; // gebruiker drukte Annuleren
+    if (entered === _UPLOAD_PW) {
+      try { sessionStorage.setItem(_PW_SESSION_KEY, "1"); } catch(e) {}
+      return true;
+    }
   }
-  alert("Onjuist wachtwoord.");
+  alert("Onjuist wachtwoord. Klik opnieuw op de knop om het nog eens te proberen.");
   return false;
 }
 
@@ -7984,43 +7854,9 @@ def my_uploads():
         is_admin=bool(me["is_admin"]),
         user=me["email"],
         flash_msg=msg, flash_err=err,
-        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
+        base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON,
+        uploads_pw=MY_UPLOADS_PASSWORD,
     )
-
-@app.route("/uploads/<token>/share-link", methods=["POST"])
-def my_uploads_share_link(token):
-    """Geef de share-link van een pakket terug aan de ingelogde gebruiker.
-
-    Beveiliging gebeurt nu client-side in 'Mijn uploads' (browser-prompt voor
-    1234 voordat de knop iets doet). Deze endpoint blijft als JSON-endpoint
-    bestaan voor de JS-flow, maar doet alleen tenant-isolation en bestaans-
-    check.
-    """
-    if not logged_in():
-        return jsonify(ok=False, error="unauthorized"), 401
-    me = current_user()
-    if not me:
-        return jsonify(ok=False, error="unauthorized"), 401
-
-    token = (token or "").strip().lower()
-    if not is_valid_token(token):
-        return jsonify(ok=False, error="bad_token"), 400
-
-    conn = db()
-    try:
-        row = conn.execute(
-            "SELECT token FROM packages WHERE token = ? AND tenant_id = ?",
-            (token, me["tenant_id"])
-        ).fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        return jsonify(ok=False, error="not_found"), 404
-
-    share_link = url_for("package_page", token=token, _external=True)
-    return jsonify(ok=True, share_link=share_link)
-
 
 @app.route("/uploads/<token>/delete", methods=["POST"])
 def my_uploads_delete(token):
