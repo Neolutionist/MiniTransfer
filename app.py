@@ -7630,7 +7630,11 @@ html,body{
                   {# external-link #}
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
-                <button class="oh-icon-btn" type="button" onclick="copyLink('{{ p.share_link }}', this)"
+                <button class="oh-icon-btn" type="button"
+                        data-copy-token="{{ p.token }}"
+                        data-needs-unlock="{{ '1' if p.needs_unlock else '0' }}"
+                        {% if not p.needs_unlock %}data-share-link="{{ p.share_link }}"{% endif %}
+                        onclick="copyLink(this)"
                         title="Link kopiëren" aria-label="Link kopiëren">
                   {# copy / link #}
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -7668,12 +7672,67 @@ html,body{
 </div>
 
 <script>
-function copyLink(link, btn){
-  navigator.clipboard.writeText(link).then(()=>{
-    const orig = btn.textContent;
+function _copyToClipboard(link, btn){
+  const orig = btn.innerHTML;
+  const setTick = () => {
     btn.textContent = '✓';
-    setTimeout(()=>{ btn.textContent = orig; }, 1600);
-  }).catch(()=>{ window.prompt('Kopieer de link:', link); });
+    setTimeout(()=>{ btn.innerHTML = orig; }, 1600);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(setTick).catch(()=>{
+      window.prompt('Kopieer de link:', link);
+    });
+  } else {
+    window.prompt('Kopieer de link:', link);
+  }
+}
+
+async function copyLink(btn){
+  const needsUnlock = btn.getAttribute('data-needs-unlock') === '1';
+  const token = btn.getAttribute('data-copy-token');
+
+  // Snelle pad: pakket is van jezelf of al ontgrendeld -> link staat in dataset.
+  if (!needsUnlock) {
+    const link = btn.getAttribute('data-share-link') || '';
+    if (link) { _copyToClipboard(link, btn); }
+    return;
+  }
+
+  // Vergrendeld pakket: vraag de link op via de beveiligde endpoint.
+  // De server controleert of dit pakket in deze sessie is ontgrendeld.
+  const csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  try {
+    const resp = await fetch('/uploads/' + encodeURIComponent(token) + '/share-link', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrf,
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+    if (resp.status === 403) {
+      // Niet ontgrendeld -> stuur naar de unlock-pagina, met terugkeer naar deze lijst.
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = '/p/unlock?token=' + encodeURIComponent(token) + '&next=' + next;
+      return;
+    }
+    if (!resp.ok) {
+      alert('Kon de link niet ophalen. Probeer het opnieuw.');
+      return;
+    }
+    const data = await resp.json();
+    if (data && data.ok && data.share_link) {
+      // Cache de link op de knop zodat een tweede klik direct werkt.
+      btn.setAttribute('data-needs-unlock', '0');
+      btn.setAttribute('data-share-link', data.share_link);
+      _copyToClipboard(data.share_link, btn);
+    } else {
+      alert('Kon de link niet ophalen.');
+    }
+  } catch (e) {
+    alert('Netwerkfout bij ophalen van de link.');
+  }
 }
 
 // Client-side sortering. Werkt via klikbare tabelkoppen (desktop) én via een
@@ -7894,12 +7953,25 @@ def my_uploads():
 
     now = datetime.now(timezone.utc)
     packages = []
+    # Pakketten van een ándere collega vereisen — net als bij 'openen' — eerst
+    # het MY_UPLOADS_PASSWORD voordat de share-link beschikbaar is. We geven
+    # de link niet mee in de HTML; de JS haalt 'm pas op na unlock.
+    feature_on = bool(MY_UPLOADS_PASSWORD)
     for r in rows:
         exp = parse_dt_utc(r["expires_at"]) or now
         is_expired = exp <= now
         # Onbeperkt geldig: vervaldatum staat ver in de toekomst (>= jaar 9000)
         is_never = exp.year >= 9000
         days_left = max(0, (exp - now).days) if not is_expired else 0
+        # 'needs_unlock' = consistent met _needs_cross_user_unlock():
+        #   feature aan, gebruiker ingelogd (per definitie, anders sta je hier niet),
+        #   pakket is niet van jezelf, en pakket is in deze sessie nog niet ontgrendeld.
+        is_own = (r["owner_user_id"] == me["id"])
+        needs_unlock = (
+            feature_on
+            and not is_own
+            and not _is_token_unlocked(r["token"])
+        )
         packages.append({
             "token": r["token"],
             "title": r["title"],
@@ -7915,7 +7987,11 @@ def my_uploads():
             "owner_email": r["owner_email"],
             "download_count": int(r["download_count"] or 0),
             "last_download_at": format_nl_datetime(r["last_download_at"]),
-            "share_link": url_for("package_page", token=r["token"], _external=True),
+            "needs_unlock": needs_unlock,
+            # Share-link alléén meegeven als het pakket niet vergrendeld is.
+            # Anders kun je 'm gewoon uit de HTML-bron lezen en is de
+            # bescherming waardeloos.
+            "share_link": "" if needs_unlock else url_for("package_page", token=r["token"], _external=True),
         })
 
     summary = _package_summary([dict(r) for r in rows], now)
@@ -7931,6 +8007,51 @@ def my_uploads():
         flash_msg=msg, flash_err=err,
         base_css=BASE_CSS, bg=BG_DIV, head_icon=HTML_HEAD_ICON
     )
+
+@app.route("/uploads/<token>/share-link", methods=["POST"])
+def my_uploads_share_link(token):
+    """Geef de share-link van een pakket terug — maar alleen als de huidige
+    sessie het pakket mag zien.
+
+    Gebruikt door de 'Link kopiëren'-knop in 'Mijn uploads'. Hiermee staat de
+    URL van een vergrendeld pakket NIET in de HTML-bron: hij wordt pas na
+    server-side check uitgeleverd. Dezelfde regels als bij 'openen':
+      - Eigen pakket of feature uit: direct toegestaan.
+      - Pakket van een ander, niet ontgrendeld in deze sessie: 403.
+      - Wel ontgrendeld in deze sessie: toegestaan.
+    """
+    if not logged_in():
+        return jsonify(ok=False, error="unauthorized"), 401
+    me = current_user()
+    if not me:
+        return jsonify(ok=False, error="unauthorized"), 401
+
+    token = (token or "").strip().lower()
+    if not is_valid_token(token):
+        return jsonify(ok=False, error="bad_token"), 400
+
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT token, owner_user_id FROM packages WHERE token = ? AND tenant_id = ?",
+            (token, me["tenant_id"])
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return jsonify(ok=False, error="not_found"), 404
+
+    # Cross-user check, identiek aan _needs_cross_user_unlock maar zonder
+    # de 'not logged_in()' shortcut: we wéten dat we ingelogd zijn.
+    is_own = (row["owner_user_id"] == me["id"])
+    if MY_UPLOADS_PASSWORD and not is_own and not _is_token_unlocked(token):
+        # Geef 403 terug; de JS stuurt de gebruiker dan naar /p/unlock.
+        return jsonify(ok=False, error="locked"), 403
+
+    share_link = url_for("package_page", token=token, _external=True)
+    return jsonify(ok=True, share_link=share_link)
+
 
 @app.route("/uploads/<token>/delete", methods=["POST"])
 def my_uploads_delete(token):
