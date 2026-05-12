@@ -6874,6 +6874,7 @@ def admin_pending_cancel(pending_id):
 MY_UPLOADS_HTML = """
 <!doctype html><html lang="nl"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="csrf-token" content="{{ csrf_token() }}"/>
 <title>Mijn uploads · {{ brand.name }}</title>{{ head_icon|safe }}
 <style>
 {{ base_css }}
@@ -7723,7 +7724,13 @@ async function copyLink(btn){
 
   // Vergrendeld pakket: vraag de link op via de beveiligde endpoint.
   // De server controleert of dit pakket in deze sessie is ontgrendeld.
-  const csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  const csrf = csrfMeta ? (csrfMeta.getAttribute('content') || '') : '';
+  if (!csrf) {
+    console.error('copyLink: csrf-token meta tag ontbreekt in HTML head');
+    alert('Beveiligings-token ontbreekt. Herlaad de pagina.');
+    return;
+  }
   try {
     const resp = await fetch('/uploads/' + encodeURIComponent(token) + '/share-link', {
       method: 'POST',
@@ -7741,7 +7748,16 @@ async function copyLink(btn){
       return;
     }
     if (!resp.ok) {
-      alert('Kon de link niet ophalen. Probeer het opnieuw.');
+      // Probeer de body uit te lezen voor een nuttige foutmelding.
+      let detail = '';
+      try {
+        const j = await resp.json();
+        detail = (j && j.error) ? j.error : '';
+      } catch (e) {
+        try { detail = await resp.text(); } catch (_) {}
+      }
+      console.error('copyLink failed', resp.status, detail);
+      alert('Kon de link niet ophalen (HTTP ' + resp.status + (detail ? ': ' + detail : '') + '). Probeer het opnieuw.');
       return;
     }
     const data = await resp.json();
@@ -7751,9 +7767,11 @@ async function copyLink(btn){
       btn.setAttribute('data-share-link', data.share_link);
       _copyToClipboard(data.share_link, btn);
     } else {
+      console.error('copyLink: onverwachte response', data);
       alert('Kon de link niet ophalen.');
     }
   } catch (e) {
+    console.error('copyLink netwerkfout', e);
     alert('Netwerkfout bij ophalen van de link.');
   }
 }
