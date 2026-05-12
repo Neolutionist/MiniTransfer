@@ -1556,6 +1556,7 @@ INDEX_HTML = """
     /* Toggle radios */
     .oh-toggle {
       display: inline-flex;
+      align-items: stretch;
       background: var(--oh-surface-2);
       border: 1px solid var(--oh-border);
       border-radius: var(--oh-radius-sm);
@@ -1563,14 +1564,16 @@ INDEX_HTML = """
       gap: 2px;
     }
     .oh-toggle label {
-      display: flex;
+      display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
-      padding: 7px 14px;
+      padding: 6px 14px;
       cursor: pointer;
       font-size: 13px;
+      line-height: 1.2;
       color: var(--oh-muted);
-      border-radius: 4px;
+      border-radius: 7px;
       transition: background .15s, color .15s;
       user-select: none;
     }
@@ -5266,11 +5269,6 @@ def package_page(token):
                 _async_delete_s3_keys(s3_keys)
             abort(410)
 
-        # Pakket-bescherming voor ingelogde gebruikers: per pakket éénmalig
-        # wachtwoord vragen, zodat collega's niet ongezien rondkijken.
-        if _needs_cross_user_unlock(pkg):
-            return redirect(url_for("cross_user_unlock", token=token, next=request.path))
-
         if pkg["password_hash"]:
             if request.method == "GET" and not _pkg_allow_is_valid(token):
                 return render_template_string(PASS_PROMPT_HTML, base_css=BASE_CSS, bg=BG_DIV, error=None, head_icon=HTML_HEAD_ICON)
@@ -5505,9 +5503,6 @@ def stream_file(token, item_id):
         pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
         if not pkg: abort(404)
         if _is_pkg_expired(pkg): abort(410)
-        # Pakket-bescherming: collega kan zonder unlock niet rechtstreeks downloaden.
-        if _needs_cross_user_unlock(pkg):
-            return redirect(url_for("cross_user_unlock", token=token, next=url_for("package_page", token=token)))
         if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
         it = c.execute("SELECT * FROM items WHERE id=? AND token=? AND tenant_id=?", (item_id, token, t)).fetchone()
     finally:
@@ -5554,9 +5549,6 @@ def stream_zip(token):
         pkg = c.execute("SELECT * FROM packages WHERE token=? AND tenant_id=?", (token, t)).fetchone()
         if not pkg: abort(404)
         if _is_pkg_expired(pkg): abort(410)
-        # Pakket-bescherming: collega kan zonder unlock niet rechtstreeks downloaden.
-        if _needs_cross_user_unlock(pkg):
-            return redirect(url_for("cross_user_unlock", token=token, next=url_for("package_page", token=token)))
         if pkg["password_hash"] and not _pkg_allow_is_valid(token): abort(403)
         rows = c.execute("""SELECT name,path,s3_key FROM items
                             WHERE token=? AND tenant_id=?
@@ -7954,22 +7946,15 @@ def my_uploads():
 
     now = datetime.now(timezone.utc)
     packages = []
-    # Pakket-bescherming voor de share-link kopieerknop: identieke regels als
-    # _needs_cross_user_unlock (die ook door 'openen' wordt gebruikt). In een
-    # gedeeld-account-setup is owner_user_id altijd dezelfde, dus we kunnen
-    # daar NIET op vertrouwen om 'eigen' vs 'andermans' pakket te bepalen.
-    # We laten dat dus expres weg en vragen het wachtwoord per pakket, één
-    # keer per sessie (TTL via MY_UPLOADS_UNLOCK_TTL).
-    feature_on = bool(MY_UPLOADS_PASSWORD)
+    # Bescherming voor de openen-/kopieer-knoppen gebeurt nu client-side in de
+    # browser (prompt voor 1234 voor de knop iets doet). Geen server-side
+    # unlock-state meer; alle pakketten krijgen direct hun share-link mee.
     for r in rows:
         exp = parse_dt_utc(r["expires_at"]) or now
         is_expired = exp <= now
         # Onbeperkt geldig: vervaldatum staat ver in de toekomst (>= jaar 9000)
         is_never = exp.year >= 9000
         days_left = max(0, (exp - now).days) if not is_expired else 0
-        # needs_unlock: feature aan, en dit pakket is in deze sessie nog niet
-        # ontgrendeld. Consistent met _needs_cross_user_unlock.
-        needs_unlock = feature_on and not _is_token_unlocked(r["token"])
         packages.append({
             "token": r["token"],
             "title": r["title"],
@@ -7985,11 +7970,7 @@ def my_uploads():
             "owner_email": r["owner_email"],
             "download_count": int(r["download_count"] or 0),
             "last_download_at": format_nl_datetime(r["last_download_at"]),
-            "needs_unlock": needs_unlock,
-            # Share-link alléén meegeven als het pakket niet vergrendeld is.
-            # Anders kun je 'm gewoon uit de HTML-bron lezen en is de
-            # bescherming waardeloos.
-            "share_link": "" if needs_unlock else url_for("package_page", token=r["token"], _external=True),
+            "share_link": url_for("package_page", token=r["token"], _external=True),
         })
 
     summary = _package_summary([dict(r) for r in rows], now)
@@ -8008,18 +7989,12 @@ def my_uploads():
 
 @app.route("/uploads/<token>/share-link", methods=["POST"])
 def my_uploads_share_link(token):
-    """Geef de share-link van een pakket terug — maar alleen als de huidige
-    sessie het pakket heeft ontgrendeld.
+    """Geef de share-link van een pakket terug aan de ingelogde gebruiker.
 
-    Gebruikt door de 'Link kopiëren'-knop in 'Mijn uploads'. Hiermee staat de
-    URL van een vergrendeld pakket NIET in de HTML-bron: hij wordt pas na
-    server-side check uitgeleverd. Identieke regels als _needs_cross_user_unlock
-    (gebruikt door de 'openen'-knop):
-      - Feature uit (MY_UPLOADS_PASSWORD leeg): toegestaan.
-      - Wel ontgrendeld in deze sessie: toegestaan.
-      - Anders: 403.
-    Belangrijk: in een gedeeld-account-setup is owner_user_id geen indicator
-    van 'eigen' vs 'andermans' pakket, dus daar checken we niet op.
+    Beveiliging gebeurt nu client-side in 'Mijn uploads' (browser-prompt voor
+    1234 voordat de knop iets doet). Deze endpoint blijft als JSON-endpoint
+    bestaan voor de JS-flow, maar doet alleen tenant-isolation en bestaans-
+    check.
     """
     if not logged_in():
         return jsonify(ok=False, error="unauthorized"), 401
@@ -8031,7 +8006,6 @@ def my_uploads_share_link(token):
     if not is_valid_token(token):
         return jsonify(ok=False, error="bad_token"), 400
 
-    # Bestaan + tenant-isolation check
     conn = db()
     try:
         row = conn.execute(
@@ -8043,11 +8017,6 @@ def my_uploads_share_link(token):
 
     if not row:
         return jsonify(ok=False, error="not_found"), 404
-
-    # Wachtwoord-check: feature aan en pakket niet ontgrendeld in deze sessie? 403.
-    # De JS stuurt de gebruiker dan naar /p/unlock.
-    if MY_UPLOADS_PASSWORD and not _is_token_unlocked(token):
-        return jsonify(ok=False, error="locked"), 403
 
     share_link = url_for("package_page", token=token, _external=True)
     return jsonify(ok=True, share_link=share_link)
