@@ -4066,13 +4066,18 @@ def login():
 
         if row is not None and not row["disabled"] and pw_ok:
             # Onverifieerde accounts (zoals trial vóór e-mail-bevestiging) mogen
-            # niet inloggen. Geen apart pad zodat e-mail-enumeratie niet mogelijk is.
+            # niet inloggen. We geven exact dezelfde foutmelding terug als bij
+            # 'wachtwoord fout' — anders kan een aanvaller via deze response
+            # afleiden of een mailadres een account heeft (e-mail-enumeratie).
+            # We registreren géén login-failure (geen rate-limit straf): de
+            # gebruiker heeft het juiste wachtwoord, alleen verificatie ontbreekt.
+            # TODO: aparte "stuur verify-mail opnieuw"-flow toevoegen zodat
+            # legitieme gebruikers niet vastlopen.
             if not row["email_verified"]:
-                _login_register_failure(ip)
                 time.sleep(0.3)
                 return render_template_string(
                     LOGIN_HTML,
-                    error="Bevestig eerst je e-mailadres via de link die we je hebben gestuurd.",
+                    error="Onjuiste inloggegevens.",
                     base_css=BASE_CSS, bg=BG_DIV,
                     auth_email="",
                     head_icon=HTML_HEAD_ICON
@@ -4798,17 +4803,21 @@ def put_complete():
     # Verifieer ownership + key-prefix matcht
     if not key.startswith(f"uploads/{t}/{token}/"):
         return jsonify(ok=False, error="invalid_key"), 400
+
     conn = db()
     try:
         if not _user_owns_package(conn, token, uid, t):
-            conn.close()
             return jsonify(ok=False, error="forbidden"), 403
-    except Exception:
-        conn.close()
-        raise
-    try:
-        head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+
+        # Haal de echte size op via S3 HEAD. De client-side meegegeven size
+        # is niet te vertrouwen (kan gemanipuleerd zijn).
+        try:
+            head = s3.head_object(Bucket=S3_BUCKET, Key=key)
+        except (ClientError, BotoCoreError):
+            log.exception("put_complete HEAD failed: %s", key)
+            return jsonify(ok=False, error="server_error"), 500
         size = int(head.get("ContentLength", 0))
+
         # Trial post-check: ondanks pre-check in put-init kan een gemanipuleerde
         # clientSize een te grote upload doorlaten. Hier verifieren we tegen de
         # ECHTE size en ruimen op als de limiet alsnog overschreden wordt.
@@ -4826,9 +4835,9 @@ def put_complete():
                     s3.delete_object(Bucket=S3_BUCKET, Key=key)
                 except Exception:
                     log.exception("trial limit cleanup failed: %s", key)
-                conn.close()
                 return jsonify(ok=False, error="trial_size_limit",
                                message=f"Pakket overschrijdt {gb:.0f} GB (trial-limiet). Upload geweigerd."), 403
+
         try:
             conn.execute("""INSERT INTO items(token,s3_key,name,path,size_bytes,tenant_id)
                          VALUES(?,?,?,?,?,?)""",
@@ -4841,13 +4850,11 @@ def put_complete():
                 s3.delete_object(Bucket=S3_BUCKET, Key=key)
             except Exception:
                 log.exception("orphan delete failed: %s", key)
-            raise
-        conn.close()
+            return jsonify(ok=False, error="server_error"), 500
+
         return jsonify(ok=True)
-    except (ClientError, BotoCoreError):
+    finally:
         conn.close()
-        log.exception("put_complete failed")
-        return jsonify(ok=False, error="server_error"), 500
 
 @app.route("/mpu-init", methods=["POST"])
 def mpu_init():
@@ -5138,23 +5145,28 @@ def _pkg_allow_is_valid(token: str) -> bool:
 _PKG_ALLOW_MAX_KEYS = 25
 
 def _pkg_allow_set(token: str) -> None:
-    # Verwijder eerst verlopen entries; cap daarna op de max.
+    """Markeer pakket als ontgrendeld (voor het per-pakket wachtwoord).
+
+    Schoont in één pass verlopen entries op en hanteert een cap om te
+    voorkomen dat de session-cookie volloopt.
+    """
     now_ts = time.time()
-    allow_keys = [k for k in list(session.keys()) if k.startswith("allow_")]
-    for k in allow_keys:
+    # Eén pass: verzamel geldige (niet-verlopen) allow_* entries met hun exp.
+    valid = []  # list of (exp, key)
+    for k in list(session.keys()):
+        if not isinstance(k, str) or not k.startswith("allow_"):
+            continue
         rec = session.get(k)
-        if not isinstance(rec, dict) or float(rec.get("exp") or 0) <= now_ts:
+        if isinstance(rec, dict) and float(rec.get("exp") or 0) > now_ts:
+            valid.append((float(rec["exp"]), k))
+        else:
+            # Verlopen of corrupt: weg ermee.
             session.pop(k, None)
-    # Hertel na opschoning
-    allow_keys = [k for k in list(session.keys()) if k.startswith("allow_")]
-    # Als we nog over de limiet zitten, gooi de oudste (laagste exp) eruit
-    if len(allow_keys) >= _PKG_ALLOW_MAX_KEYS:
-        sortable = []
-        for k in allow_keys:
-            rec = session.get(k) or {}
-            sortable.append((float(rec.get("exp") or 0), k))
-        sortable.sort()
-        for _, k in sortable[:len(allow_keys) - _PKG_ALLOW_MAX_KEYS + 1]:
+    # Als we de cap dreigen te overschrijden (we gaan zo +1 toevoegen), kap de
+    # oudste eraf. Met _PKG_ALLOW_MAX_KEYS=25 en doorgaans <5 actief is dit zelden raak.
+    if len(valid) >= _PKG_ALLOW_MAX_KEYS:
+        valid.sort()  # oudste (laagste exp) eerst
+        for _, k in valid[:len(valid) - _PKG_ALLOW_MAX_KEYS + 1]:
             session.pop(k, None)
     session[f"allow_{token}"] = {"ok": True, "exp": now_ts + PKG_ALLOW_TTL}
 
@@ -5319,29 +5331,36 @@ def package_page(token):
 CROSS_USER_UNLOCK_KEY = "pkg_unlocked_tokens"  # dict: {token: exp_timestamp}
 
 def _get_unlocked_tokens() -> dict:
-    """Haal de dict met ontgrendelde tokens uit de sessie. Maakt schoon
-    onderweg (verwijdert verlopen entries)."""
+    """Haal de dict met ontgrendelde tokens uit de sessie.
+
+    Read-only: schrijft NIET naar de sessie, ook niet om verlopen entries op
+    te ruimen. Anders zou elke pageload van /uploads de session-cookie
+    hertekenen. Opschoning gebeurt expliciet in _set_token_unlocked() —
+    daar schrijven we toch al.
+    """
     raw = session.get(CROSS_USER_UNLOCK_KEY) or {}
     if not isinstance(raw, dict):
         return {}
-    now = time.time()
-    cleaned = {tok: exp for tok, exp in raw.items()
-               if isinstance(exp, (int, float)) and exp > now}
-    # Schrijf alleen terug als er daadwerkelijk iets veranderd is,
-    # om onnodige session-cookie-updates te voorkomen.
-    if len(cleaned) != len(raw):
-        session[CROSS_USER_UNLOCK_KEY] = cleaned
-    return cleaned
+    return raw
 
 def _is_token_unlocked(token: str) -> bool:
-    """True als dit specifieke pakket in de huidige sessie al is ontgrendeld."""
-    return token in _get_unlocked_tokens()
+    """True als dit specifieke pakket in de huidige sessie nog geldig is ontgrendeld."""
+    rec = _get_unlocked_tokens().get(token)
+    if not isinstance(rec, (int, float)):
+        return False
+    return rec > time.time()
 
 def _set_token_unlocked(token: str) -> None:
-    """Markeer een pakket als ontgrendeld in deze sessie."""
-    tokens = _get_unlocked_tokens()
-    tokens[token] = time.time() + MY_UPLOADS_UNLOCK_TTL
-    session[CROSS_USER_UNLOCK_KEY] = tokens
+    """Markeer een pakket als ontgrendeld in deze sessie.
+
+    Schoont en passant verlopen entries op (we schrijven toch al naar de sessie).
+    """
+    raw = _get_unlocked_tokens()
+    now_ts = time.time()
+    cleaned = {tok: exp for tok, exp in raw.items()
+               if isinstance(exp, (int, float)) and exp > now_ts}
+    cleaned[token] = now_ts + MY_UPLOADS_UNLOCK_TTL
+    session[CROSS_USER_UNLOCK_KEY] = cleaned
 
 def _needs_cross_user_unlock(pkg) -> bool:
     """True als deze request een ingelogde-gebruiker is die dit specifieke
@@ -5511,6 +5530,10 @@ def stream_file(token, item_id):
 
     # Presigned GET: browser praat direct met B2/S3. Scheelt bandbreedte en voorkomt
     # dat request-tijd de Render-timeout raakt bij grote bestanden.
+    # TTL: 5 minuten — genoeg om de download te starten (browser begint direct na
+    # de 302), maar beperkt het risico als iemand de URL uit de netwerk-tab kopieert.
+    # De download zelf mag langer duren: zodra de transfer begonnen is, blijft hij
+    # gaan tot het einde, ongeacht de presigned-TTL.
     try:
         # RFC 6266-conforme Content-Disposition met UTF-8-fallback voor
         # non-ASCII filenames (bijv. accenten, Arabisch, Chinees).
@@ -5521,7 +5544,7 @@ def stream_file(token, item_id):
                 "Key": it["s3_key"],
                 "ResponseContentDisposition": _safe_content_disposition(it["name"] or "download"),
             },
-            ExpiresIn=3600, HttpMethod="GET",
+            ExpiresIn=300, HttpMethod="GET",
         )
         return redirect(url, code=302)
     except Exception:
@@ -7953,9 +7976,12 @@ def my_uploads():
 
     now = datetime.now(timezone.utc)
     packages = []
-    # Pakketten van een ándere collega vereisen — net als bij 'openen' — eerst
-    # het MY_UPLOADS_PASSWORD voordat de share-link beschikbaar is. We geven
-    # de link niet mee in de HTML; de JS haalt 'm pas op na unlock.
+    # Pakket-bescherming voor de share-link kopieerknop: identieke regels als
+    # _needs_cross_user_unlock (die ook door 'openen' wordt gebruikt). In een
+    # gedeeld-account-setup is owner_user_id altijd dezelfde, dus we kunnen
+    # daar NIET op vertrouwen om 'eigen' vs 'andermans' pakket te bepalen.
+    # We laten dat dus expres weg en vragen het wachtwoord per pakket, één
+    # keer per sessie (TTL via MY_UPLOADS_UNLOCK_TTL).
     feature_on = bool(MY_UPLOADS_PASSWORD)
     for r in rows:
         exp = parse_dt_utc(r["expires_at"]) or now
@@ -7963,15 +7989,9 @@ def my_uploads():
         # Onbeperkt geldig: vervaldatum staat ver in de toekomst (>= jaar 9000)
         is_never = exp.year >= 9000
         days_left = max(0, (exp - now).days) if not is_expired else 0
-        # 'needs_unlock' = consistent met _needs_cross_user_unlock():
-        #   feature aan, gebruiker ingelogd (per definitie, anders sta je hier niet),
-        #   pakket is niet van jezelf, en pakket is in deze sessie nog niet ontgrendeld.
-        is_own = (r["owner_user_id"] == me["id"])
-        needs_unlock = (
-            feature_on
-            and not is_own
-            and not _is_token_unlocked(r["token"])
-        )
+        # needs_unlock: feature aan, en dit pakket is in deze sessie nog niet
+        # ontgrendeld. Consistent met _needs_cross_user_unlock.
+        needs_unlock = feature_on and not _is_token_unlocked(r["token"])
         packages.append({
             "token": r["token"],
             "title": r["title"],
@@ -8011,14 +8031,17 @@ def my_uploads():
 @app.route("/uploads/<token>/share-link", methods=["POST"])
 def my_uploads_share_link(token):
     """Geef de share-link van een pakket terug — maar alleen als de huidige
-    sessie het pakket mag zien.
+    sessie het pakket heeft ontgrendeld.
 
     Gebruikt door de 'Link kopiëren'-knop in 'Mijn uploads'. Hiermee staat de
     URL van een vergrendeld pakket NIET in de HTML-bron: hij wordt pas na
-    server-side check uitgeleverd. Dezelfde regels als bij 'openen':
-      - Eigen pakket of feature uit: direct toegestaan.
-      - Pakket van een ander, niet ontgrendeld in deze sessie: 403.
+    server-side check uitgeleverd. Identieke regels als _needs_cross_user_unlock
+    (gebruikt door de 'openen'-knop):
+      - Feature uit (MY_UPLOADS_PASSWORD leeg): toegestaan.
       - Wel ontgrendeld in deze sessie: toegestaan.
+      - Anders: 403.
+    Belangrijk: in een gedeeld-account-setup is owner_user_id geen indicator
+    van 'eigen' vs 'andermans' pakket, dus daar checken we niet op.
     """
     if not logged_in():
         return jsonify(ok=False, error="unauthorized"), 401
@@ -8030,10 +8053,11 @@ def my_uploads_share_link(token):
     if not is_valid_token(token):
         return jsonify(ok=False, error="bad_token"), 400
 
+    # Bestaan + tenant-isolation check
     conn = db()
     try:
         row = conn.execute(
-            "SELECT token, owner_user_id FROM packages WHERE token = ? AND tenant_id = ?",
+            "SELECT token FROM packages WHERE token = ? AND tenant_id = ?",
             (token, me["tenant_id"])
         ).fetchone()
     finally:
@@ -8042,11 +8066,9 @@ def my_uploads_share_link(token):
     if not row:
         return jsonify(ok=False, error="not_found"), 404
 
-    # Cross-user check, identiek aan _needs_cross_user_unlock maar zonder
-    # de 'not logged_in()' shortcut: we wéten dat we ingelogd zijn.
-    is_own = (row["owner_user_id"] == me["id"])
-    if MY_UPLOADS_PASSWORD and not is_own and not _is_token_unlocked(token):
-        # Geef 403 terug; de JS stuurt de gebruiker dan naar /p/unlock.
+    # Wachtwoord-check: feature aan en pakket niet ontgrendeld in deze sessie? 403.
+    # De JS stuurt de gebruiker dan naar /p/unlock.
+    if MY_UPLOADS_PASSWORD and not _is_token_unlocked(token):
         return jsonify(ok=False, error="locked"), 403
 
     share_link = url_for("package_page", token=token, _external=True)
