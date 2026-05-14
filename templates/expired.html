@@ -1829,152 +1829,6 @@ body.deathmachine-active::before{
 <script src="https://cdn.jsdelivr.net/npm/three@0.158/build/three.min.js"></script>
 
 <script>
-// [PERF DIAG] Tijdelijke spike-meter — laat zien of fix werkt.
-(() => {
-  const _T0 = performance.now();
-  let _renderHooked = false;
-  const _spikes = [];
-  let _summaryPrinted = false;
-  const _hookTry = setInterval(() => {
-    if(_renderHooked) return;
-    const r = window.OHRenderer;
-    if(!r) return;
-    _renderHooked = true;
-    clearInterval(_hookTry);
-    const _origRender = r.render.bind(r);
-    r.render = function(scene, camera){
-      const t0 = performance.now();
-      const res = _origRender(scene, camera);
-      const dt = performance.now() - t0;
-      const elapsed = performance.now() - _T0;
-      if(elapsed < 35000 && dt > 100){
-        _spikes.push({ at: (elapsed/1000).toFixed(1), ms: dt.toFixed(0) });
-      }
-      if(elapsed > 35000 && !_summaryPrinted){
-        _summaryPrinted = true;
-        if(_spikes.length === 0){
-          console.log("%c[FIX-RESULT] 0 render spikes in 35s — OPGELOST!",
-            "color:#9dff7c;font-weight:bold;font-size:16px");
-        } else {
-          const max = Math.max(..._spikes.map(s => parseFloat(s.ms)));
-          console.log(`%c[FIX-RESULT] ${_spikes.length} spikes nog, max=${max.toFixed(0)}ms`,
-            "color:#ff8060;font-weight:bold;font-size:14px");
-          _spikes.forEach(s => console.log(`  @${s.at}s: ${s.ms}ms`));
-        }
-      }
-      return res;
-    };
-  }, 50);
-})();
-</script>
-
-<script>
-// =========================================================================
-// [PERF v15] AUTO-COMPILE NEW MATERIALS — THE FIX
-// =========================================================================
-// 13 ronden van diagnose. Eindelijk de oorzaak gevonden:
-//
-//   render() spikes met 10 compileShader + 5 linkProgram calls per spike.
-//   compileShader rapporteert 0ms (KHR_parallel_shader_compile async),
-//   MAAR Three.js doet later sync `getProgramParameter(LINK_STATUS)` of
-//   `useProgram(p)` op nog-niet-klaar program = SYNCHROON BLOK 500-800ms.
-//
-// Standard "shader compile stall" bekend WebGL probleem.
-//
-// FIX: hook Object3D.add zodat zodra een nieuwe mesh in scene komt, we
-// renderer.compileAsync triggeren VOOR die mesh's material. Dat start de
-// async compile direct (parallel met gameplay) en TEGEN de tijd dat de
-// mesh in render-zicht komt is de compile al klaar = geen stall.
-//
-// Plus: bij eerste keer dat een mesh in render() komt, doet Three.js
-// sync `getProgramParameter` op het program. Door compileAsync eerder
-// te starten geven we de driver tijd om het in background af te ronden.
-// =========================================================================
-(() => {
-  let _hooked = false;
-  let _pendingCompile = null;
-  const _seenMaterials = new WeakSet();
-
-  function _scheduleCompile(){
-    // Debounce: één compileAsync per microtask
-    if(_pendingCompile) return;
-    _pendingCompile = Promise.resolve().then(() => {
-      _pendingCompile = null;
-      try {
-        const r = window.OHRenderer;
-        const s = window.scene;
-        const c = window.camera;
-        if(r && s && c && typeof r.compileAsync === "function"){
-          // Async — geen wait. KHR_parallel_shader_compile compileert
-          // parallel zonder main-thread block.
-          r.compileAsync(s, c).catch(() => {});
-        }
-      } catch(_){}
-    });
-  }
-
-  function _installHook(){
-    if(_hooked) return;
-    if(typeof THREE === "undefined" || !THREE.Object3D) return;
-    _hooked = true;
-
-    const proto = THREE.Object3D.prototype;
-    const _origAdd = proto.add;
-
-    // Hook .add() — telkens als iets aan scene-graph toegevoegd wordt,
-    // schedule een async compile-pass. Async dus 0 main-thread kosten.
-    proto.add = function(...args){
-      const result = _origAdd.apply(this, args);
-      // Alleen scheduling als deze node uiteindelijk onder window.scene hangt
-      // (anders is het een tijdelijk los object dat niet gerenderd wordt).
-      try {
-        for(const child of args){
-          if(!child) continue;
-          // Snelle check: doorloop child + descendants voor unseen materials
-          let hasNewMaterial = false;
-          if(child.isMesh){
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            for(const m of mats){
-              if(m && !_seenMaterials.has(m)){
-                _seenMaterials.add(m);
-                hasNewMaterial = true;
-              }
-            }
-          }
-          // Children traversal — alleen als child een Group is
-          if(!hasNewMaterial && child.children?.length){
-            child.traverse(obj => {
-              if(!obj.isMesh) return;
-              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-              for(const m of mats){
-                if(m && !_seenMaterials.has(m)){
-                  _seenMaterials.add(m);
-                  hasNewMaterial = true;
-                }
-              }
-            });
-          }
-          if(hasNewMaterial){
-            _scheduleCompile();
-            break;  // één compile per add() is genoeg
-          }
-        }
-      } catch(_){}
-      return result;
-    };
-
-    console.log("[perf-v15] auto-compile hook actief — compileert nieuwe materials async bij scene.add");
-  }
-
-  // Hook zodra THREE geladen is
-  const _try = setInterval(() => {
-    _installHook();
-    if(_hooked) clearInterval(_try);
-  }, 50);
-})();
-</script>
-
-<script>
 // Help/cheats panel — staat los van de game-loop zodat hij ook bij pauze werkt.
 (() => {
   const btn = document.getElementById("helpBtn");
@@ -2229,25 +2083,12 @@ renderBoard();
     if(!audioCtx || _masterBus) return;
 
     _masterBus = audioCtx.createGain();
-    _masterBus.gain.value = 1.0;
+    _masterBus.gain.value = 0.85;   // [AUDIO-FIX] headroom voor de master-limiter hieronder
 
-    // Gun bus: lekker hard, met soft-clipper voor warmte op stacks
+    // Gun bus: stevig maar niet meer 2.4× — dat triggerde OS-level auto-
+    // attenuatie (Windows duck-mode) bij overlappende shots.
     _gunBus = audioCtx.createGain();
-    _gunBus.gain.value = 2.4;             // gunshots zijn nu fors luider dan music
-    const _gunSat = audioCtx.createWaveShaper();
-    {
-      // Soft-saturation curve (tanh-achtig): waarden tussen -1..+1 worden zachtjes
-      // afgerond i.p.v. afgekapt. Voorkomt brick-wall-clipping bij overlappende shots.
-      const N = 1024, curve = new Float32Array(N);
-      for(let i = 0; i < N; i++){
-        const x = (i / (N - 1)) * 2 - 1;
-        curve[i] = Math.tanh(x * 1.6) / Math.tanh(1.6);
-      }
-      _gunSat.curve = curve;
-      _gunSat.oversample = "2x";
-    }
-    _gunBus.connect(_gunSat);
-    _gunSat.connect(_masterBus);
+    _gunBus.gain.value = 1.2;
 
     // Music bus: rustig achtergrondniveau
     _musicBus = audioCtx.createGain();
@@ -2259,7 +2100,20 @@ renderBoard();
     _sfxBus.gain.value = 1.0;
     _sfxBus.connect(_masterBus);
 
-    _masterBus.connect(audioCtx.destination);
+    _gunBus.connect(_masterBus);
+
+    // [AUDIO-FIX] Master limiter VOOR destination. Voorkomt dat overlappende
+    // gunshots de WebAudio output boven 0 dBFS duwen — een bekende trigger
+    // voor browser/OS auto-ducking (waarbij het systeemvolume omlaag gaat).
+    // Transparante settings: knee 3 dB, ratio 12:1, snel attack, soepele release.
+    const _limiter = audioCtx.createDynamicsCompressor();
+    _limiter.threshold.value = -6;
+    _limiter.knee.value      = 3;
+    _limiter.ratio.value     = 12;
+    _limiter.attack.value    = 0.003;
+    _limiter.release.value   = 0.18;
+    _masterBus.connect(_limiter);
+    _limiter.connect(audioCtx.destination);
   }
   // Helpers die elders aangeroepen worden om de juiste output-node te krijgen.
   // Als de buses (om wat voor reden dan ook) niet beschikbaar zijn, fallback
@@ -7545,6 +7399,11 @@ function drawMinimap(){
 
   function queueNextWave(delay=1.2){
     if(state.nextWaveQueued || !player.alive) return;
+    // [CHEAT FIX] nomobs cheat-gate. Bij nomobs zijn er geen enemies dus
+    // de delayed callback zou hieronder altijd `enemies.length === 0` zien
+    // en de wave laten doorlopen. Centraal hier gaten dichten zodat alle
+    // call-sites van queueNextWave gerespecteerd worden.
+    if(window.__perfFlags?.nomobs) return;
     state.nextWaveQueued = true;
 
     // [AUDIO v19] BO2 WAVE-END STINGER
@@ -8784,9 +8643,12 @@ function updateMusic(){
     const core = makeLogoGlyph(isBoss?1.25:1.0);
     core.position.set(0, isBoss?1.62:1.18, 0.24);
     body.add(shoulderL, shoulderR, armL, armR, core);
-    const aura = new THREE.PointLight(0x9fd8ef, isBoss?1.8:0.8, isBoss?9:5, 2);
-    aura.position.set(0, isBoss?2.5:1.9, 1.1);
-    group.add(body, aura);
+    // [PERF-FIX] Aura PointLight per enemy verwijderd. Elke extra PointLight
+    // in de scene verandert het lights-uniform-aantal in alle MeshStandardMaterial
+    // shaders → Three.js gooit alle gecachte programs weg en hercompileert
+    // synchroon op de main thread bij volgende render(). Bij wave-spawn met
+    // 15+ enemies = 15+ recompiles = de 600-3000ms spikes die je in spike-diag ziet.
+    group.add(body);
     group.userData.parts = { body, armL, armR, legL:leftLeg, legR:rightLeg, logo:core, hatBadge:core, ringOuter, ringInner };
     return group;
   }
@@ -8906,31 +8768,30 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     bloodMat = cached.blood;
     bootMat = cached.boot;
   } else {
-    suitMat = new THREE.MeshStandardMaterial({
+    // [PERF-MAJOR] MeshStandardMaterial → MeshLambertMaterial op zombies.
+    // PBR (Standard) genereert ~3× zoveel shader-permutaties als Lambert en
+    // is ~5× duurder om te compileren. Op stylized low-poly zombies met
+    // roughness 0.78-0.95 en metalness 0.0-0.08 doet PBR visueel bijna niks
+    // dat Lambert niet ook doet. Lambert ondersteunt nog steeds emissive.
+    // Dit is de grootste shader-compile-tijdwinst die we kunnen pakken op
+    // dynamische enemies.
+    suitMat = new THREE.MeshLambertMaterial({
       color: palette.suit,
       emissive: palette.accent,
-      emissiveIntensity: isBoss ? 0.18 : 0.06,
-      roughness: 0.95,
-      metalness: 0.02
+      emissiveIntensity: isBoss ? 0.18 : 0.06
     });
-    skinMat = new THREE.MeshStandardMaterial({
+    skinMat = new THREE.MeshLambertMaterial({
       color: palette.skin,
       emissive: 0x100805,
-      emissiveIntensity: 0.06,
-      roughness: 0.78,
-      metalness: 0.04
+      emissiveIntensity: 0.06
     });
-    bloodMat = new THREE.MeshStandardMaterial({
+    bloodMat = new THREE.MeshLambertMaterial({
       color: palette.blood,
       emissive: 0x100404,
-      emissiveIntensity: 0.10,
-      roughness: 0.88,
-      metalness: 0.0
+      emissiveIntensity: 0.10
     });
-    bootMat = new THREE.MeshStandardMaterial({
-      color: palette.boot,
-      roughness: 0.92,
-      metalness: 0.08
+    bootMat = new THREE.MeshLambertMaterial({
+      color: palette.boot
     });
     // Markeer als gedeeld zodat overhaul ze niet disposed
     suitMat._isSharedZombieMat  = true;
@@ -9717,7 +9578,12 @@ function spawnEnemy(isBoss=false){
   // Markeer shared zodat coreCleanupItem het niet disposed
   groundRing.userData._sharedMat = true;
   groundRing.userData._sharedGeo = true;
-  scene.add(groundRing);
+  // [PERF-FIX] Cirkels rondom enemies verborgen op verzoek. Object blijft
+  // bestaan (en wordt door updateEnemies bijgewerkt) zodat geen enkele
+  // cleanup-pad faalt, maar het mesh komt niet in de scene en is dus geen
+  // extra draw-call + geen transparent-pass entry per enemy.
+  groundRing.visible = false;
+  // scene.add(groundRing);  // ← BEWUST uitgeschakeld
 
   const enemy = {
     type,
@@ -11184,19 +11050,21 @@ function shootWithDirection(dirOverride=null){
     ];
     const idx = {};
 
-    // Eén suitMat en één bootMat per ragdoll, gedeeld door alle stukken
-    // — scheelt material-uploads en zorgt dat opacity-fade synchroon loopt.
-    const suitMat = new THREE.MeshStandardMaterial({
-      color:palette.suit, roughness:0.85, metalness:0.06, transparent:true, opacity:1
+    // [PERF-MAJOR] Was 4× MeshStandardMaterial per ragdoll, allocated bij elke
+    // zombie-death. Met 15 dode zombies/wave = 60 nieuwe transparent PBR-
+    // materials per wave = veel shader-permutaties. Lambert is 5× sneller te
+    // compileren, en transparent:true blijft (nodig voor fade-out).
+    const suitMat = new THREE.MeshLambertMaterial({
+      color:palette.suit, transparent:true, opacity:1
     });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color:palette.skin, roughness:0.78, metalness:0.04, transparent:true, opacity:1
+    const skinMat = new THREE.MeshLambertMaterial({
+      color:palette.skin, transparent:true, opacity:1
     });
-    const bloodMat = new THREE.MeshStandardMaterial({
-      color:palette.blood, roughness:0.88, metalness:0.0, transparent:true, opacity:1
+    const bloodMat = new THREE.MeshLambertMaterial({
+      color:palette.blood, transparent:true, opacity:1
     });
-    const bootMat = new THREE.MeshStandardMaterial({
-      color:palette.boot, roughness:0.92, metalness:0.08, transparent:true, opacity:1
+    const bootMat = new THREE.MeshLambertMaterial({
+      color:palette.boot, transparent:true, opacity:1
     });
     const ragdollMaterials = [suitMat, skinMat, bloodMat, bootMat];
 
@@ -14252,96 +14120,6 @@ function animate(now){
   const dt = Math.min(0.033, (now - state.lastTime) / 1000 || 0.016);
   state.lastTime = now;
 
-  // [PERF DIAG v18] Diepste-laag spike-attribution. Als wrap #1 rapporteert
-  // "core=X ms", dan rapporteert deze diagnostic welke van de 10+ update-
-  // calls hieronder de tijd kostte. Stopt automatisch na 8 spikes of 90s.
-  // Zonder spikes = ~0 overhead (één performance.now per frame extra).
-  //
-  // [v20] WEER AANGEZET om de v20 fix te verifiëren. Stopt nog steeds
-  // automatisch na 8 spikes of 90s — geen permanente overhead.
-  if(!animate._diag) animate._diag = {
-    enabled: true, spikesLogged: 0, maxSpikes: 8,
-    startedAt: now, timeoutMs: 90000, threshold: 80
-  };
-  const _D = animate._diag;
-  const _diagOn = _D.enabled;
-  const _frameStart = _diagOn ? performance.now() : 0;
-  let _t0;
-
-  if(_diagOn){
-    _t0 = performance.now();
-    if(now - CORE_LOOP.lastDecorAt >= CORE_LOOP.decorEveryMs){
-      const decorDt = Math.min(0.05, (now - CORE_LOOP.lastDecorAt) / 1000 || dt);
-      CORE_LOOP.lastDecorAt = now;
-      coreUpdateAmbientDecor(now, decorDt);
-    }
-    const _tDecor = performance.now() - _t0;
-
-    let _tMusic=0, _tTimers=0, _tMove=0, _tBullets=0, _tEnemies=0,
-        _tHaz=0, _tParts=0, _tEff=0, _tRag=0, _tPick=0, _tWave=0, _tFire=0;
-    if(state.running){
-      _t0 = performance.now(); updateMusic?.();      _tMusic    = performance.now() - _t0;
-      _t0 = performance.now(); updateTimers?.(dt);   _tTimers   = performance.now() - _t0;
-      _t0 = performance.now(); updateMovement?.(dt); _tMove     = performance.now() - _t0;
-      _t0 = performance.now(); updateBullets?.(dt);  _tBullets  = performance.now() - _t0;
-      _t0 = performance.now(); updateEnemies?.(dt);  _tEnemies  = performance.now() - _t0;
-      _t0 = performance.now(); updateHazards?.(dt);  _tHaz      = performance.now() - _t0;
-      _t0 = performance.now(); updateParticles?.(dt);_tParts    = performance.now() - _t0;
-      _t0 = performance.now(); updateEffects?.(dt);  _tEff      = performance.now() - _t0;
-      _t0 = performance.now(); updateRagdolls?.(dt); _tRag      = performance.now() - _t0;
-      _t0 = performance.now(); updatePickups?.(dt);  _tPick     = performance.now() - _t0;
-      _t0 = performance.now(); tryAdvanceWave();     _tWave     = performance.now() - _t0;
-
-      if(state.fireHeld && !isTouch && player.weapon === "bullet"){
-        _t0 = performance.now(); shootWithDirection?.(); _tFire = performance.now() - _t0;
-      }
-    } else {
-      _t0 = performance.now(); updateViewWeapon?.(dt); _tMove    = performance.now() - _t0;
-      _t0 = performance.now(); updateEffects?.(dt);    _tEff     = performance.now() - _t0;
-      _t0 = performance.now(); updateParticles?.(dt);  _tParts   = performance.now() - _t0;
-      _t0 = performance.now(); updateRagdolls?.(dt);   _tRag     = performance.now() - _t0;
-    }
-
-    if(now - CORE_LOOP.lastMinimapAt >= CORE_LOOP.minimapEveryMs){
-      CORE_LOOP.lastMinimapAt = now;
-      drawMinimap?.();
-    }
-    coreFlushHud();
-
-    _t0 = performance.now();
-    renderer.render(scene, camera);
-    const _tRender = performance.now() - _t0;
-
-    const total = performance.now() - _frameStart;
-    if(total > _D.threshold && _D.spikesLogged < _D.maxSpikes){
-      _D.spikesLogged++;
-      const segs = [
-        ["decor",    _tDecor],
-        ["music",    _tMusic],
-        ["timers",   _tTimers],
-        ["movement", _tMove],
-        ["bullets",  _tBullets],
-        ["enemies",  _tEnemies],
-        ["hazards",  _tHaz],
-        ["particles",_tParts],
-        ["effects",  _tEff],
-        ["ragdolls", _tRag],
-        ["pickups",  _tPick],
-        ["wave",     _tWave],
-        ["fire",     _tFire],
-        ["render",   _tRender],
-      ].filter(s => s[1] >= 1).sort((a, b) => b[1] - a[1]);
-      const top = segs.slice(0, 4).map(([n, t]) => `${n}=${t.toFixed(0)}`).join(" · ");
-      console.warn(`[spike-diag/core] frame=${total.toFixed(0)}ms | ${top}`);
-    }
-    if(now - _D.startedAt > _D.timeoutMs || _D.spikesLogged >= _D.maxSpikes){
-      _D.enabled = false;
-      console.log(`[spike-diag/core] disabled after ${_D.spikesLogged} spikes / ${((now - _D.startedAt)/1000).toFixed(0)}s`);
-    }
-    return;
-  }
-
-  // Originele code-pad (zonder timing-overhead, na disable)
   if(now - CORE_LOOP.lastDecorAt >= CORE_LOOP.decorEveryMs){
     const decorDt = Math.min(0.05, (now - CORE_LOOP.lastDecorAt) / 1000 || dt);
     CORE_LOOP.lastDecorAt = now;
@@ -14759,13 +14537,7 @@ window.addEventListener("keydown", e => {
    ========================= */
 (() => {
   const apoc = {
-    fury: 0,
-    furyMax: 100,
-    furyActive: false,
-    furyTime: 0,
     dashCd: 0,
-    lastExtraShot: 0,
-    lastAuraPulse: 0,
     drones: [],
     overlay: null,
     hud: {},
@@ -14780,10 +14552,6 @@ window.addEventListener("keydown", e => {
     const style = document.createElement("style");
     style.textContent = `
       #apocHud{
-        /* CoD Zombies-stijl: alleen een dunne fury-balk hoog rechts.
-           Knoppen verwijderd uit de visuele card (Q/V/Shift staan in ?-help).
-           Fury blijft een kerngameplay-element, maar mag niet 1/3 van het
-           scherm innemen. Onder de minimap (220x220 op top:14, right:14). */
         position:fixed; right:14px; top:248px; z-index:25;
         width:min(220px, calc(100vw - 32px));
         display:flex; flex-direction:column; gap:6px; pointer-events:none;
@@ -14796,31 +14564,6 @@ window.addEventListener("keydown", e => {
         padding:6px 10px;
         box-shadow:0 6px 18px rgba(0,0,0,.28);
         backdrop-filter: blur(8px);
-      }
-      /* Verberg de knoppen (laatste div in apocCard) — die zaten op pc voor
-         redundantie, terwijl Q/V/Shift al keybinds zijn. Mobile heeft een
-         eigen #apocMobileDock die wel zichtbaar blijft. */
-      #apocCard > div[style*="margin-top"]{ display:none !important; }
-      #apocCard .apoc-sub{ display:none; }
-      .apoc-row{
-        display:flex; align-items:center; justify-content:space-between; gap:8px;
-        color:#fff; font-weight:800; letter-spacing:.03em;
-        font-size:11px;
-      }
-      .apoc-sub{ font-size:.74rem; color:rgba(255,255,255,.66); font-weight:700; }
-      .apoc-meter{
-        height:6px; margin-top:5px; border-radius:999px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.10);
-        background:rgba(255,255,255,.06);
-      }
-      .apoc-meter > i{
-        display:block; height:100%; width:0%;
-        background:linear-gradient(90deg,#00f7ff,#8a2eff,#ff00a8,#ffe600,#00f7ff);
-        background-size:220% 220%;
-        animation:apocFlow 3.2s linear infinite;
-      }
-      .apoc-ready{
-        box-shadow:0 0 0 1px rgba(255,230,0,.22), 0 0 18px rgba(255,230,0,.20);
       }
       .apoc-btn{
         appearance:none; border:0; cursor:pointer;
@@ -14923,13 +14666,6 @@ window.addEventListener("keydown", e => {
     apoc.hud.root = hud;
     apoc.hud.card = hud.querySelector("#apocCard");
     apoc.hud.dashBtn = hud.querySelector("#apocDashBtn");
-    // Dummy stubs voor code die fury-elementen nog opzoekt
-    const _stub = document.createElement("span");
-    _stub.style.display = "none";
-    apoc.hud.fill = _stub;
-    apoc.hud.pct = _stub;
-    apoc.hud.text = _stub;
-    apoc.hud.furyBtn = _stub;
 
     const mobileDock = document.createElement("div");
     mobileDock.id = "apocMobileDock";
@@ -14940,7 +14676,6 @@ window.addEventListener("keydown", e => {
 
     apoc.mobile.root = mobileDock;
     apoc.mobile.dash = mobileDock.querySelector("#apocMobileDash");
-    apoc.mobile.fury = _stub;
 
     if(!isTouch){
       mobileDock.style.display = "none";
@@ -14973,7 +14708,6 @@ window.addEventListener("keydown", e => {
   }
 
   function updateApocHud(){
-    // [REMOVED] Fury HUD writes verwijderd. Alleen dash-knop state.
     if(!apoc.hud.dashBtn) return;
     const dashReady = apoc.dashCd <= 0;
     apoc.hud.dashBtn.disabled = !dashReady;
@@ -14983,14 +14717,6 @@ window.addEventListener("keydown", e => {
       apoc.mobile.dash.innerHTML = dashReady ? `SHIFT<small>dash</small>` : `SHIFT<small>${apoc.dashCd.toFixed(1)}s</small>`;
     }
   }
-
-  function addFury(amount){
-    // [REMOVED] Fury verwijderd op verzoek. No-op.
-  }
-
-  // [REMOVED] makeDrone / spawnDrones / clearDrones — drones waren onderdeel
-  // van Fury en zijn op verzoek verwijderd. nearestEnemy hieronder blijft
-  // als algemene helper.
 
   function nearestEnemy(maxDist = 20){
     let best = null;
@@ -15043,11 +14769,8 @@ window.addEventListener("keydown", e => {
   // roepen 'm aan en kregen ReferenceError omdat hij closure-scoped is.
   try { window.OHDamageEnemyDirect = damageEnemyDirect; } catch(_){}
 
-  // [REMOVED] droneShoot — onderdeel van Fury.
-  function updateDrones(dt, now){ /* no-op, drones zijn verwijderd */ }
-
-  function activateFury(){ /* [REMOVED] Fury verwijderd op verzoek. No-op. */ }
-  function stopFury(silent=false){ /* [REMOVED] Fury verwijderd. No-op. */ }
+  // [REMOVED] Fury volledig verwijderd: updateDrones/activateFury/stopFury
+  // stubs zijn weg. Het animate-wrapper hieronder roept geen drones meer aan.
 
 function getMoveVector(){
   const v = new THREE.Vector3();
@@ -15187,28 +14910,17 @@ function doDash(){
 
   // [REMOVED] furySideShots — onderdeel van Fury.
 
-  function updateTemporaryRelicEffects(dt){
-    if(player.speedBoostTimer > 0){
-      player.speedBoostTimer = Math.max(0, player.speedBoostTimer - dt);
-      if(player.speedBoostTimer <= 0){
-        player.speedBoost = 0;
-      }
-    }
-  }
-
-  function updateFury(dt){
-    // [REMOVED] Fury logica verwijderd. Naam blijft 'updateFury' voor
-    // compat met animate-wrapper. Doet nu alleen dash-cooldown tick.
+  function updateDashCooldown(dt){
     if(apoc.dashCd > 0){
       apoc.dashCd = Math.max(0, apoc.dashCd - dt);
-      const _ufNow = performance.now();
-      if(!updateFury._hudAt || _ufNow - updateFury._hudAt >= 200){
-        updateFury._hudAt = _ufNow;
+      const _now = performance.now();
+      if(!updateDashCooldown._hudAt || _now - updateDashCooldown._hudAt >= 200){
+        updateDashCooldown._hudAt = _now;
         updateApocHud();
       }
-    } else if(updateFury._hudAt){
+    } else if(updateDashCooldown._hudAt){
       updateApocHud();
-      updateFury._hudAt = 0;
+      updateDashCooldown._hudAt = 0;
     }
   }
 
@@ -15269,49 +14981,16 @@ function doDash(){
 
   /* frame wrapper */
   const _animate = animate;
-  // [PERF DIAG v18] Tweede laag spike-attribution. Werkt samen met de
-  // diagnostic in wrap #2 (regel ~15530). Als wrap #2 rapporteert
-  // "_animate(inner) = X ms", dan rapporteert DEZE log waar in de inner
-  // chain (apoc-extras → echte animate) de tijd zat.
-  // [v20] WEER AANGEZET — verificatie van v20 fix.
-  const _diagApoc = {
-    enabled: true,
-    spikesLogged: 0,
-    maxSpikes: 8,
-    startedAt: 0,
-    timeoutMs: 90000,
-    threshold: 100,  // iets lager — we zien al inner van >150 totaal
-  };
   animate = function(now){
-    if(_diagApoc.enabled && !_diagApoc.startedAt) _diagApoc.startedAt = now;
-    const _frameStart = _diagApoc.enabled ? performance.now() : 0;
-
     const dt = Math.min(0.033, (now - apoc.extraLast) / 1000 || 0.016);
     apoc.extraLast = now;
-
-    let _t0, _tRelic = 0, _tFury = 0, _tDrones = 0, _tCore = 0;
-    if(_diagApoc.enabled){
-      _t0 = performance.now(); updateTemporaryRelicEffects(dt); _tRelic  = performance.now() - _t0;
-      _t0 = performance.now(); updateFury(dt);                  _tFury   = performance.now() - _t0;
-      _t0 = performance.now(); updateDrones(dt, now);           _tDrones = performance.now() - _t0;
-      _t0 = performance.now(); _animate(now);                   _tCore   = performance.now() - _t0;
-
-      const total = performance.now() - _frameStart;
-      if(total > _diagApoc.threshold && _diagApoc.spikesLogged < _diagApoc.maxSpikes){
-        _diagApoc.spikesLogged++;
-        console.warn(
-          `[spike-diag/apoc] frame=${total.toFixed(0)}ms | relic=${_tRelic.toFixed(0)} fury=${_tFury.toFixed(0)} drones=${_tDrones.toFixed(0)} core=${_tCore.toFixed(0)}`
-        );
-      }
-      if(now - _diagApoc.startedAt > _diagApoc.timeoutMs || _diagApoc.spikesLogged >= _diagApoc.maxSpikes){
-        _diagApoc.enabled = false;
-      }
-    } else {
-      updateTemporaryRelicEffects(dt);
-      updateFury(dt);
-      updateDrones(dt, now);
-      _animate(now);
+    // Speed-boost timer aftellen (was de hele updateTemporaryRelicEffects-functie)
+    if(player.speedBoostTimer > 0){
+      player.speedBoostTimer -= dt;
+      if(player.speedBoostTimer <= 0){ player.speedBoostTimer = 0; player.speedBoost = 0; }
     }
+    updateDashCooldown(dt);
+    _animate(now);
   };
 
   makeHud();
@@ -16000,71 +15679,14 @@ function doDash(){
   };
 
   const _animate = animate;
-  // [PERF DIAG v18] SPIKE-ATTRIBUTION DIAGNOSTIC
-  // ===================================================================
-  // Chrome rapporteerde "[Violation] 'requestAnimationFrame' handler took
-  // 3882ms" met regel 15530 als bron. Dat is DEZE wrapper, maar zonder
-  // sub-segment timing weten we niet of de 3.8s zat in:
-  //   - updateArenaEvent / updateBossPhases / updateBossDecor / updateCrates
-  //   - _animate (= de eerdere wrappers + de echte game-loop daarbinnen)
-  //
-  // Strategie: meet elk segment apart. Bij elke spike >150ms log de top-3
-  // duurste segmenten + huidige wave + enemy-count. Stopt automatisch na
-  // 8 spikes of 90s — geen permanente overhead.
-  // [v20] WEER AANGEZET — verificatie van v20 fix.
-  const _diag = {
-    enabled: true,
-    spikesLogged: 0,
-    maxSpikes: 8,
-    startedAt: 0,        // set on first frame
-    timeoutMs: 90000,
-    threshold: 150,      // ms
-  };
   animate = function(now){
-    if(_diag.enabled && !_diag.startedAt) _diag.startedAt = now;
-    const _frameStart = _diag.enabled ? performance.now() : 0;
-
     const dt = Math.min(0.033, (now - nemesis.lastNow) / 1000 || 0.016);
     nemesis.lastNow = now;
-
-    let _t0, _tArena = 0, _tPhases = 0, _tDecor = 0, _tCrates = 0, _tInner = 0;
-    if(_diag.enabled){
-      _t0 = performance.now(); updateArenaEvent(dt);        _tArena  = performance.now() - _t0;
-      _t0 = performance.now(); updateBossPhases(dt);        _tPhases = performance.now() - _t0;
-      _t0 = performance.now(); updateBossDecor(dt, now);    _tDecor  = performance.now() - _t0;
-      _t0 = performance.now(); updateCrates(dt, now);       _tCrates = performance.now() - _t0;
-      _t0 = performance.now(); _animate(now);               _tInner  = performance.now() - _t0;
-
-      const total = performance.now() - _frameStart;
-      if(total > _diag.threshold && _diag.spikesLogged < _diag.maxSpikes){
-        _diag.spikesLogged++;
-        const enemies = window.state?.enemies?.length ?? "?";
-        const wave    = window.player?.wave ?? "?";
-        const boss    = window.state?.boss ? "yes" : "no";
-        const segs = [
-          ["updateArenaEvent",  _tArena],
-          ["updateBossPhases",  _tPhases],
-          ["updateBossDecor",   _tDecor],
-          ["updateCrates",      _tCrates],
-          ["_animate(inner)",   _tInner],
-        ].sort((a, b) => b[1] - a[1]);
-        const top = segs.slice(0, 3).map(([n, t]) => `${n}=${t.toFixed(0)}ms`).join(" · ");
-        console.warn(
-          `[spike-diag] frame=${total.toFixed(0)}ms wave=${wave} enemies=${enemies} boss=${boss} | top: ${top}`
-        );
-      }
-      if(now - _diag.startedAt > _diag.timeoutMs || _diag.spikesLogged >= _diag.maxSpikes){
-        _diag.enabled = false;
-        console.log(`[spike-diag] disabled after ${_diag.spikesLogged} spikes / ${((now - _diag.startedAt)/1000).toFixed(0)}s`);
-      }
-    } else {
-      // Pad zonder timing-overhead.
-      updateArenaEvent(dt);
-      updateBossPhases(dt);
-      updateBossDecor(dt, now);
-      updateCrates(dt, now);
-      _animate(now);
-    }
+    updateArenaEvent(dt);
+    updateBossPhases(dt);
+    updateBossDecor(dt, now);
+    updateCrates(dt, now);
+    _animate(now);
   };
 
   buildNemesisHud();
@@ -16743,1524 +16365,82 @@ function doDash(){
 })();
 
 /* =========================
-   OLDE HANTER RELIC ARMORY PACK
-   plak dit direct boven: animate(performance.now());
+   ARMORY API — minimale stub voor CoD-perk-stations
+   ---------------------------------------------------------
+   De originele Relic Armory IIFE (~1520 regels) is verwijderd. Daarmee
+   verdwenen: relic-draft UI, relic-cards, rerolls, revive-on-phoenix,
+   armory HUD overlay en alle bijbehorende state-persistence.
+   Wat blijft: een compacte API zodat Perk Stations (Juggernog, Speed
+   Cola, Stamin-Up etc.) credits kunnen besteden en levels kunnen
+   ophogen — dezelfde keys (frame/magboots/rapidfire/overclock) waren
+   gedeeld tussen het oude relic-systeem en de CoD-perk-machines.
+   Credits = salvage = player.score (geen aparte storage meer).
    ========================= */
 (() => {
-  const ARMORY_KEY = "oldehanter_relic_armory_v1";
+  const PERK_KEYS = ["frame","rapidfire","plating","magboots","vamp","printer",
+                     "capacitor","combo","echo","scavenger","phoenix","overclock"];
 
-  const armory = {
-    earnedThisRun: 0,
-    relicsTaken: 0,
-    rerolls: 1,
-    awaitingWaveStart: false,
-    draftOpen: false,
-    continueFn: null,
-    reviveUsed: false,
-    levels: {
-      overclock: 0,     // damage
-      rapidfire: 0,     // fire rate
-      plating: 0,       // resist
-      frame: 0,         // max hp
-      magboots: 0,      // speed
-      vamp: 0,          // heal on kill
-      printer: 0,       // ammo packages
-      capacitor: 0,     // ability stocks / blast radius
-      combo: 0,         // combo duration/score bonus
-      echo: 0,          // chance on extra side shot
-      scavenger: 0,     // more credits
-      phoenix: 0        // once-per-run revive
-    },
-    profile: loadProfile(),
-    hud: {},
-    draft: {
-      root: null,
-      cards: null,
-      title: null,
-      sub: null,
-      continueBtn: null,
-      rerollBtn: null
-    }
-  };
-  // Punten = Salvage: armory.credits is een getter/setter op player.score.
-  // Hierdoor vormen ze één enkel item: alle code die eerder
-  // armory.credits += X deed, schrijft nu rechtstreeks naar player.score,
-  // en alle uitgaven (deuren, perks, wall-buys) trekken van player.score af.
-  // Initial waarde: 500 (oude default), zodat de speler bij start direct
-  // wat te besteden heeft.
-  Object.defineProperty(armory, "credits", {
-    get(){
-      try { return Math.floor((window.player && Number.isFinite(window.player.score)) ? window.player.score : 0); }
-      catch(_){ return 0; }
-    },
-    set(v){
-      try {
-        if(window.player) window.player.score = Math.max(0, Math.floor(Number(v) || 0));
-      } catch(_){}
-    },
-    configurable: true,
-    enumerable: true
-  });
-  // Pre-game starting salvage: zodra player object bestaat (game start)
-  // krijg je 500 punten extra cadeau, eenmalig per run. Zonder dit
-  // start je met 0 score = 0 salvage en kun je niets kopen.
-  let _startingSalvageGranted = false;
-  function _maybeGrantStartingSalvage(){
-    if(_startingSalvageGranted) return;
-    if(!window.player) return;
-    if(typeof window.player.score !== "number") return;
-    if(window.player.score >= 500) { _startingSalvageGranted = true; return; }
-    window.player.score = (window.player.score || 0) + 500;
-    _startingSalvageGranted = true;
-  }
-  // Probeer meteen, en bij elke updateHud-call.
-  setTimeout(_maybeGrantStartingSalvage, 50);
-
-  function loadProfile(){
-    try{
-      return JSON.parse(localStorage.getItem(ARMORY_KEY)) || {
-        lifetimeCredits: 0,
-        totalRelics: 0,
-        runs: 0,
-        bestWave: 1,
-        bestScore: 0
-      };
-    }catch{
-      return {
-        lifetimeCredits: 0,
-        totalRelics: 0,
-        runs: 0,
-        bestWave: 1,
-        bestScore: 0
-      };
-    }
-  }
-
-  function saveProfile(){
-    try{
-      localStorage.setItem(ARMORY_KEY, JSON.stringify(armory.profile));
-    }catch{}
-  }
-
-  function aClamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function aRand(a, b){ return a + Math.random() * (b - a); }
-  function aPick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
-  function aShuffle(arr){
-    const copy = arr.slice();
-    for(let i = copy.length - 1; i > 0; i--){
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
-  }
-  function fmt(n){ return Math.round(n).toLocaleString("nl-NL"); }
-
-  function addArmoryStyles(){
-    const style = document.createElement("style");
-    style.id = "ohRelicArmoryStyles";
-    style.textContent = `
-      #armoryHud{
-        /* HUD verborgen op verzoek — was te dominant linksonder.
-           De relic-gameplay (drafts, salvage, effecten) blijft intact;
-           alleen het permanente paneel is uit beeld. Drafts/dialogs
-           hebben hun eigen #relicDraft container die wel zichtbaar is. */
-        display:none !important;
-      }
-      #armoryHudFallback{
-        position:fixed;
-        left:16px;
-        bottom:16px;
-        z-index:26;
-        width:min(330px, calc(100vw - 32px));
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-        pointer-events:none;
-      }
-      .armory-card{
-        pointer-events:auto;
-        border-radius:18px;
-        padding:12px 14px;
-        color:#fff;
-        background:linear-gradient(180deg, rgba(8,10,22,.82), rgba(15,8,30,.68));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow:0 16px 34px rgba(0,0,0,.28), 0 0 24px rgba(255,230,0,.08);
-        backdrop-filter:blur(14px) saturate(1.08);
-      }
-      .armory-top{
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:10px;
-        font-weight:900;
-      }
-      .armory-kicker{
-        font-size:.76rem;
-        letter-spacing:.14em;
-        text-transform:uppercase;
-        color:rgba(255,255,255,.72);
-      }
-      .armory-credits{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        font-size:1rem;
-      }
-      .armory-chip{
-        padding:.32rem .7rem;
-        border-radius:999px;
-        background:linear-gradient(90deg, rgba(255,209,102,.22), rgba(255,79,216,.18));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow:0 0 18px rgba(255,209,102,.10);
-      }
-      .armory-sub{
-        margin-top:8px;
-        color:rgba(255,255,255,.76);
-        font-size:.84rem;
-        font-weight:700;
-      }
-      .armory-list{
-        display:grid;
-        grid-template-columns:repeat(2,minmax(0,1fr));
-        gap:8px;
-        margin-top:10px;
-      }
-      .armory-pill{
-        padding:.55rem .7rem;
-        border-radius:14px;
-        background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.08);
-        font-size:.8rem;
-        font-weight:800;
-        color:#fff;
-      }
-
-      #relicDraft{
-        position:fixed;
-        inset:0;
-        z-index:60;
-        display:none;
-        align-items:center;
-        justify-content:center;
-        padding:18px;
-        background:
-          radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 32%),
-          rgba(2,4,10,.72);
-        backdrop-filter: blur(10px) saturate(1.06);
-      }
-      #relicDraft.show{ display:flex; }
-
-      .relic-shell{
-        width:min(1120px, 100%);
-        max-height:min(92vh, 920px);
-        overflow:auto;
-        border-radius:26px;
-        padding:18px;
-        background:linear-gradient(180deg, rgba(9,10,24,.94), rgba(16,10,34,.88));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow:0 22px 60px rgba(0,0,0,.35), 0 0 34px rgba(138,46,255,.14);
-      }
-      .relic-head{
-        display:flex;
-        align-items:flex-start;
-        justify-content:space-between;
-        gap:14px;
-        flex-wrap:wrap;
-      }
-      .relic-title{
-        color:#fff;
-        font-size:clamp(1.4rem, 3vw, 2rem);
-        font-weight:900;
-        letter-spacing:.02em;
-      }
-      .relic-meta{
-        color:rgba(255,255,255,.72);
-        font-weight:700;
-        line-height:1.35;
-      }
-      .relic-actions{
-        display:flex;
-        align-items:center;
-        gap:10px;
-        flex-wrap:wrap;
-      }
-      .relic-btn{
-        appearance:none;
-        border:0;
-        cursor:pointer;
-        border-radius:999px;
-        padding:.82rem 1rem;
-        font-weight:900;
-        color:#fff;
-        background:linear-gradient(90deg,#ff00a8,#8a2eff,#00f7ff,#ffe600,#ff00a8);
-        background-size:240% 240%;
-        animation:relicFlow 4.5s linear infinite;
-        box-shadow:0 0 18px rgba(255,0,168,.20), 0 0 28px rgba(0,247,255,.12);
-      }
-      .relic-btn.secondary{
-        background:rgba(255,255,255,.08);
-        border:1px solid rgba(255,255,255,.14);
-        box-shadow:none;
-        animation:none;
-      }
-      .relic-btn:disabled{
-        filter:grayscale(.75) brightness(.7);
-        cursor:not-allowed;
-        box-shadow:none;
-      }
-      .relic-grid{
-        margin-top:18px;
-        display:grid;
-        grid-template-columns:repeat(3, minmax(0, 1fr));
-        gap:14px;
-      }
-      .relic-card{
-        border-radius:22px;
-        padding:16px;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-        border:1px solid rgba(255,255,255,.12);
-        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 10px 24px rgba(0,0,0,.20);
-        color:#fff;
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-        min-height:240px;
-      }
-      .relic-rarity{
-        font-size:.76rem;
-        letter-spacing:.16em;
-        text-transform:uppercase;
-        color:rgba(255,255,255,.68);
-        font-weight:900;
-      }
-      .relic-name{
-        font-size:1.18rem;
-        font-weight:900;
-        line-height:1.12;
-      }
-      .relic-desc{
-        color:rgba(255,255,255,.78);
-        font-size:.92rem;
-        line-height:1.45;
-        flex:1;
-      }
-      .relic-tagline{
-        font-size:.8rem;
-        color:rgba(255,255,255,.62);
-        font-weight:700;
-      }
-      .relic-buy{
-        margin-top:auto;
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:10px;
-      }
-      .relic-cost{
-        font-weight:900;
-        color:#ffd166;
-      }
-      .relic-card[data-rarity="epic"]{
-        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 0 26px rgba(255,0,168,.10);
-      }
-      .relic-card[data-rarity="legend"]{
-        box-shadow: inset 0 0 18px rgba(255,255,255,.02), 0 0 28px rgba(255,230,0,.12);
-      }
-      .relic-note{
-        margin-top:14px;
-        color:rgba(255,255,255,.72);
-        font-size:.86rem;
-        font-weight:700;
-      }
-
-      @keyframes relicFlow{
-        0%{ background-position:0% 50%; }
-        100%{ background-position:200% 50%; }
-      }
-
-      @media (max-width: 980px){
-        .relic-grid{ grid-template-columns:1fr; }
-      }
-
-      @media (max-width: 720px){
-        #armoryHud{
-          left:10px;
-          bottom:10px;
-          width:min(290px, calc(100vw - 20px));
-        }
-        .armory-list{
-          grid-template-columns:1fr 1fr;
-        }
-        .relic-shell{
-          padding:14px;
-          border-radius:22px;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function buildHud(){
-    addArmoryStyles();
-
-    const hud = document.createElement("div");
-    hud.id = "armoryHud";
-    hud.innerHTML = `
-      <div class="armory-card">
-        <div class="armory-kicker">Relic Armory</div>
-        <div class="armory-top">
-          <div class="armory-credits">
-            <span class="armory-chip">Salvage: <b id="armoryCredits">0</b></span>
-            <span class="armory-chip">Relics: <b id="armoryRelics">0</b></span>
-          </div>
-          <span class="armory-chip">Runs: <b id="armoryRuns">0</b></span>
-        </div>
-        <div class="armory-sub" id="armorySub">
-          Elke 2 waves krijg je een relic draft. Boss waves geven betere keuzes.
-        </div>
-        <div class="armory-list" id="armoryList"></div>
-      </div>
-    `;
-    document.body.appendChild(hud);
-
-    armory.hud.root = hud;
-    armory.hud.credits = hud.querySelector("#armoryCredits");
-    armory.hud.relics = hud.querySelector("#armoryRelics");
-    armory.hud.runs = hud.querySelector("#armoryRuns");
-    armory.hud.sub = hud.querySelector("#armorySub");
-    armory.hud.list = hud.querySelector("#armoryList");
-
-    const draft = document.createElement("div");
-    draft.id = "relicDraft";
-    draft.innerHTML = `
-      <div class="relic-shell">
-        <div class="relic-head">
-          <div>
-            <div class="relic-title" id="relicDraftTitle">Relic Draft</div>
-            <div class="relic-meta" id="relicDraftSub">
-              Kies een upgrade tussen de waves. Je spel pauzeert totdat je doorgaat.
-            </div>
-          </div>
-          <div class="relic-actions">
-            <button id="relicRerollBtn" class="relic-btn secondary" type="button">Reroll</button>
-            <button id="relicContinueBtn" class="relic-btn secondary" type="button">Doorgaan</button>
-          </div>
-        </div>
-        <div class="relic-grid" id="relicCards"></div>
-        <div class="relic-note">
-          Tip: koop damage, fire-rate en plating vroeg. Neem Phoenix alleen als verzekering.
-        </div>
-      </div>
-    `;
-    document.body.appendChild(draft);
-
-    armory.draft.root = draft;
-    armory.draft.cards = draft.querySelector("#relicCards");
-    armory.draft.title = draft.querySelector("#relicDraftTitle");
-    armory.draft.sub = draft.querySelector("#relicDraftSub");
-    armory.draft.continueBtn = draft.querySelector("#relicContinueBtn");
-    armory.draft.rerollBtn = draft.querySelector("#relicRerollBtn");
-
-    armory.draft.continueBtn.addEventListener("click", () => closeDraftAndContinue());
-    armory.draft.rerollBtn.addEventListener("click", () => rerollDraft());
-
-    updateHud();
-  }
-
-  function activePerkLines(){
-    const entries = [];
-    const L = armory.levels;
-    // Echte CoD Zombies BO2 perk-namen (mapped op armory keys)
-    if(L.frame) entries.push(`Juggernog`);
-    if(L.rapidfire) entries.push(`Speed Cola`);
-    if(L.magboots) entries.push(`Stamin-Up`);
-    if(L.overclock) entries.push(`Double Tap II`);
-    if(L.phoenix) entries.push(`Quick Revive${armory.reviveUsed ? " (used)" : ""}`);
-    if(L.plating) entries.push(`PhD Flopper`);
-    if(L.printer) entries.push(`Mule Kick`);
-    if(L.echo) entries.push(`Deadshot Daiquiri`);
-    return entries.length ? entries.slice(0, 8) : ["No perks"];
-  }
-
-  function updateHud(){
-    if(!armory.hud.root) return;
-    armory.hud.credits.textContent = fmt(armory.credits);
-    armory.hud.relics.textContent = fmt(armory.relicsTaken);
-    armory.hud.runs.textContent = fmt(armory.profile.runs);
-    armory.hud.sub.textContent =
-      armory.draftOpen
-        ? "Relic Draft open — kies een upgrade of ga verder."
-        : `Beste wave: ${fmt(armory.profile.bestWave)} • Beste score: ${fmt(armory.profile.bestScore)}`;
-
-    armory.hud.list.innerHTML = activePerkLines()
-      .map(x => `<div class="armory-pill">${x}</div>`)
-      .join("");
-  }
+  // Levels per perk (default 0). Niet meer cross-run persistent; reset per
+  // game-start volgens CoD-conventie (perks vervallen bij dood).
+  const levels = {};
+  for(const k of PERK_KEYS) levels[k] = 0;
 
   function syncDerivedStats(){
-    // CoD Zombies BO2 perk-effecten:
-    //   Juggernog (frame):     100 HP → 250 HP (+150)
-    //   Stamin-Up (magboots):  +24% movement speed
-    //   Speed Cola (rapidfire) en Double Tap (overclock) zitten in andere
-    //     formules elders in de code.
-    player.maxHp = 100 + armory.levels.frame * 150;
-    player.speed = 10.2 * (1 + armory.levels.magboots * 0.24) * (1 + (player.speedBoost || 0));
-    if(player.hp > player.maxHp) player.hp = player.maxHp;
-    setStat?.();
-    updateHud();
+    // CoD Zombies BO2 perk-effecten op player-stats. Speed Cola en Double
+    // Tap worden elders in de code uitgelezen via getLevel().
+    if(!window.player) return;
+    window.player.maxHp = 100 + levels.frame * 150;
+    window.player.speed = 10.2 * (1 + levels.magboots * 0.24) * (1 + (window.player.speedBoost || 0));
+    if(window.player.hp > window.player.maxHp) window.player.hp = window.player.maxHp;
+    try { setStat?.(); } catch(_){}
   }
 
-  function awardCredits(amount, source=""){
-    // Points = Salvage: awardCredits is een no-op geworden. De BO2-scoring
-    // hook (hit:10, kill:50, headshot:100, knife:130, boss:400) schrijft
-    // al direct naar player.score, en player.score is via een getter
-    // armory.credits (== salvage). Dubbel-crediteren zou dus oneerlijk
-    // zijn. We laten alleen de flash-feedback bestaan voor consistentie
-    // met de oude UX.
-    if(source){
-      const fakeAmt = Math.max(1, Math.round(amount * (1 + armory.levels.scavenger * 0.18)));
-      flashHint?.(`+${fakeAmt} salvage • ${source}`, 900);
-    }
-    updateHud();
-  }
-
-  function draftOwnedLevel(choice){
-    if(choice.levelKey) return armory.levels[choice.levelKey] || 0;
-    if(choice.id && Object.prototype.hasOwnProperty.call(armory.levels, choice.id)){
-      return armory.levels[choice.id] || 0;
-    }
-    return 0;
-  }
-
-  function draftTagline(choice){
-    if(choice.tagline) return choice.tagline;
-    if(choice.oneShot) return "Eenmalig effect";
-    const lvl = draftOwnedLevel(choice);
-    return `Level nu: ${lvl}`;
-  }
-
-  function draftResupply(mult = 1){
-    player.hp = Math.min(player.maxHp, player.hp + Math.round((12 + armory.levels.frame * 2) * mult));
-    player.ammo.bullet += Math.round((8 + armory.levels.printer * 4) * mult);
-    player.ammo.rocket += armory.levels.printer > 0 ? Math.max(1, Math.round(mult)) : 0;
-    player.ammo.grenade += armory.levels.printer > 1 ? Math.max(1, Math.round(mult)) : 0;
-
-    if(armory.levels.capacitor > 0 && Math.random() < 0.55){
-      player.abilities.plasma += 1;
-    }
-    setStat?.();
-  }
-
-  function makeRelic(def){
-    return {
-      rarity: "rare",
-      weight: 1,
-      cost: 20,
-      needsSync: false,
-      oneShot: false,
-      levelKey: def.id,
-      ...def
-    };
-  }
-
-  function relicPool(){
-    const L = armory.levels;
-    const nearBoss = (player.wave + 1) % 5 === 0;
-    const lowHp = player.hp <= player.maxHp * 0.45;
-    const lowAmmo = player.ammo.bullet <= 20 && player.ammo.rocket <= 1 && player.ammo.grenade <= 1;
-    const lowAbilities = (player.abilities.plasma + player.abilities.mine + player.abilities.orbital) <= 2;
-    const wave = player.wave;
-
-    const pool = [
-      makeRelic({
-        id:"overclock",
-        rarity:"rare",
-        name:"Railspire Injector",
-        desc:"+18% projectielschade per niveau. Verhoogt de schade van kogels, rockets en plasma.",
-        tagline:"Offensief • schade",
-        cost:26 + L.overclock * 10,
-        weight: 1.15 + (L.overclock <= 1 ? 0.15 : 0),
-        apply(){
-          L.overclock += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"rapidfire",
-        rarity:"rare",
-        name:"Tempest Chamber",
-        desc:"+16% vuursnelheid per niveau. Verhoogt de druk op korte en middellange afstand.",
-        tagline:"Offensief • vuursnelheid",
-        cost:24 + L.rapidfire * 10,
-        weight: 1.1 + (L.echo > 0 ? 0.15 : 0),
-        apply(){
-          L.rapidfire += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"plating",
-        rarity:"rare",
-        name:"Bastion Weave",
-        desc:"-14% inkomende schade per niveau. Eenvoudige maar betrouwbare verdedigingsupgrade.",
-        tagline:"Defensief • schadebeperking",
-        cost:24 + L.plating * 12,
-        weight: lowHp ? 1.45 : 1.0,
-        apply(){
-          L.plating += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"frame",
-        rarity:"epic",
-        name:"Titan Chassis",
-        desc:"+25 maximale HP en direct 25 HP herstel. Verbetert de foutmarge van je run aanzienlijk.",
-        tagline:"Defensief • maximale HP",
-        cost:32 + L.frame * 12,
-        needsSync: true,
-        weight: lowHp ? 1.5 : 0.95,
-        apply(){
-          L.frame += 1;
-          syncDerivedStats();
-          player.hp = Math.min(player.maxHp, player.hp + 25);
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"magboots",
-        rarity:"rare",
-        name:"Slipstream Soles",
-        desc:"+12% bewegingssnelheid per niveau. Handig voor positionering, ontwijken en pickups veiligstellen.",
-        tagline:"Mobiliteit • snelheid",
-        cost:22 + L.magboots * 10,
-        needsSync: true,
-        weight: 1.05 + (player.wave >= 4 ? 0.1 : 0),
-        apply(){
-          L.magboots += 1;
-          syncDerivedStats();
-        }
-      }),
-
-      makeRelic({
-        id:"vamp",
-        rarity:"epic",
-        name:"Crimson Recycler",
-        desc:"Herstel 2 HP per kill. Wordt sterker naarmate gevechten drukker worden.",
-        tagline:"Sustain • levensherstel",
-        cost:30 + L.vamp * 12,
-        weight: 1.0 + (player.wave >= 5 ? 0.15 : 0),
-        apply(){
-          L.vamp += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"printer",
-        rarity:"rare",
-        name:"Munitions Foundry",
-        desc:"Meer munitie tussen waves en direct een extra levering bij aankoop.",
-        tagline:"Logistiek • munitie",
-        cost:22 + L.printer * 10,
-        weight: lowAmmo ? 1.55 : 1.05,
-        apply(){
-          L.printer += 1;
-          player.ammo.bullet += 12;
-          player.ammo.rocket += 1;
-          player.ammo.grenade += 1;
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"capacitor",
-        rarity:"epic",
-        name:"Stormglass Capacitor",
-        desc:"+1 charge op alle abilities en grotere explosieradius voor zware projectielen.",
-        tagline:"Abilities • capaciteit",
-        cost:34 + L.capacitor * 12,
-        weight: lowAbilities ? 1.4 : 1.0,
-        apply(){
-          L.capacitor += 1;
-          player.abilities.plasma += 1;
-          player.abilities.mine += 1;
-          player.abilities.orbital += 1;
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"combo",
-        rarity:"rare",
-        name:"Encore Matrix",
-        desc:"Verlengt de combo-duur en verhoogt de scoregroei per niveau.",
-        tagline:"Offensief • combo",
-        cost:24 + L.combo * 10,
-        weight: 1.0 + (player.score > 0 ? 0.1 : 0),
-        apply(){
-          L.combo += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"echo",
-        rarity:"epic",
-        name:"Mirrorcoil Trigger",
-        desc:"Geeft een kans op extra zijdelingse schoten. Past goed in snelle bullet-builds.",
-        tagline:"Offensief • extra projectielen",
-        cost:30 + L.echo * 14,
-        weight: 1.0 + (L.rapidfire > 0 ? 0.2 : 0),
-        apply(){
-          L.echo += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"scavenger",
-        rarity:"rare",
-        name:"Graveroute Scanner",
-        desc:"+18% meer salvage uit kills, pickups en wave-beloningen.",
-        tagline:"Economie • salvage",
-        cost:20 + L.scavenger * 10,
-        weight: armory.credits < 28 ? 1.3 : 0.95,
-        apply(){
-          L.scavenger += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"phoenix",
-        rarity:"legend",
-        name:"Phoenix Protocol",
-        desc:"Eenmaal per run: overleef lethale schade en keer terug met 45 HP.",
-        tagline:"Legendair • tweede kans",
-        cost:42 + L.phoenix * 18,
-        weight: armory.reviveUsed ? 0.25 : 0.9,
-        apply(){
-          L.phoenix += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"fieldkit",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Field Kit Drop",
-        desc:"Direct herstelpakket: herstel HP, vul munitie aan en ontvang kans op 1 extra plasma charge.",
-        tagline:"Eenmalig • herstelpakket",
-        cost:16 + Math.floor(player.wave * 1.5),
-        weight: lowHp || lowAmmo ? 1.8 : 0.85,
-        apply(){
-          player.hp = Math.min(player.maxHp, player.hp + 28);
-          player.ammo.bullet += 28;
-          player.ammo.rocket += 1;
-          player.ammo.grenade += 1;
-          if(Math.random() < 0.65) player.abilities.plasma += 1;
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"bounty",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Black Market Bounty",
-        desc:"Ontvang direct salvage en 1 gratis reroll voor de huidige draft.",
-        tagline:"Eenmalig • economie",
-        cost:18 + Math.floor(player.wave * 2),
-        weight: armory.rerolls <= 0 ? 1.5 : 1.0,
-        apply(){
-          armory.credits += 18 + Math.floor(player.wave * 3);
-          armory.rerolls += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"fusion",
-        rarity:"epic",
-        oneShot:true,
-        levelKey:null,
-        name:"Fusion Ritual",
-        desc:"+1 Overclock en +1 Rapidfire in één keuze. Eenvoudige offensieve bundel.",
-        tagline:"Bundel • schade en tempo",
-        cost:40 + (L.overclock + L.rapidfire) * 10,
-        apply(){
-          L.overclock += 1;
-          L.rapidfire += 1;
-        }
-      }),
-
-      makeRelic({
-        id:"bulwark",
-        rarity:"epic",
-        oneShot:true,
-        levelKey:null,
-        name:"Bulwark Pact",
-        desc:"+1 Plating, +1 Frame en direct herstel. Ideaal voor runs die onder druk staan.",
-        tagline:"Bundel • verdediging",
-        cost:42 + (L.plating + L.frame) * 10,
-        needsSync: true,
-        weight: lowHp ? 1.55 : 0.8,
-        apply(){
-          L.plating += 1;
-          L.frame += 1;
-          syncDerivedStats();
-          player.hp = Math.min(player.maxHp, player.hp + 30);
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"surge",
-        rarity:"epic",
-        oneShot:true,
-        levelKey:null,
-        name:"Arc Surge Cache",
-        desc:"Vult abilities direct aan: +2 plasma, +1 mine en +1 orbital.",
-        tagline:"Bundel • abilities",
-        cost:36 + L.capacitor * 8,
-        weight: lowAbilities ? 1.55 : 0.85,
-        apply(){
-          player.abilities.plasma += 2;
-          player.abilities.mine += 1;
-          player.abilities.orbital += 1;
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"trickster",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Trickster Deal",
-        desc:"+1 Echo, +1 Mag Boots en een kleine salvage-teruggave.",
-        tagline:"Bundel • mobiliteit",
-        cost:31 + (L.echo + L.magboots) * 9,
-        needsSync: true,
-        weight: 1.0 + (L.echo === 0 ? 0.15 : 0),
-        apply(){
-          L.echo += 1;
-          L.magboots += 1;
-          armory.credits += 8;
-          syncDerivedStats();
-        }
-      }),
-
-      makeRelic({
-        id:"moonKey",
-        rarity:"epic",
-        oneShot:true,
-        levelKey:null,
-        name:"Lunar Calibration Key",
-        desc:"Een rocket die de maan raakt, wist direct de volledige huidige wave. Werkt ook op bosses.",
-        tagline:"Special • wave skip",
-        cost:34 + Math.floor(wave * 1.8),
-        weight: wave >= 4 ? 1.05 : 0.25,
-        apply(){
-          state.moonNukeWave = 0;
-          flashHint?.("Lunar calibration gereed");
-        }
-      }),
-
-      makeRelic({
-        id:"supplyLine",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Quartermaster Note",
-        desc:"Ontvang 2 rockets, 2 granaten en 20 kogels. Functioneel en direct bruikbaar.",
-        tagline:"Eenmalig • zware munitie",
-        cost:17 + Math.floor(wave * 1.2),
-        weight: lowAmmo ? 1.75 : 0.9,
-        apply(){
-          player.ammo.bullet += 20;
-          player.ammo.rocket += 2;
-          player.ammo.grenade += 2;
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"backspin",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Unsafe Prototype",
-        desc:"Experimenteel pakket: +1 rocket, +1 plasma charge en 6 salvage. Niet elegant, wel nuttig.",
-        tagline:"Curiositeit • experimenteel",
-        cost:11 + Math.floor(wave * 0.8),
-        weight: 0.95,
-        apply(){
-          player.ammo.rocket += 1;
-          player.abilities.plasma += 1;
-          armory.credits += 6;
-          flashHint?.("Prototype bleef heel");
-          setStat?.();
-        }
-      }),
-
-      makeRelic({
-        id:"stageNotes",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Arena Director Notes",
-        desc:"Een stapel managementnotities. Geeft 10 salvage, vooral omdat iemand ze moet opruimen.",
-        tagline:"Grappig • administratie",
-        cost:6 + Math.floor(wave * 0.6),
-        weight: 0.75,
-        apply(){
-          armory.credits += 10;
-          flashHint?.("Notities uit roulatie gehaald");
-        }
-      }),
-
-      makeRelic({
-        id:"coffee",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Night Shift Coffee",
-        desc:"Herstel 12 HP en ontvang tijdelijk extra bewegingssnelheid voor de volgende wave.",
-        tagline:"Special • tijdelijke boost",
-        cost:13 + Math.floor(wave),
-        weight: lowHp ? 1.2 : 0.9,
-        apply(){
-          player.hp = Math.min(player.maxHp, player.hp + 12);
-          player.speedBoost = Math.max(player.speedBoost || 0, 0.08);
-          player.speedBoostTimer = Math.max(player.speedBoostTimer || 0, 45);
-          setStat?.();
-          flashHint?.("Koffie actief");
-        }
-      }),
-
-      makeRelic({
-        id:"satchel",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Auxiliary Satchel",
-        desc:"Verhoogt direct je voorraad: +1 plasma, +1 mine, +1 orbital en +1 grenade.",
-        tagline:"Special • tactische reserve",
-        cost:24 + Math.floor(wave * 1.4),
-        weight: lowAbilities ? 1.45 : 0.95,
-        apply(){
-          player.abilities.plasma += 1;
-          player.abilities.mine += 1;
-          player.abilities.orbital += 1;
-          player.ammo.grenade += 1;
-          setStat?.();
-        }
-      })
-    ];
-
-    pool.push(
-      makeRelic({
-        id:"surveyDrone",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Survey Drone",
-        desc:"Scant de arena en betaalt direct 14 salvage uit. Daarnaast ontvang je 1 gratis reroll.",
-        tagline:"Utility • informatie en economie",
-        cost:15 + Math.floor(wave * 1.1),
-        weight: armory.rerolls <= 0 ? 1.35 : 0.95,
-        apply(){
-          armory.credits += 14;
-          armory.rerolls += 1;
-          flashHint?.("Survey Drone leverde salvage op");
-        }
-      }),
-      makeRelic({
-        id:"afterburner",
-        rarity:"rare",
-        oneShot:true,
-        levelKey:null,
-        name:"Afterburner Capsule",
-        desc:"Voor de volgende wave: extra bewegingssnelheid, +1 rocket en +1 grenade.",
-        tagline:"Mobiliteit • tijdelijke boost",
-        cost:18 + Math.floor(wave * 1.3),
-        weight: 1.0,
-        apply(){
-          player.speedBoost = Math.max(player.speedBoost || 0, 0.12);
-          player.speedBoostTimer = Math.max(player.speedBoostTimer || 0, 55);
-          player.ammo.rocket += 1;
-          player.ammo.grenade += 1;
-          setStat?.();
-        }
-      }),
-      makeRelic({
-        id:"paperwork",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Approved Paperwork",
-        desc:"Volledig nutteloze arena-administratie. Geeft wel 9 salvage en een verrassend goed gevoel van orde.",
-        tagline:"Curiositeit • lichte economie",
-        cost:5 + Math.floor(wave * 0.5),
-        weight: 0.7,
-        apply(){
-          armory.credits += 9;
-          flashHint?.("Papierwerk verwerkt");
-        }
-      }),
-      makeRelic({
-        id:"confettiWarhead",
-        rarity:"common",
-        oneShot:true,
-        levelKey:null,
-        name:"Confetti Warhead",
-        desc:"+1 rocket. De explosie is volgens de handleiding 'feestelijk verantwoord'.",
-        tagline:"Grappig • extra rocket",
-        cost:10 + Math.floor(wave),
-        weight: lowAmmo ? 1.2 : 0.85,
-        apply(){
-          player.ammo.rocket += 1;
-          setStat?.();
-        }
-      })
-    );
-
-    if(nearBoss){
-      pool.push(
-        makeRelic({
-          id:"apex",
-          rarity:"legend",
-          oneShot:true,
-          levelKey:null,
-          name:"Apex Core",
-          desc:"+1 Overclock, +1 Capacitor, +1 Combo en een volledige resupply voor de boss wave.",
-          tagline:"Legendair • bossvoorbereiding",
-          cost:58 + Math.floor(player.wave * 2.5),
-          apply(){
-            L.overclock += 1;
-            L.capacitor += 1;
-            L.combo += 1;
-            player.abilities.plasma += 1;
-            player.abilities.mine += 1;
-            draftResupply(1.15);
-          }
-        }),
-        makeRelic({
-          id:"ceasefire",
-          rarity:"epic",
-          oneShot:true,
-          levelKey:null,
-          name:"Emergency Ceasefire",
-          desc:"Start de volgende boss wave met minder reguliere adds en extra ability charges.",
-          tagline:"Special • bosscontrole",
-          cost:41 + Math.floor(player.wave * 1.7),
-          apply(){
-            player.abilities.plasma += 2;
-            player.abilities.mine += 1;
-            player.abilities.orbital += 1;
-            state.preBossRelief = true;
-            setStat?.();
-          }
-        })
-      );
-    }
-
-    return pool;
-  }
-
-  function draftWeightedPick(pool, usedIds){
-    let filtered = pool.filter(choice => !usedIds.has(choice.id));
-    if(!filtered.length) filtered = pool.slice();
-
-    const total = filtered.reduce((sum, item) => sum + Math.max(0.01, item.weight || 1), 0);
-    let roll = Math.random() * total;
-
-    for(const item of filtered){
-      roll -= Math.max(0.01, item.weight || 1);
-      if(roll <= 0) return item;
-    }
-    return filtered[filtered.length - 1];
-  }
-
-  function generateDraftChoices(){
-    const pool = relicPool();
-    const used = new Set();
-    const results = [];
-    const nextWave = player.wave + 1;
-    const isMajor = nextWave % 5 === 0;
-
-    const legendChance = isMajor ? 0.42 : 0.12;
-    const epicChance = isMajor ? 0.72 : 0.38;
-
-    const legendaryPool = pool.filter(x => x.rarity === "legend");
-    const epicPool = pool.filter(x => x.rarity === "epic");
-    const rarePool = pool.filter(x => x.rarity === "rare" || x.rarity === "common");
-
-    if(legendaryPool.length && Math.random() < legendChance){
-      const pick = draftWeightedPick(legendaryPool, used);
-      results.push(pick);
-      used.add(pick.id);
-    }
-
-    if(results.length < 3 && epicPool.length && Math.random() < epicChance){
-      const pick = draftWeightedPick(epicPool, used);
-      results.push(pick);
-      used.add(pick.id);
-    }
-
-    while(results.length < 3){
-      const source = Math.random() < 0.6 ? rarePool : pool;
-      const pick = draftWeightedPick(source, used);
-      results.push(pick);
-      used.add(pick.id);
-    }
-
-    armory.currentChoices = aShuffle(results);
-    renderDraftChoices();
-  }
-
-  function renderDraftChoices(){
-    const choices = armory.currentChoices || [];
-
-    armory.draft.cards.innerHTML = choices.map((choice, idx) => {
-      const owned = draftOwnedLevel(choice);
-      const rarityLabel = (choice.rarity || "rare").toUpperCase();
-      const canAfford = armory.credits >= choice.cost;
-
-      return `
-        <div class="relic-card" data-rarity="${choice.rarity}">
-          <div class="relic-rarity">${rarityLabel}</div>
-          <div class="relic-name">${choice.name}</div>
-          <div class="relic-desc">${choice.desc}</div>
-          <div class="relic-tagline">${draftTagline(choice)}${owned > 0 && !choice.oneShot ? ` • Owned ${owned}` : ""}</div>
-          <div class="relic-buy">
-            <span class="relic-cost">${fmt(choice.cost)} salvage</span>
-            <button class="relic-btn" type="button" data-buy="${idx}" ${canAfford ? "" : "data-poor='1'"}>
-              ${canAfford ? "Koop" : "Te duur"}
-            </button>
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    armory.draft.cards.querySelectorAll("[data-buy]").forEach(btn => {
-      btn.addEventListener("click", () => buyRelic(Number(btn.dataset.buy)));
-    });
-
-    armory.draft.rerollBtn.disabled = armory.rerolls <= 0;
-    armory.draft.rerollBtn.textContent = armory.rerolls > 0
-      ? `Reroll (${armory.rerolls})`
-      : "Reroll op";
-  }
-
-  function rerollDraft(){
-    if(armory.rerolls <= 0 || !armory.draftOpen) return;
-    armory.rerolls -= 1;
-    generateDraftChoices();
-    updateHud();
-    flashHint?.("Nieuwe relics binnen", 850);
-  }
-
-  function buyRelic(idx){
-    const choice = armory.currentChoices?.[idx];
-    if(!choice) return;
-
-    if(armory.credits < choice.cost){
-      flashHint?.("Niet genoeg salvage", 900);
-      return;
-    }
-
-    armory.credits -= choice.cost;
-    armory.relicsTaken += 1;
-    armory.profile.totalRelics += 1;
-
-    choice.apply?.();
-
-    if(choice.needsSync){
-      syncDerivedStats();
-    }
-
-    saveProfile();
-    updateHud();
-    flashHint?.(`Relic gekocht: ${choice.name}`, 1200);
-
-    if(!choice.oneShot){
-      draftResupply(1);
-    } else {
-      player.hp = Math.min(player.maxHp, player.hp + 8);
-      setStat?.();
-    }
-
-    closeDraftAndContinue();
-  }
-
-  function shouldOfferDraft(nextWave){
-    // Relic-draft vervangen door vending machines in de map.
-    // De draft-modal wordt niet meer getoond; spelers kopen perks bij
-    // fysieke Perk Stations tijdens de wave.
-    return false;
-  }
-
-  function openDraft(nextWave, continueFn){
-    armory.draftOpen = true;
-    armory.awaitingWaveStart = true;
-    armory.continueFn = continueFn;
-
-    state.running = false;
-    state.fireHeld = false;
-    if(document.pointerLockElement === renderer.domElement){
-      document.exitPointerLock?.();
-    }
-
-    armory.draft.root.classList.add("show");
-    armory.draft.title.textContent = nextWave % 5 === 0
-      ? `Major Relic Draft • Wave ${nextWave}`
-      : `Relic Draft • Wave ${nextWave}`;
-
-    armory.draft.sub.textContent = nextWave % 5 === 0
-      ? `Boss-wave in aantocht. Je hebt ${fmt(armory.credits)} salvage — kies een duidelijke upgrade voor schade, overleving of crowd control.`
-      : `Je hebt ${fmt(armory.credits)} salvage — kies een upgrade die past bij je build: schade, mobiliteit, sustain, abilities of economie.`;
-
-    generateDraftChoices();
-    updateHud();
-  }
-
-  function closeDraftAndContinue(){
-    armory.draftOpen = false;
-    armory.awaitingWaveStart = false;
-    armory.draft.root.classList.remove("show");
-
-    const fn = armory.continueFn;
-    armory.continueFn = null;
-    updateHud();
-
-    if(typeof fn === "function"){
-      fn();
-    }
-
-    if(!isTouch && state.running){
-      setTimeout(() => renderer.domElement.requestPointerLock?.(), 60);
-    }
-  }
-
-  function resetRun(){
-    armory.credits = 500;
-    armory.earnedThisRun = 0;
-    armory.relicsTaken = 0;
-    armory.rerolls = 1;
-    armory.awaitingWaveStart = false;
-    armory.draftOpen = false;
-    armory.continueFn = null;
-    armory.reviveUsed = false;
-    Object.keys(armory.levels).forEach(k => armory.levels[k] = 0);
+  function resetLevels(){
+    for(const k of PERK_KEYS) levels[k] = 0;
     syncDerivedStats();
-    updateHud();
   }
 
-  function finishRunSnapshot(){
-    armory.profile.runs += 1;
-    armory.profile.bestWave = Math.max(armory.profile.bestWave || 1, player.wave || 1);
-    armory.profile.bestScore = Math.max(armory.profile.bestScore || 0, Math.floor(player.score || 0));
-    saveProfile();
-    updateHud();
-  }
-
-  /* ---------- wrappers ---------- */
-
-  const _createProjectile = createProjectile;
-  createProjectile = function(start, dir, opts = {}){
-    const copy = { ...opts };
-
-    if(copy.friendly){
-      // BO2 perks (1 tier = full effect):
-      //   Double Tap II (overclock): +36% dmg, simulates twee kogels
-      //   Speed Cola (rapidfire):    +6% bullet speed
-      //   Capacitor: blast radius (relic-only, niet Kino-perk)
-      const dmgMul = 1 + armory.levels.overclock * 0.36;
-      const speedMul = 1 + armory.levels.rapidfire * 0.06;
-      const radiusMul = 1 + armory.levels.capacitor * 0.12;
-
-      copy.damage = (copy.damage || 0) * dmgMul;
-      copy.speed = (copy.speed || 0) * speedMul;
-
-      if(copy.type === "rocket" || copy.type === "grenade" || copy.type === "plasma"){
-        copy.radius = (copy.radius || 0) * radiusMul;
-      }
+  // Reset perk-levels bij restart (perks gaan verloren bij dood, CoD-stijl)
+  try {
+    if(typeof restartGame === "function"){
+      const _restart = restartGame;
+      // eslint-disable-next-line no-global-assign
+      restartGame = function(){ resetLevels(); return _restart(); };
     }
+  } catch(_){}
 
-    return _createProjectile(start, dir, copy);
-  };
-
-  const _shootWithDirection = shootWithDirection;
-  shootWithDirection = function(dirOverride = null){
-    if(armory.levels.rapidfire > 0){
-      // Speed Cola (BO2): -12% fire cooldown
-      player.fireCooldown *= Math.max(0.55, 1 - armory.levels.rapidfire * 0.12);
-    }
-
-    const ok = _shootWithDirection(dirOverride);
-
-    if(ok && armory.levels.echo > 0 && player.weapon === "bullet"){
-      const chance = 0.15 + armory.levels.echo * 0.08;
-      if(Math.random() < chance){
-        const dir = dirOverride ? dirOverride.clone() : new THREE.Vector3();
-        if(!dirOverride){
-          camera.getWorldDirection(dir);
-        }
-        dir.normalize();
-
-        const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
-        const a = dir.clone().addScaledVector(right, 0.16).normalize();
-        const b = dir.clone().addScaledVector(right, -0.16).normalize();
-        const base = player.pos.clone();
-        base.y = player.pos.y - 0.18;
-
-        [a, b].forEach((d, idx) => {
-          const start = base.clone()
-            .addScaledVector(right, idx === 0 ? 0.20 : -0.20)
-            .add(d.clone().multiplyScalar(.82));
-
-          state.bullets.push(createProjectile(start, d, {
-            speed: 30,
-            friendly: true,
-            color: idx === 0 ? 0xffd166 : 0x8bf0ff,
-            trailColor: 0xffffff,
-            size: 0.08,
-            life: 1.08,
-            damage: 5 + armory.levels.echo * 1.5,
-            type: "echo"
-          }));
-        });
-
-        createFlash?.(base, 0xffd166, 0.9, 2.4, 0.05);
-      }
-    }
-
-    return ok;
-  };
-
-  const _registerKill = registerKill;
-  registerKill = function(points){
-    _registerKill(points);
-
-    if(armory.levels.combo > 0){
-      state.comboTimer += armory.levels.combo * 0.45;
-      state.combo = clamp(state.combo + armory.levels.combo * 0.03, 1, 3.6 + armory.levels.combo * 0.3);
-      player.score += Math.round(points * 0.08 * armory.levels.combo);
-    }
-
-    if(armory.levels.vamp > 0){
-      player.hp = Math.min(player.maxHp, player.hp + armory.levels.vamp * 2);
-    }
-
-    setStat?.();
-  };
-
-  const _killEnemy = killEnemy;
-  killEnemy = function(enemy){
-    if(enemy?.isBoss){
-      awardCredits(28, "boss");
-    }else if(enemy?.type === "elite"){
-      awardCredits(10, "elite");
-    }else if(enemy?.type === "tank"){
-      awardCredits(8, "tank");
-    }else if(enemy?.type === "runner"){
-      awardCredits(6, "runner");
-    }else{
-      awardCredits(5, "kill");
-    }
-    return _killEnemy(enemy);
-  };
-
-  const _applyDamage = applyDamage;
-  applyDamage = function(amount){
-    // PhD Flopper (BO2): -30% incoming damage (combinatie van resist
-    // en de iconische dive-immunity die we hier abstraheren als flat resist).
-    let finalAmount = amount * (1 - armory.levels.plating * 0.30);
-
-    if(
-      armory.levels.phoenix > 0 &&
-      !armory.reviveUsed &&
-      player.alive &&
-      player.hp - finalAmount <= 0
-    ){
-      armory.reviveUsed = true;
-      player.hp = Math.max(45, Math.floor(player.maxHp * 0.45));
-      player.damageCooldown = 1.25;
-      state.cameraShake = Math.min(2.2, state.cameraShake + 1.0);
-      createShockwave?.(player.pos, 0xffd166, 4.4);
-      createShockwave?.(player.pos, 0xff4fd8, 3.2);
-      flashHint?.("QUICK REVIVE", 1600);
-      setStat?.();
-      updateHud();
-      return;
-    }
-
-    const result = _applyDamage(finalAmount);
-
-    if(!player.alive){
-      finishRunSnapshot();
-    }
-
-    return result;
-  };
-
-  const _restartGame = restartGame;
-  restartGame = function(){
-    finishRunSnapshot();
-    resetRun();
-    return _restartGame();
-  };
-
-  queueNextWave = function(delay = 1.2){
-    if(state.nextWaveQueued || !player.alive) return;
-
-    state.nextWaveQueued = true;
-
-    setTimeout(() => {
-      state.nextWaveQueued = false;
-      if(!player.alive) return;
-      if(!(state.running && state.enemies.length === 0 && !state.boss)) return;
-
-      const nextWave = player.wave + 1;
-
-      const startNextWave = () => {
-        player.wave = nextWave;
-        state.moonNukeWave = 0;
-        player.hp = Math.min(player.maxHp, player.hp + 12 + armory.levels.frame * 2);
-        player.ammo.bullet += 6 + armory.levels.printer * 4;
-        if(armory.levels.printer > 0) player.ammo.rocket += 1;
-        if(armory.levels.printer > 1) player.ammo.grenade += 1;
-        if(armory.levels.capacitor > 1 && nextWave % 3 === 0){
-          player.abilities.plasma += 1;
-          player.abilities.mine += 1;
-        }
-
-        awardCredits(10 + Math.floor(nextWave * 1.5), `wave ${nextWave}`);
-        state.lastClearStamp = performance.now();
-        state.running = true;
-        setStat?.();
-        updateHud();
-        spawnWave();
-      };
-
-      if(shouldOfferDraft(nextWave)){
-        openDraft(nextWave, startNextWave);
-      } else {
-        startNextWave();
-      }
-    }, delay * 1000);
-  };
-
-  const _startGame = startGame;
-  startGame = function(){
-    armory.profile.runs = armory.profile.runs || 0;
-    updateHud();
-    return _startGame();
-  };
-
-  /* ---------- hotkeys ---------- */
-  function onArmoryHotkeys(e){
-    const code = e.code || "";
-    if(code === "Tab"){
-      if(!armory.awaitingWaveStart && !armory.draftOpen) return;
-      e.preventDefault();
-      if(armory.draftOpen){
-        closeDraftAndContinue();
-      }
-    }
-    if(code === "KeyB"){
-      if(armory.awaitingWaveStart && armory.draftOpen){
-        e.preventDefault();
-        closeDraftAndContinue();
-      }
-    }
-  }
-  window.addEventListener("keydown", onArmoryHotkeys, { capture:true, passive:false });
-
-  /* ---------- init ---------- */
-  buildHud();
-  resetRun();
-  syncDerivedStats();
-
-  // ==== Expose minimal API voor Perk Stations systeem ====
   window.OHArmoryAPI = {
-    getCredits(){ return armory.credits; },
-    getLevel(key){ return armory.levels[key] || 0; },
+    getCredits(){
+      return Math.floor((window.player?.score) || 0);
+    },
+    getLevel(key){ return levels[key] || 0; },
     spend(amount){
-      if(armory.credits < amount) return false;
-      armory.credits -= amount;
-      updateHud();
+      const c = Math.floor((window.player?.score) || 0);
+      if(c < amount) return false;
+      window.player.score = c - amount;
       return true;
     },
     addLevel(key, delta = 1){
-      if(!(key in armory.levels)) return false;
-      armory.levels[key] = (armory.levels[key] || 0) + delta;
-      armory.profile.totalRelics = (armory.profile.totalRelics || 0) + delta;
-      armory.relicsTaken = (armory.relicsTaken || 0) + delta;
-      saveProfile();
+      if(!(key in levels)) return false;
+      levels[key] += delta;
       syncDerivedStats();
       return true;
     },
     grantCredits(amount){
-      // Points = Salvage. Direct grant van salvage betekent nu directe
-      // score-bijdrage (bijv. teddy bear refund, cheats, draft-rewards).
-      try {
-        if(window.player) window.player.score = Math.max(0, (window.player.score || 0) + Math.floor(Number(amount) || 0));
-      } catch(_){}
-      armory.earnedThisRun += amount;
-      armory.profile.lifetimeCredits += amount;
-      // [PERF] Tijdens rapid-fire wordt grantCredits 10+ keer per seconde
-      // aangeroepen (1 per hit). Voorheen: elke call → synchronous
-      // localStorage.write + innerHTML-rebuild. Bij sustained AK74u of
-      // MP5-fire werd dat de top frame-killer. Nu: batch via deferred
-      // flush op 5Hz cadence. Initial flush is direct voor UX-snelheid.
-      armory._creditDirty = true;
-      const _gcNow = performance.now();
-      if(!armory._creditFlushAt || _gcNow >= armory._creditFlushAt){
-        saveProfile();
-        updateHud();
-        armory._creditDirty = false;
-        armory._creditFlushAt = _gcNow + 200;   // 5Hz
-      } else if(!armory._creditFlushTimer){
-        // Schedule de pending flush
-        armory._creditFlushTimer = setTimeout(() => {
-          armory._creditFlushTimer = null;
-          if(armory._creditDirty){
-            try { saveProfile(); } catch(_){}
-            try { updateHud(); } catch(_){}
-            armory._creditDirty = false;
-            armory._creditFlushAt = performance.now() + 200;
-          }
-        }, Math.max(20, armory._creditFlushAt - _gcNow));
-      }
+      const a = Math.floor(Number(amount) || 0);
+      if(a <= 0 || !window.player) return;
+      window.player.score = Math.max(0, (window.player.score || 0) + a);
     },
-    flash(msg, dur){ flashHint?.(msg, dur); },
-    // [PERF] Forced-flush voor pending batched credit-save.
-    // Aangeroepen door pagehide/visibilitychange hooks zodat een
-    // laatste credit-burst bij tab-close niet verloren gaat.
-    _flushPendingSave(){
-      if(armory._creditFlushTimer){
-        clearTimeout(armory._creditFlushTimer);
-        armory._creditFlushTimer = null;
-      }
-      if(armory._creditDirty){
-        try { saveProfile(); } catch(_){}
-        try { updateHud(); } catch(_){}
-        armory._creditDirty = false;
-        armory._creditFlushAt = 0;
-      }
-    }
+    flash(msg, dur){ try { flashHint?.(msg, dur); } catch(_){} },
+    _flushPendingSave(){}        // no-op (geen batched save meer)
   };
-  // Convenience wrapper voor cheat-systeem
+
+  // Cheat- en kill-credit convenience wrapper
   window.OHGrantCredits = function(amount){
     window.OHArmoryAPI.grantCredits(amount);
   };
-  // [FIX] updateHud exposen — extern aangeroepen vanuit applyLoadoutToCurrentRun
-  // (regel ~20626 in andere IIFE). Voorheen gaf 'updateHud?.()' een
-  // ReferenceError omdat het closure-scoped was. Nu via window beschikbaar.
-  try { window.OHUpdateArmoryHud = updateHud; } catch(_){}
+  // No-op HUD updater — externe callers verwachten dat 'm bestaat.
+  window.OHUpdateArmoryHud = function(){};
 })();
 
 
@@ -18808,16 +16988,11 @@ Jad: {
 
       const name = enemy.enemyName || "";
 
-      if(name === "Jos"){
-        // Jos is geen turret meer — we doen niets meer, hij loopt gewoon
-        // mee als bruiser via de standaard updateEnemies-AI.
-        anyWorkFound = true;
-      }
-
       // Safety-net: een zombie hoort NOOIT stil te staan. Als zijn speed
       // op 0 of negatief uitkomt (door een trait, bug of legacy patch),
       // zetten we hem terug naar een redelijke per-type-default zodat hij
-      // alsnog op je af komt lopen.
+      // alsnog op je af komt lopen. Geen anyWorkFound omdat dit een
+      // self-correcting one-shot is.
       if(!Number.isFinite(enemy.speed) || enemy.speed < 0.5){
         const wave = (typeof player !== "undefined" && player?.wave) ? player.wave : 1;
         enemy.speed =
@@ -19227,18 +17402,10 @@ Jad: {
   const _updateEnemies = updateEnemies;
   updateEnemies = function(dt){
     if(ohFreezeActive()) return;
-
     _updateEnemies(dt);
-
-    for(const enemy of state.enemies){
-      if(!enemy?.mesh) continue;
-
-      const name = ohFindNamedEnemy(enemy);
-
-      if(name === "Patrick"){
-        enemy.preferredDistance = Math.max(enemy.preferredDistance || 0, 10);
-      }
-    }
+    // [PERF] De Patrick-preferredDistance-check is hier verwijderd want
+    // een latere wrap (~21965) doet diezelfde check al in z'n named-enemy
+    // loop. Dubbel werk over alle enemies elke frame = pure verspilling.
   };
 
   const _updateMovement = updateMovement;
@@ -19652,15 +17819,15 @@ setWeapon = function(w){
   updateEnemies = function(dt){
     _updateEnemies(dt);
 
+    // [PERF] Gebruik de bestaande hasJoostSmoke-flag (gezet bij spawn) als
+    // pre-filter ipv elke frame voor elke enemy de naam-vergelijking te doen.
     for(const enemy of state.enemies){
-      if(ohEnemyName(enemy) === "Joost"){
-        enemy.hasJoostSmoke = true;
+      if(enemy?.hasJoostSmoke){
         spawnJoostSmoke(enemy, dt);
       }
     }
 
-    if(state.boss && ohEnemyName(state.boss) === "Joost"){
-      state.boss.hasJoostSmoke = true;
+    if(state.boss?.hasJoostSmoke){
       spawnJoostSmoke(state.boss, dt);
     }
   };
@@ -20073,99 +18240,11 @@ setWeapon = function(w){
   // roept 'm aan en kreeg ReferenceError omdat closure-scoped.
   try { window.OHTintMesh = tintMesh; } catch(_){}
 
-  function addCoverPod(x, z, colorA=0x244d96, colorB=0x5c2f88){
-    // NO-OP: legacy neon-arena decoraties (paarse coverpods) passen niet bij
-    // het zombies-thema en blokkeerden deur-doorgangen. De props-overhaul
-    // verderop in het bestand plaatst thema-passende crates/barrels op de
-    // betere posities. Functie zelf bewaard voor backward-compatibility.
-    return;
-  }
-
-  function addLaneGate(x, z, wide=true, color=0x2bc1ff){
-    // NO-OP: idem als addCoverPod — zie comment hierboven.
-    return;
-  }
-
-  // Originele implementaties bewaard voor reference (NIET aanroepen):
-  function _legacyAddCoverPod(x, z, colorA=0x244d96, colorB=0x5c2f88){
-    addBox(6.5, 2.6, 1.6, x, 1.3, z - 3.0, colorA);
-    addBox(6.5, 2.6, 1.6, x, 1.3, z + 3.0, colorA);
-    addBox(1.6, 2.8, 4.4, x - 3.0, 1.4, z, colorB);
-    addBox(1.6, 2.8, 4.4, x + 3.0, 1.4, z, colorB);
-    addCylinderCollider(0.85, 3.1, x, 1.55, z, 0x18284e);
-    addDecalRing(x, z, 3.8, colorA);
-  }
-
-  function _legacyAddLaneGate(x, z, wide=true, color=0x2bc1ff){
-    const width = wide ? 12 : 8;
-    addBox(width, 0.8, 2.0, x, 0.4, z, 0x2a3c63);
-    addBox(1.8, 4.6, 2.2, x - width * 0.5 + 0.8, 2.3, z, color);
-    addBox(1.8, 4.6, 2.2, x + width * 0.5 - 0.8, 2.3, z, color);
-    const holo = new THREE.Mesh(
-      new THREE.PlaneGeometry(width * 0.8, 2.4),
-      new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.14, side:THREE.DoubleSide, depthWrite:false })
-    );
-    holo.position.set(x, 2.0, z);
-    scene.add(holo);
-    director.projectileCache.set(holo, { phase: Math.random() * Math.PI * 2, baseY: holo.position.y });
-  }
-
-  function addArenaExpansion(){
-    [
-      [-40, -32, 0x2b86ff, 0x8038ff],
-      [40, -32, 0xff5aaa, 0x2b86ff],
-      [-40, 32, 0xffc76b, 0x2b86ff],
-      [40, 32, 0x5ff1c2, 0xff5aaa],
-      [-24, 0, 0x2bc1ff, 0x5f3cff],
-      [24, 0, 0xff6ea1, 0x2bc1ff]
-    ].forEach(([x, z, a, b]) => addCoverPod(x, z, a, b));
-
-    addLaneGate(0, -18, true, 0x4df7ff);
-    addLaneGate(0, 40, true, 0xff8dd8);
-    addLaneGate(-47, 0, false, 0x7ec8ff);
-    addLaneGate(47, 0, false, 0xffd166);
-
-    for(let i=0; i<8; i++){
-      const beacon = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.26, 4.6, 10),
-        new THREE.MeshStandardMaterial({ color:0x1b2338, emissive:i % 2 ? 0x2bc1ff : 0xff6ea1, emissiveIntensity:0.7, metalness:0.45, roughness:0.34 })
-      );
-      const angle = (i / 8) * Math.PI * 2;
-      beacon.position.set(Math.cos(angle) * 26, 2.3, Math.sin(angle) * 26);
-      scene.add(beacon);
-      addDecalRing(beacon.position.x, beacon.position.z, 1.45, i % 2 ? 0x2bc1ff : 0xff6ea1);
-    }
-
-    const skylineBanner = new THREE.Group();
-    for(let i=0;i<5;i++){
-      const banner = new THREE.Mesh(
-        new THREE.PlaneGeometry(10, 3),
-        new THREE.MeshBasicMaterial({ color:i % 2 ? 0x4df7ff : 0xff4fd8, transparent:true, opacity:0.11, side:THREE.DoubleSide, depthWrite:false })
-      );
-      banner.position.set(-36 + i * 18, 9 + i * 0.3, i % 2 ? 53 : -53);
-      banner.rotation.y = i % 2 ? 0 : Math.PI;
-      skylineBanner.add(banner);
-      director.projectileCache.set(banner, { phase: i * 0.8, baseY: banner.position.y });
-    }
-    scene.add(skylineBanner);
-
-    const oldAnimate = animate;
-    animate = function(now){
-      skylineBanner.children.forEach((banner, i) => {
-        const d = director.projectileCache.get(banner);
-        banner.position.y = d.baseY + Math.sin(now * 0.001 + d.phase + i) * 0.25;
-        banner.material.opacity = 0.08 + Math.sin(now * 0.0018 + d.phase) * 0.03;
-      });
-      oldAnimate(now);
-    };
-  }
-  // VERWIJDERD: addArenaExpansion() voegde legacy neon-arena decoraties toe
-  // (paarse coverpods, blauwe lane-gates) uit een oudere niet-zombies versie
-  // van het spel. Deze blokkeerden de doorgang naar de garage-deur (x=-26)
-  // en mess-hall-deur (x=26), én stonden onderaan trappen waar zombies
-  // achter bleven hangen. Het zombies-thema heeft al voldoende cover via
-  // de overhaul-props (crates, barrels, gurneys, workbenches etc.).
-  // addArenaExpansion();
+  // [REMOVED] Legacy neon-arena decoraties (addCoverPod/addLaneGate/
+  // addArenaExpansion) waren uit een oudere niet-zombies versie van het
+  // spel. Stubs en originals zijn beide verwijderd. De overhaul-IIFE
+  // verderop in het bestand plaatst thema-passende crates/barrels op
+  // betere posities.
 
   function sectorName(){
     const x = player.pos.x;
@@ -21429,663 +19508,6 @@ shootWithDirection = function(dirOverride = null){
 })();
 
 
-/* =========================
-   OLDE HANTER FINAL V3 META LOOP / CONTRACTS / LOADOUTS
-   plak dit direct boven: animate(performance.now());
-   ========================= */
-(() => {
-  const FINAL_META_KEY = "oldehanter_final_v3_meta";
-  const meta = {
-    profile: loadMetaProfile(),
-    runtime: {
-      currentSector: "Core Nexus",
-      objective: null,
-      currentBossRef: null,
-      lastWaveSeen: 0,
-      minibossWave: 0,
-      minibossAlive: false,
-      runWeaponKills: { bullet:0, rocket:0, grenade:0 },
-      runDamageAmp: 1,
-      cinematicTimer: 0,
-      loadoutApplied: false
-    }
-  };
-
-  function loadMetaProfile(){
-    try{
-      const saved = JSON.parse(localStorage.getItem(FINAL_META_KEY) || "null") || {};
-      return {
-        cores: saved.cores || 0,
-        schematics: saved.schematics || 0,
-        bestWave: saved.bestWave || 1,
-        weaponXP: Object.assign({ bullet:0, rocket:0, grenade:0 }, saved.weaponXP || {}),
-        weaponLevel: Object.assign({ bullet:1, rocket:1, grenade:1 }, saved.weaponLevel || {}),
-        completedContracts: saved.completedContracts || 0,
-        completedObjectives: saved.completedObjectives || 0,
-        bossContracts: saved.bossContracts || 0,
-        totalMinibossKills: saved.totalMinibossKills || 0,
-        activeLoadout: saved.activeLoadout || "vanguard",
-        loadouts: Object.assign({
-          vanguard: {
-            label: "Vanguard",
-            startWeapon: "bullet",
-            bonusHp: 14,
-            speed: 0.15,
-            ammo: { bullet: 18, rocket: 0, grenade: 0 },
-            abilities: { plasma: 1, mine: 0, orbital: 0 },
-            perk: "Stabiele opener met extra HP en rifle momentum"
-          },
-          demolisher: {
-            label: "Demolisher",
-            startWeapon: "rocket",
-            bonusHp: 6,
-            speed: -0.1,
-            ammo: { bullet: 0, rocket: 2, grenade: 1 },
-            abilities: { plasma: 0, mine: 1, orbital: 0 },
-            perk: "Explosieve start met rocket pressure en area denial"
-          },
-          tactician: {
-            label: "Tactician",
-            startWeapon: "grenade",
-            bonusHp: 8,
-            speed: 0.08,
-            ammo: { bullet: 8, rocket: 1, grenade: 2 },
-            abilities: { plasma: 0, mine: 1, orbital: 1 },
-            perk: "Utility-heavy run met crowd control en orbital follow-up"
-          }
-        }, saved.loadouts || {})
-      };
-    }catch(err){
-      return {
-        cores: 0,
-        schematics: 0,
-        bestWave: 1,
-        weaponXP: { bullet:0, rocket:0, grenade:0 },
-        weaponLevel: { bullet:1, rocket:1, grenade:1 },
-        completedContracts: 0,
-        completedObjectives: 0,
-        bossContracts: 0,
-        totalMinibossKills: 0,
-        activeLoadout: "vanguard",
-        loadouts: {
-          vanguard: { label:"Vanguard", startWeapon:"bullet", bonusHp:14, speed:0.15, ammo:{ bullet:18, rocket:0, grenade:0 }, abilities:{ plasma:1, mine:0, orbital:0 }, perk:"Stabiele opener met extra HP en rifle momentum" },
-          demolisher: { label:"Demolisher", startWeapon:"rocket", bonusHp:6, speed:-0.1, ammo:{ bullet:0, rocket:2, grenade:1 }, abilities:{ plasma:0, mine:1, orbital:0 }, perk:"Explosieve start met rocket pressure en area denial" },
-          tactician: { label:"Tactician", startWeapon:"grenade", bonusHp:8, speed:0.08, ammo:{ bullet:8, rocket:1, grenade:2 }, abilities:{ plasma:0, mine:1, orbital:1 }, perk:"Utility-heavy run met crowd control en orbital follow-up" }
-        }
-      };
-    }
-  }
-
-  function saveMetaProfile(){
-    try{ localStorage.setItem(FINAL_META_KEY, JSON.stringify(meta.profile)); }catch(err){}
-  }
-
-  function xpNeeded(level){ return 70 + (level - 1) * 55; }
-  function weaponLabelShort(w){ return w === "bullet" ? "Rifle" : w === "rocket" ? "Rocket" : "Grenade"; }
-  function currentLoadout(){ return meta.profile.loadouts[meta.profile.activeLoadout] || meta.profile.loadouts.vanguard; }
-  function weaponTreeBonus(weapon){
-    const lvl = meta.profile.weaponLevel[weapon] || 1;
-    return {
-      damage: 1 + Math.max(0, lvl - 1) * 0.06,
-      radius: 1 + Math.max(0, lvl - 1) * 0.05,
-      speed: 1 + Math.max(0, lvl - 1) * 0.025,
-      heat: 1 - Math.max(0, lvl - 1) * 0.03
-    };
-  }
-
-  function awardWeaponXP(weapon, amount){
-    if(!(weapon in meta.profile.weaponXP)) return;
-    meta.profile.weaponXP[weapon] += amount;
-    let leveled = false;
-    while(meta.profile.weaponXP[weapon] >= xpNeeded(meta.profile.weaponLevel[weapon])){
-      meta.profile.weaponXP[weapon] -= xpNeeded(meta.profile.weaponLevel[weapon]);
-      meta.profile.weaponLevel[weapon] += 1;
-      leveled = true;
-      flashHint?.(`${weaponLabelShort(weapon)} tree level ${meta.profile.weaponLevel[weapon]}`, 1200);
-      showFloating?.(`${weaponLabelShort(weapon).toUpperCase()} UPGRADE`);
-      createShockwave?.(player.pos, weapon === "bullet" ? 0x8bf0ff : weapon === "rocket" ? 0xffb36c : 0xc9ff9d, 3.8);
-    }
-    if(leveled) saveMetaProfile();
-    renderMetaPanel();
-  }
-
-  function buildMetaStyles(){
-    if(document.getElementById("ohFinalMetaStyles")) return;
-    const style = document.createElement("style");
-    style.id = "ohFinalMetaStyles";
-    style.textContent = `
-      #metaHud{
-        position:fixed; left:14px; bottom:14px; z-index:26; pointer-events:none;
-        background:linear-gradient(180deg, rgba(10,16,30,.88), rgba(10,12,22,.76));
-        border:1px solid rgba(133,211,255,.16); border-radius:18px; box-shadow:0 18px 36px rgba(0,0,0,.26);
-        padding:12px 14px; min-width:260px; backdrop-filter:blur(10px);
-      }
-      #metaHud .row{display:flex; justify-content:space-between; gap:12px; margin:4px 0; font-size:12px;}
-      #metaHud .title{font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:#dff6ff; margin-bottom:6px;}
-      #metaHud .soft{color:rgba(230,240,255,.72);}
-      #metaHud .accent{color:#8cecff; font-weight:700;}
-      #metaPanelWrap{
-        position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center;
-        background:rgba(2,4,10,.56); backdrop-filter:blur(8px);
-      }
-      #metaPanel{
-        width:min(980px, calc(100vw - 28px)); max-height:min(86vh, 860px); overflow:auto;
-        border-radius:24px; border:1px solid rgba(145,214,255,.14);
-        background:linear-gradient(180deg, rgba(11,18,36,.97), rgba(8,12,24,.97));
-        box-shadow:0 30px 70px rgba(0,0,0,.42); padding:22px;
-      }
-      #metaPanel h2{margin:0 0 6px; font-size:24px;}
-      #metaPanel .sub{color:rgba(227,242,255,.72); margin-bottom:16px;}
-      #metaPanel .grid{display:grid; grid-template-columns:1.2fr 1fr; gap:16px;}
-      #metaPanel .stack{display:grid; gap:14px;}
-      #metaPanel .card{border-radius:18px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04); padding:14px;}
-      #metaPanel .card h3{margin:0 0 10px; font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:#e6f6ff;}
-      #metaPanel .pill{display:inline-flex; align-items:center; gap:8px; border-radius:999px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.05); padding:8px 12px; font-size:12px; margin:4px 6px 0 0;}
-      #metaPanel .loadouts, #metaPanel .weapons{display:grid; gap:10px;}
-      #metaPanel .loadout, #metaPanel .weapon{border-radius:16px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); padding:12px;}
-      #metaPanel .loadout.active, #metaPanel .weapon.active{border-color:rgba(113,230,255,.42); box-shadow:0 0 0 1px rgba(113,230,255,.18) inset;}
-      #metaPanel .topline{display:flex; justify-content:space-between; gap:12px; align-items:flex-start;}
-      #metaPanel .name{font-weight:800; font-size:15px;}
-      #metaPanel .muted{color:rgba(226,240,255,.74); font-size:12px; line-height:1.45;}
-      #metaPanel button{border:0; cursor:pointer; border-radius:12px; padding:10px 12px; font-weight:700; color:#05101a; background:linear-gradient(180deg, #9fe8ff, #61d0ff);}
-      #metaPanel button.alt{background:rgba(255,255,255,.08); color:#e8f9ff; border:1px solid rgba(255,255,255,.08);}
-      #metaPanel .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;}
-      #metaPanel .bar{height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; margin-top:8px;}
-      #metaPanel .bar > i{display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg, #7fd8ff, #96ffd4);}
-      #bossCinematic{
-        position:fixed; inset:0; z-index:28; pointer-events:none; display:none; align-items:center; justify-content:center;
-        background:radial-gradient(circle at center, rgba(255,255,255,.04), rgba(2,4,10,.72));
-      }
-      #bossCinematic .plate{padding:18px 26px; border-radius:20px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(180deg, rgba(8,14,28,.88), rgba(8,12,22,.78)); text-align:center; box-shadow:0 16px 40px rgba(0,0,0,.35);}
-      #bossCinematic .eyebrow{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:#8cecff;}
-      #bossCinematic .name{font-size:28px; font-weight:900; letter-spacing:.05em; margin-top:6px;}
-      #bossCinematic .desc{font-size:13px; color:rgba(235,242,255,.76); margin-top:6px;}
-      @media (max-width: 980px){ #metaPanel .grid{grid-template-columns:1fr;} #metaHud{right:14px; min-width:0;} }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function buildMetaHud(){
-    if(document.getElementById("metaHud")) return;
-    buildMetaStyles();
-    const hud = document.createElement("div");
-    hud.id = "metaHud";
-    hud.innerHTML = `
-      <div class="title">Meta Loop / Final Build</div>
-      <div class="row"><span class="soft">Loadout</span><span id="metaHudLoadout" class="accent">Vanguard</span></div>
-      <div class="row"><span class="soft">Sector objective</span><span id="metaHudObjective">Scanning…</span></div>
-      <div class="row"><span class="soft">Contracts</span><span id="metaHudContract">None</span></div>
-      <div class="row"><span class="soft">Cores / Schematics</span><span id="metaHudRes">0 / 0</span></div>
-      <div class="row"><span class="soft">Best wave</span><span id="metaHudBest">1</span></div>
-      <div class="row"><span class="soft">Panel</span><span>Press <b>K</b></span></div>
-    `;
-    document.body.appendChild(hud);
-    hud.style.display = "none";
-
-    const wrap = document.createElement("div");
-    wrap.id = "metaPanelWrap";
-    wrap.innerHTML = `<div id="metaPanel"></div>`;
-    document.body.appendChild(wrap);
-    wrap.addEventListener("click", (e) => {
-      if(e.target === wrap) toggleMetaPanel(false);
-    });
-
-    const cine = document.createElement("div");
-    cine.id = "bossCinematic";
-    cine.innerHTML = `<div class="plate"><div class="eyebrow">Boss Contract</div><div class="name">SIGNAL LOCK</div><div class="desc">Priority target op de arena radar.</div></div>`;
-    document.body.appendChild(cine);
-  }
-
-  function metaHudEls(){
-    return {
-      loadout: document.getElementById("metaHudLoadout"),
-      objective: document.getElementById("metaHudObjective"),
-      contract: document.getElementById("metaHudContract"),
-      res: document.getElementById("metaHudRes"),
-      best: document.getElementById("metaHudBest")
-    };
-  }
-
-  function renderMetaHud(){
-    const els = metaHudEls();
-    const loadout = currentLoadout();
-    const objective = meta.runtime.objective;
-    els.loadout.textContent = loadout.label;
-    els.objective.textContent = objective ? `${objective.label} ${objective.progress}/${objective.target}` : "Awaiting directive";
-    els.contract.textContent = meta.runtime.minibossAlive ? `Active · ${meta.runtime.minibossWave}` : "Idle";
-    els.res.textContent = `${meta.profile.cores} / ${meta.profile.schematics}`;
-    els.best.textContent = `${meta.profile.bestWave}`;
-  }
-
-  function renderMetaPanel(){
-    const panel = document.getElementById("metaPanel");
-    if(!panel) return;
-    const loadouts = meta.profile.loadouts;
-    const activeId = meta.profile.activeLoadout;
-    const objective = meta.runtime.objective;
-    panel.innerHTML = `
-      <h2>Final Version Command Deck</h2>
-      <div class="sub">Permanente progression, saveable loadouts, sector objectives en miniboss contracts.</div>
-      <div class="grid">
-        <div class="stack">
-          <div class="card">
-            <h3>Run resources</h3>
-            <span class="pill">Cores <b>${meta.profile.cores}</b></span>
-            <span class="pill">Schematics <b>${meta.profile.schematics}</b></span>
-            <span class="pill">Best wave <b>${meta.profile.bestWave}</b></span>
-            <span class="pill">Objectives <b>${meta.profile.completedObjectives}</b></span>
-            <span class="pill">Contracts <b>${meta.profile.completedContracts}</b></span>
-            <span class="pill">Boss contracts <b>${meta.profile.bossContracts}</b></span>
-            <span class="pill">Miniboss kills <b>${meta.profile.totalMinibossKills}</b></span>
-          </div>
-          <div class="card">
-            <h3>Loadouts</h3>
-            <div class="loadouts">
-              ${Object.entries(loadouts).map(([id, cfg]) => `
-                <div class="loadout ${id === activeId ? "active" : ""}" data-loadout="${id}">
-                  <div class="topline"><div class="name">${cfg.label}</div><div class="muted">Start: ${weaponLabelShort(cfg.startWeapon)}</div></div>
-                  <div class="muted">${cfg.perk}</div>
-                  <div class="muted">HP +${cfg.bonusHp} · Speed ${cfg.speed >= 0 ? "+" : ""}${cfg.speed.toFixed(2)} · Ammo ${cfg.ammo.bullet||0}/${cfg.ammo.rocket||0}/${cfg.ammo.grenade||0}</div>
-                  <div class="btns"><button data-set-loadout="${id}">${id === activeId ? "Actief" : "Maak actief"}</button></div>
-                </div>
-              `).join("")}
-            </div>
-          </div>
-          <div class="card">
-            <h3>Live directive</h3>
-            <div class="muted">Sector: ${meta.runtime.currentSector}</div>
-            <div class="muted">Objective: ${objective ? `${objective.label} (${objective.progress}/${objective.target})` : "Nog geen objective actief"}</div>
-            <div class="muted">Contract: ${meta.runtime.minibossAlive ? `Actief op wave ${meta.runtime.minibossWave}` : "Geen actieve miniboss contract"}</div>
-            <div class="btns"><button class="alt" data-close-meta="1">Sluiten</button></div>
-          </div>
-        </div>
-        <div class="stack">
-          <div class="card">
-            <h3>Weapon trees</h3>
-            <div class="weapons">
-              ${["bullet","rocket","grenade"].map(w => {
-                const lvl = meta.profile.weaponLevel[w] || 1;
-                const xp = meta.profile.weaponXP[w] || 0;
-                const need = xpNeeded(lvl);
-                const pct = Math.max(0, Math.min(100, (xp / need) * 100));
-                const bonus = weaponTreeBonus(w);
-                return `
-                  <div class="weapon ${player.weapon === w ? "active" : ""}">
-                    <div class="topline"><div class="name">${weaponLabelShort(w)}</div><div class="muted">Level ${lvl}</div></div>
-                    <div class="muted">DMG x${bonus.damage.toFixed(2)} · Radius x${bonus.radius.toFixed(2)} · Velocity x${bonus.speed.toFixed(2)} · Heat x${bonus.heat.toFixed(2)}</div>
-                    <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
-                    <div class="muted">${xp}/${need} XP to next level</div>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          </div>
-          <div class="card">
-            <h3>Quick controls</h3>
-            <div class="muted">K = open/close panel · J = cycle loadout · 7/8/9 = direct loadout select · M = mute sound · F = buy at perk station.</div>
-            <div class="muted">Objectives belonen cores en schematics. Boss contracts geven bonus progression en extra ammo.</div>
-            <div class="muted">Weapon trees stijgen automatisch door kills en damage-events binnen een run.</div>
-          </div>
-          <div class="card">
-            <h3>Cheats</h3>
-            <div class="muted" style="margin-bottom:6px">Typ één van de codes tijdens het spelen (geen input-veld geselecteerd):</div>
-            <div class="loadouts">
-              <div class="loadout"><div class="topline"><div class="name">next</div><div class="muted">Skip current wave</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">skip</div><div class="muted">Skip 5 waves ineens</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">god</div><div class="muted">Toggle infinite ammo</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">heal</div><div class="muted">Restore HP to max</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">cash</div><div class="muted">+5000 salvage</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">boom</div><div class="muted">Kill all enemies now</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">fast</div><div class="muted">Toggle 2× move speed</div></div></div>
-              <div class="loadout"><div class="topline"><div class="name">mini</div><div class="muted">Toggle tiny enemies (0.5×)</div></div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    panel.querySelectorAll("[data-set-loadout]").forEach(btn => btn.addEventListener("click", () => {
-      meta.profile.activeLoadout = btn.getAttribute("data-set-loadout");
-      saveMetaProfile();
-      renderMetaHud();
-      renderMetaPanel();
-      flashHint?.(`Loadout active: ${currentLoadout().label}`, 1100);
-    }));
-    panel.querySelectorAll("[data-close-meta]").forEach(btn => btn.addEventListener("click", () => toggleMetaPanel(false)));
-  }
-
-  function toggleMetaPanel(force){
-    const wrap = document.getElementById("metaPanelWrap");
-    if(!wrap) return;
-    const next = typeof force === "boolean" ? force : wrap.style.display !== "flex";
-    wrap.style.display = next ? "flex" : "none";
-    if(next) renderMetaPanel();
-  }
-
-  function cycleLoadout(step=1){
-    const ids = Object.keys(meta.profile.loadouts);
-    const current = ids.indexOf(meta.profile.activeLoadout);
-    const next = ids[(current + step + ids.length) % ids.length];
-    meta.profile.activeLoadout = next;
-    saveMetaProfile();
-    renderMetaHud();
-    renderMetaPanel();
-    flashHint?.(`Loadout: ${meta.profile.loadouts[next].label}`, 900);
-  }
-
-  function applyLoadoutToCurrentRun(){
-    const loadout = currentLoadout();
-    if(!loadout || meta.runtime.loadoutApplied) return;
-    meta.runtime.loadoutApplied = true;
-    player.maxHp += loadout.bonusHp;
-    player.hp = Math.min(player.maxHp, player.hp + loadout.bonusHp);
-    player.speed += loadout.speed;
-    player.ammo.bullet += loadout.ammo.bullet || 0;
-    player.ammo.rocket += loadout.ammo.rocket || 0;
-    player.ammo.grenade += loadout.ammo.grenade || 0;
-    player.abilities.plasma += loadout.abilities.plasma || 0;
-    player.abilities.mine += loadout.abilities.mine || 0;
-    player.abilities.orbital += loadout.abilities.orbital || 0;
-    setWeapon?.(loadout.startWeapon);
-    setStat?.();
-    // [FIX] Was: updateHud?.() — gaf ReferenceError omdat updateHud closure-
-    // scoped is in een andere IIFE. Optional chaining helpt niet bij niet-
-    // bestaande identifiers (alleen bij undefined property-access). Nu via
-    // window-exposed alias.
-    window.OHUpdateArmoryHud?.();
-    renderMetaHud();
-  }
-
-  function resetMetaRuntime(){
-    meta.runtime.currentSector = "Core Nexus";
-    meta.runtime.objective = null;
-    meta.runtime.currentBossRef = null;
-    meta.runtime.lastWaveSeen = 0;
-    meta.runtime.minibossWave = 0;
-    meta.runtime.minibossAlive = false;
-    meta.runtime.runWeaponKills = { bullet:0, rocket:0, grenade:0 };
-    meta.runtime.runDamageAmp = 1;
-    meta.runtime.cinematicTimer = 0;
-    meta.runtime.loadoutApplied = false;
-  }
-
-  function chooseObjectiveForSector(sector){
-    const waveScale = Math.max(0, Math.floor(player.wave / 2));
-    const templates = [
-      { type:"kills", label:`Purge ${sector}`, target: 4 + waveScale },
-      { type:"weapon", label:`Rifle drill · ${sector}`, weapon:"bullet", target: 3 + waveScale },
-      { type:"weapon", label:`Siege break · ${sector}`, weapon:"rocket", target: 2 + Math.floor(waveScale * 0.6) },
-      { type:"weapon", label:`Arc denial · ${sector}`, weapon:"grenade", target: 2 + Math.floor(waveScale * 0.6) }
-    ];
-    const pool = templates.filter(t => t.type !== "weapon" || t.weapon !== player.weapon || Math.random() < 0.7);
-    const pick = pool[Math.floor(Math.random() * pool.length)] || templates[0];
-    return Object.assign({ sector, progress:0, rewardCores: 1 + Math.floor(player.wave / 4), rewardSchematics: sector === "Core Nexus" ? 0 : 1 }, pick);
-  }
-
-  function updateObjective(forceNew=false){
-    const sec = typeof sectorName === "function" ? sectorName() : "Core Nexus";
-    meta.runtime.currentSector = sec;
-    if(forceNew || !meta.runtime.objective || meta.runtime.objective.sector !== sec || meta.runtime.objective.completed){
-      meta.runtime.objective = chooseObjectiveForSector(sec);
-      flashHint?.(`Objective: ${meta.runtime.objective.label}`, 1300);
-    }
-    renderMetaHud();
-  }
-
-  function completeObjective(){
-    const obj = meta.runtime.objective;
-    if(!obj || obj.completed) return;
-    obj.completed = true;
-    meta.profile.cores += obj.rewardCores;
-    meta.profile.schematics += obj.rewardSchematics;
-    meta.profile.completedObjectives += 1;
-    player.ammo.bullet += 8;
-    if(player.wave >= 4) player.ammo.rocket += 1;
-    if(player.wave >= 6) player.abilities.mine += 1;
-    createShockwave?.(player.pos, 0x96ffd4, 4.4);
-    createFlash?.(player.pos.clone().add(new THREE.Vector3(0,1.4,0)), 0x96ffd4, 2.8, 10, 0.12);
-    showFloating?.(`OBJECTIVE COMPLETE +${obj.rewardCores} CORE`);
-    saveMetaProfile();
-    setStat?.();
-    renderMetaHud();
-    renderMetaPanel();
-    setTimeout(() => updateObjective(true), 250);
-  }
-
-  function progressObjective(kind, weapon, amount=1){
-    const obj = meta.runtime.objective;
-    if(!obj || obj.completed) return;
-    if(obj.type === "kills" && kind === "kill"){
-      obj.progress += amount;
-    } else if(obj.type === "weapon" && kind === "weapon" && obj.weapon === weapon){
-      obj.progress += amount;
-    }
-    if(obj.progress >= obj.target) completeObjective();
-    renderMetaHud();
-  }
-
-  function makeMiniboss(enemy){
-    if(!enemy || enemy.isBoss || enemy.ohContractMiniBoss) return enemy;
-    enemy.ohContractMiniBoss = true;
-    enemy.maxHp *= 2.6;
-    enemy.hp = enemy.maxHp;
-    enemy.radius *= 1.18;
-    enemy.speed *= 1.08;
-    enemy.damageMul = (enemy.damageMul || 1) * 1.4;
-    enemy.fireRateMul = Math.max(0.55, (enemy.fireRateMul || 1) * 0.74);
-    enemy.contractBurstCd = 2.8;
-    enemy.contractMortarCd = 4.6;
-    enemy.contractLabel = `Contract ${player.wave}`;
-    // [FIX] Was: tintMesh?.(...) — gaf ReferenceError omdat closure-scoped.
-    window.OHTintMesh?.(enemy.mesh, 0x96ffd4);
-    if(enemy.groundRing?.material) enemy.groundRing.material.color.setHex(0x96ffd4);
-    const label = document.getElementById("bossBarLabel");
-    if(label && !state.boss) label.textContent = `${enemy.contractLabel}`;
-    createShockwave?.(enemy.mesh.position, 0x96ffd4, 4.6);
-    showFloating?.("MINIBOSS CONTRACT");
-    return enemy;
-  }
-
-  function spawnWaveContract(){
-    if(meta.runtime.minibossAlive || state.boss || !state.running || player.wave < 4) return;
-    if(player.wave % 4 !== 0) return;
-    const enemy = spawnEnemy?.(false);
-    if(!enemy) return;
-    makeMiniboss(enemy);
-    meta.runtime.minibossAlive = true;
-    meta.runtime.minibossWave = player.wave;
-    renderMetaHud();
-  }
-
-  function showBossCinematic(title, desc){
-    const cine = document.getElementById("bossCinematic");
-    if(!cine) return;
-    const name = cine.querySelector(".name");
-    const d = cine.querySelector(".desc");
-    if(name) name.textContent = title;
-    if(d) d.textContent = desc;
-    cine.style.display = "flex";
-    meta.runtime.cinematicTimer = 1.4;
-    player.damageCooldown = Math.max(player.damageCooldown || 0, 1.2);
-    state.cameraShake = Math.min(2.3, (state.cameraShake || 0) + 0.8);
-  }
-
-  function updateBossCinematic(dt){
-    const cine = document.getElementById("bossCinematic");
-    if(!cine) return;
-    if(meta.runtime.cinematicTimer > 0){
-      meta.runtime.cinematicTimer -= dt;
-      cine.style.opacity = Math.min(1, meta.runtime.cinematicTimer > 0.3 ? 1 : meta.runtime.cinematicTimer / 0.3);
-      if(meta.runtime.cinematicTimer <= 0){
-        cine.style.display = "none";
-      }
-    }
-  }
-
-  const _startGameFinal = startGame;
-  startGame = function(){
-    resetMetaRuntime();
-    const res = _startGameFinal();
-    applyLoadoutToCurrentRun();
-    updateObjective(true);
-    renderMetaHud();
-    renderMetaPanel();
-    return res;
-  };
-
-  const _restartGameFinal = restartGame;
-  restartGame = function(){
-    const res = _restartGameFinal();
-    resetMetaRuntime();
-    applyLoadoutToCurrentRun();
-    updateObjective(true);
-    renderMetaHud();
-    renderMetaPanel();
-    return res;
-  };
-
-  const _updateTimersFinal = updateTimers;
-  updateTimers = function(dt){
-    _updateTimersFinal(dt);
-    if(player.wave > meta.profile.bestWave){
-      meta.profile.bestWave = player.wave;
-      saveMetaProfile();
-    }
-    if(player.wave !== meta.runtime.lastWaveSeen){
-      meta.runtime.lastWaveSeen = player.wave;
-      updateObjective(true);
-      if(player.wave >= 4){
-        setTimeout(() => {
-          if(state.running && player.alive && player.wave === meta.runtime.lastWaveSeen) spawnWaveContract();
-        }, 900);
-      }
-    } else {
-      const sec = typeof sectorName === "function" ? sectorName() : "Core Nexus";
-      if(sec !== meta.runtime.currentSector) updateObjective(true);
-    }
-    updateBossCinematic(dt);
-    renderMetaHud();
-  };
-
-  const _shootWithDirectionFinal = shootWithDirection;
-  shootWithDirection = function(dirOverride=null){
-    const weaponBefore = player.weapon;
-    const before = state.bullets.length;
-    const ok = _shootWithDirectionFinal(dirOverride);
-    if(ok){
-      const bonus = weaponTreeBonus(weaponBefore);
-      for(let i=before; i<state.bullets.length; i++){
-        const b = state.bullets[i];
-        if(!b) continue;
-        if(b.v2Friendly !== false){
-          b.damage *= bonus.damage;
-          if(b.radius) b.radius *= bonus.radius;
-          if(b.vel?.multiplyScalar) b.vel.multiplyScalar(bonus.speed);
-          b.ohFinalWeapon = weaponBefore;
-        }
-      }
-    }
-    return ok;
-  };
-
-  const _updateHazardsFinal = updateHazards;
-  updateHazards = function(dt){
-    _updateHazardsFinal(dt);
-    for(const enemy of state.enemies){
-      if(enemy?.ohContractMiniBoss){
-        enemy.contractBurstCd -= dt;
-        enemy.contractMortarCd -= dt;
-        if(enemy.contractBurstCd <= 0){
-          enemy.contractBurstCd = 2.1;
-          createShockwave?.(enemy.mesh.position, 0x96ffd4, 3.3);
-          for(let i=0;i<3;i++){
-            setTimeout(() => {
-              if(state.running && enemy.hp > 0) enemyShoot?.(enemy);
-            }, i * 80);
-          }
-        }
-        if(enemy.contractMortarCd <= 0){
-          enemy.contractMortarCd = 4.2;
-          // [FIX] Was: spawnBossMortarField?.(...) — gaf ReferenceError omdat closure-scoped.
-          window.OHSpawnBossMortarField?.(player.pos.clone(), 1, 3.0, 0x96ffd4);
-        }
-      }
-    }
-  };
-
-  const _killEnemyFinal = killEnemy;
-  killEnemy = function(enemy){
-    const weaponUsed = player.weapon;
-    if(enemy){
-      progressObjective("kill", weaponUsed, 1);
-      progressObjective("weapon", weaponUsed, 1);
-      awardWeaponXP(weaponUsed, enemy.isBoss ? 24 : enemy.ohContractMiniBoss ? 18 : enemy.type === "elite" ? 12 : 8);
-      meta.runtime.runWeaponKills[weaponUsed] = (meta.runtime.runWeaponKills[weaponUsed] || 0) + 1;
-    }
-    if(enemy?.ohContractMiniBoss){
-      meta.runtime.minibossAlive = false;
-      meta.profile.completedContracts += 1;
-      meta.profile.totalMinibossKills += 1;
-      meta.profile.cores += 3;
-      meta.profile.schematics += 2;
-      player.ammo.rocket += 2;
-      player.ammo.grenade += 1;
-      player.abilities.orbital += 1;
-      saveMetaProfile();
-      flashHint?.("Contract cleared · bonus rewards issued", 1300);
-      showFloating?.("CONTRACT CLEARED");
-      renderMetaHud();
-      renderMetaPanel();
-    }
-    if(enemy?.isBoss){
-      meta.profile.bossContracts += 1;
-      meta.profile.cores += 2;
-      meta.profile.schematics += 2;
-      saveMetaProfile();
-    }
-    return _killEnemyFinal(enemy);
-  };
-
-  const _spawnEnemyFinal = spawnEnemy;
-  spawnEnemy = function(isBoss=false){
-    const enemy = _spawnEnemyFinal(isBoss);
-    if(isBoss && enemy){
-      meta.runtime.currentBossRef = enemy;
-      const title = enemy.bossLabel || "Priority Target";
-      const desc = enemy.v2BossProfile?.desc || enemy.profile?.directive || "Sector elimination protocol active.";
-      showBossCinematic(title, desc);
-    }
-    return enemy;
-  };
-
-  const _applyDamageFinal = applyDamage;
-  applyDamage = function(amount){
-    const reduced = amount * (currentLoadout().label === "Vanguard" ? 0.96 : 1);
-    return _applyDamageFinal(reduced);
-  };
-
-  window.addEventListener("keydown", (e) => {
-    if(e.code === "KeyK" && !e.repeat){
-      e.preventDefault();
-      toggleMetaPanel();
-    }
-    if(e.code === "KeyJ" && !e.repeat){
-      e.preventDefault();
-      cycleLoadout(1);
-    }
-    if(e.code === "Digit7" && !e.repeat){ meta.profile.activeLoadout = "vanguard"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
-    if(e.code === "Digit8" && !e.repeat){ meta.profile.activeLoadout = "demolisher"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
-    if(e.code === "Digit9" && !e.repeat){ meta.profile.activeLoadout = "tactician"; saveMetaProfile(); renderMetaHud(); renderMetaPanel(); }
-  }, { passive:false });
-
-  buildMetaHud();
-  renderMetaHud();
-  renderMetaPanel();
-})();
-
-
-
-
 /* ==========================================
    OH FINAL HOTFIX: MOON AIM + ELLY + MARK
    ========================================== */
@@ -22331,21 +19753,26 @@ shootWithDirection = function(dirOverride = null){
   const _updateEnemiesMoonHotfix = updateEnemies;
   updateEnemies = function(dt){
     _updateEnemiesMoonHotfix(dt);
+    // [PERF] Pre-filter op bestaande markers (__ellyHalo, __markPads): die
+    // zijn O(1) truthy-check ipv elke frame een naam-string vergelijking.
+    // Patrick-flags zijn idempotent — overwriten is OK, maar alleen als er
+    // een enemyName property is (de meerderheid heeft die niet).
     for(const enemy of state.enemies){
-      if(!enemy?.mesh) continue;
+      if(!enemy) continue;
+      if(enemy.__ellyHalo){
+        enemy.__ellyHalo.rotation.z += dt * 1.6;
+        enemy.__ellyHalo.material.opacity = 0.55 + Math.sin(performance.now() * 0.008) * 0.18;
+      }
+      if(enemy.__markPads){
+        for(const pad of enemy.__markPads){
+          if(pad?.rotation) pad.rotation.y += dt * 0.9;
+        }
+      }
+      // Patrick is zeldzaam — alleen werken als er een naam is.
       if(enemy.enemyName === "Patrick"){
         enemy.alwaysFlee = false;
         enemy.neverShoot = false;
         enemy.usesGrenades = true;
-      }
-      if(enemy.enemyName === "Elly" && enemy.__ellyHalo){
-        enemy.__ellyHalo.rotation.z += dt * 1.6;
-        enemy.__ellyHalo.material.opacity = 0.55 + Math.sin(performance.now() * 0.008) * 0.18;
-      }
-      if(enemy.enemyName === "Mark" && enemy.__markPads){
-        for(const pad of enemy.__markPads){
-          if(pad?.rotation) pad.rotation.y += dt * 0.9;
-        }
       }
     }
   };
@@ -24094,35 +21521,9 @@ shootWithDirection = function(dirOverride = null){
   // ALLEEN power-ups droppen (Max Ammo, Insta-Kill, Double Points, Nuke).
   // De oude monkey-patch hier is niet meer nodig.
 
-  // ---- applyLoadoutToCurrentRun naar no-op zodat het oude meta-systeem
-  // niet meer ingrijpt op HP, ammo en abilities. Onze inventory beheert dat.
-  if(typeof applyLoadoutToCurrentRun === "function"){
-    const _noop = function(){};
-    applyLoadoutToCurrentRun = _noop;
-    window.applyLoadoutToCurrentRun = _noop;
-  }
-
-  // ---- toggleMetaPanel disablen zodat K-toets geen Command Deck opent
-  if(typeof toggleMetaPanel === "function"){
-    const _origToggle = toggleMetaPanel;
-    toggleMetaPanel = function(){ /* no-op — paneel verborgen */ };
-    window.toggleMetaPanel = toggleMetaPanel;
-  }
-
-  // ---- cycleLoadout/renderMetaHud/renderMetaPanel naar no-op ----
-  // Voorkomt "Loadout: Vanguard" flash bij J-toets / 7/8/9.
-  if(typeof cycleLoadout === "function"){
-    cycleLoadout = function(){ /* no-op */ };
-    window.cycleLoadout = cycleLoadout;
-  }
-  if(typeof renderMetaHud === "function"){
-    renderMetaHud = function(){ /* no-op */ };
-    window.renderMetaHud = renderMetaHud;
-  }
-  if(typeof renderMetaPanel === "function"){
-    renderMetaPanel = function(){ /* no-op */ };
-    window.renderMetaPanel = renderMetaPanel;
-  }
+  // [REMOVED] META loadout-systeem (applyLoadoutToCurrentRun, toggleMetaPanel,
+  // cycleLoadout, renderMetaHud, renderMetaPanel) is volledig verwijderd —
+  // de bijbehorende no-op overrides zijn daarmee dode code en weg.
 
   // ---- CHEAT-OVERHAUL ----
   // Vervangen: 'fast', 'mini', 'skip' (rommel) zijn weg.
@@ -32301,6 +29702,23 @@ shootWithDirection = function(dirOverride = null){
         const dz = pZ - e.mesh.position.z;
         const distSq = dx*dx + dz*dz;
 
+        // [PERF] Vroege exit voor pose-update werk. Drie escape-paden:
+        // 1) Geen userData.parts (oude mesh, niet rigged): niets te animeren.
+        // 2) parts is EMPTY_PARTS sentinel (pose-cull module markeerde 'm
+        //    als ver weg): pose-update is verspild — skip alle sin/cos.
+        // 3) distSq > 625 (>25u weg) als extra veiligheidsnet voor het
+        //    geval pose-cull niet draait. Op 25u zie je arm-bewegingen
+        //    toch niet meer.
+        // Melee check zit hieronder achter `distSq < 4.0` dus die wordt
+        // alléén overgeslagen als de zombie sowieso >25u weg is — geen
+        // gameplay-impact.
+        const parts = e.mesh.userData?.parts;
+        if(!parts || !parts.armL || distSq > 625){
+          // Als er een melee-kandidaat is moet die nog gecheckt worden.
+          // Vrijwel altijd nee bij >25u, dus we kunnen continue:
+          continue;
+        }
+
         // Per-enemy unieke shamble parameters (één keer init).
         // Maakt elke zombie een net iets andere mank-pose: dit is wat
         // CoD zombies uniek maakt vs. een leger van identieke poppetjes.
@@ -32342,8 +29760,7 @@ shootWithDirection = function(dirOverride = null){
         }
 
         // Zombie pose: armen vooruit met persoonlijke variatie
-        const parts = e.mesh.userData?.parts;
-        if(!parts) continue;
+        // (parts is bovenaan al uitgehaald + gevalideerd)
 
         let swingPhase = 0;
         if(e.__zombieSwingT > 0){
@@ -34064,40 +31481,9 @@ shootWithDirection = function(dirOverride = null){
     placeProp(makeCrateStack(), -20, 18, 0.6);
     placeProp(makeBarrelGroup(), 20, 18, -0.2);
 
-    // ---- VERWIJDER LEFTOVER COLLIDERS van addArenaExpansion ----
-    // De pods/lane-gates voegden destijds zelf colliders toe via addBox().
-    // Die zijn nu allemaal disabled (de hele functie is uitgeschakeld), maar
-    // dit blok blijft staan als veiligheid voor het geval iemand later
-    // addArenaExpansion weer aan zet. Als de mesh niet bestaat skippen we.
-    if(Array.isArray(window.colliders)){
-      const POD_POSITIONS = [
-        [-40, -32], [40, -32], [-40, 32], [40, 32], [-24, 0], [24, 0],
-        // pod onderdelen staan ±3u offset:
-        [-37, -32], [-43, -32], [-40, -29], [-40, -35],
-        [37, -32], [43, -32], [40, -29], [40, -35],
-        [-37, 32], [-43, 32], [-40, 29], [-40, 35],
-        [37, 32], [43, 32], [40, 29], [40, 35],
-        [-21, 0], [-27, 0], [-24, -3], [-24, 3],
-        [21, 0], [27, 0], [24, -3], [24, 3],
-        // Lane-gates op (0,-18), (0,40), (-47,0), (47,0):
-        [0, -18], [0, 40], [-47, 0], [47, 0],
-        [-5.2, -18], [5.2, -18], [-5.2, 40], [5.2, 40],
-        [-47, -5.2], [-47, 5.2], [47, -5.2], [47, 5.2]
-      ];
-      const TOLp = 0.8;
-      for(let i = window.colliders.length - 1; i >= 0; i--){
-        const c = window.colliders[i];
-        const m = c?.mesh; if(!m?.position) continue;
-        const mx = m.position.x, mz = m.position.z;
-        for(const [px, pz] of POD_POSITIONS){
-          if(Math.abs(mx - px) < TOLp && Math.abs(mz - pz) < TOLp){
-            if(m.parent) m.parent.remove(m);
-            window.colliders.splice(i, 1);
-            break;
-          }
-        }
-      }
-    }
+    // [REMOVED] Cleanup-loop voor addArenaExpansion-colliders verwijderd —
+    // de hele addArenaExpansion-functie is weg dus er zijn geen leftover
+    // colliders meer om op te ruimen.
 
     // ---- Floor mist (16 patches) — enkele setInterval ipv per-frame RAF ----
     const mistMatBase = new THREE.MeshBasicMaterial({
@@ -37446,12 +34832,8 @@ shootWithDirection = function(dirOverride = null){
   }
 
   // ===================================================================
-  // (8) FURY NEON-SHOCKWAVE FIX
+  // (8) [REMOVED] FURY NEON-SHOCKWAVE FIX — Fury volledig verwijderd.
   // ===================================================================
-  // [REMOVED] Fury verwijderd op verzoek. Stubs blijven voor compat met
-  // master rAF-tick die _furyRingTick / _furyHintTick aanroept.
-  function _furyRingTick(){ /* no-op */ }
-  function _furyHintTick(){ /* no-op */ }
 
   // ===================================================================
   // (9) CoD-STIJL PICKUP ICONEN + LABELS
@@ -37874,71 +35256,30 @@ shootWithDirection = function(dirOverride = null){
   // ===================================================================
   // Voorheen draaiden er 8 onafhankelijke requestAnimationFrame loops in
   // deze IIFE. Elk doet `requestAnimationFrame(zelf)` waardoor er 8 ×
-  // function-call-overhead per frame is en de browser 8 callback-slots
-  // moet inplannen. Geconsolideerd in één master tick met per-sub-tick
-  // frame-skipping levert dat een significante perf-win op:
-  //   - 60 fps × 8 ticks = 480 callbacks/sec  →  60 callbacks/sec
-  //   - Sub-ticks die geen elke-frame precisie nodig hebben skippen
-  //     frames (zombie-retint: elke 6e, HUD: elke 8e, etc.)
-  //
-  // Elke sub-tick blijft zijn eigen body-functie behouden (we hebben
-  // alleen hun rAF-zelf-rescheduling gestript) zodat de logica intakt is.
+  // function-call-overhead per frame is. Geconsolideerd in één master tick
+  // met per-sub-tick frame-skipping.
   let _masterFrame = 0;
+  function _safeRun(fn){ try { fn(); } catch(_){} }
   function _masterTickRun(){
     requestAnimationFrame(_masterTickRun);
     _masterFrame++;
-    // [DIAG] per-tick timing om de bron van long-tasks te vinden
-    const _D = window.__masterDiag;
-    const _t = _D ? performance.now() : 0;
-    const _M = _D ? (label, fn) => {
-      const a = performance.now();
-      try { fn(); } catch(_){}
-      const dt = performance.now() - a;
-      if(dt > 100){
-        const elapsed = ((performance.now() - window.__masterDiagT0) / 1000).toFixed(1);
-        window.__masterDiagEvents = window.__masterDiagEvents || [];
-        if(window.__masterDiagEvents.length < 50){
-          window.__masterDiagEvents.push({ at: elapsed, label, ms: dt.toFixed(0) });
-        }
-      }
-    } : (label, fn) => { try { fn(); } catch(_){} };
-
     // Elk frame: kritische bullet/ring scans (latency-gevoelig)
-    _M("papSpecial", _papSpecialTick);
-    _M("papDelayed", _papDelayedTick);
-    _M("furyRing",   _furyRingTick);
+    _safeRun(_papSpecialTick);
+    _safeRun(_papDelayedTick);
     // Elke 4e frame (~15Hz): viewmodel-extras sync + opt-cleanup
     if(_masterFrame % 4 === 0){
-      _M("extrasSync", _extrasSyncTick);
-      _M("opt",        _optTick);
+      _safeRun(_extrasSyncTick);
+      _safeRun(_optTick);
     }
     // Elke 6e frame (~10Hz): zombie retint scan + pickup style scan
     if(_masterFrame % 6 === 0){
-      _M("zombieRetint", _zombieRetintTick);
-      _M("codPickup",    _codPickupTick);
-    }
-    // Elke 8e frame (~7Hz): HUD elements (fury-hint banner)
-    if(_masterFrame % 8 === 0){
-      _M("furyHint", _furyHintTick);
+      _safeRun(_zombieRetintTick);
+      _safeRun(_codPickupTick);
     }
   }
-  // [DIAG] activeer master-diag voor 35s
-  window.__masterDiag = true;
-  window.__masterDiagT0 = performance.now();
-  setTimeout(() => {
-    window.__masterDiag = false;
-    const ev = window.__masterDiagEvents || [];
-    if(ev.length === 0){
-      console.log("%c[master-diag] geen slow ticks", "color:#9dff7c;font-weight:bold");
-    } else {
-      console.log(`%c[master-diag] ${ev.length} slow inner-ticks:`,
-        "color:#ff8060;font-weight:bold;font-size:13px");
-      ev.forEach(e => console.log(`  @${e.at}s [${e.label}] ${e.ms}ms`));
-    }
-  }, 35000);
   requestAnimationFrame(_masterTickRun);
 
-  console.log("[bo2pack-extra-2] PaP specials (per-frame scan) + bbox-extras + zombie-tint + Fury + opts online (master-tick consolidated, 8 → 1 rAF)");
+  console.log("[bo2pack-extra-2] PaP specials + bbox-extras + zombie-tint + opts online (master-tick consolidated)");
 })();
 
 /* =====================================================================
@@ -40279,515 +37620,44 @@ shootWithDirection = function(dirOverride = null){
 // en window._ZOMBIE_LEG_GEO).
 // ============================================================================
 (() => {
-  // [PERF v19] Mobile detection vooraf zodat we de fallback-timeout
-  // adaptief kunnen maken.
-  const _IS_MOBILE = (typeof matchMedia === "function" && matchMedia("(pointer:coarse)").matches)
-                  || ("ontouchstart" in window);
-
-  // Fallback: als prewarm na X seconden nog niet klaar is, activeer de
-  // START-knop sowieso — gebruiker kan dan toch spelen (met mogelijk wat
-  // shader-spikes bij eerste zombies, maar dat is beter dan een blokkerende
-  // laadscherm). Op mobiel: 8s budget (afgeslankte prewarm moet sneller
-  // klaar zijn). Op desktop: 10s.
+  // ============================================================================
+  // SIMPLIFIED PREWARM v2 — STABILITY-BASED + COMPILE PASS
+  // ----------------------------------------------------------------------------
+  // Lesson from logs: scene/camera/renderer existed within 1.5s, but many
+  // decoration modules (bo2pack-extra-1..6, props, lights, ADS, monkey-lure)
+  // kept adding meshes for several more seconds. Enabling START when only
+  // scene exists means the player enters the game while shader-compiles are
+  // still pending → multi-second freezes once gameplay starts.
   //
-  // [v20.2] BUG FIX. Vorige versies cancelden de fallback ZODRA `_runPreWarm`
-  // begon, op de aanname dat een eenmaal gestarte prewarm wel zou afronden.
-  // Maar als de prewarm halverwege silent crasht of in een await-pad blijft
-  // hangen, was de fallback al weg = knop blijft "Materialen laden…" voor
-  // eeuwig. Nu: de fallback wordt PAS gecleared aan het EINDE van prewarm,
-  // op het moment dat we de knop expliciet enableden. Geen race condition.
+  // New approach:
+  //   1. Wait for scene + camera + renderer to exist (basic readiness)
+  //   2. Then watch scene.children.length until it has been STABLE for 500ms
+  //      (no new meshes added). That signals decoration is done.
+  //   3. Call renderer.compile(scene, camera) — Three.js's official one-shot
+  //      shader-precompile. Synchronous but ~100-300ms typically.
+  //   4. Do ONE renderer.render() pass to ensure GPU programs are linked.
+  //   5. Enable the START button.
+  //   6. Hard ceiling of 6s — never wait longer regardless.
   //
-  // Plus een 2e watchdog: elke 2s checken of de knop nog disabled is. Na
-  // _FALLBACK_TIMEOUT_MS totaal: brute-force enable, ongeacht state.
-  const _FALLBACK_TIMEOUT_MS = _IS_MOBILE ? 8000 : 10000;
-  let _prewarmDone = false;
-  const _fallbackEnable = setTimeout(() => {
-    if(_prewarmDone) return;   // Prewarm was al netjes klaar
-    try {
-      const btn = document.getElementById("startBtn");
-      if(btn && btn.disabled){
-        btn.disabled = false;
-        btn.style.opacity = "";
-        btn.style.cursor = "";
-        btn.textContent = "START";
-        console.warn(`[prewarm] fallback: START button enabled after ${_FALLBACK_TIMEOUT_MS / 1000}s timeout`);
-      }
-    } catch(_){}
-  }, _FALLBACK_TIMEOUT_MS);
+  // This is much simpler than v20.2 (no zombie variants, no viewpoint walks,
+  // no async paths that could hang) while still preventing the 3-second
+  // freezes the simple v1 prewarm let through.
+  // ============================================================================
+  const _MAX_WAIT_MS = 6000;
+  const _STABLE_MS = 500;      // scene.children must be unchanged for this long
+  const _POLL_MS = 100;
+  const _t0 = performance.now();
+  let _done = false;
+  let _lastChildCount = -1;
+  let _stableSince = 0;
 
-  // [v20.2] Watchdog: brute-force check elke 2s. Als de knop nog steeds
-  // "Materialen laden" toont NA de fallback-timeout (bv. omdat de fallback
-  // zelf is ge-cleared door verouderde code), forceer de enable.
-  const _watchdogStart = performance.now();
-  const _watchdog = setInterval(() => {
-    if(_prewarmDone){ clearInterval(_watchdog); return; }
-    const elapsed = performance.now() - _watchdogStart;
-    if(elapsed < _FALLBACK_TIMEOUT_MS + 1000) return;   // gun fallback eerst
-    try {
-      const btn = document.getElementById("startBtn");
-      if(btn && btn.disabled){
-        btn.disabled = false;
-        btn.style.opacity = "";
-        btn.style.cursor = "";
-        btn.textContent = "START";
-        console.warn(`[prewarm] watchdog: START button force-enabled after ${(elapsed/1000).toFixed(1)}s`);
-      }
-    } catch(_){}
-    clearInterval(_watchdog);
-  }, 2000);
-
-  let _retries = 0;
-
-  // [PERF v19] Helpers voor async prewarm op mobiel
-  // ----------------------------------------------------------------------
-
-  // Yield naar de browser zodat het scherm kan repainten. Zonder dit blijft
-  // de hele prewarm in één synchroon tick steken = "scherm hangt".
-  function _yield(ms = 0){
-    return new Promise(r => setTimeout(r, ms));
+  function getRenderer(){
+    return window.renderer || window.OHRenderer || null;
   }
 
-  // Progress-update op de START-knop. Geeft gebruiker visuele feedback dat
-  // er iets gebeurt, voorkomt "lijkt vast"-perceptie.
-  function _setLoadProgress(label, pct){
-    try {
-      const btn = document.getElementById("startBtn");
-      if(!btn) return;
-      const fp = pct != null ? ` ${Math.round(pct)}%` : "";
-      btn.textContent = `${label}${fp}`;
-    } catch(_){}
-  }
-
-  async function _runPreWarm(){
-    if(!window.scene || !window.camera || !window.OHRenderer || typeof window.makeEnemyMesh !== "function" && typeof makeEnemyMesh !== "function"){
-      // Wacht tot init klaar is. makeEnemyMesh is global in basis-IIFE, dus
-      // soms via window, soms direct. Max 50 retries (10s) anders fallback.
-      if(++_retries > 50){
-        console.warn("[prewarm] gave up after 50 retries — dependencies not ready");
-        return;
-      }
-      setTimeout(_runPreWarm, 200);
-      return;
-    }
-    // [v20.2] NIET MEER clearTimeout(_fallbackEnable) hier. Fallback blijft
-    // gearmd tot prewarm ECHT klaar is (zie eind van functie). Anders kan
-    // een silent crash halverwege de knop voor eeuwig op "Materialen laden"
-    // laten staan.
-
-    // [PERF v19] Mobile-light pad: minder zombies, minder viewpoints.
-    // Op mobiel is shader-compile per render ~3-5× zo langzaam, en de
-    // gebruiker accepteert eerder een paar mini-spikes tijdens gameplay
-    // dan 10+ seconden blokkerende loading.
-    //
-    // [PERF v20.1] TERUG NAAR 2 VARIANTS — v20 probeerde 6 variants/type
-    // voor betere RNG-coverage, maar 24 zombies + 6 boss = 30 zombies in
-    // scene tijdens prewarm-render veroorzaakte een ~30s shader-compile-
-    // stall in de eerste renderer.render() call. De gebruiker zag de
-    // "Materialen laden…" knop nooit transformeren want we hingen vóór
-    // de eerste yield. Daarom terug naar 2 variants (~12 zombies totaal)
-    // — gewoon onbetrouwbaarder dan v18 was niet, en de v20 fixes
-    // (compile()-na-skin + ring-cache) houden de runtime-spikes laag.
-    const _ZOMBIE_TYPES = _IS_MOBILE ? ["basic", "runner"] : ["basic", "runner", "tank", "elite"];
-    const _VARIANTS_PER_TYPE = _IS_MOBILE ? 1 : 2;
-    const _DO_BOSS_WARMUP = !_IS_MOBILE;
-    const _DO_FULL_VIEWPOINTS = !_IS_MOBILE;
-
-    if(_IS_MOBILE){
-      console.log("[prewarm] mobile-light path geactiveerd (minder zombies/viewpoints, met yield-points)");
-    }
-
-    _setLoadProgress("Materialen laden", 5);
-    await _yield(16);
-
-    try {
-      const types = _ZOMBIE_TYPES;
-      const warmupMeshes = [];
-      // [PERF FIX] Zombies MOETEN in camera-frustum staan EN volledig
-      // ge-skinned zijn (via applyZombieSkin) om alle shader-permutaties
-      // te triggeren. Voorheen stonden ze ver weg met scale=0.01 wat
-      // Three.js soms liet skippen — gevolg: shader-compile-spikes tijdens
-      // gameplay als zombie variants voor het eerst zichtbaar werden.
-      //
-      // [PERF FIX v2] applyZombieSkin gebruikt random skin/cloth-mats per
-      // zombie + random aantallen blood-splats + wounds + rags. We maken
-      // daarom MEERDERE zombies per type zodat verschillende RNG-uitkomsten
-      // worden gerenderd → alle shader-permutaties komen in cache.
-      const cam = window.camera;
-      const camDir = new THREE.Vector3();
-      cam.getWorldDirection(camDir);
-      const basePos = cam.position.clone().addScaledVector(camDir, 6);
-      const rightVec = new THREE.Vector3();
-      rightVec.crossVectors(camDir, cam.up).normalize();
-      let offset = -3;
-
-      // [PERF v19] Mobile-light pad gebruikt _VARIANTS_PER_TYPE (1 op mobiel,
-      // 2 op desktop). Plus yield-point tussen elke zombie zodat de browser
-      // tussendoor kan repainten — anders blijft het scherm zwart hangen
-      // tijdens applyZombieSkin (zware sync werk, 50-100ms/zombie op desktop,
-      // 200-500ms op mobiel).
-      const VARIANTS_PER_TYPE = _VARIANTS_PER_TYPE;
-      const _totalZombies = types.length * VARIANTS_PER_TYPE + (_DO_BOSS_WARMUP ? VARIANTS_PER_TYPE : 0);
-      let _zombiesDone = 0;
-      for(const t of types){
-        for(let i = 0; i < VARIANTS_PER_TYPE; i++){
-          try {
-            const m = (typeof makeEnemyMesh === "function") ? makeEnemyMesh(t, false) : null;
-            if(!m) continue;
-            m.position.copy(basePos).addScaledVector(rightVec, offset);
-            m.scale.setScalar(0.5);
-            m.traverse(obj => {
-              if(obj.isMesh) obj.frustumCulled = false;
-            });
-            window.scene.add(m);
-            try {
-              if(typeof window.OHApplyZombieSkin === "function"){
-                window.OHApplyZombieSkin({ mesh: m, type: t });
-              }
-            } catch(_){}
-            warmupMeshes.push(m);
-            if(!window.__compiledVariants) window.__compiledVariants = new Set();
-            window.__compiledVariants.add(`${t}_n`);
-            offset += 0.8;
-          } catch(_){}
-          _zombiesDone++;
-          // [PERF v19] Yield naar browser na elke zombie. Op mobiel essentieel
-          // voor repaint. Op desktop micro-overhead die de UX niet hindert
-          // omdat de hele prewarm toch al snel klaar is.
-          //
-          // [v20.1] Yield NU OOK OP DESKTOP. v20 had geen yield op desktop;
-          // bij 30 zombies + 1 grote render = 30s blokkerend = "scherm hangt".
-          // Met yield ertussen kan browser repainten en zien gebruikers
-          // tenminste progress.
-          _setLoadProgress("Materialen laden", 5 + (_zombiesDone / _totalZombies) * 45);
-          await _yield(0);
-        }
-      }
-
-      // Boss-variant pre-warmen — alleen op desktop. Op mobiel niet, want:
-      // boss spawnt pas vanaf wave 3+, dan kan de speler eventueel een
-      // korte spike accepteren bij eerste boss-spawn.
-      if(_DO_BOSS_WARMUP){
-        for(let i = 0; i < VARIANTS_PER_TYPE; i++){
-          try {
-            const boss = (typeof makeEnemyMesh === "function") ? makeEnemyMesh("basic", true) : null;
-            if(!boss) continue;
-            boss.position.copy(basePos).addScaledVector(rightVec, offset);
-            boss.scale.setScalar(0.5);
-            boss.traverse(obj => {
-              if(obj.isMesh) obj.frustumCulled = false;
-            });
-            window.scene.add(boss);
-            try {
-              if(typeof window.OHApplyZombieSkin === "function"){
-                window.OHApplyZombieSkin({ mesh: boss, type: "basic" });
-              }
-            } catch(_){}
-            warmupMeshes.push(boss);
-            if(!window.__compiledVariants) window.__compiledVariants = new Set();
-            window.__compiledVariants.add(`basic_b`);
-            offset += 0.8;
-          } catch(_){}
-          _zombiesDone++;
-          _setLoadProgress("Materialen laden", 5 + (_zombiesDone / _totalZombies) * 45);
-          await _yield(0);
-        }
-      }
-
-      // [PERF] Pre-warm common bullet/shockwave/particle materials. Eerste
-      // keer dat een bullet met een unieke kleur wordt gefired, of een
-      // shockwave met nieuwe kleur, triggert Three.js een shader-compile
-      // → een visible 50-200ms stutter. Door bij init een micro-mesh per
-      // hot-path-kleur kort te renderen, zijn de shaders vooraf klaar.
-      const _HOT_COLORS = [
-        0xffb84a,  // m1911 bullet
-        0xffd680,  // bullet trail
-        0xffe18a, 0xffecb8,   // combo side-shots
-        0xff8a40, 0xff5a18,   // RPG / explosion
-        0xff6ea1, 0xff2e88,   // boss pink shockwaves
-        0x00f7ff, 0x4df7ff, 0xa8f4ff, 0x8bf0ff,  // cyan shockwaves
-        0xa040ff, 0xff4fd8,   // PaP purple, plasma magenta
-        0xc8ff20,             // ray gun green
-        0xff3030,             // red impact / LED
-        0xffffff,             // pure white flash
-      ];
-      try {
-        const microGroup = new THREE.Group();
-        const microGeo = new THREE.PlaneGeometry(0.01, 0.01);
-        for(const col of _HOT_COLORS){
-          // MeshBasicMaterial pre-warm (bullets, particles, rings)
-          const m1 = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5 });
-          const mesh1 = new THREE.Mesh(microGeo, m1);
-          mesh1.position.set(100, -52, 110);
-          microGroup.add(mesh1);
-        }
-        microGroup.position.set(100, -52, 110);
-        window.scene.add(microGroup);
-        warmupMeshes.push(microGroup);
-        // Trigger nog een render om deze materials te compileren.
-        window.OHRenderer.render(window.scene, window.camera);
-      } catch(err){
-        console.warn("[prewarm] material warmup failed:", err);
-      }
-
-      // Forceer één render-frame om de shaders te compileren.
-      try {
-        window.OHRenderer.render(window.scene, window.camera);
-      } catch(_){}
-
-      // [PERF FIX] Cleanup SYNCHROON na render (was requestAnimationFrame).
-      // De zombies staan vlak voor de camera tijdens warm-up; als we ze pas
-      // op de volgende frame opruimen, ziet de speler ze één frame lang.
-      // Synchroon na render() zit de pixel-data in de back-buffer maar wordt
-      // pas gepaint tijdens de volgende browser-paint cycle, dus de NEXT
-      // render() (gameplay) overschrijft de back-buffer eerst → speler ziet
-      // niets van de warmup.
-      for(const m of warmupMeshes){
-        try {
-          m.visible = false;
-          m.position.set(0, -9999, 0);
-          m.traverse(obj => {
-            if(obj.isMesh){
-              obj.frustumCulled = true;
-              obj.visible = false;
-              // Dispose per-zombie geometry-clones (van applyZombieSkin's
-              // deformGeometry). Shared geometries blijven in cache.
-              if(obj.geometry?.userData?.__deformed){
-                try { obj.geometry.dispose?.(); } catch(_){}
-              }
-            }
-          });
-          window.scene.remove(m);
-        } catch(_){}
-      }
-      // Doe nog één render() om de back-buffer schoon te krijgen (zonder
-      // zombies). Zo zien we zeker dat de speler de warmup-zombies niet ziet.
-      try {
-        window.OHRenderer.render(window.scene, window.camera);
-      } catch(_){}
-      console.log("[prewarm] " + warmupMeshes.length + " zombie variants pre-warmed (geometry+materials+shaders+textures)");
-
-      // [PERF FIX] MULTI-VIEWPOINT SCENE WALKTHROUGH
-      // ==================================================================
-      // Probleem: tijdens gameplay komen rooms in zicht die bij start
-      // achter dichte deuren stonden. Eerste render daarvan triggert
-      // shader-compiles (perks, neon, wall-buys, decals etc).
-      //
-      // Fix: tijdens prewarm flippen we de camera tijdelijk naar 6 verschil-
-      // lende viewpoints in de map en renderen elk. Three.js compileert
-      // dan alle materialen die op enig viewpoint zichtbaar zijn — onaf-
-      // hankelijk van deur-staat. Daarna camera-state hersteld.
-      //
-      // [PERF v19] Op mobiel: alleen 3 essentiële viewpoints (start +
-      // 2 main-direction looks). Volledige 10-viewpoint walkthrough
-      // duurt op mobiel 5-10 seconden synchroon = "scherm hangt".
-      _setLoadProgress("Scene compileren", 55);
-      if(_IS_MOBILE) await _yield(16);
-      try {
-        const cam = window.camera;
-        const renderer = window.OHRenderer;
-        const scene = window.scene;
-        if(cam && renderer && scene){
-          // Save camera state
-          const _origPos = cam.position.clone();
-          const _origQuat = cam.quaternion.clone();
-          // Viewpoints: positie + lookAt-target, dekken hele arena +
-          // balcony + alle 4 hoeken. y=2.5 is ooghoogte. Eerste viewpoint
-          // is de daadwerkelijke player-startpositie — dat is het MEEST
-          // belangrijk omdat dat de eerste frame van gameplay is.
-          const _px = window.player?.pos?.x ?? 0;
-          const _py = (window.player?.pos?.y ?? 1.7);
-          const _pz = window.player?.pos?.z ?? 0;
-          const FULL_VIEWPOINTS = [
-            { p: [_px, _py, _pz], l: [_px, _py,  _pz - 5] },  // player start, looking forward
-            { p: [_px, _py, _pz], l: [_px, _py,  _pz + 5] },  // player start, looking back
-            { p: [_px, _py, _pz], l: [_px + 5, _py, _pz] },   // player start, looking right
-            { p: [_px, _py, _pz], l: [_px - 5, _py, _pz] },   // player start, looking left
-            { p: [0,  2.5,  0],  l: [ 10,  2,  10] },  // center → SE corner
-            { p: [0,  2.5,  0],  l: [-10,  2,  10] },  // center → SW
-            { p: [0,  2.5,  0],  l: [ 10,  2, -10] },  // center → NE
-            { p: [0,  2.5,  0],  l: [-10,  2, -10] },  // center → NW
-            { p: [0,  4.5,  0],  l: [  0,  2,  20] },  // balcony view south
-            { p: [0,  4.5, 18],  l: [  0,  2, -18] },  // PaP-area looking north
-          ];
-          // Op mobiel: minder viewpoints (3 essentiële: start-forward,
-          // start-back en één center-render voor decor compile).
-          const MOBILE_VIEWPOINTS = [
-            { p: [_px, _py, _pz], l: [_px, _py,  _pz - 5] },  // start forward
-            { p: [_px, _py, _pz], l: [_px, _py,  _pz + 5] },  // start back
-            { p: [0,  2.5,  0],  l: [ 10,  2,  10] },         // center → SE
-          ];
-          const VIEWPOINTS = _DO_FULL_VIEWPOINTS ? FULL_VIEWPOINTS : MOBILE_VIEWPOINTS;
-          const _tmpV = new THREE.Vector3();
-          let _vpDone = 0;
-
-          // [PERF v19] Tijdens viewpoint-walkthrough: pixel-ratio omlaag.
-          // We renderen alleen om shaders te compileren, niet voor pixels.
-          // Lagere ratio = exponentieel minder fragment-shader-werk = veel
-          // snellere render op mobiel (waar fillrate de bottleneck is).
-          // Originele ratio wordt na de loop hersteld.
-          const _origPixelRatio = renderer.getPixelRatio ? renderer.getPixelRatio() : 1;
-          if(_IS_MOBILE && _origPixelRatio > 0.6){
-            try { renderer.setPixelRatio(0.5); } catch(_){}
-          }
-
-          for(const vp of VIEWPOINTS){
-            try {
-              cam.position.set(vp.p[0], vp.p[1], vp.p[2]);
-              _tmpV.set(vp.l[0], vp.l[1], vp.l[2]);
-              cam.lookAt(_tmpV);
-              cam.updateMatrixWorld(true);
-              renderer.render(scene, cam);
-            } catch(_){}
-            _vpDone++;
-            // [PERF v19] Yield tussen viewpoints op mobiel. Elke render() kan
-            // op mobiel 200-800ms duren als nieuwe shaders compileren.
-            // [v20.1] Yield op desktop ook — beter een paar gedeelde ticks
-            // dan één giant blokkerende compile-stall.
-            _setLoadProgress("Scene compileren", 55 + (_vpDone / VIEWPOINTS.length) * 30);
-            await _yield(0);
-          }
-          // Restore camera
-          cam.position.copy(_origPos);
-          cam.quaternion.copy(_origQuat);
-          cam.updateMatrixWorld(true);
-          // [PERF v19] Restore pixel-ratio voordat we de finale clean-render
-          // doen. Anders zou de game starten met 0.5 pixel-ratio.
-          if(_IS_MOBILE && _origPixelRatio > 0.6){
-            try { renderer.setPixelRatio(_origPixelRatio); } catch(_){}
-          }
-          // Final render with original camera state — clean back-buffer
-          renderer.render(scene, cam);
-          const finalProgs = renderer.info?.programs?.length || 0;
-          console.log(`[prewarm] viewpoint-walkthrough done — ${VIEWPOINTS.length} angles rendered, total progs=${finalProgs}`);
-        }
-      } catch(err){
-        console.warn("[prewarm] viewpoint walkthrough failed:", err);
-      }
-
-      // [PERF FIX] FORCE TEXTURE UPLOAD + ASYNC SHADER COMPILE
-      // ==================================================================
-      // Diagnose-data toonde dat spikes 500-700ms per "+5 shaders" zijn —
-      // veel te traag voor pure shader-compile. Verdachte: synchroon
-      // wachten op TEXTURE-uploads die in dezelfde render-call gebeuren.
-      //
-      // Three.js r137+ heeft:
-      //   - renderer.initTexture(tex)  → forceert texture-upload NU
-      //   - renderer.compileAsync(scene, camera) → parallel shader compile
-      //     (gebruikt KHR_parallel_shader_compile extension)
-      //
-      // Door beide te gebruiken doen we ALLE texture-uploads + alle shader-
-      // compiles tijdens loading screen, niet tijdens gameplay.
-      try {
-        const renderer = window.OHRenderer;
-        const scene = window.scene;
-        const cam = window.camera;
-        if(renderer && scene && cam){
-          // [PERF FIX v8] SHADOW-CULL VOOR KLEINE DECOR-MESHES
-          // ==============================================================
-          // Diagnose: spikes blijken depth-shaders te zijn voor shadow-
-          // map rendering. Three.js compileert per material een eigen
-          // depth-shader. Honderden kleine decor-meshes (barbed-wire
-          // stekels, knoppen, screws, particles, neon-tubes) hebben
-          // castShadow=true by default → shadow-pass moet ze allemaal
-          // verwerken = 30-60 unieke depth-shaders.
-          //
-          // Fix: zet castShadow=false voor alle meshes met een bounding
-          // box volume < 0.05 m³ (≈cubic 0.37m of kleiner). Die werpen
-          // visueel geen merkbare schaduw maar tellen wel mee in compile.
-          let _shadowCulled = 0;
-          const _bb = new THREE.Box3();
-          const _sz = new THREE.Vector3();
-          const SMALL_VOLUME = 0.05;  // m³
-          scene.traverse(obj => {
-            if(!obj.isMesh) return;
-            if(!obj.castShadow) return;  // al uit, skip
-            try {
-              if(obj.geometry){
-                if(!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
-                _bb.copy(obj.geometry.boundingBox);
-                _bb.getSize(_sz);
-                const vol = _sz.x * _sz.y * _sz.z;
-                if(vol < SMALL_VOLUME){
-                  obj.castShadow = false;
-                  _shadowCulled++;
-                }
-              }
-            } catch(_){}
-          });
-          console.log(`[prewarm] shadow-culled ${_shadowCulled} small meshes (vol < ${SMALL_VOLUME}m³)`);
-
-          // 1) Verzamel alle unieke textures in scene en force-upload ze
-          const seenTex = new Set();
-          let texCount = 0;
-          scene.traverse(obj => {
-            if(!obj.isMesh && !obj.isSprite) return;
-            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-            for(const m of mats){
-              if(!m) continue;
-              // Alle texture-slots die een MeshStandardMaterial kan hebben
-              const slots = ["map","normalMap","roughnessMap","metalnessMap","aoMap",
-                             "emissiveMap","bumpMap","displacementMap","alphaMap",
-                             "lightMap","envMap"];
-              for(const slot of slots){
-                const t = m[slot];
-                if(t && !seenTex.has(t)){
-                  seenTex.add(t);
-                  try {
-                    renderer.initTexture(t);
-                    texCount++;
-                  } catch(_){}
-                }
-              }
-            }
-          });
-          console.log(`[prewarm] force-uploaded ${texCount} textures to GPU`);
-
-          // 2) Async parallel shader compile — gebruikt KHR_parallel_shader_compile
-          // extension als beschikbaar, compileert shaders in background-thread.
-          // [PERF v19] Op mobiel skippen we compileAsync — iOS Safari heeft
-          // known issues waar de Promise nooit resolved, en onze synchronous
-          // render-passes hierboven hebben de hot shaders al gecompileerd.
-          // Plus we racen tegen een 5s timeout — als compileAsync na 5s nog
-          // niet klaar is, enable button alsnog. 15s wachten op een loading
-          // screen is te lang.
-          if(!_IS_MOBILE && typeof renderer.compileAsync === "function"){
-            try {
-              _setLoadProgress("Shaders compileren", 90);
-              const compilePromise = renderer.compileAsync(scene, cam);
-              const timeoutPromise = new Promise(resolve => setTimeout(() => resolve("timeout"), 5000));
-              const result = await Promise.race([
-                compilePromise.then(() => "done").catch(err => {
-                  console.warn("[prewarm] compileAsync rejected:", err);
-                  return "error";
-                }),
-                timeoutPromise
-              ]);
-              if(result === "timeout"){
-                console.warn("[prewarm] compileAsync still running after 5s — proceeding anyway");
-              } else if(result === "done"){
-                const progs = renderer.info?.programs?.length || 0;
-                console.log(`[prewarm] compileAsync klaar — total progs=${progs}`);
-              }
-            } catch(err){
-              console.warn("[prewarm] compileAsync threw:", err);
-            }
-          } else if(_IS_MOBILE){
-            console.log("[prewarm] compileAsync skipped op mobiel (sync renders dekken het al)");
-          }
-        }
-      } catch(err){
-        console.warn("[prewarm] texture/compile pass failed:", err);
-      }
-    } catch(err){
-      console.warn("[prewarm] skipped:", err);
-    }
-    // [PERF] Activeer de START-knop nu prewarm klaar is. Zonder deze stap
-    // bleef de knop op "Materialen laden…" hangen. Werkt ook bij skipped
-    // prewarm (catch hierboven) — de gebruiker kan altijd starten.
-    // [v20.2] NU is de prewarm ECHT klaar — cancel de fallback + watchdog.
-    _prewarmDone = true;
-    try { clearTimeout(_fallbackEnable); } catch(_){}
-    try { clearInterval(_watchdog); } catch(_){}
+  function enableStart(reason){
+    if(_done) return;
+    _done = true;
     try {
       const btn = document.getElementById("startBtn");
       if(btn){
@@ -40796,33 +37666,92 @@ shootWithDirection = function(dirOverride = null){
         btn.style.cursor = "";
         btn.textContent = "START";
       }
+      console.log("[prewarm] START enabled (" + reason + ")");
+    } catch(err){
+      console.warn("[prewarm] enableStart failed:", err);
+    }
+  }
+
+  function setProgress(label){
+    try {
+      const btn = document.getElementById("startBtn");
+      if(btn && btn.disabled){ btn.textContent = label; }
     } catch(_){}
   }
-  // Kick-off na een korte vertraging zodat alle basis-IIFEs zijn afgerond
-  // en window.scene/camera/renderer zijn gedefinieerd.
-  // [PERF v19] _runPreWarm is nu async — zonder catch zou een onverwachte
-  // rejection in console verschijnen + de startBtn nooit enableden. Plus
-  // we vangen catch op zodat de fallback-button-enable bij regel ~40654
-  // alsnog draait.
-  setTimeout(() => {
-    _runPreWarm().catch(err => {
-      console.warn("[prewarm] top-level rejection:", err);
-      // [v20.2] Markeer prewarm als "klaar (met error)" zodat watchdog
-      // niet later opnieuw probeert te enableden.
-      _prewarmDone = true;
-      try { clearTimeout(_fallbackEnable); } catch(_){}
-      try { clearInterval(_watchdog); } catch(_){}
-      try {
-        const btn = document.getElementById("startBtn");
-        if(btn){
-          btn.disabled = false;
-          btn.style.opacity = "";
-          btn.style.cursor = "";
-          btn.textContent = "START";
-        }
-      } catch(_){}
-    });
-  }, 500);
+
+  function doCompilePass(){
+    // Best-effort scene shader compile. Wrapped per-step so a failure in one
+    // doesn't skip the next.
+    const renderer = getRenderer();
+    const scene = window.scene;
+    const camera = window.camera;
+    if(!renderer || !scene || !camera){
+      console.warn("[prewarm] compile pass skipped — missing globals");
+      return;
+    }
+    try {
+      // compile() walks the scene graph and precompiles shaders for all
+      // materials currently in scene. Sync but bounded.
+      renderer.compile(scene, camera);
+      console.log("[prewarm] renderer.compile() done");
+    } catch(err){
+      console.warn("[prewarm] renderer.compile failed:", err);
+    }
+    try {
+      // One real render forces the WebGL programs to actually link and
+      // upload to GPU. Without this, the first real render() in animate()
+      // still pays the link cost.
+      renderer.render(scene, camera);
+      console.log("[prewarm] initial render() done");
+    } catch(err){
+      console.warn("[prewarm] initial render failed:", err);
+    }
+  }
+
+  function check(){
+    if(_done) return;
+    const elapsed = performance.now() - _t0;
+
+    // Hard timeout: bail out, enable button regardless.
+    if(elapsed >= _MAX_WAIT_MS){
+      try { doCompilePass(); } catch(_){}
+      enableStart("timeout " + Math.round(elapsed) + "ms");
+      return;
+    }
+
+    // Phase 1: wait for basic globals.
+    const ready = !!(window.scene && window.camera && getRenderer());
+    if(!ready){
+      setProgress("Wereld bouwen…");
+      setTimeout(check, _POLL_MS);
+      return;
+    }
+
+    // Phase 2: wait for scene to stabilize (no new children added for STABLE_MS).
+    const n = window.scene.children.length;
+    if(n !== _lastChildCount){
+      _lastChildCount = n;
+      _stableSince = performance.now();
+      setProgress("Decor laden… (" + n + ")");
+      setTimeout(check, _POLL_MS);
+      return;
+    }
+    const stableFor = performance.now() - _stableSince;
+    if(stableFor < _STABLE_MS){
+      setTimeout(check, _POLL_MS);
+      return;
+    }
+
+    // Phase 3: scene is stable, run compile pass.
+    setProgress("Shaders compileren…");
+    // Defer to next tick so the progress text actually paints.
+    setTimeout(() => {
+      doCompilePass();
+      enableStart("compiled @ " + Math.round(performance.now() - _t0) + "ms, " + n + " children");
+    }, 50);
+  }
+
+  setTimeout(check, 200);
 })();
 
 // ============================================================================
@@ -40964,25 +37893,22 @@ shootWithDirection = function(dirOverride = null){
     } catch(_){}
 
     // 4b) RAGDOLL MATERIALS — spawnRagdoll() maakt per dood-event 4 NIEUWE
-    //     MeshStandardMaterial-instances (suit/skin/blood/boot) met
+    //     MeshLambertMaterial-instances (suit/skin/blood/boot) met
     //     transparent:true voor de opacity-fadeout. Die zijn NIET gecached
     //     (kan ook niet — per-instance fade). Maar de shader-PROGRAMMA's
     //     zijn wel cached op feature-signature. Door één keer een mesh met
-    //     diezelfde signature te renderen, zit de "Standard+transparent"-
+    //     diezelfde signature te renderen, zit de "Lambert+transparent"-
     //     permutatie in Three.js's program cache → echte ragdolls krijgen
-    //     no-op compile. Eén plane is voldoende (geometry attributes
-    //     irrelevant voor program cache).
+    //     no-op compile.
+    // [PERF-MAJOR] Was MeshStandardMaterial → MeshLambertMaterial (matched
+    // de echte materialen die we nu in spawnRagdoll gebruiken).
     const _ragdollWarmupMeshes = [];
     try {
       const tinyGeo = new THREE.PlaneGeometry(0.01, 0.01);
-      // Eén material per kleur-bucket: matched de echte palette-blood-tints
-      // dichtbij genoeg dat shader-uniforms identiek zijn. Material-features
-      // (transparent, roughness, metalness, emissive) bepalen de program.
       const RAGDOLL_WARMUP_COLORS = [0x1c2228, 0x8a7a66, 0x4a0e14, 0x0c0a08];
       for(const col of RAGDOLL_WARMUP_COLORS){
-        const m = new THREE.MeshStandardMaterial({
-          color: col, roughness: 0.85, metalness: 0.06,
-          transparent: true, opacity: 1
+        const m = new THREE.MeshLambertMaterial({
+          color: col, transparent: true, opacity: 1
         });
         const mesh = new THREE.Mesh(tinyGeo, m);
         mesh.position.copy(FAR_BELOW);
@@ -40993,10 +37919,36 @@ shootWithDirection = function(dirOverride = null){
       }
     } catch(_){}
 
-    // 5) Forceer één render — dit doet de echte shader-compile (de cache-
-    //    fills hierboven maken alleen JS-side Material-objecten; Three.js
-    //    compileert pas bij render).
+    // 4c) LEVENDE-ZOMBIE MATERIALS — makeEnemyMesh maakt per (type, isBoss)
+    // gecached Lambert-materials met emissive. Bij eerste echte enemy-spawn
+    // hit dit een nieuwe shader-permutatie ("Lambert + emissive, niet
+    // transparent, met shadow-cast"). Pre-compile met twee planes om beide
+    // varianten te dekken (met/zonder emissive).
     try {
+      const tinyGeo2 = new THREE.PlaneGeometry(0.01, 0.01);
+      const live1 = new THREE.MeshLambertMaterial({
+        color: 0x2a1f1a, emissive: 0x100805, emissiveIntensity: 0.06
+      });
+      const live2 = new THREE.MeshLambertMaterial({
+        color: 0x141212
+      });
+      for(const m of [live1, live2]){
+        const mesh = new THREE.Mesh(tinyGeo2, m);
+        mesh.position.copy(FAR_BELOW);
+        mesh.castShadow = true;     // zombies cast shadows → shadow-pass shader
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        _ragdollWarmupMeshes.push({ mesh, mat: m });
+      }
+    } catch(_){}
+
+    // 5) Forceer compile + render — compile() forceert program-link voor alle
+    //    meshes in de scene (sneller dan render-loop want geen draw-calls).
+    //    Daarna één render om eventuele draw-time compiles ook te pakken.
+    try {
+      if(typeof renderer.compile === "function"){
+        renderer.compile(scene, camera);
+      }
       renderer.render(scene, camera);
     } catch(_){}
 
@@ -41085,158 +38037,38 @@ shootWithDirection = function(dirOverride = null){
 // - DirectionalLight (sun) — moet altijd aan voor shadows
 // - moonGlow (PointLight met range 180m) — globale fill, niet cullen
 // - Lights direct kind van camera/weaponRig — muzzle flashes, altijd dichtbij
-//
-// [PERF v18] HYSTERESE-BREEDTE + WORKLOAD-SPREIDING
 // ============================================================================
-// Probleem: gebruiker rapporteerde "lag alleen tijdens lopen". Bij analyse
-// bleek deze cull-tick de meest waarschijnlijke bron:
-//
-//   - 94 cullable lights getrackt (uit prewarm-log)
-//   - Toggle van `light.visible` triggert Three.js om de lights-count
-//     uniform in alle materials opnieuw te evalueren → potentieel shader-
-//     program-cache miss → synchrone re-link
-//   - Bij hysterese-grens van 30m → 32m (slechts 2m breed): als speler in
-//     de loopas heen-en-weer beweegt langs een light op de grens, kan die
-//     light meerdere keren per seconde toggelen
-//   - Bij STILSTAND: geen player.pos change → geen grensovergangen → geen
-//     toggles → geen recompile-checks → geen lag. Klopt exact met de
-//     "lag alleen tijdens lopen"-observatie.
-//
-// Mitigaties v18:
-//   1) HYSTERESE VERBREED van 30/32 (2m gap) naar 32/40 (8m gap). Met 8m
-//      tussen aan/uit moet de speler 8 meter lopen om een toggle te zien.
-//      Bij gemiddelde loopspeed 6 m/s = max 1 toggle per ~1.3s per light.
-//   2) WORKLOAD-SPREIDING: niet alle 94 lights per tick checken, maar
-//      in batches van 20. Spreidt eventueel toggle-werk uit.
-//   3) DIAGNOSTIC: log toggle-frequency in de eerste 30s. Als de gebruiker
-//      ziet dat het systeem nog steeds vaak toggelt → moet hysterese breder.
-//      Als toggle-rate laag is → cull-systeem is NIET de bron.
+// LIGHT-CULL — Permanente uitschakeling van decoratie-lights
 // ============================================================================
+// Voorheen: 94 cullable lights met afstand-gebaseerde toggle-cull. Bij elke
+// toggle moest Three.js de lights-uniform-count herevalueren → potentiële
+// shader-program-cache-miss → synchrone re-link → spike. Bij 94 lights én
+// een lopende speler = continue toggle-stroom = "lag tijdens lopen".
+//
+// Huidige oplossing: zet alle cullable decoratie-lights één keer permanent
+// uit. We verliezen wat dynamische glow op verre lampen, maar krijgen een
+// volledig stabiele light-count uniform = geen recompiles meer.
+// Behouden lights: directional (sun), moonGlow, global fill, camera-/weapon-
+// rig children (muzzle flashes).
 (() => {
-  // [v18] BREDERE HYSTERESE — was 30/32 (2m), nu 32/40 (8m).
-  const CULL_ON_DIST  = 32;
-  const CULL_OFF_DIST = 40;
-  const CULL_ON_SQ    = CULL_ON_DIST  * CULL_ON_DIST;
-  const CULL_OFF_SQ   = CULL_OFF_DIST * CULL_OFF_DIST;
-  // Backwards compat — andere code-paden konden CULL_DIST_SQ direct lezen.
-  const CULL_DIST     = CULL_ON_DIST;
-  const CULL_DIST_SQ  = CULL_ON_SQ;
-
-  let _allLights = null;
-  let _scanCount = 0;
-  let _lastCullAt = 0;
-  let _lastScanAt = 0;
-  let _batchOffset = 0;        // [v18] cyclische offset voor batch-spreiding
-  const BATCH_SIZE = 20;
-
-  // [v18 DIAG] Toggle-counter. Logt elke 5s hoeveel toggles er waren.
-  // Stopt na 30s.
-  // [v19] STANDAARD UIT — was nodig voor de "lag tijdens lopen"-jacht.
-  let _toggleCount = 0;
-  let _diagStart = 0;
-  let _diagLastLog = 0;
-  let _diagEnabled = false;
-
-  function _scanLights(){
+  setTimeout(() => {
     if(!window.scene) return;
-    _allLights = [];
+    let n = 0;
     window.scene.traverse(obj => {
-      if(!obj || !obj.isLight) return;
-      // Skip sun + moonGlow (globaal nodig)
+      if(!obj?.isLight) return;
       if(obj.isDirectionalLight) return;
       if(obj === window.OHSun) return;
-      if(obj.distance && obj.distance >= 100) return;  // global fill lights
-      // Skip lights die child zijn van camera/weaponRig (muzzle flashes)
-      let parent = obj.parent;
-      let skip = false;
-      while(parent){
-        if(parent === window.camera || parent === window.weaponRig){
-          skip = true;
-          break;
-        }
-        parent = parent.parent;
+      if(obj.distance && obj.distance >= 100) return;
+      // Skip lights onder camera/weaponRig (muzzle flashes)
+      let p = obj.parent;
+      while(p){
+        if(p === window.camera || p === window.weaponRig) return;
+        p = p.parent;
       }
-      if(skip) return;
-      _allLights.push(obj);
+      obj.visible = false;
+      n++;
     });
-    _scanCount = _allLights.length;
-    _batchOffset = 0;
-  }
-
-  function _cullTick(){
-    requestAnimationFrame(_cullTick);
-    const tNow = performance.now();
-    // Cull elke 250ms (4Hz) — geen reden voor 60Hz, lights bewegen niet veel
-    if(tNow - _lastCullAt < 250) return;
-    _lastCullAt = tNow;
-    if(!window.player || !window.scene) return;
-    // [PERF] Periodieke rescan elke 8s (was 2s = 4× minder werk). Light-list
-    // verandert traag (alleen bij pickup-spawn/wave-event). Een 8s lag
-    // tussen nieuwe pickup en zijn cull-check is acceptabel — pickups
-    // worden vrijwel altijd dichtbij speler gespawnd dus visibility=true is
-    // de juiste default.
-    if(!_allLights || tNow - (_lastScanAt || 0) > 8000){
-      _scanLights();
-      _lastScanAt = tNow;
-    }
-    if(!_allLights || _allLights.length === 0) return;
-
-    // [v18 DIAG] init-tracking bij eerste tick
-    if(_diagEnabled && !_diagStart) _diagStart = tNow;
-
-    const px = window.player.pos.x;
-    const pz = window.player.pos.z;
-    // [v18] BATCH — verwerk slechts BATCH_SIZE lights per tick. Volgende
-    // tick begint waar deze stopte. Bij 94 lights = 5 ticks (~1.25s) voor
-    // een volledige sweep. Acceptabel want lights bewegen niet snel t.o.v.
-    // player.
-    const N = _allLights.length;
-    const end = Math.min(_batchOffset + BATCH_SIZE, N);
-    for(let i = _batchOffset; i < end; i++){
-      const light = _allLights[i];
-      if(!light || !light.position) continue;
-      const lx = light.position.x;
-      const lz = light.position.z;
-      const dx = lx - px;
-      const dz = lz - pz;
-      const distSq = dx*dx + dz*dz;
-      // [v18] Brede hysterese: aan op <32m, uit op >40m. 8m gap.
-      // Bij 6 m/s loopsnelheid = ~1.3s tussen toggles per individuele light.
-      if(distSq > CULL_OFF_SQ){
-        if(light.visible){
-          light.visible = false;
-          if(_diagEnabled) _toggleCount++;
-        }
-      } else if(distSq < CULL_ON_SQ){
-        if(!light.visible){
-          light.visible = true;
-          if(_diagEnabled) _toggleCount++;
-        }
-      }
-    }
-    _batchOffset = end >= N ? 0 : end;
-
-    // [v18 DIAG] Periodieke log elke 5s, totaal 30s.
-    if(_diagEnabled && tNow - _diagLastLog > 5000){
-      _diagLastLog = tNow;
-      const elapsed = (tNow - _diagStart) / 1000;
-      console.log(`[light-cull-diag] @${elapsed.toFixed(0)}s: ${_toggleCount} toggles (${(_toggleCount/elapsed).toFixed(1)}/s avg)`);
-      if(elapsed > 30){
-        _diagEnabled = false;
-        console.log(`[light-cull-diag] done. Final: ${_toggleCount} toggles over ${elapsed.toFixed(0)}s. ` +
-                    `Een hoge rate (>5/s) bij lopen wijst op cull-system als spike-bron.`);
-      }
-    }
-  }
-  // [PERF] Trigger rescan handmatig bij grote scene-veranderingen
-  // (wave-spawn, pickup-spawn, perk-activate). Geen periodieke scan.
-  try {
-    window.OHRescanLights = _scanLights;
-  } catch(_){}
-  setTimeout(() => {
-    _scanLights();
-    requestAnimationFrame(_cullTick);
-    console.log("[light-cull] " + _scanCount + " cullable lights tracked — far-lights hidden for shader perf (v18: hysteresis 32/40m, batched)");
+    console.log("[light-cull] " + n + " cullable lights uitgeschakeld");
   }, 800);
 })();
 
@@ -41291,11 +38123,13 @@ shootWithDirection = function(dirOverride = null){
       } catch(_){}
     });
   }
-  // First sweep na 1.5s (na prewarm). Daarna elke 500ms.
+  // First sweep na 1.5s (na prewarm). Daarna elke 2000ms — sweep traverseert
+  // ~750 children dus 500ms was duur; 2s laat nieuwe meshes binnen 2 seconden
+  // gecullt zijn wat ruimschoots snel genoeg is voor de shadow-pass.
   setTimeout(() => {
     _sweep();
-    setInterval(_sweep, 500);
-    console.log(`[shadow-sweep] periodic active — initial pass culled ${_swept} dynamic/small meshes`);
+    setInterval(_sweep, 2000);
+    console.log(`[shadow-sweep] active — initial pass culled ${_swept} small/dynamic meshes`);
   }, 1500);
 })();
 
@@ -41477,8 +38311,7 @@ shootWithDirection = function(dirOverride = null){
   let lastFrame = performance.now();
   let emaDt = 16.7;
   let domWriteAt = 0;
-  let _autoSpikeCount = 0;
-  let _autoSpikeDone = false;
+  let _tickRunning = false;
 
   function checkFirsts(now){
     const s = window.state;
@@ -41503,16 +38336,15 @@ shootWithDirection = function(dirOverride = null){
   }
 
   function tick(now){
+    // [PERF] rAF stopt wanneer geen monitoring-flag actief is. Elke frame
+    // door 'n no-op tick laten lopen kost wel iets — niet veel, maar nul.
+    if(!flags.perf && !flags.spikes){ _tickRunning = false; return; }
     requestAnimationFrame(tick);
     const dt = now - lastFrame;
     lastFrame = now;
     emaDt = emaDt * 0.92 + dt * 0.08;
 
-    // First-time event markers — alleen actief als 'spikes' cheat-code aan staat
-    if(flags.spikes && !_autoSpikeDone) checkFirsts(now);
-
-    // Spike-log alleen wanneer 'spikes' cheat-code is geactiveerd (geen
-    // auto-window meer — was diagnose-only).
+    if(flags.spikes) checkFirsts(now);
     if(flags.spikes && dt > 50){
       const s = window.state;
       const sinceStart = ((now - _scriptLoad) / 1000).toFixed(1);
@@ -41527,7 +38359,6 @@ shootWithDirection = function(dirOverride = null){
         "enemyBullets=" + (s.enemyBullets?.length || 0)
       ].join(" ") : "(no state)";
       console.warn("[spike@" + sinceStart + "s] frame=" + dt.toFixed(1) + "ms  " + counts);
-      _autoSpikeCount++;
     }
 
     if(flags.perf && now - domWriteAt >= 200){
@@ -41569,7 +38400,12 @@ shootWithDirection = function(dirOverride = null){
         `<div class="hint">codes: perf spikes nomobs solo nosfx nosound noskin noshadow allon</div>`;
     }
   }
-  requestAnimationFrame(tick);
+  function _startTick(){
+    if(_tickRunning) return;
+    _tickRunning = true;
+    lastFrame = performance.now();
+    requestAnimationFrame(tick);
+  }
 
   // Cheat-code typing
   let buf = "";
@@ -41580,8 +38416,8 @@ shootWithDirection = function(dirOverride = null){
   function tg(name, label){ setF(name, !flags[name], label); }
 
   const codes = {
-    perf:     () => { tg("perf", "perf overlay"); overlay.classList.toggle("show", flags.perf); },
-    spikes:   () => tg("spikes", "spike-log"),
+    perf:     () => { tg("perf", "perf overlay"); overlay.classList.toggle("show", flags.perf); _startTick(); },
+    spikes:   () => { tg("spikes", "spike-log"); _startTick(); },
     nomobs:   () => { tg("nomobs", "nomobs"); if(flags.nomobs) clearAllEnemies(); },
     solo:     () => tg("solo", "solo mode"),
     nosfx:    () => tg("nosfx", "nosfx"),
@@ -41607,97 +38443,7 @@ shootWithDirection = function(dirOverride = null){
     }
   });
 
-  console.log("[perf-diag] online — eerste 30s auto-spike-log + event-markers actief");
-
-  // =====================================================================
-  // LONGTASK OBSERVER — toont welk TYPE werk de spike veroorzaakt
-  // =====================================================================
-  // PerformanceObserver met type "longtask" — alleen actief als de 'spikes'
-  // cheat-code is ingetypt. Was diagnostic-only.
-  try {
-    if(flags.spikes && typeof PerformanceObserver === "function"){
-      const _ltStart = performance.now();
-      const obs = new PerformanceObserver((list) => {
-        for(const entry of list.getEntries()){
-          const since = ((entry.startTime - _ltStart) / 1000).toFixed(1);
-          const dur = entry.duration.toFixed(0);
-          const attr = entry.attribution?.[0];
-          const src = attr ? `${attr.name || ""}` : "";
-          console.log(`%c[longtask@${since}s] ${dur}ms ${src || "(geen attribution)"}`, "color:#ffa040");
-        }
-      });
-      try { obs.observe({ type: "longtask", buffered: true }); }
-      catch(_){ obs.observe({ entryTypes: ["longtask"] }); }
-    }
-  } catch(_){}
-})();
-
-// =====================================================================
-// FUNCTION-LEVEL PROFILER (alleen actief met 'spikes' cheat-code)
-// =====================================================================
-// Wrapt verdachte functies en logt naar console wanneer ze >25ms duren.
-// Was diagnostic-only — gewone load doet hier niets.
-(() => {
-  // Wacht tot de perf-flags-IIFE zijn flag heeft gezet, en check dan.
-  setTimeout(() => {
-    if(!window.__perfFlags?.spikes) return;
-    const STOP_AT = performance.now() + 30000;
-    const WARN_MS = 25;
-    const wrapped = new Set();
-    let totalLogs = 0;
-
-    function wrap(name, getter){
-      if(wrapped.has(name)) return false;
-      let fn;
-      try { fn = getter(); } catch(_) { return false; }
-      if(typeof fn !== "function") return false;
-      wrapped.add(name);
-      const wrapper = function(...args){
-        if(performance.now() > STOP_AT) return fn.apply(this, args);
-        const t0 = performance.now();
-        const r = fn.apply(this, args);
-        const dt = performance.now() - t0;
-        if(dt > WARN_MS){
-          const since = ((t0 - 0) / 1000).toFixed(1);
-          console.log(`%c[func@${since}s] ${name} = ${dt.toFixed(0)}ms`, "color:#ff8040;font-weight:bold");
-          totalLogs++;
-        }
-        return r;
-      };
-      return wrapper;
-    }
-
-    function tryInstall(){
-      if(performance.now() > STOP_AT){
-        console.log(`[func-profiler] klaar — ${totalLogs} >${WARN_MS}ms calls gelogd in eerste 30s. ${wrapped.size} functies gewrapt.`);
-        return;
-      }
-      const targets = [
-        ["spawnEnemy",       () => window.spawnEnemy],
-        ["spawnWave",        () => window.spawnWave],
-        ["makeEnemyMesh",    () => window.makeEnemyMesh],
-        ["makeNameTagSprite",() => window.makeNameTagSprite],
-        ["applyZombieSkin",  () => window.applyZombieSkin],
-        ["startGame",        () => window.startGame],
-        ["createBurst",      () => window.createBurst],
-        ["createShockwave",  () => window.createShockwave],
-        ["createFlash",      () => window.createFlash],
-        ["spawnRagdoll",     () => window.spawnRagdoll],
-        ["killEnemy",        () => window.killEnemy],
-        ["addPickup",        () => window.addPickup],
-        ["announceRound",    () => window.announceRound],
-      ];
-      for(const [name, getter] of targets){
-        if(wrapped.has(name)) continue;
-        const w = wrap(name, getter);
-        if(w){
-          try { window[name] = w; } catch(_) {}
-        }
-      }
-      setTimeout(tryInstall, 200);
-    }
-    setTimeout(tryInstall, 100);
-  }, 1500);  // delay zodat flag-IIFE en alle window.* registries geladen zijn
+  console.log("[perf-diag] online — cheat-codes: perf spikes nomobs solo nosfx nosound noskin noshadow allon");
 })();
 
 // ============================================================================
@@ -42373,3 +39119,6 @@ shootWithDirection = function(dirOverride = null){
   setTimeout(_init, 2000);
 })();
 
+</script>
+</body>
+</html>
