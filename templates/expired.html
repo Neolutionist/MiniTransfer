@@ -4572,45 +4572,51 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
     const sideRoomId = (zRoom === "atrium") ? pRoom : zRoom;
     const passages = _ROOM_PASSAGES[sideRoomId];
     if(!passages) return null;
-    // [PASSABLE PASSAGES] Filter passages op werkelijk doorgankelijk.
-    // Een raam met planken erop is geblokkeerd voor pathing-zombies
-    // (alleen barricade-zombies die er voor staan kunnen 't slopen).
-    // De deur op (x,z) waar z=0 of x=0 is altijd doorgankelijk (geen
-    // raam-blocker), dus die wordt nooit gefilterd.
+    // [PASSAGES] Alle 3 passages (deur + 2 ramen) zijn valide voor
+    // pathing. Voor variety: niet altijd de DICHTSTBIJZIJNDE pakken,
+    // maar weighted-random kiezen zodat zombies zich verdelen over
+    // deur + ramen i.p.v. allemaal door dezelfde passage te proberen.
     //
-    // Detectie: een passage is een raam als de coord ±16 is (raam-
-    // offset). De deur zit op (0, ±26) of (±26, 0). Voor garage:
-    // deur (-26, 0), ramen (-26, ±16). De coord die NIET ±26 is
-    // (z voor garage, x voor catacombs) zegt of het raam of deur is.
-    const _isWindowPassage = (p) => {
-      // Raam: z=±16 op de west/oost-muur, of x=±16 op de noord/zuid-muur.
-      return Math.abs(p.x) === 16 || Math.abs(p.z) === 16;
-    };
-    const _isPassageOpen = (p) => {
-      if(!_isWindowPassage(p)) return true;   // deur = altijd open
-      const wm = window.OHGetWindowAt ? window.OHGetWindowAt(p.x, p.z) : null;
-      // Geen window-mesh data → safe default = open (anders blokkeert
-      // pathing helemaal). Window-mesh aanwezig → check planks-state.
-      if(!wm) return true;
-      return wm.planksLeft <= 0;
-    };
-    // Kies de dichtstbijzijnde OPEN passage. Als alle ramen dicht zijn
-    // valt de zombie terug op de deur (die altijd open is).
-    let best = null;
-    let bestDistSq = Infinity;
-    for(const p of passages){
-      if(!_isPassageOpen(p)) continue;
-      const dx = p.x - zX;
-      const dz = p.z - zZ;
-      const dSq = dx * dx + dz * dz;
-      if(dSq < bestDistSq){
-        bestDistSq = dSq;
-        best = p;
-      }
+    // De dichtstbijzijnde krijgt iets meer gewicht (~60%) maar verre
+    // passages worden ook gepakt (~40% verdeeld). Per zombie 1× bij
+    // waypoint-set; cached tot recalc.
+    //
+    // Ramen met planken erop worden NIET gefilterd — zombies die er
+    // tegen aan lopen worden barricaders (zie updateEnemies barricade-
+    // conversion). Daardoor worden ramen daadwerkelijk gesloopt.
+    const dists = passages.map(p => {
+      const dx = p.x - zX, dz = p.z - zZ;
+      return dx*dx + dz*dz;
+    });
+    // Weights: 1/dist^2 (dichter = meer gewicht), met dichtstbijzijnde
+    // 2x extra boost zodat hij meestal-maar-niet-altijd wint.
+    let minDist = Infinity, minIdx = 0;
+    for(let i = 0; i < dists.length; i++){
+      if(dists[i] < minDist){ minDist = dists[i]; minIdx = i; }
     }
+    const weights = passages.map((p, i) => {
+      const w = 1 / Math.max(1, dists[i]);
+      return i === minIdx ? w * 2 : w;
+    });
+    const total = weights.reduce((a,b) => a+b, 0);
+    let r = Math.random() * total;
+    let chosenIdx = 0;
+    for(let i = 0; i < weights.length; i++){
+      r -= weights[i];
+      if(r <= 0){ chosenIdx = i; break; }
+    }
+    const best = passages[chosenIdx];
     return best ? { x: best.x, z: best.z } : null;
   }
   window.OHGetDoorWaypointForEnemy = getDoorWaypointForEnemy;
+
+  // [PASSAGES] Helper voor de updateEnemies-loop: check of het waypoint
+  // een RAAM is (vs. een deur). Voor ramen schakelen we de blocker
+  // overruling aan zodat zombies door planken kunnen passeren.
+  window.OHWaypointIsWindow = function(wp){
+    if(!wp) return false;
+    return Math.abs(wp.x) === 16 || Math.abs(wp.z) === 16;
+  };
 
   // ============================================================
   // FLOOR HEIGHT SYSTEM — eenvoudige 'walkable platforms' zonder full
@@ -5282,8 +5288,14 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
         // Header boven raam + sill onder raam (Y[0,1.3] gevuld)
         for(const wx of [-WIN_OFFSET, WIN_OFFSET]){
           addWallBlock(WIN_W, headerH, WALL_T, wx, headerY, fixed, wallMaterial);
-          // [SILL] Echte zichtbare onder-wand zodat er geen gat is.
-          addWallBlock(WIN_W, sillH, WALL_T, wx, sillY, fixed, wallMaterial);
+          // [SILL] Zichtbare onder-wand. Markeer met _isWindowSill zodat
+          // zombies/grenades/monkeys er doorheen kunnen — anders blijven
+          // ze ertegen hangen tijdens raam-passage. Speler-fysica via
+          // collidesAtY checkt deze flag NIET, dus speler blijft geblokt.
+          const sill = addWallBlock(WIN_W, sillH, WALL_T, wx, sillY, fixed, wallMaterial);
+          sill._isWindowSill = true;
+          sill._windowX = wx;
+          sill._windowZ = fixed;
           // [WINDOW PASSTHROUGH + BARRICADE] Onzichtbare blocker in raam-
           // opening die ALLEEN speler tegenhoudt. Zombies komen er normaal
           // doorheen — MAAR als het raam nog planken heeft, blokkeert hij
@@ -5302,8 +5314,11 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
         addWallBlock(WALL_T, WALL_H, segEndLen, fixed, WALL_Y, segEndBCenter, wallMaterial);
         for(const wz of [-WIN_OFFSET, WIN_OFFSET]){
           addWallBlock(WALL_T, headerH, WIN_W, fixed, headerY, wz, wallMaterial);
-          // [SILL] Echte zichtbare onder-wand
-          addWallBlock(WALL_T, sillH, WIN_W, fixed, sillY, wz, wallMaterial);
+          // [SILL] Zichtbare onder-wand met passthrough-flag
+          const sill = addWallBlock(WALL_T, sillH, WIN_W, fixed, sillY, wz, wallMaterial);
+          sill._isWindowSill = true;
+          sill._windowX = fixed;
+          sill._windowZ = wz;
           const blocker = addWallBlock(WALL_T, WIN_H, WIN_W, fixed, WIN_CY, wz, wallMaterial);
           blocker._windowX = fixed;
           blocker._windowZ = wz;
@@ -9498,6 +9513,32 @@ function updateMusic(){
     return false;
   }
   try { window.OHCollidesAtForEnemyTransit = collidesAtForEnemyTransit; } catch(_){}
+
+  // [WINDOW PASSAGE] Variant voor zombies die door een raam-opening
+  // pathen. Skipt OOK raam-blockers (ongeacht plank-state) zodat
+  // ze symbolisch door de barrier kunnen lopen. Behoudt prop-skip
+  // van transit-variant.
+  function collidesAtForEnemyWindowPass(x, z, radius, yFoot){
+    const minX = x - radius, maxX = x + radius;
+    const minZ = z - radius, maxZ = z + radius;
+    const yLow  = (yFoot ?? 0) - 0.30;
+    const yHigh = (yFoot ?? 0) + 2.20;
+    const arr = _getGroundColliders();
+    for(let i = 0; i < arr.length; i++){
+      const c = arr[i];
+      // Skip ALLE raam-blockers (ongeacht planks-state)
+      if(c._windowX != null && c._windowZ != null) continue;
+      if(c._passableByEnemy) continue;
+      if(c._isPropDecoration) continue;
+      const b = c.box;
+      if(b.max.y < yLow || b.min.y > yHigh) continue;
+      if(maxX > b.min.x && minX < b.max.x && maxZ > b.min.z && minZ < b.max.z){
+        return true;
+      }
+    }
+    return false;
+  }
+  try { window.OHCollidesAtForEnemyWindowPass = collidesAtForEnemyWindowPass; } catch(_){}
 
   function collidesAtPlayerY(x, z, radius=player.radius){
     // Voor speler-fysica: check op huidige speler-floor-Y
@@ -13969,8 +14010,35 @@ if(b.gravity){
           e._roomWaypointStartSide = null;
           e._roomWaypointStartRoom = null;
         } else {
-          _targetX = e._roomWaypoint.x;
-          _targetZ = e._roomWaypoint.z;
+          // [STUCK-AT-WAYPOINT FIX] Als zombie dicht (<2.5u) bij waypoint is,
+          // gebruik een DOORLOOPPUNT 4u voorbij waypoint (in atrium/side-room
+          // richting) i.p.v. waypoint zelf. Anders bereikt zombie waypoint,
+          // dist < 1.6 → moveForward=0 → stopt → side-flip wordt nooit
+          // getriggerd. Door doel voorbij muur te zetten loopt zombie door.
+          const wpDx = e._roomWaypoint.x - e.mesh.position.x;
+          const wpDz = e._roomWaypoint.z - e.mesh.position.z;
+          const wpDistSq = wpDx*wpDx + wpDz*wpDz;
+          if(wpDistSq < 6.25){   // < 2.5u — dichtbij waypoint
+            // Doel voorbij waypoint: 4u verder in dezelfde wall-normal
+            // richting. startSide=1 betekent "voor de muur" → push 4u
+            // verder (negative side). Voor "x" axis: x voorbij wallCoord.
+            const pushDist = 4.0;
+            if(e._roomWaypointWallAxis === "x"){
+              const targetSide = -e._roomWaypointStartSide;
+              _targetX = e._roomWaypointWallCoord + targetSide * pushDist;
+              _targetZ = e._roomWaypoint.z;
+            } else if(e._roomWaypointWallAxis === "z"){
+              const targetSide = -e._roomWaypointStartSide;
+              _targetZ = e._roomWaypointWallCoord + targetSide * pushDist;
+              _targetX = e._roomWaypoint.x;
+            } else {
+              _targetX = e._roomWaypoint.x;
+              _targetZ = e._roomWaypoint.z;
+            }
+          } else {
+            _targetX = e._roomWaypoint.x;
+            _targetZ = e._roomWaypoint.z;
+          }
           _transitMode = true;
         }
       }
@@ -13986,10 +14054,69 @@ if(b.gravity){
       _transitMode = true;
     }
     // [ROOM PATHING] Kies de juiste collide-check voor deze enemy
-    // deze frame. Transit mode → ignoreer props.
-    const _collideE = _transitMode
-      ? collidesAtForEnemyTransit
-      : collidesAtForEnemy;
+    // deze frame.
+    //   - _windowPassUntil active (recent door raam geklommen) → skip
+    //     raam-blockers + sill ÉN props
+    //   - Stuck/transit mode → skip props
+    //   - Normaal → volle check (raam-blockers blokkeren!)
+    //
+    // BELANGRIJK: regular zombies met raam-waypoint krijgen NIET
+    // automatisch windowPass-mode. In plaats daarvan: als ze dichtbij
+    // een raam met planken komen, worden ze geconverteerd naar een
+    // barricade-zombie (zie barricade-conversie hieronder). Dat zorgt
+    // dat ramen daadwerkelijk gesloopt worden voor ze door kunnen.
+    const _windowPassActive = e._windowPassUntil && _nowMsForPath < e._windowPassUntil;
+    const _collideE = _windowPassActive
+      ? collidesAtForEnemyWindowPass
+      : (_transitMode
+          ? collidesAtForEnemyTransit
+          : collidesAtForEnemy);
+
+    // [BARRICADE CONVERSION] Als zombie een raam-waypoint heeft, dicht
+    // bij dat raam staat, en het raam nog planken heeft → maak hem
+    // barricade-zombie. Hij gaat dan slopen i.p.v. door te lopen.
+    if(e._roomWaypoint && !e._barricading && !e._climbingThrough
+       && !e._windowPassUntil   // niet vlak na een doorklim
+       && window.OHWaypointIsWindow
+       && window.OHWaypointIsWindow(e._roomWaypoint)){
+      const wpDx = e._roomWaypoint.x - e.mesh.position.x;
+      const wpDz = e._roomWaypoint.z - e.mesh.position.z;
+      const wpDistSq = wpDx*wpDx + wpDz*wpDz;
+      if(wpDistSq < 9){   // < 3u van raam-center
+        const wm = window.OHGetWindowAt
+          ? window.OHGetWindowAt(e._roomWaypoint.x, e._roomWaypoint.z) : null;
+        if(wm && wm.planksLeft > 0){
+          // Check claim: 1 zombie per raam tegelijk
+          const _alreadyClaimed = wm._barricaderEnemy
+            && state.enemies && state.enemies.includes(wm._barricaderEnemy);
+          if(_alreadyClaimed){
+            // Iemand anders sloopt al — kies een andere passage.
+            e._roomWaypoint = null;
+            e._roomWaypointAt = _nowMsForPath;   // direct recalc
+          } else {
+            e._barricading = true;
+            e._barricadeWindowX = e._roomWaypoint.x;
+            e._barricadeWindowZ = e._roomWaypoint.z;
+            e._planksLeft = wm.planksLeft;
+            e._nextPlankAt = _nowMsForPath + 1500;   // eerste plank na 1.5s
+            wm._barricaderEnemy = e;
+            // Markeer welke kant zombie BINNEN wil — barricadeTick
+            // gebruikt dit voor climb-end positie. atrium-side dan wel
+            // andere kant van de muur.
+            const wp = e._roomWaypoint;
+            if(Math.abs(wp.x) === 16){
+              // Z-muur (noord/zuid op z=±26). Welke kant is zombie? = welke kant moet hij heen?
+              // Zombie wil OVERSTEKEN naar andere kant → toSide = -currentSide
+              const wallZ = Math.sign(wp.z) * 26;
+              e._barricadeToSide = -(Math.sign(e.mesh.position.z - wallZ) || 1);
+            } else {
+              const wallX = Math.sign(wp.x) * 26;
+              e._barricadeToSide = -(Math.sign(e.mesh.position.x - wallX) || 1);
+            }
+          }
+        }
+      }
+    }
     {
       // === MULTI-FLOOR PATHING ===
       // We baseren tier-detectie op de ACTUELE world-Y van de zombie en
@@ -32658,13 +32785,13 @@ shootWithDirection = function(dirOverride = null){
             g.pos.x += g.vel.x * dt / subSteps;
             g.pos.y += g.vel.y * dt / subSteps;
             g.pos.z += g.vel.z * dt / subSteps;
-            // Test alle colliders op deze sub-step
             for(let c = 0; c < colliderList.length; c++){
               const obs = colliderList[c];
               if(!obs || !obs.box) continue;
-              // Skip stair-enclosure colliders (geen visuele muur) — die
-              // hebben geen mesh of een onzichtbare mesh.
               if(!obs.mesh) continue;
+              // [WINDOW PASSTHROUGH] Skip raam-blockers — granaten
+              // gaan door raam-openingen heen.
+              if(obs._windowX != null && obs._windowZ != null) continue;
               if(_grenadeHitsBox(g.pos, obs.box)){
                 _grenadeResolveBoxCollision(g, obs.box);
               }
@@ -32675,6 +32802,8 @@ shootWithDirection = function(dirOverride = null){
           for(let c = 0; c < colliderList.length; c++){
             const obs = colliderList[c];
             if(!obs || !obs.box || !obs.mesh) continue;
+            // [WINDOW PASSTHROUGH] Skip raam-blockers
+            if(obs._windowX != null && obs._windowZ != null) continue;
             if(_grenadeHitsBox(g.pos, obs.box)){
               _grenadeResolveBoxCollision(g, obs.box);
             }
@@ -33336,23 +33465,31 @@ shootWithDirection = function(dirOverride = null){
     return null;
   }
 
-  // Atrium-balkon regions waar enemies kunnen spawnen (op y=4).
-  // Past bij de balcony platform-layout (zie atrium-setup hierboven).
-  // UPDATED: trapgaten nu volledige trap-lengte (z[-16,-2]) — west/oost balkon
-  // splits in zuid-deel + verbindings-strook naast trap.
+  // Atrium-balkon spawn-regions: SMALLE strips langs de BINNENRAND
+  // (de zichtbare rand richting atrium-center, waar het naar beneden
+  // gaat). Voorheen vol-rechthoek spawn-region — zombies kwamen dan
+  // midden in de balkon-vloer omhoog, wat raar oogde. Nu spawnen ze
+  // op 0.5-1.5u vanaf de zichtbare binnenrand zodat ze visueel "op
+  // de rand" verschijnen i.p.v. midden op het deck.
   const ATRIUM_BALCONY_REGIONS = [
-    { minX: -22, maxX:  22, minZ: -22, maxZ: -16 },  // noord-balkon
-    { minX: -16, maxX:  16, minZ: -16, maxZ:  -8 },  // tussen-strook (centrum)
-    { minX: -22, maxX: -10, minZ:  -2, maxZ:  18 },  // west-balkon zuid-deel
-    { minX:  10, maxX:  22, minZ:  -2, maxZ:  18 },  // oost-balkon zuid-deel
-    { minX: -22, maxX:  22, minZ:  17, maxZ:  22 }   // zuid-balkon (1u verlengd voor ladder)
+    // noord-balkon: binnenrand op z=-16, spawn 0.5-1.5u vanaf rand
+    { minX: -22, maxX:  22, minZ: -17.5, maxZ: -16.5 },
+    // tussen-strook: binnenrand op z=-8
+    { minX: -16, maxX:  16, minZ:  -9.5, maxZ:  -8.5 },
+    // west-balkon zuid-deel: binnenrand op x=-10
+    { minX: -11.5, maxX: -10.5, minZ:  -2, maxZ:  18 },
+    // oost-balkon zuid-deel: binnenrand op x=10
+    { minX:  10.5, maxX:  11.5, minZ:  -2, maxZ:  18 },
+    // zuid-balkon: binnenrand op z=17
+    { minX: -22, maxX:  22, minZ:  17.5, maxZ:  18.5 }
   ];
   function pickBalconySpawnIn(roomId){
     if(roomId !== "atrium") return null;
     const region = ATRIUM_BALCONY_REGIONS[Math.floor(Math.random() * ATRIUM_BALCONY_REGIONS.length)];
     for(let i = 0; i < 25; i++){
-      const x = rand(region.minX + 1, region.maxX - 1);
-      const z = rand(region.minZ + 1, region.maxZ - 1);
+      // Geen +1/-1 fudge — onze regions zijn al smalle randstroken
+      const x = rand(region.minX, region.maxX);
+      const z = rand(region.minZ, region.maxZ);
       const dist = Math.hypot(x - player.pos.x, z - player.pos.z);
       if(dist < 8) continue;
       // Niet te dicht op andere enemies
@@ -34046,21 +34183,29 @@ shootWithDirection = function(dirOverride = null){
           const wm = window.OHGetWindowAt?.(wx, wz);
           if(wm && wm._barricaderEnemy === e) wm._barricaderEnemy = null;
         } catch(_){}
-        // [DIRECTION FIX] Welke as is de muur-normaal? Atrium-grens
-        // ligt op x=±26 (west/east muur) of z=±26 (noord/zuid muur).
-        // Voor west/east muur: |wx|=26, raam-Z is ±16 (tangent).
-        // Voor noord/zuid muur: |wz|=26, raam-X is ±16 (tangent).
-        // We bewegen alleen LANGS de muur-normaal, NIET langs de
-        // tangent — anders gaat de lerp diagonaal door muur-segmenten.
+        // [DIRECTION] Bepaal naar welke kant zombie moet eindigen.
+        //   - Originele barricade-spawn (buiten atrium): _barricadeToSide
+        //     is null, default is naar ATRIUM (-Math.sign(wx)).
+        //   - Conversie via raam-waypoint: _barricadeToSide is gezet
+        //     bij conversie (zie updateEnemies), tegenovergesteld van
+        //     waar zombie WAS — dus richting waar hij HEEN wil.
         const isXWall = Math.abs(wx) > Math.abs(wz);   // muur-normaal = X
-        const dirX = isXWall ? -Math.sign(wx) : 0;
-        const dirZ = isXWall ? 0 : -Math.sign(wz);
-        // Tussenpunt: 1.8u BUITEN raam, exact op raam-as (alleen normal-shift)
+        let dirX, dirZ;
+        if(e._barricadeToSide != null){
+          // Conversie: toSide = +1 betekent positief X/Z, -1 negatief
+          dirX = isXWall ? e._barricadeToSide : 0;
+          dirZ = isXWall ? 0 : e._barricadeToSide;
+        } else {
+          // Buiten-spawn: richting atrium = tegenovergesteld van muur-coord-sign
+          dirX = isXWall ? -Math.sign(wx) : 0;
+          dirZ = isXWall ? 0 : -Math.sign(wz);
+        }
+        // Tussenpunt: 1.8u aan de ANDERE kant (waar zombie nu staat).
+        // Eindpositie: 2.4u in de DOEL-richting (voorbij muur + sill).
         const midX = wx - dirX * 1.8;
         const midZ = wz - dirZ * 1.8;
-        // Eindpositie: 1.6u BINNEN atrium aan de raam-zijde
-        const passX = wx + dirX * 1.6;
-        const passZ = wz + dirZ * 1.6;
+        const passX = wx + dirX * 2.4;
+        const passZ = wz + dirZ * 2.4;
         // Start climb-through state
         e._barricading = false;
         e._climbingThrough = true;
@@ -34072,6 +34217,10 @@ shootWithDirection = function(dirOverride = null){
         e._climbToZ = passZ;
         e._climbStartT = tNow;
         e._climbDuration = 2000;   // 2 seconden om door te kruipen
+        // [FLOOR-TICK BLOCK] _risingUntil flag laat enemyFloorTick deze
+        // zombie skippen tijdens climb — anders trekt floor-tick onze
+        // Y-arc per frame terug naar vloer-Y=0.5.
+        e.mesh.userData._risingUntil = tNow + 2000;
         e._barricadeWindowX = null;
         e._barricadeWindowZ = null;
         e._planksLeft = 0;
@@ -34082,7 +34231,10 @@ shootWithDirection = function(dirOverride = null){
     // [CLIMB-THROUGH PASS] 2-fase lerp door het raam:
     //   Fase 1 (0-30%): from → mid (raam-buitenkant, garandeert dat
     //     zombie centraal voor opening staat voor hij door de muur gaat)
-    //   Fase 2 (30-100%): mid → to (door raam naar atrium)
+    //   Fase 2 (30-100%): mid → to (door raam naar atrium) + Y-arc
+    //     omhoog OVER de sill (Y[0,1.3]). Y piekt op tFrac=0.65 (midden
+    //     fase 2) zodat zombie zichtbaar over het muurtje klimt i.p.v.
+    //     er doorheen loopt.
     // Pathing geskipt voor _climbingThrough (zie updateEnemies skip).
     for(const e of state.enemies){
       if(!e || !e.mesh || !e._climbingThrough) continue;
@@ -34106,12 +34258,44 @@ shootWithDirection = function(dirOverride = null){
         e.groundRing.position.x = cx;
         e.groundRing.position.z = cz;
       }
+      // [Y-ARC] Tijdens fase 2: zombie tilt omhoog over sill, daalt dan.
+      // Y_PEAK = 1.8 → foot op Y=1.3 (= sill-top), body 1.5u erboven.
+      // Visueel: zombie klimt zichtbaar over het muurtje, hangt even,
+      // valt naar binnen. Fase 1 (alignment) blijft op vloer-Y.
+      if(e.mesh.userData){
+        if(tFrac < PHASE1_END){
+          // Fase 1: vloer-Y (zombie staat normaal)
+          e.mesh.userData.yOffset = 0.5;
+          e.mesh.position.y = 0.5;
+        } else {
+          // Fase 2: sin-arc 0 → 1 → 0
+          const fArc = (tFrac - PHASE1_END) / (1 - PHASE1_END);
+          // Lichte tilt voorover tijdens klim — alsof zombie zich met
+          // klauwen omhoog drukt over de rand. Piekt op fArc=0.5
+          const arcVal = Math.sin(fArc * Math.PI);
+          const climbY = 0.5 + arcVal * 1.5;   // 0.5 → 2.0 → 0.5
+          e.mesh.userData.yOffset = climbY;
+          e.mesh.position.y = climbY;
+          // Voorover-tilt: 0 → 0.35 rad → 0 (klauw-pose op piek)
+          e.mesh.rotation.x = arcVal * 0.35;
+        }
+      }
       if(tFrac >= 1){
-        // Klaar — normale pathing pakt over
+        // Klaar — normale pathing pakt over. Reset Y + tilt + floor-block.
+        if(e.mesh.userData){
+          e.mesh.userData.yOffset = 0.5;
+          e.mesh.userData._risingUntil = 0;
+        }
+        e.mesh.position.y = 0.5;
+        e.mesh.rotation.x = 0;
         e._climbingThrough = false;
         if(e._stuckTimer != null) e._stuckTimer = 0;
         e._roomWaypoint = null;
         e._roomWaypointAt = 0;
+        // [SILL CLEAR] Geef zombie 2s window-pass-mode zodat hij door
+        // de sill kan lopen als hij ergens nog dichtbij was. updateEnemies'
+        // collide-selector respecteert deze flag.
+        e._windowPassUntil = performance.now() + 2000;
       }
     }
   }
@@ -36039,6 +36223,9 @@ shootWithDirection = function(dirOverride = null){
             for(let c = 0; c < colliderList.length; c++){
               const obs = colliderList[c];
               if(!obs || !obs.box || !obs.mesh) continue;
+              // [WINDOW PASSTHROUGH] Skip raam-blockers — monkeys
+              // gaan door raam-openingen heen.
+              if(obs._windowX != null && obs._windowZ != null) continue;
               const b = obs.box;
               // Check tegen geëxpandeerde box
               if(m.pos.x < b.min.x - MONKEY_RADIUS || m.pos.x > b.max.x + MONKEY_RADIUS) continue;
