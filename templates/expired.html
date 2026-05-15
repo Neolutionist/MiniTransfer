@@ -9321,6 +9321,37 @@ function updateMusic(){
     // Voorgestelde nieuwe Y
     let newY = player.pos.y + player.velY * dt;
 
+    // [FALL-SWEEP] Voorkom dat de speler tijdens een val DOOR een prop-top
+    // heen schiet. getGroundHeightAt accepteert collider-tops alleen
+    // binnen step-up bereik (0.55u boven voet) — onbruikbaar tijdens een
+    // val van een balkon (4u hoog). Hier doen we een aparte sweep: kijk
+    // of de voet-Y tussen prev en next een collider-top kruist. Zo ja,
+    // klem speler op die top zodat hij erop landt i.p.v. erin clipt.
+    if(player.velY < 0){
+      const prevFootY = player.pos.y - player.height;
+      const nextFootY = newY - player.height;
+      let landTop = -Infinity;
+      for(const c of colliders){
+        const b = c.box;
+        // XZ-overlap met speler-cilinder (radius * 0.85 = iets toleranter)
+        const r = player.radius * 0.85;
+        if(player.pos.x + r <= b.min.x || player.pos.x - r >= b.max.x) continue;
+        if(player.pos.z + r <= b.min.z || player.pos.z - r >= b.max.z) continue;
+        const top = b.max.y;
+        // Voet was boven de top in vorige frame, en zou eronder zijn nu.
+        // Plus tolerantie 0.05u zodat een gelijke voet-top check ook werkt.
+        if(prevFootY >= top - 0.05 && nextFootY < top){
+          if(top > landTop) landTop = top;
+        }
+      }
+      if(landTop > -Infinity){
+        newY = landTop + player.height;
+        player.velY = 0;
+        player.grounded = true;
+        player.floorY = landTop;
+      }
+    }
+
     // Floor-snap: als nieuw lager dan target eye-y, klem op vloer
     if(newY <= targetEyeY){
       newY = targetEyeY;
@@ -9339,6 +9370,25 @@ function updateMusic(){
     }
 
     player.pos.y = newY;
+
+    // [UNSTICK] Reactive safety-net: als de speler ondanks de sweep TOCH
+    // in een collider eindigt (bv. door horizontale beweging die hem op
+    // een prop schuift terwijl hij valt), schuif hem omhoog tot vrij.
+    // Maximum ~2u — daarboven is iets fundamenteel mis en willen we niet
+    // teleporteren.
+    const footNow = player.pos.y - player.height;
+    if(collidesAtY(player.pos.x, player.pos.z, footNow, player.radius * 0.85, player.height - 0.05)){
+      // Zoek dichtstbijzijnde vrije Y omhoog
+      for(let lift = 0.1; lift <= 2.0; lift += 0.1){
+        if(!collidesAtY(player.pos.x, player.pos.z, footNow + lift, player.radius * 0.85, player.height - 0.05)){
+          player.pos.y = footNow + lift + player.height;
+          player.velY = 0;
+          player.grounded = true;
+          player.floorY = footNow + lift;
+          break;
+        }
+      }
+    }
   }
 
   function tryJump(){
@@ -43946,6 +43996,13 @@ shootWithDirection = function(dirOverride = null){
     }
 
     // Vier rivetjes in de hoeken
+    // [POWER SWITCH FIX v4] Z-coords omgekeerd van +0.10 → -0.10. De root
+    // heeft rotation.y = π, dus lokale +Z wordt wereld -Z. Met +0.10 zaten
+    // de rivets/lever/label aan de NOORD-kant van het paneel (richting
+    // de noord-muur, achter het paneel) — niet zichtbaar voor de speler
+    // die op de balkon-vloer ZUID van het paneel staat. Met -0.10 komen
+    // ze na yaw-flip op +0.10 wereld-Z = ZUID-zijde van paneel = speler-
+    // kant. Dit fixt: speler kan nu de lever zien én bedienen.
     const rivetMat = new THREE.MeshStandardMaterial({
       color: 0x6a5040, roughness: 0.35, metalness: 0.95
     });
@@ -43954,7 +44011,7 @@ shootWithDirection = function(dirOverride = null){
         new THREE.SphereGeometry(0.05, 8, 6),
         rivetMat
       );
-      rivet.position.set(rx, ry, 0.10);
+      rivet.position.set(rx, ry, -0.10);
       root.add(rivet);
     }
 
@@ -43967,7 +44024,7 @@ shootWithDirection = function(dirOverride = null){
       new THREE.BoxGeometry(0.7, 0.20, 0.04),
       labelMat
     );
-    label.position.set(0, 1.55, 0.11);
+    label.position.set(0, 1.55, -0.11);
     root.add(label);
 
     // ---- Lever (de hefboom zelf) ----
@@ -43975,11 +44032,10 @@ shootWithDirection = function(dirOverride = null){
     // in root-lokaal). Dat geeft gelijke zwaai-ruimte voor de lever
     // omhoog én omlaag — paneel strekt van y=0.1 tot y=1.9 (1.0 ± 0.9),
     // en met lever lengte 0.55 + knob 0.10 = max tip-uitsteek 0.70
-    // past dat aan beide kanten. Voorheen pivot op y=0.55 gaf alleen
-    // ruimte voor omhoog-zwaai; bij omlaag-zwaai (OFF) stak de knob
-    // door de balkon-vloer (y=4 in wereld = y=0 in root-lokaal).
+    // past dat aan beide kanten.
+    // [v4] z=-0.10 (was +0.10) → speler-kant van paneel na yaw-flip.
     const pivot = new THREE.Group();
-    pivot.position.set(0, 1.0, 0.10);
+    pivot.position.set(0, 1.0, -0.10);
     root.add(pivot);
 
     // Chrome-stijl staaf
@@ -44017,7 +44073,7 @@ shootWithDirection = function(dirOverride = null){
       new THREE.BoxGeometry(0.18, 0.12, 0.16),
       leverMat
     );
-    bracket.position.set(0, 1.0, 0);   // matched aan pivot.y (was 0)
+    bracket.position.set(0, 1.0, -0.10);   // [v4] speler-kant na yaw-flip
     root.add(bracket);
 
     // Initial lever-rotation = OFF (naar beneden in het vlak van het paneel)
@@ -44029,13 +44085,15 @@ shootWithDirection = function(dirOverride = null){
     //
     // Nieuwe aanpak: zwaai in het VLAK van het paneel via rotation.z.
     // De lever blijft daardoor altijd voor het paneel, zoals een echte
-    // circuit-breaker hefboom. OFF = lever recht naar beneden (π rad),
-    // ON = lever recht naar boven (0 rad). 180° verticale zwaai in-plane.
-    // De lever-cylinder zit op pivot-lokaal (0, 0.42, 0) met length 0.85,
-    // dus zijn voet zit op pivot-y=0 en tip op pivot-y=0.85 — bij rot.z=0
-    // wijst tip omhoog, bij rot.z=π wijst tip omlaag.
-    const LEVER_OFF_ROT = Math.PI;    // strak naar beneden
-    const LEVER_ON_ROT = 0;            // strak omhoog
+    // circuit-breaker hefboom.
+    // [POWER SWITCH FIX v3] OFF/ON rotation values omgewisseld. De root
+    // heeft rotation.y = π en dat spiegelt de zichtbare zwaai-richting
+    // van child-rotaties rond Z. Klassieke breaker-conventie: lever
+    // omlaag = OFF, lever omhoog = ON. Met de spiegeling levert dat de
+    // rotation values rot.z = 0 (omlaag in wereld) voor OFF en rot.z = π
+    // (omhoog in wereld) voor ON.
+    const LEVER_OFF_ROT = 0;
+    const LEVER_ON_ROT = Math.PI;
     pivot.rotation.z = LEVER_OFF_ROT;
 
     // Indicator-LED (rood OFF / groen ON)
@@ -44045,7 +44103,7 @@ shootWithDirection = function(dirOverride = null){
       new THREE.SphereGeometry(0.06, 8, 6),
       lampOffMat
     );
-    lampLed.position.set(0, 0.30, 0.12);
+    lampLed.position.set(0, 0.30, -0.12);   // [v4] speler-kant na yaw-flip
     root.add(lampLed);
 
     // ---- Prompt-UI ----
