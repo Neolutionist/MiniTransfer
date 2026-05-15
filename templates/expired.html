@@ -745,10 +745,18 @@ body.low-hp .stat-hp::after{
 
 #boardWrap{
   margin-top:16px;
+  /* [ALIGN FIX] Match max-width van .title-blurb en .ctrl-hint (480px) zodat
+     het leaderboard-blok niet breder is dan de tekst erboven. Auto-margin
+     centreert het horizontaal binnen #centerMessage. Border-radius verlaagd
+     van 16px → 6px om te matchen met de hoekige stijl van #centerMessage
+     zelf (was visueel inconsistent met rondere hoeken). */
+  max-width:480px;
+  margin-left:auto;
+  margin-right:auto;
   text-align:left;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
-  border-radius:16px;
+  border-radius:6px;
   padding:12px;
 }
 #boardWrap h3{ margin:0 0 10px; font-size:14px; }
