@@ -1227,6 +1227,29 @@ LOGIN_HTML = """
   </p>
   {% endif %}
 
+  <div style="margin-top:1.1rem;display:flex;justify-content:center">
+    <a href="{{ url_for('arcade') }}"
+       title="Speel de mini-game"
+       aria-label="Open de mini-game"
+       style="display:inline-flex;align-items:center;gap:.4rem;
+              padding:.4rem .75rem;font-size:.78rem;font-weight:600;
+              color:var(--muted);text-decoration:none;
+              background:transparent;border:1px solid var(--line);
+              border-radius:999px;line-height:1;
+              transition:color .15s,border-color .15s,background .15s">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="6" y1="12" x2="10" y2="12"></line>
+        <line x1="8" y1="10" x2="8" y2="14"></line>
+        <line x1="15" y1="13" x2="15.01" y2="13"></line>
+        <line x1="18" y1="11" x2="18.01" y2="11"></line>
+        <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+      </svg>
+      Mini-game
+    </a>
+  </div>
+
   <p class="footer small">{{ brand.footer }}</p>
 </div></div>
 </body></html>
@@ -5249,6 +5272,18 @@ def _async_delete_s3_keys(keys: list) -> None:
 @app.route("/p/arcade")
 def arcade_redirect():
     return redirect("/arcade", code=302)
+
+@app.route("/arcade")
+def arcade():
+    # Rechtstreekse toegang tot de arcade/minigame-pagina (zelfde template
+    # als de "expired"-pagina). Bereikbaar zonder login via een kleine knop
+    # op het inlogscherm.
+    return render_template_string(
+        EXPIRED_HTML,
+        base_css=BASE_CSS,
+        bg=BG_DIV,
+        head_icon=HTML_HEAD_ICON
+    )
 
 @app.route("/p/<token>", methods=["GET","POST"])
 def package_page(token):
