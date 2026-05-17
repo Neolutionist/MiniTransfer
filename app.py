@@ -1222,36 +1222,47 @@ LOGIN_HTML = """
 
   {% set _trial_url = trial_signup_url() %}
   {% if _trial_url %}
-  <p class="footer small" style="margin-top:1rem;text-align:center">
-    Nog geen account? <a href="{{ _trial_url }}">Probeer de gratis variant</a>.
+  <p class="footer small" style="margin-top:1rem;text-align:center;color:#cbd5e1">
+    Nog geen account?
+    <a href="{{ _trial_url }}"
+       style="color:var(--brand);font-weight:600;text-decoration:none;
+              border-bottom:1px solid color-mix(in oklab, var(--brand) 45%, transparent);
+              padding-bottom:1px;transition:color .15s,border-color .15s"
+       onmouseover="this.style.borderBottomColor='var(--brand)'"
+       onmouseout="this.style.borderBottomColor='color-mix(in oklab, var(--brand) 45%, transparent)'"
+    >Probeer de gratis variant</a>.
   </p>
   {% endif %}
 
-  <div style="margin-top:1.1rem;display:flex;justify-content:center">
-    <a href="{{ url_for('arcade') }}"
-       title="Speel de mini-game"
-       aria-label="Open de mini-game"
-       style="display:inline-flex;align-items:center;gap:.4rem;
-              padding:.4rem .75rem;font-size:.78rem;font-weight:600;
-              color:var(--muted);text-decoration:none;
-              background:transparent;border:1px solid var(--line);
-              border-radius:999px;line-height:1;
-              transition:color .15s,border-color .15s,background .15s">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="6" y1="12" x2="10" y2="12"></line>
-        <line x1="8" y1="10" x2="8" y2="14"></line>
-        <line x1="15" y1="13" x2="15.01" y2="13"></line>
-        <line x1="18" y1="11" x2="18.01" y2="11"></line>
-        <rect x="2" y="6" width="20" height="12" rx="2"></rect>
-      </svg>
-      Mini-game
-    </a>
-  </div>
-
   <p class="footer small">{{ brand.footer }}</p>
 </div></div>
+
+<a href="{{ url_for('arcade') }}"
+   title="Speel de mini-game"
+   aria-label="Open de mini-game"
+   style="position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%);
+          display:inline-flex;align-items:center;gap:.4rem;
+          padding:.45rem .85rem;font-size:.78rem;font-weight:600;
+          color:#64748b;text-decoration:none;
+          background:rgba(255,255,255,.7);
+          backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+          border:1px solid rgba(148,163,184,.35);
+          border-radius:999px;line-height:1;z-index:50;
+          box-shadow:0 1px 3px rgba(15,23,42,.05),0 4px 16px rgba(15,23,42,.06);
+          transition:color .15s,border-color .15s,background .15s,transform .15s"
+   onmouseover="this.style.color='#0f172a';this.style.background='rgba(255,255,255,.92)';this.style.borderColor='rgba(100,116,139,.5)'"
+   onmouseout="this.style.color='#64748b';this.style.background='rgba(255,255,255,.7)';this.style.borderColor='rgba(148,163,184,.35)'">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <line x1="6" y1="12" x2="10" y2="12"></line>
+    <line x1="8" y1="10" x2="8" y2="14"></line>
+    <line x1="15" y1="13" x2="15.01" y2="13"></line>
+    <line x1="18" y1="11" x2="18.01" y2="11"></line>
+    <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+  </svg>
+  Mini-game
+</a>
 </body></html>
 """
 
