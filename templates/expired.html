@@ -291,6 +291,43 @@ body.doublepoints-active #score{
   filter: blur(2px);
 }
 
+/* Wave-bignum: bij hoge waves (>10) switchen we naar een rood getal in
+   plaats van eindeloze tally-streepjes. Past bij CoD-Zombies-feel: in de
+   echte games gaat het na ronde ~10 ook over op een groot rood cijfer. */
+.tally-bignum{
+  font-family: 'Trebuchet MS', 'Impact', sans-serif;
+  font-weight: 900;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: rgba(180, 16, 24, 0.96);
+  text-shadow:
+    0 0 4px rgba(140, 8, 12, 0.7),
+    1px 1px 0 rgba(60, 0, 4, 0.6),
+    0 2px 6px rgba(0, 0, 0, 0.85);
+  animation: tallyScratch 0.22s ease-out;
+  transform-origin: bottom left;
+  --tally-rot: -2deg;
+  transform: rotate(var(--tally-rot));
+  position: relative;
+  padding: 0 2px;
+}
+.tally-bignum::after{
+  /* Dezelfde subtiele bloed-druppel als bij tally-groepen */
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: -4px;
+  right: -4px;
+  height: 8px;
+  background: radial-gradient(ellipse at 30% 20%,
+    rgba(140, 8, 12, 0.4) 0%,
+    rgba(80, 4, 8, 0.18) 60%,
+    transparent 100%);
+  pointer-events: none;
+  filter: blur(2px);
+}
+
 /* (oude duplicate roundAnnouncer-CSS verwijderd — de juiste styling met
    .ra-sub / .ra-num / .ra-tag staat verderop. Twee #roundAnnouncer-blokken
    veroorzaakten dat de banner bleef hangen omdat ze conflicting opacity-
@@ -3887,16 +3924,22 @@ renderBoard();
     subGain.gain.value = subAmt;
     sub.connect(subGain);
 
-    // ---- Envelope met HARD transient ----
+    // ---- Envelope met VERZACHTE transient ----
+    // [CLICK FIX] Voorheen sprong de gain in 5ms van 0.0001 naar peak×1.9
+    // — dat is een gain-rate van ~120/s wat door Web Audio als een
+    // klik/tikje wordt gehoord. Vooral op spawn (eerste growl per zombie)
+    // was dat irritant want de speler hoort het direct na de wave-start.
+    // Nu: 25ms attack, lagere transient-multiplier (max ×1.3 i.p.v. ×1.9)
+    // en exponential ramp i.p.v. linear voor zachtere envelope-onset.
     const env = audioCtx.createGain();
     env.gain.setValueAtTime(0.0001, now);
-    // Phase 1: snelle aanval (5ms) tot transient-piek — geeft die
-    // "cough start" voordat de moan zich vestigt
-    env.gain.linearRampToValueAtTime(peak * (1 + transientHard), now + 0.005);
-    // Phase 2: 40ms hold op transient-niveau
-    env.gain.linearRampToValueAtTime(peak * (1 + transientHard), now + 0.045);
+    // Phase 1: zachtere aanval (25ms exp ramp) — geen klik
+    const softTransient = Math.min(0.3, transientHard * 0.35);
+    env.gain.exponentialRampToValueAtTime(peak * (1 + softTransient), now + 0.025);
+    // Phase 2: hold op transient-niveau
+    env.gain.linearRampToValueAtTime(peak * (1 + softTransient), now + 0.060);
     // Phase 3: zak naar sustain-peak
-    env.gain.linearRampToValueAtTime(peak, now + 0.12);
+    env.gain.linearRampToValueAtTime(peak, now + 0.14);
     // Phase 4: hold sustain
     env.gain.setValueAtTime(peak, now + dur * 0.65);
     // Phase 5: tail release
@@ -8018,13 +8061,18 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
         ctx.arc(x, y, 4.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        // Letter
+        // Letter — counter-roteer t.o.v. de wereld-rotatie zodat de
+        // letter rechtop blijft staan ongeacht waar de speler kijkt.
         if(!owned){
           ctx.fillStyle = "rgba(10,12,18,0.95)";
           ctx.font = "bold 7px system-ui, sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(s.perk.iconLetter || "?", x, y + 0.5);
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(-lookYaw);
+          ctx.fillText(s.perk.iconLetter || "?", 0, 0.5);
+          ctx.restore();
         }
       }
     }
@@ -8051,15 +8099,20 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
         ctx.arc(x, y, 5.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        // Cost-label (klein) ernaast
+        // Cost-label (klein) ernaast — counter-roteer zodat hij leesbaar
+        // blijft ongeacht waar de speler kijkt.
         const cost = d.cost || d._opts?.cost || 0;
         if(cost > 0){
           const label = cost >= 1000 ? (cost/1000).toFixed(1).replace(/\.0$/,"") + "k" : String(cost);
           ctx.fillStyle = "#ff9a3c";
           ctx.strokeStyle = "rgba(0,0,0,0.85)";
           ctx.lineWidth = 2.5;
-          ctx.strokeText(label, x, y - 9);
-          ctx.fillText(label, x, y - 9);
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(-lookYaw);
+          ctx.strokeText(label, 0, -9);
+          ctx.fillText(label, 0, -9);
+          ctx.restore();
         }
       }
     }
@@ -8092,12 +8145,16 @@ function addCylinderCollider(radius, height, x, y, z, color = 0x1d2c4f, opts = {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      // "?" in het midden
+      // "?" in het midden — counter-roteer zodat hij rechtop blijft.
       ctx.fillStyle = "rgba(40,20,5,0.95)";
       ctx.font = "bold 8px system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("?", bx, by + 0.5);
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(-lookYaw);
+      ctx.fillText("?", 0, 0.5);
+      ctx.restore();
     }
   }
 
@@ -8114,7 +8171,7 @@ function drawMinimap(){
   ctx.fillStyle = "rgba(6,10,18,.94)";
   ctx.fillRect(0, 0, w, h);
 
-  // grid
+  // grid — STATISCH (draait niet mee zodat het frame als referentie blijft)
   ctx.strokeStyle = "rgba(120,160,210,.16)";
   ctx.lineWidth = 1;
   for(let i = 1; i < 4; i++){
@@ -8132,6 +8189,17 @@ function drawMinimap(){
   const scale = 3.2;
   const ox = w / 2 - player.pos.x * scale;
   const oy = h / 2 - player.pos.z * scale;
+
+  // [CoD-STIJL ROTATIE] De wereld-laag draait met de speler mee zodat
+  // "wat voor je neus ligt" altijd bovenaan de minimap staat. Het
+  // achtergrond/grid-frame blijft statisch — alleen de wereld-inhoud
+  // (obstakels, POIs, pickups, enemies, boss) wordt geroteerd.
+  // [FIX] Vorige iteratie gebruikte -lookYaw, draaide tegenovergestelde
+  // richting van de camera. +lookYaw matcht de kijkrichting correct.
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(lookYaw);
+  ctx.translate(-w / 2, -h / 2);
 
   // obstakels — blit van de gecachede offscreen layer
   // Cache is ge-render rond wereld-origo (0,0) in midden van cacheSize-canvas.
@@ -8166,7 +8234,9 @@ function drawMinimap(){
     ctx.strokeStyle = "rgba(255,255,255,.35)";
     ctx.lineWidth = 1;
 
-    // ruitvorm voor boosters/pickups
+    // ruitvorm voor boosters/pickups. We gebruiken ctx.save/translate
+    // hier alleen voor de lokale ruit-rotatie van Math.PI/4 — die telt
+    // op op de wereld-rotatie hierboven en is OK want hij is symmetrisch.
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(Math.PI / 4);
@@ -8222,10 +8292,15 @@ function drawMinimap(){
     ctx.fill();
   }
 
-  // speler
+  // Einde wereld-rotatie-blok — speler-driehoek volgt buiten dit blok
+  // zodat hij ALTIJD omhoog wijst (representeert het kijkrichting-anker
+  // van de roterende kaart).
+  ctx.restore();
+
+  // speler — altijd recht omhoog in het centrum. De kaart roteert om hem
+  // heen, niet andersom (CoD-stijl).
   ctx.save();
   ctx.translate(w / 2, h / 2);
-  ctx.rotate(-lookYaw);
   ctx.fillStyle = "#22c55e";
   ctx.beginPath();
   ctx.moveTo(0, -8);
@@ -10317,10 +10392,28 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
         hornGeo:   new THREE.CylinderGeometry(0.02, 0.10, 0.55, 8),
         bloodMat:  new THREE.MeshBasicMaterial({ color: 0x5a0e10, transparent: true, opacity: 0.55, depthWrite: false }),
         bloodGeo:  new THREE.PlaneGeometry(0.55, 1.05),
-        coreMat:   new THREE.MeshBasicMaterial({ color: 0xff3a14, transparent: true, opacity: 0.85 }),
-        coreGeo:   new THREE.SphereGeometry(0.16, 12, 10),
-        ringMat:   new THREE.MeshBasicMaterial({ color: 0xff6020, transparent: true, opacity: 0.5 }),
-        ringGeo:   new THREE.TorusGeometry(0.24, 0.018, 6, 18),
+        // [BOSS DESIGN] Chest-mond i.p.v. gloeiende orb: een DONKER gat waaruit
+        // de boss schiet, omlijnd door een metalen ring in de OH-merkkleur.
+        // De disc is platte cylinder met dichte zwart-binnenkant en lichte
+        // emissive zodat hij niet helemaal verdwijnt in schaduw.
+        coreMat:   new THREE.MeshStandardMaterial({
+          color: 0x050505,
+          emissive: 0x180a02,
+          emissiveIntensity: 0.45,
+          roughness: 0.95,
+          metalness: 0.05
+        }),
+        coreGeo:   new THREE.CylinderGeometry(0.20, 0.20, 0.05, 24),
+        // Ring rond het gat — OH staal-blauw (zelfde tint als de boss-body
+        // krijgt via tintMesh). Lichte emissive voor "live" feel.
+        ringMat:   new THREE.MeshStandardMaterial({
+          color: 0x4a7ab8,
+          emissive: 0x1a3d6a,
+          emissiveIntensity: 0.55,
+          roughness: 0.42,
+          metalness: 0.75
+        }),
+        ringGeo:   new THREE.TorusGeometry(0.24, 0.026, 8, 22),
       };
       // Markeer alle materials als gedeeld zodat overhaul-IIFE ze niet disposed
       const BD = window._BOSS_DECOR;
@@ -10365,16 +10458,19 @@ function makeEnemyMesh(type="basic", isBoss=false, profile=null){
     hornR.rotation.x = -0.22;
     body.add(hornR);
 
-    // [BOSS DESIGN] GLOEIENDE BORST-KERN — emissive sphere
+    // [BOSS DESIGN] BORST-MOND — donker gat waaruit de boss z'n projectielen
+    // afvuurt. Plat tegen de borst gedrukt; ringgeo eromheen geeft een
+    // metalen omlijsting (OH staal-blauw).
     const chestCore = new THREE.Mesh(BD.coreGeo, BD.coreMat);
     chestCore.position.set(0, 1.75, torsoTop * 0.92 + 0.04);
-    chestCore.scale.set(1.0, 1.4, 0.5);
+    // Cylinder ligt default langs Y-as; kantel 'm zodat z'n vlakke kant
+    // naar de speler wijst (= +Z) en het gat duidelijk zichtbaar is.
+    chestCore.rotation.x = Math.PI / 2;
     body.add(chestCore);
 
-    // Ring rond de kern
+    // Ring rond het gat — staal-omlijning in OH-merkkleur
     const coreRing = new THREE.Mesh(BD.ringGeo, BD.ringMat);
-    coreRing.position.set(0, 1.75, torsoTop * 0.92 + 0.04);
-    coreRing.rotation.y = Math.PI / 2;
+    coreRing.position.set(0, 1.75, torsoTop * 0.92 + 0.06);
     body.add(coreRing);
   }
 
@@ -10691,16 +10787,22 @@ function spawnEnemy(isBoss=false){
   const bossScale = bossPressure(player.wave);
   // CoD Zombies-stijl HP-curve: heel licht in ronde 1-5 (zodat een
   // pistool of single knife je door de eerste minuten draagt), daarna
-  // steiler omhoog. Wave-N basic HP voor mij:
-  //   w=1: ~20, w=3: ~32, w=5: ~50, w=10: ~140, w=15: ~340, w=20: ~640.
-  // Net als CoD waar zombies ronde 20+ honderden hits absorberen.
+  // steiler omhoog. Wave-N basic HP na deze tuning:
+  //   w=1: ~20, w=3: ~32, w=5: ~50, w=10: ~94, w=15: ~315, w=20: ~970,
+  //   w=30: ~5000, w=50: ~40k. Bij ronde 15+ word je effectief verplicht
+  //   om Pack-a-Punch te halen — een non-PaP rifle voelt op 20+ alsof
+  //   je met BB-pellets schiet.
   const w = Math.max(1, player.wave || 1);
-  // lateBoost = exponentieel groei vanaf wave 10 zodat sterke wapens
-  // verplicht worden voor late-game (en het pistool dus nutteloos voelt).
+  // lateBoost = exponentiële groei vanaf wave 10 zodat sterke wapens
+  // verplicht worden voor late-game. Exponent 1.75 (was 1.55) maakt de
+  // curve agressiever vanaf wave 15+: bij wave 30 ~1.75x zwaarder dan
+  // voor deze tuning, bij wave 50 ~2.2x. Bosses krijgen een mildere
+  // lateMul-versie zodat ze niet absurd lang gaan duren.
   const lateBoost = Math.max(0, w - 9);
-  const lateMul = 1 + Math.pow(lateBoost, 1.55) * 0.045;
+  const lateMul = 1 + Math.pow(lateBoost, 1.75) * 0.045;
+  const bossLateMul = 1 + Math.pow(lateBoost, 1.55) * 0.045;
   const baseHp = isBoss
-    ? Math.round((220 + w * 38 + Math.max(0, w - 8) * 28) * bossScale * lateMul)
+    ? Math.round((220 + w * 38 + Math.max(0, w - 8) * 28) * bossScale * bossLateMul)
     : type === "runner"
     ? Math.round((12 + w * 3.0) * (0.96 + (waveScale - 1) * 0.55) * lateMul)
     : type === "tank"
@@ -10781,7 +10883,7 @@ function spawnEnemy(isBoss=false){
     state.boss = enemy;
     ui.bossBarWrap.classList.add("show");
     showFloating("BOSS INBOUND", "boss");
-    createShockwave(mesh.position, 0xff6ea1, 4.8);
+    createShockwave(mesh.position, 0x4a7ab8, 4.8);
     sfxBoss();
   } else {
     if(type === "elite") showFloating("Elite trooper incoming");
@@ -10929,7 +11031,12 @@ function spawnWave(){
   // een lange dunne cilinder die in de Z-richting wijst (lengteas = vluchtrichting).
   // We zetten 'm 1× per spawn met setQuaternionFromUnitVectors zodat hij in
   // de schiet-richting ligt. Schaalverschillen via mesh.scale (Z = lengte).
-  const SHARED_BULLET_GEO = new THREE.CylinderGeometry(0.035, 0.022, 0.55, 8);
+  // [TRACER TUNING v3] Diameter verdubbeld: radius 0.015→0.030 + 0.010→0.018.
+  // De vorige waarde (v2 fix) was naar smaak van de gebruiker net iets te
+  // dun — niet de arcade-look van v1, maar wel zichtbaarheid-verlies bij
+  // snelle tracers. Lengte 0.25 blijft hetzelfde — voelt strak en niet
+  // arcadig. Resultaat zit netjes tussen v1 (3.5cm dik) en v2 (1.5cm dik).
+  const SHARED_BULLET_GEO = new THREE.CylinderGeometry(0.030, 0.018, 0.25, 8);
   // Roteer de geometrie zodat de cilinder-as +Z is ipv +Y. Dit doen we 1× op
   // de gedeelde geometrie zelf — daarna is "naar voren wijzen" gelijk aan
   // "kijk in de schiet-richting" met setRotationFromQuaternion.
@@ -11193,13 +11300,20 @@ function spawnWave(){
   function _themedShockwaveColor(color){
     // Direct overrides voor de meest-gebruikte caller-kleuren
     switch(color){
-      // Felle roze/magenta (boss, melee, enemy explosions) → dofgrijs
+      // Felle roze/magenta (legacy boss-effects; nu vervangen door OH-blauw,
+      // maar mapping blijft staan voor backward-compat) → dofgrijs
       case 0xff6ea1:
       case 0xff2e88:
       case 0xff7fcf:
       case 0xff4040:
       case 0xff6a40:
         return 0x6a4a3a;   // rust-bruin (warme thema-tint)
+      // [OH BOSS] Olde Hanter staal-blauw — boss-effecten BLIJVEN herkenbaar
+      // OH-thematisch (niet ge-sepia'd zoals andere felle kleuren). Iets
+      // helderder dan de raw tint zodat shockwaves zichtbaar blijven door
+      // het donkere zombie-niveau.
+      case 0x4a7ab8:
+        return 0x5e8ed0;
       // Cyaan/lichtblauw (kogel-impacts, frost effects) → koel grijs
       case 0x00f7ff:
       case 0x7ec8ff:
@@ -11312,7 +11426,19 @@ function spawnWave(){
     state.flashes.push(slot);
   }
 
-  function explodeAt(position, radius, damage, color){
+  function explodeAt(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly){
+    // [FRIENDLY FIRE] Default true zodat speler-explosies (rocket, granaat,
+    // raygun, mustang) zombies blijven killen. Vijandelijke explosies (boss
+    // slam, panzer mortar, etc.) geven hier `false` mee — die hoort z'n
+    // eigen zombies niet kapot te maken, maar wél de speler te raken via
+    // de damagesPlayer-flag (die staat los).
+    //
+    // [SELF-DAMAGE] De `friendly` flag (default false) markeert dat de
+    // explosie van de speler zelf afkomt — denk frag op je voeten, rocket
+    // in een muur dichtbij. In dat geval scale-en we de player-damage
+    // omlaag (×0.20) zodat je niet door je eigen wapens instant dood gaat.
+    // Vijandelijke explosies houden volledige damage.
+    if(damagesEnemies === undefined) damagesEnemies = true;
     createBurst(position, color, 24, 7, { minSize:.06, maxSize:.14, minLife:.35, maxLife:1.0, maxUp:1.8, drag:0.9, gravity:4.4, shrink:0.972 });
     createBurst(position, 0xffffff, 10, 5, { minSize:.03, maxSize:.08, minLife:.12, maxLife:.32, gravity:1.5, shrink:0.95 });
     createBurst(position, 0x1e2438, 16, 3.2, { minSize:.09, maxSize:.18, minLife:.55, maxLife:1.3, minUp:.05, maxUp:.65, drag:0.96, gravity:0.7, shrink:0.985 });
@@ -11326,42 +11452,65 @@ function spawnWave(){
     // Vector3-allocatie per enemy per explosion (24 enemies × 5 grenades = 120
     // alloc/burst). hitPos.y forceer naar 1.7 (chest-height) door dy=position.y-1.7.
     const px = position.x, py = position.y, pz = position.z, r2 = radius * radius;
-    for(let i=state.enemies.length-1;i>=0;i--){
-      const e = state.enemies[i];
-      const ep = e.mesh.position;
-      const dx = ep.x - px, dy = 1.7 - py, dz = ep.z - pz;
-      const d2 = dx*dx + dy*dy + dz*dz;
-      if(d2 < r2){
-      const d = Math.sqrt(d2);
-    // [OPT] console.warn weg uit hot AOE-loop; fallback-logic blijft intact.
-    if(!Number.isFinite(e.hp)){
-          e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
-        }
-        if(!Number.isFinite(e.maxHp) || e.maxHp <= 0){
-          e.maxHp = Math.max(1, Number.isFinite(e.hp) ? e.hp : 1);
-        }
+    if(damagesEnemies){
+      for(let i=state.enemies.length-1;i>=0;i--){
+        const e = state.enemies[i];
+        const ep = e.mesh.position;
+        const dx = ep.x - px, dy = 1.7 - py, dz = ep.z - pz;
+        const d2 = dx*dx + dy*dy + dz*dz;
+        if(d2 < r2){
+          const d = Math.sqrt(d2);
+          // [OPT] console.warn weg uit hot AOE-loop; fallback-logic blijft intact.
+          if(!Number.isFinite(e.hp)){
+            e.hp = Number.isFinite(e.maxHp) ? e.maxHp : 1;
+          }
+          if(!Number.isFinite(e.maxHp) || e.maxHp <= 0){
+            e.maxHp = Math.max(1, Number.isFinite(e.hp) ? e.hp : 1);
+          }
 
-        e.hp -= damage * (1 - d / radius);
-        if(e.hp <= 0){
-          killEnemy(e);
-          // [PERF] swap-pop binnen reverse-loop
-          const lastIdx = state.enemies.length - 1;
-          if(i !== lastIdx) state.enemies[i] = state.enemies[lastIdx];
-          state.enemies.pop();
+          e.hp -= damage * (1 - d / radius);
+          // [BO2 SCORE] Stempel zodat de hit-tracker (zie ~24770) deze
+          // schade als bullet-impact telt (+10 punten). DoT-paden updaten
+          // deze stempel NIET, dus die geven terecht geen punten.
+          e._lastBulletHitAt = performance.now();
+          if(e.hp <= 0){
+            killEnemy(e);
+            // [PERF] swap-pop binnen reverse-loop
+            const lastIdx = state.enemies.length - 1;
+            if(i !== lastIdx) state.enemies[i] = state.enemies[lastIdx];
+            state.enemies.pop();
+          }
+        }
+      }
+
+      if(state.boss){
+        const bp = state.boss.mesh.position;
+        const dx = bp.x - px, dy = 2.2 - py, dz = bp.z - pz;
+        const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if(d < radius){
+          state.boss.hp -= damage * (1 - d / radius);
+          state.boss._lastBulletHitAt = performance.now();
+          updateBossBar();
+          if(state.boss.hp <= 0){
+            killEnemy(state.boss);
+          }
         }
       }
     }
 
-    if(state.boss){
-      const bp = state.boss.mesh.position;
-      const dx = bp.x - px, dy = 2.2 - py, dz = bp.z - pz;
+    // [PLAYER DAMAGE] Alleen bij explosies die afkomstig zijn van vijanden
+    // (boss slam, mortar, etc.) — vlag-gestuurd zodat speler-eigen rockets/
+    // grenades zichzelf NIET opblazen. Damage schaalt met afstand-falloff
+    // net als bij enemies; chest-Y = 1.7 voor consistente verticale check.
+    if(damagesPlayer && player?.alive){
+      const pp = player.pos;
+      const dx = pp.x - px, dy = 1.7 - py, dz = pp.z - pz;
       const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
       if(d < radius){
-        state.boss.hp -= damage * (1 - d / radius);
-        updateBossBar();
-        if(state.boss.hp <= 0){
-          killEnemy(state.boss);
-        }
+        // Self-damage scale = 0.20 als de explosie van de speler komt,
+        // anders volle damage (enemy-explosie).
+        const selfScale = friendly ? 0.20 : 1.0;
+        applyDamage?.(damage * (1 - d / radius) * selfScale);
       }
     }
   }
@@ -11369,9 +11518,9 @@ function spawnWave(){
   function dropPickup(position){
     // [CoD Zombies] Alleen power-ups droppen — geen ammo/heal/shield/rocket/
     // grenade boxes meer. Speler haalt ammo bij wall-buys en uit Max Ammo
-    // power-ups. Drop-rate: 1.5% per kill (CoD-authentiek — ~1 power-up
-    // per 70 kills, ongeveer 1 per 2 waves).
-    if(Math.random() >= 0.015) return;
+    // power-ups. Drop-rate: 3% per kill (was 1.5%) — gebruiker zag power-ups
+    // bijna nooit waardoor onduidelijk was of ze überhaupt werkten.
+    if(Math.random() >= 0.030) return;
     // Gelijk verdeeld over de 6 BO2 power-ups.
     const types = ["maxammo", "instakill", "doublepoints", "nuke", "firesale", "deathmachine"];
     const kind = types[(Math.random() * types.length) | 0];
@@ -12329,7 +12478,7 @@ function shootWithDirection(dirOverride=null){
     const bossScale = bossPressure(wave);
 
     let speed = enemy.isBoss ? 18 : 12;
-    let color = enemy.isBoss ? 0xff6ea1 : 0x78d7ff;
+    let color = enemy.isBoss ? 0x4a7ab8 : 0x78d7ff;
     let damage = enemy.isBoss ? 16 : 11;
     if(enemy.type === "runner"){ speed = 14; damage = 9; }
     if(enemy.type === "tank"){ speed = 10; damage = 14; color = 0xffd166; }
@@ -12613,7 +12762,7 @@ function shootWithDirection(dirOverride=null){
     spawnRagdoll(enemy);
     scene.remove(enemy.mesh);
     if(enemy.groundRing) scene.remove(enemy.groundRing);
-    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0xff6ea1 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 20 : 10, enemy.isBoss ? 8 : 5);
+    createBurst(enemy.mesh.position.clone().add(new THREE.Vector3(0,1.8,0)), enemy.isBoss ? 0x4a7ab8 : (enemy.type === "elite" ? 0xffa86e : enemy.type === "runner" ? 0x9dff7c : enemy.type === "tank" ? 0xffd166 : 0x74a8ff), enemy.isBoss ? 20 : 10, enemy.isBoss ? 8 : 5);
 
     if(enemy.isBoss){
       registerKill(150);
@@ -12823,6 +12972,9 @@ function shootWithDirection(dirOverride=null){
       camera.position.z + _flashlightDir.z * 10
     );
     _flashlightTarget.updateMatrixWorld();
+    // [FLASHLIGHT] Originele gebalanceerde intensity — niet té fel.
+    // Een vorige iteratie zette dit op 32 voor extra muur-licht, maar
+    // dat maakte de zaklamp overheersend t.o.v. de horror-sfeer.
     _flashlightLight.intensity = 18.0;
   }
   try { window.OHUpdateFlashlight = updateFlashlight; } catch(_){}
@@ -13013,6 +13165,13 @@ function updateBullets(dt){
     // alleen z'n animatie loopt nog). Voorkomt dat shotgun-pellets na
     // de eerste die het hoofd raakte de hp-tracker dubbel triggeren.
     if(enemy._headshotKillAt) return false;
+
+    // [BO2 SCORE] Stempel: er ging zojuist een echte bullet-hit dit pad in.
+    // De hp-delta-tracker (zie ~24770) gebruikt deze stempel om +10-punten
+    // alleen toe te kennen aan echte bullet-impacts, NIET aan continuous
+    // DoT-damage (PaP fire, napalm-pool, etc.) die via aparte tick-loops
+    // hp aftrekt zonder dit pad te raken.
+    enemy._lastBulletHitAt = performance.now();
 
     // Pack-a-Punch damage-multiplier: als het actieve wapen geüpgraded is
     // via de PaP-machine, krijgt de bullet damage een x1.8–x2.2 boost
@@ -13218,6 +13377,10 @@ function updateBullets(dt){
     if(!state.boss?.mesh) return false;
     if(!ensureEnemyHp(state.boss)) return false;
 
+    // [BO2 SCORE] Stempel: echte bullet-hit moment. Zie hitNormalEnemy
+    // voor uitleg — DoT-damage zou anders elke frame +10 oplevern.
+    state.boss._lastBulletHitAt = performance.now();
+
     // Pack-a-Punch damage-multiplier ook tegen bosses (iets minder dan
     // tegen normale enemies om boss-pacing niet te breken: 70% van de
     // gewone PaP-bonus).
@@ -13340,6 +13503,7 @@ function updateBullets(dt){
       }
 
       e.hp -= damage * (1 - d / radius);
+      e._lastBulletHitAt = performance.now();
 
       if(e.hp <= 0){
         killEnemy(e);
@@ -13363,6 +13527,7 @@ function updateBullets(dt){
     if(distSq < radiusSq){
       const d = Math.sqrt(distSq);
       state.boss.hp -= damage * (1 - d / radius);
+      state.boss._lastBulletHitAt = performance.now();
       updateBossBar();
       if(state.boss.hp <= 0){
         killEnemy(state.boss);
@@ -13373,6 +13538,8 @@ function updateBullets(dt){
 
   function explodeProjectile(bullet){
   if(bullet.type === "plasma"){
+    // Plasma (raygun) gaat door explodePlasmaAt — die heeft inherently
+    // GEEN player-damage, dus de speler is veilig voor z'n eigen raygun.
     explodePlasmaAt(
       bullet.mesh.position.clone(),
       bullet.radius,
@@ -13382,11 +13549,20 @@ function updateBullets(dt){
     return;
   }
 
+  // [FRIENDLY-FIRE] Rocket en grenade exploderen WEL op de speler zelf
+  // — realistisch CoD-gedrag: dichtbij worpen pakken jezelf ook mee.
+  // Raygun is uitgesloten via de plasma-tak hierboven. damagesEnemies
+  // default-true blijft (speler-eigen explosies killen nog steeds zombies).
+  // De `friendly` flag (laatste arg) zorgt voor ×0.20 self-damage scaling
+  // zodat je niet instant dood gaat van je eigen RPG.
   explodeAt(
     bullet.mesh.position.clone(),
     bullet.radius,
     bullet.damage,
-    bullet.explosionColor
+    bullet.explosionColor,
+    true,    // damagesPlayer — speler eet z'n eigen boom
+    true,    // damagesEnemies — wel nog steeds zombies killen
+    true     // friendly — gereduceerde self-damage (×0.20)
   );
 }
 
@@ -13756,7 +13932,7 @@ if(b.gravity){
         const hadCooldown = player.damageCooldown > 0 || !player.alive;
         applyDamage(b.damage);
         if(!hadCooldown){
-          createBurst(bPos, 0xff6ea1, 4, 2.8);
+          createBurst(bPos, 0x4a7ab8, 4, 2.8);
         }
         remove = true;
       }
@@ -14296,7 +14472,7 @@ if(b.gravity){
       strafeStrength = 0.18;
       speedMul = 1.55;
       e.chargeCooldown = rand(3.5, 5.5);
-      createShockwave(e.mesh.position, 0xff6ea1, 1.6);
+      createShockwave(e.mesh.position, 0x4a7ab8, 1.6);
     }
 
     // Elite/runner dodge — voor zombies kort gehouden zodat ze niet te
@@ -14757,8 +14933,11 @@ if(b.gravity){
         e.mesh.rotation.x = 0;
       }
     } else if(crawling){
-      // Geen benen → kruipen: lichaam hangt op 0.25m met lichte bob.
-      e.mesh.position.y = 0.25 + Math.sin(e.bob) * 0.04;
+      // Geen benen → echt plat op de buik kruipen. De body wordt verderop
+      // 90° om zijn lokale X gekanteld zodat het hoofd vooruit komt te
+      // liggen. We zetten de mesh laag (y≈0.25) zodat de horizontaal-
+      // liggende torso vlak boven de vloer ligt zonder erdoorheen te zakken.
+      e.mesh.position.y = 0.25 + Math.sin(e.bob) * 0.03;
     } else {
       e.mesh.position.y = yBase + Math.sin(e.bob) * (e.type === "runner" ? 0.05 : 0.04);
     }
@@ -14773,30 +14952,58 @@ if(b.gravity){
     // Hierdoor blijft de nametag-sprite (kind van root) altijd correct
     // billboard-gericht naar de camera, en voorkomen we dat de hele group
     // kantelt waardoor losse boxes door elkaar kunnen schuiven.
+    //
+    // Uitzondering: bij KRUIPEN willen we de zombie écht plat OP DE BUIK
+    // hebben. Daarvoor scheiden we yaw en pitch over twee groepen:
+    //   - YAW gaat op de MESH-ROOT (de root heeft anders geen rotatie),
+    //   - PITCH gaat op de BODY-subgroup.
+    // Beide groepen krijgen dus elk maximaal één rotatie-as, en er kan
+    // geen gimbal-conflict ontstaan tussen yaw en pitch. De nametag-
+    // sprite hangt aan de root en blijft camera-facing (Three.js Sprite
+    // doet dat intrinsiek) — z'n wereld-positie verschuift door yaw
+    // alleen in XZ, niet in Y, dus de tag staat nog steeds boven.
+    //
+    // Bij staande zombies: yaw op mesh, lichte X-tilt op body voor het
+    // hijgende/wankel-effect. Bij crawl: yaw op mesh, pitch +π/2 op body
+    // (face DOWN — positief teken zorgt dat het hoofd voorover valt, niet
+    // achterover op de rug zoals bij negatieve waarde).
+    //
+    // Als de zombie in een jump/climb-animatie zit, laten we mesh.rotation
+    // met rust — die paden sturen 'm zelf.
     const body = e.mesh.userData.body || e.mesh;
-    // Bepaal de yaw naar de speler zonder lookAt (lookAt kan via Euler-volgorde
-    // een 180° X-flip introduceren → enemies ondersteboven). Rechtstreeks
-    // atan2 op het dx/dz-verschil is veiliger en gimbal-lock-vrij.
-    if(body){
-      const dxP = player.pos.x - e.mesh.position.x;
-      const dzP = player.pos.z - e.mesh.position.z;
-      body.rotation.x = 0;
-      body.rotation.z = 0;
-      body.rotation.y = Math.atan2(dxP, dzP);
+    const dxP = player.pos.x - e.mesh.position.x;
+    const dzP = player.pos.z - e.mesh.position.z;
+    const yawToPlayer = Math.atan2(dxP, dzP);
+    const _meshAnimActive = _jump || _climb || _climbWindup || _jumpWindup;
+
+    if(!_meshAnimActive){
+      // Yaw altijd op de mesh-root (één-as, geen gimbal-risk)
+      e.mesh.rotation.order = "XYZ";
+      e.mesh.rotation.x = 0;
+      e.mesh.rotation.y = yawToPlayer;
+      e.mesh.rotation.z = 0;
     }
 
-    // Kruip-modus: kantel de body voorover (apart van yaw).
-    if(crawling){
-      body.rotation.x = -Math.PI * 0.42; // ~75° voorover (geen flip want expliciet gezet)
-      body.position.y = -0.5;
-    } else {
-      body.position.y = 0;
-      // Zombie-tilt: constante voorwaartse hellingshoek + lichte wankele
-      // zwaai. We zetten dit ná de yaw-set (regel hierboven) want die reset
-      // anders body.rotation.x naar 0 elke frame.
-      if(body && e.mesh.userData.parts){
-        body.rotation.x = 0.20 + Math.sin(e.bob * 0.5) * 0.04; // hijgen
-        body.rotation.z = Math.sin(e.bob * 0.5) * 0.06;        // wankelen
+    if(body && body !== e.mesh){
+      if(crawling){
+        // Plat op de buik. Body kantelt 90° voorover om zijn lokale X-as,
+        // zodat het hoofd naar voren komt te liggen (z=+head_y wereld) en
+        // het gezicht naar de vloer wijst. Subtiele bob-variatie.
+        body.rotation.x = Math.PI * 0.5 + Math.sin(e.bob * 0.9) * 0.05;
+        body.rotation.y = 0;
+        body.rotation.z = Math.sin(e.bob * 0.5) * 0.04; // licht wankelen
+        body.position.y = 0;
+      } else {
+        // Staande pose: alleen lichte voorover-tilt + wankel, geen yaw.
+        body.rotation.y = 0;
+        body.position.y = 0;
+        if(e.mesh.userData.parts){
+          body.rotation.x = 0.20 + Math.sin(e.bob * 0.5) * 0.04; // hijgen
+          body.rotation.z = Math.sin(e.bob * 0.5) * 0.06;        // wankelen
+        } else {
+          body.rotation.x = 0;
+          body.rotation.z = 0;
+        }
       }
     }
 
@@ -15025,7 +15232,7 @@ if(b.gravity){
       if(!collidesAtForEnemy(tx, tz, e.radius, e.mesh.position.y)){
         e.mesh.position.x = tx;
         e.mesh.position.z = tz;
-        createShockwave(e.mesh.position, 0xff2e88, e.phase === 3 ? 5.2 : 4.3);
+        createShockwave(e.mesh.position, 0x4a7ab8, e.phase === 3 ? 5.2 : 4.3);
         if(dist < 8) applyDamage((e.phase === 3 ? 18 : 12) * (1 + enrage * 0.9));
       }
       e.dashCooldown = Math.max(1.8, (e.phase === 3 ? 3.2 : 4.4) - Math.min(1.4, enrage * 4.0));
@@ -15047,8 +15254,8 @@ if(b.gravity){
 
     // Boss slam
     if(e.slamCooldown <= 0 && dist < 10){
-      createShockwave(e.mesh.position, 0xff6ea1, e.phase === 3 ? 6.0 : 5.0);
-      explodeAt(player.pos, e.phase === 3 ? 4.2 : 3.3, (e.phase === 3 ? 17 : 12) * (1 + enrage * 0.75), 0xff6ea1);
+      createShockwave(e.mesh.position, 0x4a7ab8, e.phase === 3 ? 6.0 : 5.0);
+      explodeAt(player.pos, e.phase === 3 ? 4.2 : 3.3, (e.phase === 3 ? 17 : 12) * (1 + enrage * 0.75), 0x4a7ab8, true, false);
       e.slamCooldown = Math.max(2.8, (e.phase === 3 ? 4.8 : 6.5) - Math.min(2.0, enrage * 5.0));
     }
 
@@ -15611,13 +15818,17 @@ if(b.gravity){
       // Tijdens death machine: invuln + auto-aim minigun
       // [DM] Houd damageCooldown hoog zodat speler invulnerable is.
       try { player.damageCooldown = Math.max(player.damageCooldown, 0.5); } catch(_){}
-      // [DM] Auto-fire bij nearest enemy: zoek dichtsbijzijnde zombie en
-      // forceer een schot in die richting. ~3 schoten per frame ≈ 180 RPM
-      // op 60Hz wat overeen komt met BO2 Death Machine vuursnelheid.
+      // [DM FIX] Auto-fire bij nearest enemy. Vorige iteratie riep
+      // createProjectile aan met losse number-argumenten (px,py,pz,sx,sy,sz,
+      // speed) — dat was kapot want de echte API is (pos:Vector3, dir:Vector3,
+      // config:{speed,color,damage,...}). Plus de bullet werd nooit in
+      // state.bullets gepushed dus zelfs als er een bullet was, deed hij
+      // niks. Nu correct gefixt met dezelfde patronen als shotgun-pellet
+      // spawning (regel 32481+).
       try {
         if(window.state?.enemies?.length && typeof window.createProjectile === "function"){
           let nearest = null, dmin = 1e9;
-          const px = player.pos.x, py = player.pos.y || 1.7, pz = player.pos.z;
+          const px = player.pos.x, py = (player.pos.y || 0) + 1.5, pz = player.pos.z;
           for(const e of state.enemies){
             if(!e?.mesh) continue;
             const ep = e.mesh.position;
@@ -15629,12 +15840,26 @@ if(b.gravity){
             const dx = ep.x - px, dy = (ep.y + 0.8) - py, dz = ep.z - pz;
             const len = Math.hypot(dx, dy, dz) || 1;
             const dirX = dx/len, dirY = dy/len, dirZ = dz/len;
-            // 3 bullets per frame met lichte spread
+            // 3 bullets per frame met lichte spread → ~180 RPM op 60Hz
             for(let i = 0; i < 3; i++){
               const sx = dirX + (Math.random()-0.5) * 0.08;
               const sy = dirY + (Math.random()-0.5) * 0.06;
               const sz = dirZ + (Math.random()-0.5) * 0.08;
-              try { window.createProjectile(px, py, pz, sx, sy, sz, 200); } catch(_){}
+              const dirVec = new THREE.Vector3(sx, sy, sz).normalize();
+              const startVec = new THREE.Vector3(px, py, pz);
+              try {
+                const bullet = window.createProjectile(startVec, dirVec, {
+                  friendly: true,
+                  speed: 60,                // hoge bullet-velocity zoals minigun
+                  color: 0xffd048,          // gouden tracer past bij DM-orb
+                  trailColor: 0xffe888,
+                  size: 0.10,
+                  life: 0.8,                // korte tracer-leven (snel weg)
+                  damage: 80,               // ~M14-level per round; 240 dmg/frame total
+                  type: "bullet"
+                });
+                if(bullet) state.bullets.push(bullet);
+              } catch(_){}
             }
           }
         }
@@ -15688,10 +15913,11 @@ if(b.gravity){
       for(const e of state.enemies){
         if(!e?.mesh) continue;
         if(e._voiceAt == null){
-          // Eerste-keer init met KORTE delay (0.3-1.5s) zodat de speler
-          // meteen na spawn hoort dat er zombies actief zijn. Random
-          // offset zorgt dat ze niet synchroniseren.
-          e._voiceAt = nowS + 0.3 + Math.random() * 1.2;
+          // [CLICK FIX] Eerste-keer init met grotere delay (1.2-3.0s i.p.v.
+          // 0.3-1.5s) zodat de eerste growl niet samenvalt met de
+          // spawn-rise-animatie waar de speler aandacht heeft. Vermindert
+          // de "tikje bij spawn"-perceptie verder.
+          e._voiceAt = nowS + 1.2 + Math.random() * 1.8;
           continue;
         }
         if(nowS < e._voiceAt) continue;
@@ -15968,7 +16194,10 @@ const CORE_LOOP = {
   lastShadowAt: 0,
   hudDirty: true,
   decorEveryMs: isTouch ? 50 : 33,
-  minimapEveryMs: isTouch ? 125 : 83,
+  // [MINIMAP FPS] Update-rate verdubbeld voor vloeiendere rotatie-anim.
+  // Desktop 83→40ms (~25Hz), touch 125→60ms (~17Hz). De minimap-draw is
+  // ~1-2ms zelfs op zwaardere browsers dus dit is veilig.
+  minimapEveryMs: isTouch ? 60 : 40,
   shadowEveryMs: 250,
 };
 
@@ -16196,7 +16425,7 @@ function killEnemy(enemy){
   createBurst?.(
     enemy.mesh.position.clone().add(new THREE.Vector3(0, 1.8, 0)),
     enemy.isBoss
-      ? 0xff6ea1
+      ? 0x4a7ab8
       : enemy.type === "elite"
       ? 0xffa86e
       : enemy.type === "runner"
@@ -17689,7 +17918,7 @@ try {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(2.8 + i * 0.55, 0.04 + i * 0.01, 8, 48),
         new THREE.MeshBasicMaterial({
-          color: i === 1 ? 0x8bf0ff : 0xff6ea1,
+          color: i === 1 ? 0x8bf0ff : 0x4a7ab8,
           transparent: true,
           opacity: 0.26 - i * 0.05
         })
@@ -17740,7 +17969,7 @@ try {
       nemesis.phase = newPhase;
       state.cameraShake = Math.min(2.0, state.cameraShake + 0.8);
       flashHint?.(`BOSS PHASE ${nemesis.phase + 1}`);
-      createShockwave?.(state.boss.mesh.position, nemesis.phase === 2 ? 0xffd166 : 0xff6ea1, 4 + nemesis.phase);
+      createShockwave?.(state.boss.mesh.position, nemesis.phase === 2 ? 0xffd166 : 0x4a7ab8, 4 + nemesis.phase);
       if(nemesis.phase >= 1){
         // [PERF] Reinforcement-spawns spreiden zodat boss-phase-change
         // geen synchrone spawn-spike geeft.
@@ -17764,7 +17993,7 @@ try {
 
       if(Math.random() < dt * 0.7){
         const pos = state.boss.mesh.position.clone().add(new THREE.Vector3(nRand(-2.8,2.8), 0, nRand(-2.8,2.8)));
-        createShockwave?.(pos, 0xff6ea1, 1.6);
+        createShockwave?.(pos, 0x4a7ab8, 1.6);
         createBurst?.(pos.clone().add(new THREE.Vector3(0,1,0)), 0xffb2c8, 6, 4.2, {
           minLife:.16, maxLife:.3, gravity:0.45, shrink:0.95
         });
@@ -19312,7 +19541,19 @@ Jad: {
     const now = performance.now() * 0.001;
     const bonusActive = (player._ohSpeedBoostUntil || 0) > now;
     const relicMult = 1 + (player.speedBoost || 0);
-    player.speed = (player._ohBaseSpeed + (bonusActive ? 3.2 : 0)) * relicMult;
+    // [ADS speed-modifier] Als ADS actief is, knijp de movement-speed in
+    // op basis van de per-wapen speedMul in ADS_CONFIG. Een directe
+    // assignment in setADS zou hier elke frame overschreven worden, dus
+    // de modifier hoort op DEZE plek thuis — vlak voor de movement-step.
+    let adsSpeedMul = 1;
+    try {
+      const adsApi = window.OHSniperADS;
+      if(adsApi?.state?.active){
+        const cfg = adsApi.state._activeCfg;
+        if(cfg && typeof cfg.speedMul === "number") adsSpeedMul = cfg.speedMul;
+      }
+    } catch(_){}
+    player.speed = (player._ohBaseSpeed + (bonusActive ? 3.2 : 0)) * relicMult * adsSpeedMul;
 
     _updateMovement(dt);
 
@@ -19769,49 +20010,83 @@ Jad: {
 
 
 
-function ohLightGrenadeExplosion(position, radius, damage, color = 0x9dff7c){
+function ohLightGrenadeExplosion(position, radius, damage, color = 0x9dff7c, damagesEnemies = true, damagesPlayer = false, friendly = false){
   createBurst(position, color, 8, 4.2, { minSize:.04, maxSize:.09, minLife:.18, maxLife:.42, maxUp:1.05, drag:0.91, gravity:3.1, shrink:0.975 });
   createBurst(position, 0xffffff, 3, 2.8, { minSize:.025, maxSize:.05, minLife:.08, maxLife:.18, gravity:1.2, shrink:0.94 });
   createBurst(position, 0x23301c, 5, 2.0, { minSize:.06, maxSize:.12, minLife:.22, maxLife:.52, minUp:.03, maxUp:.4, drag:0.95, gravity:0.55, shrink:0.986 });
   createShockwave(position, color, Math.max(1.3, radius * 0.82));
   createFlash(position, color, 1.45, radius * 2.8, 0.11);
 
-  for(let i = state.enemies.length - 1; i >= 0; i--){
-    const e = state.enemies[i];
-    if(!e?.mesh) continue;
-    const hitPos = e.mesh.position.clone();
-    hitPos.y = 1.7;
-    const d = hitPos.distanceTo(position);
-    if(d >= radius) continue;
-    e.hp -= damage * (1 - d / radius);
-    if(e.hp <= 0){
-      killEnemy(e);
-      // [PERF] swap-pop binnen reverse-loop
-      const lastIdx = state.enemies.length - 1;
-      if(i !== lastIdx) state.enemies[i] = state.enemies[lastIdx];
-      state.enemies.pop();
+  // [FRIENDLY FIRE] Vijandelijke explosies (boss grenades, e.d.) mogen
+  // andere zombies NIET kapot maken — in CoD Zombies kunnen vijanden
+  // elkaar niet beschadigen. Speler-eigen explosies (cluster-grenade)
+  // doen dat wel; de damagesEnemies flag bepaalt welk gedrag geldt.
+  if(damagesEnemies){
+    for(let i = state.enemies.length - 1; i >= 0; i--){
+      const e = state.enemies[i];
+      if(!e?.mesh) continue;
+      const hitPos = e.mesh.position.clone();
+      hitPos.y = 1.7;
+      const d = hitPos.distanceTo(position);
+      if(d >= radius) continue;
+      e.hp -= damage * (1 - d / radius);
+      e._lastBulletHitAt = performance.now();
+      if(e.hp <= 0){
+        killEnemy(e);
+        // [PERF] swap-pop binnen reverse-loop
+        const lastIdx = state.enemies.length - 1;
+        if(i !== lastIdx) state.enemies[i] = state.enemies[lastIdx];
+        state.enemies.pop();
+      }
+    }
+
+    if(state.boss?.mesh){
+      const bp = state.boss.mesh.position.clone();
+      bp.y = 2.2;
+      const d = bp.distanceTo(position);
+      if(d < radius){
+        state.boss.hp -= damage * (1 - d / radius);
+        state.boss._lastBulletHitAt = performance.now();
+        updateBossBar?.();
+        if(state.boss.hp <= 0) killEnemy(state.boss);
+      }
     }
   }
 
-  if(state.boss?.mesh){
-    const bp = state.boss.mesh.position.clone();
-    bp.y = 2.2;
-    const d = bp.distanceTo(position);
+  // [FRIENDLY FIRE] Player-damage werkt symmetrisch met explodeAt:
+  // alleen actief als damagesPlayer=true. Voor cluster-bursts vanuit
+  // speler-gegooide PaP-grenades willen we de speler óók raken als hij
+  // er pal bovenop staat — realistisch.
+  if(damagesPlayer && player?.alive){
+    const pp = player.pos;
+    const dx = pp.x - position.x;
+    const dy = 1.7 - position.y;
+    const dz = pp.z - position.z;
+    const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
     if(d < radius){
-      state.boss.hp -= damage * (1 - d / radius);
-      updateBossBar?.();
-      if(state.boss.hp <= 0) killEnemy(state.boss);
+      const selfScale = friendly ? 0.20 : 1.0;
+      applyDamage?.(damage * (1 - d / radius) * selfScale);
     }
   }
 }
 
 const _explodeAt_ohLight = explodeAt;
-explodeAt = function(position, radius, damage, color){
+explodeAt = function(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly){
   const grenadeColors = new Set([0x9dff7c, 0xc9ff9d, 0xd8ffca]);
   if(grenadeColors.has(color)){
-    return ohLightGrenadeExplosion(position, radius, damage, color);
+    // Groene granaten lopen via de aparte light-explosion-functie; die
+    // heeft z'n eigen damagesEnemies- én damagesPlayer-flag. Default
+    // damagesEnemies=true; damagesPlayer=false (vijandelijke explosies),
+    // tenzij expliciet doorgegeven (= speler-eigen cluster-burst, dan
+    // willen we óók de speler raken voor friendly-fire consistentie).
+    return ohLightGrenadeExplosion(
+      position, radius, damage, color,
+      damagesEnemies !== false,
+      !!damagesPlayer,
+      !!friendly
+    );
   }
-  return _explodeAt_ohLight(position, radius, damage, color);
+  return _explodeAt_ohLight(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly);
 };
 
 state.ohEnemyGrenades = state.ohEnemyGrenades || [];
@@ -19884,7 +20159,7 @@ updateBullets = function(dt){
         const scale = Math.max(0.35, 1 - (playerDist / Math.max(radius, 0.001)));
         applyDamage(Math.round(damage * scale));
       }
-      ohLightGrenadeExplosion(pos, radius, damage, g.explosionColor || 0x9dff7c);
+      ohLightGrenadeExplosion(pos, radius, damage, g.explosionColor || 0x9dff7c, false);
       scene.remove(g.mesh);
       state.ohEnemyGrenades.splice(i, 1);
     }
@@ -20493,8 +20768,8 @@ setWeapon = function(w){
         label: "Shade Phantom",
         hpMul: 0.96,
         speedMul: 1.18,
-        tint: 0xff7fcf,
-        ringColor: 0xff7fcf,
+        tint: 0x4a7ab8,
+        ringColor: 0x4a7ab8,
         threat: "Dashes / mirror fire",
         intro: "SHADE PHANTOM BREACH",
         directive: "Blijf bewegen; de phantom straft stilstand met dash slashes."
@@ -20792,7 +21067,7 @@ setWeapon = function(w){
       setTimeout(() => scene.remove(marker), 900);
       setTimeout(() => {
         if(state.running && player.alive){
-          explodeAt(pos, 3.1, 14, color);
+          explodeAt(pos, 3.1, 14, color, true, false);
         }
       }, 850);
     }
@@ -20874,14 +21149,14 @@ setWeapon = function(w){
             state.enemyBullets.push(_createProjectile(from.clone(), d, {
               speed: 19,
               friendly:false,
-              color: 0xff7fcf,
+              color: 0x4a7ab8,
               size: 0.17,
               life: 2.8,
               damage: boss.phase >= 3 ? 16 : 12,
               type:"enemy"
             }));
           });
-          createFlash(from, 0xff7fcf, 2.2, 8, 0.10);
+          createFlash(from, 0x4a7ab8, 2.2, 8, 0.10);
         }
         if(s.cloakTime > 0.5 && boss.dashCooldown <= 0){
           boss.dashCooldown = boss.phase >= 3 ? 2.6 : 3.4;
@@ -20893,7 +21168,7 @@ setWeapon = function(w){
           if(!collidesAt(tx, tz, boss.radius)){
             boss.mesh.position.x = tx;
             boss.mesh.position.z = tz;
-            createShockwave(boss.mesh.position, 0xff7fcf, 4.2);
+            createShockwave(boss.mesh.position, 0x4a7ab8, 4.2);
             if(player.pos.distanceTo(boss.mesh.position) < 4.1) applyDamage(boss.phase >= 3 ? 15 : 10);
           }
         }
@@ -21579,7 +21854,7 @@ shootWithDirection = function(dirOverride = null){
 };
 
   const _explodeAt = explodeAt;
-  explodeAt = function(position, radius, damage, color){
+  explodeAt = function(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly){
     let sourceKind = "";
     for(const b of state.bullets){
       if(!b?.v2Friendly || !b?.mesh || !b.v2SourceWeapon) continue;
@@ -21589,7 +21864,7 @@ shootWithDirection = function(dirOverride = null){
       }
     }
 
-    const result = _explodeAt(position, radius, damage, color);
+    const result = _explodeAt(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly);
 
     if(sourceKind === "rocket"){
       spawnNapalmHazard(position.clone());
@@ -22430,9 +22705,14 @@ shootWithDirection = function(dirOverride = null){
     beacon.position.set(0, 2.86, 0);
     root.add(beacon);
 
-    // PointLight voor sfeer
-    const light = new THREE.PointLight(perk.glow, 1.2, 10, 2);
-    light.position.set(0, 2.4, 0);
+    // [WALL LIGHTING] Sterkere PointLight op beacon-niveau zelf — niet
+    // OMLAAG zoals voorheen, zodat het licht ook achter de machine op
+    // de muur valt. Intensity flink omhoog (1.2 → 3.4) en distance ruimer
+    // (10 → 14) zodat de wand achter de perk-station duidelijk wordt
+    // verlicht ipv alleen de machine zelf. Decay 1.4 ipv 2 voor mildere
+    // afval — voorheen viel het licht op 3m al naar ~13% terug.
+    const light = new THREE.PointLight(perk.glow, 3.4, 14, 1.4);
+    light.position.set(0, 2.86, 0);
     root.add(light);
 
     stationGroup.add(root);
@@ -24532,13 +24812,21 @@ shootWithDirection = function(dirOverride = null){
     }, 900);
   }
 
-  // Hook killEnemy om de kill-positie te capturen. Onderdeel van scoring —
-  // zonder dit weten we niet waar de float moet verschijnen.
+  // Hook killEnemy om de kill-positie te capturen + de headshot-vlag
+  // direct van de enemy te lezen. _deathHadHeadshot wordt gezet in het
+  // damage-pad zodra een dodelijke headshot landt, en blijft op de enemy
+  // tot kill-tijd — betrouwbaarder dan een timer-based flag.
   const _origKillEnemyBO2 = killEnemy;
   killEnemy = function(enemy){
     if(enemy?.mesh){
       killCtx.lastKillPos = enemy.mesh.position.clone();
       killCtx.lastKillPos.y += 1.8;   // op chest-hoogte voor floater
+    }
+    // Headshot-kill: lees direct van de enemy. Zo werkt het ook bij de
+    // 500ms-headshot-stagger waarbij killEnemy láter pas getriggered wordt
+    // dan de "CRIT" hit-feedback.
+    if(enemy?._deathHadHeadshot){
+      killCtx.nextHeadshot = true;
     }
     return _origKillEnemyBO2(enemy);
   };
@@ -24624,30 +24912,38 @@ shootWithDirection = function(dirOverride = null){
     const dpMult = state.doublePointsTimer > 0 ? 2 : 1;
     const hitFloatText = "+" + (BO2_POINTS.hit * dpMult);
 
+    // [BO2 SCORE FIX] Hit-points zijn alleen geldig als er een ECHTE bullet
+    // dit frame is geland — niet als hp daalt door DoT (PaP fire, napalm-
+    // pool, fire-hazard). hitNormalEnemy / hitBoss zetten _lastBulletHitAt
+    // op het moment van impact; we vereisen dat de timestamp recent is.
+    // 100ms venster dekt: dezelfde-frame pellet-burst + één rAF-tick lag,
+    // maar sluit DoT-paden (die elke frame draaien zonder de stempel te
+    // updaten) buiten.
+    const BULLET_HIT_VALID_WINDOW = 100;
+
     for(const e of state.enemies){
       if(!e || !e.mesh) continue;
       const prev = _hpHash.get(e);
-      if(prev !== undefined && e.hp < prev && e.hp > 0){
-        // HP daalde — er WAS damage. Check of het binnen het dedup-window
-        // ligt sinds de vorige hit-point voor deze zombie.
+      const recentBullet = (e._lastBulletHitAt || 0) >= (nowMs - BULLET_HIT_VALID_WINDOW);
+      if(recentBullet && prev !== undefined && e.hp < prev && e.hp > 0){
+        // HP daalde door een recente bullet-hit. Check dedup-window om
+        // shotgun-pellets in dezelfde shot-burst als één hit te tellen.
         const lastAt = _lastHitPointAt.get(e) || 0;
         if(nowMs - lastAt >= HIT_POINT_DEDUP_WINDOW){
-          // Nieuwe shot-event: telt mee
           hits++;
           _lastHitPointAt.set(e, nowMs);
           _scoreFloatProj.copy(e.mesh.position);
           _scoreFloatProj.y += 2.0;
           spawnScoreFloat(_scoreFloatProj, hitFloatText, "hit");
         }
-        // Binnen window: geen extra hit-point, geen extra floater.
-        // De hp-update gebeurt hieronder zodat de volgende vergelijking klopt.
       }
       _hpHash.set(e, e.hp);
     }
 
     if(state.boss){
       const prev = _hpHash.get(state.boss);
-      if(prev !== undefined && state.boss.hp < prev && state.boss.hp > 0){
+      const recentBossBullet = (state.boss._lastBulletHitAt || 0) >= (nowMs - BULLET_HIT_VALID_WINDOW);
+      if(recentBossBullet && prev !== undefined && state.boss.hp < prev && state.boss.hp > 0){
         const lastAt = _lastHitPointAt.get(state.boss) || 0;
         if(nowMs - lastAt >= HIT_POINT_DEDUP_WINDOW){
           hits++;
@@ -24681,22 +24977,9 @@ shootWithDirection = function(dirOverride = null){
     trackHitsForBO2Score();
   })();
 
-  // Headshot detectie: we patchen showFloating want die wordt
-  // exclusief op CRIT (head hit) aangeroepen. Als kort daarna een
-  // killEnemy plaatsvindt op een enemy waarvan we nét de HP zagen
-  // dalen, was het een headshot kill. Pragmatischer: we vlaggen op
-  // de huidige tick en clearen na 50ms.
-  if(typeof showFloating === "function"){
-    const _origShowFloating = showFloating;
-    showFloating = function(label){
-      if(label === "CRIT"){
-        killCtx.nextHeadshot = true;
-        // Auto-clear na 100ms voor het geval het geen kill was
-        setTimeout(() => { killCtx.nextHeadshot = false; }, 100);
-      }
-      return _origShowFloating.apply(this, arguments);
-    };
-  }
+  // [Headshot-detectie zit nu in de killEnemy-wrapper hierboven:
+  //  enemy._deathHadHeadshot wordt door het damage-pad gezet en is
+  //  betrouwbaarder dan een timer-based showFloating-hook.]
 
   console.log("[bo2pack] scoring system online — hit:10, kill:50, head:100, knife:130");
 
@@ -25719,15 +26002,102 @@ shootWithDirection = function(dirOverride = null){
     root.add(spot);
 
     // [FLASHLIGHT WALLBUY] Voor de zaklamp-wall-buy specifiek: voeg een
-    // klein extra warm licht toe ALSOF de prop al gedeeltelijk aanstaat.
-    // Verklaart visueel dat dit ding een lichtbron is (i.p.v. een random
-    // metalen object) en maakt 'm beter zichtbaar op de muur. Subtiel
-    // gehouden (lage intensiteit + korte range) zodat het niet de hele
-    // muur uitlicht.
+    // sterke PointLight toe die de muur EN de vloer EN dichtbije objecten
+    // verlicht. Plus additieve glow-meshes voor het zichtbare "schijnsel
+    // op de wand" effect dat zelfs werkt als de Three.js light-budget
+    // voor materials vol zou zitten.
     if(buy.weapon === "flashlight"){
-      const flashHint = new THREE.PointLight(0xfff0c8, 1.4, 4.5, 1.6);
-      flashHint.position.set(0, 0.25, 0.55);
-      root.add(flashHint);
+      // [FLASHLIGHT WALLBUY v5] Voorheen: PointLight + kleine circle/streak-
+      // planes. Probleem: de muur-material (color 0x2a241c, heel donker)
+      // absorbeert vrijwel alle PointLight-bijdrage — een light van 2.2
+      // produceert op een muur met 16% albedo maar ~0.35 helderheid =
+      // nauwelijks zichtbaar. Plus de circle-mesh was te klein om als
+      // "licht-veeg" te lezen.
+      //
+      // Oplossing: een grote radial-gradient texture (canvas-based) die
+      // het schijnsel van een lamp op de wand SIMULEERT. Onafhankelijk van
+      // Three.js light-budget en muur-color, dus altijd zichtbaar. Met
+      // additive blending wordt het opgeteld bij wat erachter rendert
+      // zonder de muur "wit te wassen".
+      //
+      // Eenmalig gemaakt (cached) want elke flashlight-wallbuy gebruikt
+      // 'm — al doen we er maar 1, zo is het toekomst-bestendig.
+      let glowTex = window.__flashWallGlowTex;
+      if(!glowTex){
+        const cv = document.createElement("canvas");
+        cv.width = 256; cv.height = 256;
+        const ctx = cv.getContext("2d");
+        // Radial-gradient: heldere kern → snelle fade → transparant aan rand
+        const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0.00, "rgba(255,245,200,1.0)");   // hot core
+        grad.addColorStop(0.15, "rgba(255,230,160,0.85)");  // helder
+        grad.addColorStop(0.35, "rgba(255,200,120,0.45)");  // mid-fade
+        grad.addColorStop(0.65, "rgba(220,160,80,0.18)");   // soft outer
+        grad.addColorStop(1.00, "rgba(0,0,0,0)");           // transparent
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        glowTex = new THREE.CanvasTexture(cv);
+        glowTex.minFilter = THREE.LinearFilter;
+        glowTex.magFilter = THREE.LinearFilter;
+        window.__flashWallGlowTex = glowTex;
+      }
+
+      // Grote glow-plane tegen de muur — 3m × 3m, additief geblend, eigen
+      // material per instance want we wijzigen `opacity` voor flicker-effect.
+      const glowMat = new THREE.MeshBasicMaterial({
+        map: glowTex,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        color: 0xffffff
+      });
+      const wallGlow = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.0, 3.0),
+        glowMat
+      );
+      // z=0.03: net VOOR het wallbuy-rack-plane (z=0) en muur (achter rack).
+      // y-offset 0 = horizontaal gecentreerd rond de lamp-positie.
+      wallGlow.position.set(0, 0, 0.03);
+      root.add(wallGlow);
+
+      // Echte PointLight blijft staan voor de vloer/objecten dichtbij,
+      // ook al doet hij weinig op de muur zelf — geeft wat warme tint
+      // op de speler als hij vlakbij staat en op de wallbuy-prop.
+      const beamLight = new THREE.PointLight(
+        0xfff0c0,
+        1.8,          // subtiele bijdrage voor objecten in de buurt
+        4.0,
+        1.5
+      );
+      beamLight.position.set(0, 0.10, 0.50);
+      root.add(beamLight);
+
+      // [HORROR FLICKER] Licht-gloed moduleert subtiel — een echte zaklamp
+      // bibbert nooit perfect stil. Glow-plane opacity volgt mee zodat
+      // visuele én lichts-effecten gesynced flikkeren.
+      buy._flashHorrorLight = beamLight;
+      buy._flashHorrorGlowMat = glowMat;
+      if(!window._flashHorrorTickInstalled){
+        window._flashHorrorTickInstalled = true;
+        function _flashHorrorTick(){
+          requestAnimationFrame(_flashHorrorTick);
+          const t = performance.now() * 0.001;
+          // Lage swing rond baseline, subtiele bibber
+          const baseI = 1.8 + Math.sin(t * 3.1) * 0.35 + Math.sin(t * 7.3) * 0.15;
+          // 2% kans per frame op een korte "knipper-dip"
+          const dip = (Math.random() < 0.02) ? 0.40 : 1.0;
+          const intensity = Math.max(0.4, baseI * dip);
+          // Glow-plane opacity volgt parallel (zelfde dip), maar in eigen range
+          const glowOp = Math.max(0.30, 0.75 * dip + Math.sin(t * 3.1) * 0.05);
+          for(const b of WALL_BUYS){
+            if(b._flashHorrorLight) b._flashHorrorLight.intensity = intensity;
+            if(b._flashHorrorGlowMat) b._flashHorrorGlowMat.opacity = glowOp;
+          }
+        }
+        requestAnimationFrame(_flashHorrorTick);
+      }
     }
 
     // Rotate to face direction (zelfde als voorheen)
@@ -26078,8 +26448,24 @@ shootWithDirection = function(dirOverride = null){
       tryBuyWallWeapon(nearestWallBuy);
       return;
     }
+    // [FLASHLIGHT TOGGLE FIX] Als de speler vlak bij een ANDERE F-actie staat
+    // (deur, perk-station, mystery box, PaP, power-switch, lift-altaar,
+    // window-repair, easter-egg), is F bestemd voor díe actie — niet om de
+    // zaklamp te togglen. We checken op zichtbare F-prompts in de DOM zodat
+    // we niet alle cross-IIFE near-globals hoeven te exposen.
+    const _PROMPT_IDS = [
+      "doorPrompt", "perkStationPrompt", "mysteryBoxPrompt", "papPrompt",
+      "powerSwitchPrompt", "liftPrompt", "windowRepairPrompt", "ohEasterEggPrompt"
+    ];
+    for(const pid of _PROMPT_IDS){
+      const el = document.getElementById(pid);
+      if(el && el.style.display !== "none" && el.style.display !== ""){
+        // Een andere actie eist F op — laat die handler 't werk doen, doe
+        // hier verder niks (geen toggle, geen preventDefault).
+        return;
+      }
+    }
     // Anders: F = zaklamp toggle (als de speler er een heeft gekocht).
-    // Geen overlap met wall-buy-context want dat is hierboven al afgevangen.
     if(state.hasFlashlight && state.running && player.alive){
       e.preventDefault();
       state.flashlightOn = !state.flashlightOn;
@@ -31811,7 +32197,11 @@ shootWithDirection = function(dirOverride = null){
     // hoort te zijn). Olympia 0.45 → 0.95 = 6.65× per shot totaal,
     // Remington 0.55 → 1.10 = 7.7× per shot. Past bij hun rol als
     // close-range one-tap of two-tap killers tot midden-late ronden.
-    olympia: 0.95,   // per pellet — schiet 8 pellets per shot via shotgun-pad
+    // [BALANCE v3] Shotguns nog wat sterker — gebruiker meldde dat ze niet
+    // genoeg "punch" hadden. Olympia 0.95 → 1.35 = 9.45× per shot (8 pellets).
+    // Remington 1.10 → 1.55 = 10.85× per shot (7 pellets). Op close-range
+    // is dit echte one-shot territorium tot ronde 12+.
+    olympia: 1.35,   // per pellet — schiet 8 pellets per shot via shotgun-pad
     mp5:    0.70,
     ak74u:  0.95,
     galil:  1.15,
@@ -31820,7 +32210,7 @@ shootWithDirection = function(dirOverride = null){
     b23r:   1.10,    // per round (× 3 rounds per burst-click = 3.3× effectief)
     pdw57:  0.65,    // SMG: lichter dan MP5 want hogere RPM
     mtar:   0.85,    // AR: tussen ak74u en galil
-    remington: 1.10, // per pellet × 7 = ~7.7× close-range
+    remington: 1.55, // per pellet × 7 = ~10.85× close-range
     smr:    1.85,    // battle rifle: hoge per-shot damage, lager dan M14
     dsr50:  6.50,    // heavy sniper: 1-shot kills tot ronde 14+
     mustang: 0.95,   // elk pistool iets onder M1911 want akimbo
@@ -31846,24 +32236,32 @@ shootWithDirection = function(dirOverride = null){
   //   Galil (AR, controlled bursts):         1.7×
   //   Mustang (akimbo, no aim):              2.4×
   // [v95] Hipfire-spread vergroot zodat het verschil met ADS dramatischer
-  // is. Ongeveer +50% van vorige waarden. ADS_CONFIG.spreadMul blijft
-  // ongewijzigd, dus scope/iron-sight accuracy is hetzelfde als voorheen.
+  // is. ADS_CONFIG.spreadMul blijft ongewijzigd, dus scope/iron-sight
+  // accuracy is hetzelfde als voorheen.
+  //
+  // [SPREAD FORMULA] De spread-formule was eerder (mul-1)*0.018, wat voor
+  // ADS-waardes <1 een negatief getal opleverde dat als magnitude alsnog
+  // spread toevoegde — ADS deed dus nauwelijks z'n werk. Nu: extraSpread
+  // = mul * 0.018 (direct). Waardes hieronder zijn daarom herijkt: oude
+  // hipfire mul=2.25 met (mul-1)-formule gaf 0.0225 rad; nu nemen we
+  // mul=1.25 wat met de nieuwe formule óók 0.0225 rad geeft. Gameplay-
+  // spread blijft gelijk voor hipfire; ADS wordt nu wél strak.
   const WEAPON_SPREAD_MUL = {
-    m1911:  2.70,    // was 1.80
-    m14:    2.25,    // was 1.50
-    kar98:  4.20,    // was 2.80
-    mp5:    3.30,    // was 2.20
-    ak74u:  3.60,    // was 2.40
-    galil:  2.55,    // was 1.70
-    mustang: 3.60,   // was 2.40
+    m1911:  1.70,
+    m14:    1.25,
+    kar98:  3.20,
+    mp5:    2.30,
+    ak74u:  2.60,
+    galil:  1.55,
+    mustang: 2.60,
     olympia: 0.0,    // shotgun gebruikt z'n eigen pellet-spread
     // [BO2] Nieuwe wapens
-    b23r:   2.40,    // was 1.60
-    pdw57:  3.45,    // was 2.30
-    mtar:   2.85,    // was 1.90
+    b23r:   1.40,
+    pdw57:  2.45,
+    mtar:   1.85,
     remington: 0.0,  // pump shotgun gebruikt pellet-fan
-    smr:    2.10,    // was 1.40
-    dsr50:  4.50,    // was 3.00
+    smr:    1.10,
+    dsr50:  3.50,
   };
 
   try {
@@ -32000,20 +32398,23 @@ shootWithDirection = function(dirOverride = null){
         } catch(_){}
 
         // [WEAPON SPREAD] Spread-multiplier toepassen op de net-gespawnde
-        // bullets. Basis-engine genereert spread van ~0.018 rad — we
-        // schalen dat per wapen. M14/M1911 = lagere spread (accuraat), 
-        // SMGs = grotere spread (hipfire). Spread = perturbing b.vel
-        // direction met een random side+up offset, proportioneel.
-        // Belangrijk: deze nudge is *additief* ovenop de bestaande spread —
-        // niet vervangend. Dus M14 (mul=0.65) krijgt iets minder spread,
-        // AK74u (mul=1.60) krijgt extra spread.
+        // bullets. Bullets worden in shootWithDirection geschoten in een
+        // perfect-aim direction (geen base-spread in de engine); deze loop
+        // is de ENIGE bron van spread. Formule:
+        //   extraSpread = spreadMul * 0.018 rad
+        //   bullet-velocity krijgt random side+up perturbatie binnen ±extraSpread
+        // Daarmee:
+        //   mul=0    → 0 spread (perfecte accuracy)
+        //   mul=1    → ±0.018 rad (≈1° random kegel)  — "default"
+        //   mul=2    → ±0.036 rad (slordige hipfire)
+        // Dit fixt de eerdere formule die voor mul<1 (ADS) een negatief
+        // getal opleverde dat als magnitude alsnog spread toevoegde — ADS
+        // verbeterde toen nauwelijks de accuracy. Met de huidige formule
+        // wordt ADS écht strakker: sniper ADS (mul=0.05) → ±0.0009 rad
+        // (vrijwel perfect), AR ADS (mul=0.35) → ±0.0063 rad.
         const spreadMul = WEAPON_SPREAD_MUL[slot.weapon];
-        if(typeof spreadMul === "number" && spreadMul !== 1.0 && state.bullets.length > bulletsBefore){
-          // Spread-mul wordt vertaald naar een extra "kick" magnitude.
-          // mul=0.65 → extraKick=-0.35×base, mul=1.60 → +0.60×base
-          // Base = 0.018 rad (≈ 1 graad), kick wordt op vel toegevoegd
-          // proportioneel aan |vel|.
-          const extraSpread = (spreadMul - 1.0) * 0.018;
+        if(typeof spreadMul === "number" && spreadMul > 0 && state.bullets.length > bulletsBefore){
+          const extraSpread = spreadMul * 0.018;
           for(let i = bulletsBefore; i < state.bullets.length; i++){
             const b = state.bullets[i];
             if(!b?.vel) continue;
@@ -32049,6 +32450,10 @@ shootWithDirection = function(dirOverride = null){
         // [SHOTGUN] Olympia + Remington 870: spawn extra pellets in een cone.
         // Olympia = double-barrel (wijdere spread), Remington = pump (tighter).
         // Bij PaP: nog strakkere spread + 2 extra pellets bovenop de 6.
+        // [SPREAD BIAS] Het cone-center zit niet exact op crosshair maar
+        // licht naar rechts (richting waarin de speler het wapen vasthoudt).
+        // Geeft realistische "hold-bias" zoals in CoD waar je shotgun-patroon
+        // net naast het richtkruis valt richting de schouder.
         const _isShotgun = slot.weapon === "olympia" || slot.weapon === "remington";
         if(_isShotgun && state.bullets.length > bulletsBefore){
           const main = state.bullets[bulletsBefore];
@@ -32061,10 +32466,16 @@ shootWithDirection = function(dirOverride = null){
             const _PELLET_COUNT = _isPap ? 8 : 6;
             const baseSpeed = main.vel.length();
             const startPos = main.mesh.position;
-            const baseDir = main.vel.clone().normalize();
-            const upTmp = Math.abs(baseDir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-            const sideTmp = new THREE.Vector3().crossVectors(baseDir, upTmp).normalize();
-            const upRel = new THREE.Vector3().crossVectors(sideTmp, baseDir).normalize();
+            const _origDir = main.vel.clone().normalize();
+            const upTmp = Math.abs(_origDir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+            const sideTmp = new THREE.Vector3().crossVectors(_origDir, upTmp).normalize();
+            const upRel = new THREE.Vector3().crossVectors(sideTmp, _origDir).normalize();
+            // [SPREAD BIAS] Cone-center verschuiven naar rechts (sideTmp).
+            // 0.04 = ongeveer een halve cone-radius — duidelijk merkbaar maar
+            // niet zo extreem dat het crosshair "fout" voelt.
+            const baseDir = _origDir.clone()
+              .addScaledVector(sideTmp, 0.04)
+              .normalize();
             for(let p = 0; p < _PELLET_COUNT; p++){
               const ang = (p / _PELLET_COUNT) * Math.PI * 2 + Math.random() * 0.35;
               const r = (0.4 + Math.random() * 0.6) * _SPREAD;
@@ -32932,9 +33343,15 @@ shootWithDirection = function(dirOverride = null){
       if(now >= g.explodeAt){
         // Explosie: gebruik de bestaande explodeAt-functie van het spel
         // (heeft sinds v82 z'n eigen sfxExplosion-call ingebouwd).
+        // [FRIENDLY-FIRE] Expliciet damagesPlayer=true zodat de speler
+        // schade krijgt als hij te dicht bij z'n eigen granaat staat —
+        // realistisch CoD-gedrag. Cooked grenades uit bo2ThrowGrenade
+        // gaan via deze activeGrenades-tick (niet via explodeProjectile),
+        // dus de flag moet hier apart worden meegegeven. `friendly=true`
+        // zorgt voor ×0.20 self-damage scaling.
         try {
           if(typeof explodeAt === "function"){
-            explodeAt(g.pos.clone(), 7.0, 110, 0xff8838);
+            explodeAt(g.pos.clone(), 7.0, 110, 0xff8838, true, true, true);
           }
         } catch(_){}
         // Verwijder mesh
@@ -34843,7 +35260,7 @@ shootWithDirection = function(dirOverride = null){
   // De bestaande bullet-hit code in hitEnemy() doet al dismemberment,
   // maar explodeAt() doet alleen damage. We voegen limb-blow-off toe
   // aan elke enemy die binnen 1.5x de explosie-radius zit.
-  function dismemberRandomLimb(enemy, intensity = 1){
+  function dismemberRandomLimb(enemy, intensity = 1, preferLegs = false){
     const limbs = enemy?.mesh?.userData?.limbs;
     const limbState = enemy?.mesh?.userData?.limbState;
     if(!limbs || !limbState) return false;
@@ -34856,7 +35273,23 @@ shootWithDirection = function(dirOverride = null){
     if(limbState.head && intensity > 0.6) candidates.push("head");
     if(candidates.length === 0) return false;
 
-    const pick = candidates[(Math.random() * candidates.length) | 0];
+    // Bij vloer-explosies (granaten, raketten/raygun-shots die de grond
+    // raken) is de schokgolf laag — benen vangen die het zwaarst op. We
+    // biasen de kans richting beide benen door ze in de candidate-pool
+    // te dupliceren, zodat een directe vloer-explosie veel vaker een
+    // crawler oplevert dan een lucht-/borst-impact.
+    let pick;
+    if(preferLegs){
+      const legCands = candidates.filter(c => c === "legL" || c === "legR");
+      // 80% kans benen, 20% kans een andere limb — als er nog benen zijn.
+      if(legCands.length && Math.random() < 0.80){
+        pick = legCands[(Math.random() * legCands.length) | 0];
+      } else {
+        pick = candidates[(Math.random() * candidates.length) | 0];
+      }
+    } else {
+      pick = candidates[(Math.random() * candidates.length) | 0];
+    }
     limbState[pick] = false;
     if(limbs[pick]) limbs[pick].visible = false;
 
@@ -34905,6 +35338,12 @@ shootWithDirection = function(dirOverride = null){
 
   function explosionDismember(position, radius){
     if(!window.state?.enemies) return;
+    // Een "vloer-explosie" is er één waarvan het centrum laag bij de
+    // grond ligt — typisch granaten die uitrollen, of raketten/raygun-
+    // schoten die de vloer raken in plaats van een zombie in de borst.
+    // Y < 0.8 vangt deze gevallen ruim: een granaat op de grond zit
+    // rond y≈0.1-0.3; een raket die een zombie midriff raakt zit op ≈1.7.
+    const floorBlast = position.y < 0.8;
     for(const e of state.enemies){
       if(!e?.mesh) continue;
       const dx = e.mesh.position.x - position.x;
@@ -34912,12 +35351,15 @@ shootWithDirection = function(dirOverride = null){
       const dy = (e.mesh.position.y + 1.0) - position.y;
       const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
       if(d > radius * 1.4) continue;
-      // Dichterbij = meer kans op dismemberment + meerdere limbs
+      // Dichterbij = meer kans op dismemberment + meerdere limbs.
+      // Vloer-explosies krijgen één extra "kans-roll" om beide benen
+      // af te scheuren → klassieke crawler-outcome.
       const closeness = 1 - (d / (radius * 1.4));
-      const limbCount = closeness > 0.7 ? 2 : 1;
+      let limbCount = closeness > 0.7 ? 2 : 1;
+      if(floorBlast && closeness > 0.3) limbCount++;
       for(let i = 0; i < limbCount; i++){
         if(Math.random() < 0.4 + closeness * 0.55){
-          dismemberRandomLimb(e, closeness);
+          dismemberRandomLimb(e, closeness, floorBlast);
         }
       }
     }
@@ -34927,9 +35369,12 @@ shootWithDirection = function(dirOverride = null){
   if(typeof explodeAt === "function"){
     const _origExplode = explodeAt;
     // eslint-disable-next-line no-global-assign
-    explodeAt = function(position, radius, damage, color){
-      _origExplode.call(this, position, radius, damage, color);
-      explosionDismember(position, radius);
+    explodeAt = function(position, radius, damage, color, damagesPlayer, damagesEnemies, friendly){
+      _origExplode.call(this, position, radius, damage, color, damagesPlayer, damagesEnemies, friendly);
+      // Limbs alleen losrukken bij explosies die zombies echt raken; bij
+      // vijandelijke explosies (boss-mortar e.d.) tellen geen ledemaat-
+      // verliezen aan andere zombies.
+      if(damagesEnemies !== false) explosionDismember(position, radius);
     };
     try { window.explodeAt = explodeAt; } catch(_){}
   }
@@ -35230,7 +35675,7 @@ shootWithDirection = function(dirOverride = null){
             if(typeof window.createShockwave === "function"){
               try {
                 createShockwave(e.mesh.position,
-                  e.type === "tank" ? 0xff4040 : 0xff6ea1,
+                  e.type === "tank" ? 0xff4040 : 0x4a7ab8,
                   e.type === "tank" ? 1.6 : 1.2);
               } catch(_){}
             }
@@ -35250,23 +35695,31 @@ shootWithDirection = function(dirOverride = null){
           swingPhase = Math.sin((1 - t) * Math.PI) * 0.9;
         }
 
-        // CRAWLING POSE: zombie ligt op de buik, armen graaien vooruit
-        // afwisselend (klassieke kruip-zombie). Benen hoeven niet animated
-        // (die zijn weg) — fallback rotation als ze er nog zijn.
+        // CRAWLING POSE: zombie ligt plat op de buik. De BODY is via
+        // body.rotation.x +π/2 gekanteld (zie pose-blok eerder). Daardoor
+        // wijst wat ooit body-lokale +Y was, nu naar wereld-vooruit. Een
+        // arm hangt default langs lokale -Y van zijn arm-pivot; om hem in
+        // wereld vooruit te laten reiken na de body-pitch, moeten we arm
+        // 180° draaien om zijn X-as: rotation.x = π. Wisselende graai-
+        // amplitude eromheen geeft het klassieke CoD-Zombies-graai-effect
+        // waarbij één arm vooruit reikt terwijl de andere zich afzet.
         if(crawling){
           const crawlT = now * 2.4 + e.__shamblePhase;
-          const armA = Math.sin(crawlT) * 0.5;
-          const armB = Math.sin(crawlT + Math.PI) * 0.5;
+          const armA = Math.sin(crawlT);
+          const armB = Math.sin(crawlT + Math.PI);
           if(hasArmL && parts.armL?.rotation){
-            parts.armL.rotation.x = -1.5 + armA;       // Armen voor zich uit graaien
-            parts.armL.rotation.z = 0.25;
+            // π = arm vooruit in wereld; ±0.45 swing geeft op-en-neer graai
+            parts.armL.rotation.x = Math.PI + armA * 0.45;
+            parts.armL.rotation.z = 0.20;
           }
           if(hasArmR && parts.armR?.rotation){
-            parts.armR.rotation.x = -1.5 + armB;
-            parts.armR.rotation.z = -0.25;
+            parts.armR.rotation.x = Math.PI + armB * 0.45;
+            parts.armR.rotation.z = -0.20;
           }
-          if(hasArmL && parts.foreArmL?.rotation) parts.foreArmL.rotation.x = -0.3;
-          if(hasArmR && parts.foreArmR?.rotation) parts.foreArmR.rotation.x = -0.3;
+          // Onderarmen: lichte buiging om "graaien" te suggereren. Méér
+          // buiging als de arm "trekt" (max(0, armX)) dan als hij strekt.
+          if(hasArmL && parts.foreArmL?.rotation) parts.foreArmL.rotation.x = -0.30 - Math.max(0, armA) * 0.35;
+          if(hasArmR && parts.foreArmR?.rotation) parts.foreArmR.rotation.x = -0.30 - Math.max(0, armB) * 0.35;
           continue;
         }
 
@@ -35945,7 +36398,12 @@ shootWithDirection = function(dirOverride = null){
     // van afstand) maar duidelijk een cymbal-monkey ipv bruine bol.
     const root = new THREE.Group();
     root.position.copy(originPos);
-    root.position.y = Math.max(originPos.y, 1.2);
+    // [MONKEY DOWN FIX] Was: hardcoded Math.max(originPos.y, 1.2) → bij
+    // omlaag-richten werd de spawn altijd omhooggetrokken. Nu een veel
+    // lagere clamp (net boven de monkey-rest-Y van 0.45) zodat hij wel
+    // in een gericht-omlaag-arc kan vertrekken, maar nog steeds niet
+    // direct in de vloer spawnt.
+    root.position.y = Math.max(originPos.y, 0.5);
 
     // Lichaam
     const torso = new THREE.Mesh(new THREE.SphereGeometry(0.20, 14, 10), _MONKEY_MAT);
@@ -36159,16 +36617,23 @@ shootWithDirection = function(dirOverride = null){
     playCymbalClap();
 
     // ---- Toss-fysica: arc met gravity ----
-    // tossSpeed=18 horizontaal (~13-15m bereik, was originele waarde) +
-    // vy=13 verticaal voor een hogere boog. Speler gooit vanaf y=1.7
-    // (camera-hoogte). Met vy=13 en g=22 piekt de monkey op
-    //   y_peak = 1.7 + 13²/(2·22) = 1.7 + 3.84 = 5.54u
-    // Balkon-vloer ligt op y=4 + railing top ~5.0, dus de monkey komt
-    // duidelijk OVER de railing. Voorheen vy=7 piekte op slechts 2.81u —
-    // bleef onder balkon-niveau.
-    const tossSpeed = 18;
-    const vel = new THREE.Vector3(dirVec.x, 0.5, dirVec.z).normalize().multiplyScalar(tossSpeed);
-    vel.y = 13.0;
+    // [MONKEY DOWN FIX] Was: vel = (dirVec.x, 0.5, dirVec.z).normalize() *
+    // tossSpeed, dan vel.y = 13. Dat negeerde dirVec.y volledig — de
+    // monkey ging ALTIJD met een vaste vy=13 omhoog, ook bij omlaag
+    // richten. Nu volledig zoals de frag-grenade: vel = dirVec * speed
+    // + lichte upBoost. Speler die omlaag mikt krijgt nu daadwerkelijk
+    // een omlaag-gooi.
+    //
+    // tossSpeed = 22 (was 18 horizontaal), upBoost = 5.5 (was hardcoded
+    // 13 absolute → veel te veel; nu een additieve "lob" zoals frag).
+    // Met camera-Y=1.7, dir omhoog gemikt (~30°), nieuwe vy ≈ dir.y*22 +
+    // 5.5 ≈ 11+5.5 = 16.5 — vergelijkbaar met de vorige peak-hoogte.
+    // Met dir omlaag gemikt (~-30°), vy ≈ -11+5.5 = -5.5 — flink omlaag
+    // initial, perfect voor van een balkon naar beneden gooien.
+    const tossSpeed = 22;
+    const upBoost = 5.5;
+    const vel = dirVec.clone().normalize().multiplyScalar(tossSpeed);
+    vel.y += upBoost;
     const monkey = {
       root,
       pos: root.position,
@@ -36681,6 +37146,17 @@ shootWithDirection = function(dirOverride = null){
               }
             }
           }
+        }
+      }
+
+      // [SNIPER SPEED] Bolt-action snipers (Kar98, DSR-50) krijgen 1.5×
+      // bullet-velocity zodat hun tracers daadwerkelijk "rifle"-snel voelen.
+      // We schalen de vel-vector NA de damage-overrides zodat zowel hoofd-
+      // als side-shots de boost krijgen.
+      if(weaponId === "kar98" || weaponId === "dsr50"){
+        const SNIPER_SPEED_MUL = 1.5;
+        for(const b of newBullets){
+          if(b?.vel) b.vel.multiplyScalar(SNIPER_SPEED_MUL);
         }
       }
 
@@ -38044,10 +38520,25 @@ shootWithDirection = function(dirOverride = null){
     return c;
   }
 
+  // Boven deze drempel schakelen we tally-marks (streepjes) uit en tonen
+  // we het wave-nummer als groot rood getal in dezelfde bloederige stijl.
+  // Tot en met 10 passen de strepen nog mooi in de hoek (2 groepen van 5);
+  // daarboven wordt het visueel rommelig.
+  const TALLY_TO_NUMBER_THRESHOLD = 10;
+
   function renderTallyMarks(waveNum){
     const c = ensureTallyContainer();
     c.innerHTML = "";
     if(!Number.isFinite(waveNum) || waveNum < 1) return;
+
+    // Hoge waves → toon getal i.p.v. streepjes (CoD-Zombies-stijl).
+    if(waveNum > TALLY_TO_NUMBER_THRESHOLD){
+      const num = document.createElement("div");
+      num.className = "tally-bignum";
+      num.textContent = String(waveNum);
+      c.appendChild(num);
+      return;
+    }
 
     // Groepen van 5: 4 verticale streepjes + 1 diagonaal door
     const groups = Math.floor(waveNum / 5);
@@ -39873,7 +40364,13 @@ shootWithDirection = function(dirOverride = null){
                   damage: (b.damage || 2400) * 0.55,
                   radius: 3.5,
                   explosionColor: 0x40ff10,
-                  type: "rocket"
+                  // [RAYGUN SAFETY] Type "plasma" zodat de sub-projectielen
+                  // door explodePlasmaAt gaan — die heeft GEEN player-damage,
+                  // consistent met de basis-raygun. Hiervoor stond hier
+                  // "rocket" wat door explodeProjectile naar explodeAt
+                  // routet en sinds de friendly-fire-fix de speler óók raakt.
+                  // Voor de raygun (en al z'n varianten) blijft de speler veilig.
+                  type: "plasma"
                 }
               );
               if(split){
@@ -43108,6 +43605,10 @@ shootWithDirection = function(dirOverride = null){
     ads.active = active;
     // [ADS GENERIC] Per-wapen FOV-target, scope-flag, en speed-penalty
     const cfg = _adsConfigFor(_activeWeaponId());
+    // Cache de actieve cfg zodat de updateMovement-wrapper hem kan lezen
+    // (movement-speed wordt elke frame daar berekend, niet hier — een
+    // directe player.speed-set hier wordt overschreven).
+    ads._activeCfg = active ? cfg : null;
     const wantScope = active && cfg?.scope;
     ads.targetFov = active && cfg ? cfg.fov : ads.baseFov;
     scopeEl.classList.toggle("show", !!wantScope);
@@ -43123,18 +43624,10 @@ shootWithDirection = function(dirOverride = null){
     if(window.weaponRig){
       window.weaponRig.visible = !wantScope;
     }
-    // Speed-modifier tijdens ADS — per wapen-class
-    try {
-      if(window.player){
-        if(active && cfg){
-          if(ads.baseSpeed == null) ads.baseSpeed = window.player.speed || 10.2;
-          window.player.speed = ads.baseSpeed * cfg.speedMul;
-        } else if(ads.baseSpeed != null){
-          window.player.speed = ads.baseSpeed;
-          ads.baseSpeed = null;
-        }
-      }
-    } catch(_){}
+    // Speed-modifier tijdens ADS is verplaatst naar de updateMovement-
+    // wrapper (zoek "ADS speed-modifier"). Daar werkt hij correct samen
+    // met de per-frame base-speed-reset; een directe player.speed-set
+    // hier werd elke frame overschreven.
   }
 
   // ---- Right-mouse handler: voor elk wapen met ADS-config ----
@@ -44684,13 +45177,38 @@ shootWithDirection = function(dirOverride = null){
     // Nu: één baseline-tijd vooraf vastgelegd; loop N start op baseline + N*loopDur.
     let loopsScheduled = 0;
     let cancelled = false;
-    const _baselineT = ctx.currentTime + 0.5;   // 0.5s initial buildup
+    let _baselineT = ctx.currentTime + 0.5;   // 0.5s initial buildup
     const _loopDur = LOOP_STEPS * STEP;          // ~21.76s per 8-bar loop
 
     function _scheduleNextLoop(){
       if(cancelled) return;
       if(loopsScheduled >= TOTAL_LOOPS) return;
-      const loopStart = _baselineT + loopsScheduled * _loopDur;
+      let loopStart = _baselineT + loopsScheduled * _loopDur;
+      // [LOCKUP FIX] Browsers throttlen setTimeout naar 1Hz in achtergrond-
+      // tabs. Komt mijn loop-deadline daardoor in het VERLEDEN, dan zou
+      // _scheduleLoop al z'n 128+ noten met `when < ctx.currentTime`
+      // schedulen — Web Audio speelt die instant af, een burst van honderden
+      // oscillators die het mixer-graph laat haperen of vastlopen. Detecteer
+      // dat en RESYNC de baseline naar nu, zodat er geen past-time notes
+      // gespawned worden. We verliezen wel de "missed loops" maar het
+      // alternatief is een audio-glitch die het hele spel vastzet.
+      if(loopStart < ctx.currentTime + 0.1){
+        // Hoeveel loops missen we?
+        const missedLoops = Math.ceil((ctx.currentTime + 0.1 - loopStart) / _loopDur);
+        try { console.warn("[ee-song] tab-throttle detected, skipping", missedLoops, "loop(s) to resync"); } catch(_){}
+        loopsScheduled += missedLoops;
+        if(loopsScheduled >= TOTAL_LOOPS){
+          // Voorbij het einde — gewoon stoppen, geen verdere loops
+          return;
+        }
+        loopStart = _baselineT + loopsScheduled * _loopDur;
+        // Mocht resync nog steeds niet voldoende vooruit zijn (extreme
+        // throttle), shift _baselineT zodat we vanaf NU verder gaan.
+        if(loopStart < ctx.currentTime + 0.1){
+          _baselineT = ctx.currentTime + 0.1 - loopsScheduled * _loopDur;
+          loopStart = _baselineT + loopsScheduled * _loopDur;
+        }
+      }
       try {
         _scheduleLoop(loopStart);
         loopsScheduled++;
@@ -44700,7 +45218,6 @@ shootWithDirection = function(dirOverride = null){
         return;
       }
       // Plan volgende loop ~1s vóór deze eindigt zodat we naadloos overgaan.
-      // Volgende setTimeout vuurt over: (volgende loop start - now) - 1.0s
       if(loopsScheduled < TOTAL_LOOPS){
         const nextStartAt = _baselineT + loopsScheduled * _loopDur;
         const msUntilSchedule = Math.max(50, (nextStartAt - ctx.currentTime - 1.0) * 1000);
@@ -44924,25 +45441,23 @@ shootWithDirection = function(dirOverride = null){
     bracket.position.set(0, 1.0, -0.10);   // [v4] speler-kant na yaw-flip
     root.add(bracket);
 
-    // Initial lever-rotation = OFF (naar beneden in het vlak van het paneel)
-    // [POWER SWITCH FIX v2] Vroeger draaide de lever rond de X-as (forward-
-    // backward tilt). Met de root.rotation.y = π combinatie en de pivot
-    // positie net achter het paneel-vlak betekende dat de lever in de
-    // ON-stand DOOR het houten paneel naar achteren stak — duidelijk
-    // verkeerd voor een wand-schakelaar.
+    // Initial lever-rotation = OFF (omlaag, lever wijst naar de balkonvloer)
+    // [POWER SWITCH FIX v5] Was rotation.z (zwaai langs paneel-oppervlak) →
+    // gebruiker wilde dwars-op-paneel zwaai zoals een echte breaker-hefboom.
+    // Nu via rotation.x zodat de tip-arc niet langs het paneel maar
+    // VOORWAARTS (naar speler) gaat — halverwege de animatie steekt de
+    // lever recht naar de speler uit, precies wat een wand-schakelaar doet.
     //
-    // Nieuwe aanpak: zwaai in het VLAK van het paneel via rotation.z.
-    // De lever blijft daardoor altijd voor het paneel, zoals een echte
-    // circuit-breaker hefboom.
-    // [POWER SWITCH FIX v3] OFF/ON rotation values omgewisseld. De root
-    // heeft rotation.y = π en dat spiegelt de zichtbare zwaai-richting
-    // van child-rotaties rond Z. Klassieke breaker-conventie: lever
-    // omlaag = OFF, lever omhoog = ON. Met de spiegeling levert dat de
-    // rotation values rot.z = 0 (omlaag in wereld) voor OFF en rot.z = π
-    // (omhoog in wereld) voor ON.
-    const LEVER_OFF_ROT = 0;
-    const LEVER_ON_ROT = Math.PI;
-    pivot.rotation.z = LEVER_OFF_ROT;
+    // Eindstanden:
+    //   OFF: rotation.x = -π → lever-Y-as roteert naar -Y (omlaag in wereld)
+    //   ON:  rotation.x =  0 → lever blijft op +Y (omhoog in wereld)
+    // Lerp tussen deze twee gaat via rotation.x = -π/2, wat de lever in
+    // lokaal -Z zet → na de root-yaw (π) komt dat op wereld +Z = direct
+    // naar de speler toe. Het 180°-pad gaat dus niet door de muur achter
+    // het paneel maar door de open ruimte vóór het paneel.
+    const LEVER_OFF_ROT = -Math.PI;
+    const LEVER_ON_ROT  = 0;
+    pivot.rotation.x = LEVER_OFF_ROT;
 
     // Indicator-LED (rood OFF / groen ON)
     const lampOffMat = new THREE.MeshBasicMaterial({ color: 0x3a0808 });
@@ -45042,6 +45557,19 @@ shootWithDirection = function(dirOverride = null){
     }
 
     // ---- Toggle ----
+    // [ELECTRIC ZAP] Bij power-on een korte felle flits op het paneel
+    // — geeft het gevoel van een oude breaker die kortsluit en stroom
+    // doorzet. Visueel via een timer die in de tick wordt afgelezen.
+    let zapAt = -9999;
+    const ZAP_MS = 280;
+    // Eenmalige witte PointLight voor de flash-piek (lazy, zit op het paneel)
+    let zapLight = null;
+    function _ensureZapLight(){
+      if(zapLight) return;
+      zapLight = new THREE.PointLight(0xfff8e0, 0, 8, 1.4);
+      zapLight.position.set(0, 1.0, 0.3);   // direct vóór het paneel
+      root.add(zapLight);
+    }
     function toggleSwitch(){
       switchOn = !switchOn;
       lerpAt = performance.now();
@@ -45050,7 +45578,11 @@ shootWithDirection = function(dirOverride = null){
       psStatus.textContent = switchOn ? "— aan —" : "— uit —";
       psStatus.style.color = switchOn ? "#9dff7c" : "#ff6a6a";
       _sfxClunk();
-      if(switchOn) _sfxElectricBoost();
+      if(switchOn){
+        _sfxElectricBoost();
+        zapAt = performance.now();    // start electric-flash
+        _ensureZapLight();
+      }
       window.OHArmoryAPI?.flash?.(switchOn ? "POWER ON" : "POWER OFF", 900);
     }
     try { window.OHPowerSwitch = { toggle: toggleSwitch, isOn: () => switchOn }; } catch(_){}
@@ -45064,7 +45596,7 @@ shootWithDirection = function(dirOverride = null){
       const eased = t * t * (3 - 2 * t);
       const targetRot = switchOn ? LEVER_ON_ROT : LEVER_OFF_ROT;
       const startRot = switchOn ? LEVER_OFF_ROT : LEVER_ON_ROT;
-      pivot.rotation.z = startRot + (targetRot - startRot) * eased;
+      pivot.rotation.x = startRot + (targetRot - startRot) * eased;
 
       const targetHemi = switchOn ? HEMI_BOOST : HEMI_BASE;
       const startHemi = switchOn ? HEMI_BASE : HEMI_BOOST;
@@ -45078,6 +45610,34 @@ shootWithDirection = function(dirOverride = null){
       const targetGlow = switchOn ? ARENA_GLOW_ON : 0;
       const startGlow = switchOn ? 0 : ARENA_GLOW_ON;
       arenaGlow.intensity = startGlow + (targetGlow - startGlow) * eased;
+
+      // [ELECTRIC ZAP] Bij power-on knipperen we ~280ms een extra fellere
+      // emissive op het label, een witte point-light bij het paneel, en
+      // jitter op de arena-glow. Geeft het "ouderwetse breaker"-gevoel
+      // dat de gebruiker vroeg: korte stroom-piek bij het inschakelen.
+      // Gebruik 3-pulse decay (felle korte spikes binnen de 280ms) zodat
+      // het er meer als haperende stroom uitziet dan als één gladde puls.
+      const nowMs = performance.now();
+      const zapElapsed = nowMs - zapAt;
+      if(zapElapsed >= 0 && zapElapsed < ZAP_MS){
+        const k = 1 - (zapElapsed / ZAP_MS);          // 1 → 0 over de duur
+        // Hoogfrequente flicker (3 pulsen ~10Hz) bovenop de decay
+        const flicker = 0.5 + 0.5 * Math.sin(zapElapsed * 0.075);
+        const spike = k * (0.6 + 0.4 * flicker);      // 0..1 met flicker
+        // Label gloeit fel oranje-wit door de spike
+        labelMat.emissiveIntensity = 0.85 + spike * 4.0;
+        // Witte flash-light op het paneel
+        if(zapLight) zapLight.intensity = spike * 8.5;
+        // Arena-glow krijgt ook een korte spike — niet permanent, dus we
+        // stapelen 'm bovenop de bestaande lerp-output.
+        arenaGlow.intensity = arenaGlow.intensity + spike * 5.0;
+      } else if(zapElapsed >= ZAP_MS && zapElapsed < ZAP_MS + 50){
+        // Vlak na het einde: forceer label terug naar normale on-stand
+        // (zou via lerp ook gebeuren, maar dit pakt edge-case waar lerp
+        // al klaar was bij de zap-start).
+        labelMat.emissiveIntensity = switchOn ? 0.85 : 0.35;
+        if(zapLight) zapLight.intensity = 0;
+      }
 
       // Proximity-check (matched aan nieuwe panel-positie z=-22.1).
       // [BUGFIX] Vroeger was dit een 3D hypot(dx,dy,dz) < 3.5 — dat
@@ -45122,6 +45682,1439 @@ shootWithDirection = function(dirOverride = null){
     console.log("[powerswitch] online — noord-balcony");
   }
   setTimeout(_init, 2000);
+})();
+
+/* ===================================================================== */
+/* MOTHERSHIP LIFT — spawnt als alle rooms open zijn. Teleporteert speler */
+/* naar een platform boven de map; 1× per 2 waves bruikbaar.              */
+/* ===================================================================== */
+(() => {
+  function _init(){
+    const scene = window.scene;
+    const camera = window.camera;
+    const rs = window.__roomState;
+    const player = window.player;
+    if(!scene || !camera || !rs || !player){
+      // Init nog niet klaar; opnieuw proberen
+      setTimeout(_init, 500);
+      return;
+    }
+
+    // ---- Config ----
+    const LIFT_POS    = new THREE.Vector3(0, 0, 0);     // centrum van atrium
+    const LIFT_RANGE  = 3.5;                            // F-prompt radius
+    const SHIP_Y      = 25;                             // platform-vloer hoogte
+    const SHIP_POS    = new THREE.Vector3(0, SHIP_Y, 0);
+    const SHIP_HALF   = 4.5;                            // half-zijde van platform
+    const COOLDOWN_WAVES = 2;
+
+    // ---- State ----
+    const state = {
+      built: false,           // lift-mesh + ship-mesh gespawnd
+      visible: false,         // lift visible (alle rooms open)
+      lastUsedWave: -999,     // wave waarop laatst gebruikt
+      playerOnShip: false,    // speler is bovenin
+      preTeleportPos: null,   // waar speler stond vóór teleport (om terug te zetten)
+      savedFog: null,         // arena-fog bewaard tijdens boarding; null = fog-uit-staat op het schip
+    };
+
+    // ---- Mesh-handles ----
+    let liftGroup = null;     // centrum-zuil
+    let shipGroup = null;     // platform + cockpit boven
+    let shipColliders = null;  // 4-segment colliders rond het centrale gat
+    let promptEl = null;      // F-prompt HUD
+
+    // ---- HUD prompt (vergelijkbaar met deur-prompt) ----
+    function buildPrompt(){
+      if(promptEl) return promptEl;
+      const el = document.createElement("div");
+      el.id = "liftPrompt";
+      el.style.cssText = `
+        position: fixed;
+        left: 50%;
+        top: 62%;
+        transform: translate(-50%, 0);
+        z-index: 25;
+        font-family: 'Trebuchet MS', 'Impact', sans-serif;
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: 0.04em;
+        padding: 8px 16px;
+        background: rgba(20, 8, 4, 0.82);
+        border: 2px solid rgba(255, 90, 32, 0.65);
+        border-radius: 6px;
+        color: #f4d0a0;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.85);
+        box-shadow: 0 0 18px rgba(255, 70, 20, 0.30);
+        pointer-events: none;
+        display: none;
+      `;
+      document.body.appendChild(el);
+      promptEl = el;
+      return el;
+    }
+
+    // ---- Bouw lift-altaar (centrum atrium) ----
+    // [REDESIGN] Was: platte blauwe schijf die met de vloer glitched.
+    // Nu: verhoogd stenen altaar met trapje, rode rituele glyphs, vlam-
+    // achtige bundel omhoog en zwevend embleem. Past bij CoD-Zombies-vibe.
+    function buildLift(){
+      const g = new THREE.Group();
+
+      // ---- Onderste trap-ring (breed, laag) ----
+      const stepLowMat = new THREE.MeshStandardMaterial({
+        color: 0x1a1614, roughness: 0.92, metalness: 0.06,
+        emissive: 0x0a0606, emissiveIntensity: 0.05
+      });
+      const stepLow = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.0, 2.1, 0.18, 24),
+        stepLowMat
+      );
+      stepLow.position.y = 0.09;     // onderkant op 0, top op 0.18
+      g.add(stepLow);
+
+      // ---- Middelste trap-ring ----
+      const stepMidMat = new THREE.MeshStandardMaterial({
+        color: 0x221c18, roughness: 0.90, metalness: 0.08,
+        emissive: 0x0c0806, emissiveIntensity: 0.06
+      });
+      const stepMid = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.6, 1.7, 0.20, 24),
+        stepMidMat
+      );
+      stepMid.position.y = 0.28;     // bovenop de eerste step
+      g.add(stepMid);
+
+      // ---- Bovenste altaar-platform ----
+      const altarMat = new THREE.MeshStandardMaterial({
+        color: 0x2a201c, roughness: 0.88, metalness: 0.12,
+        emissive: 0x1a0804, emissiveIntensity: 0.10
+      });
+      const altar = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.25, 1.3, 0.22, 32),
+        altarMat
+      );
+      altar.position.y = 0.49;       // top op 0.60
+      g.add(altar);
+
+      // ---- Rune-ring op het altaar — rood gloeiende cirkel ----
+      // Dit is de visuele "actieve" indicator. Pulseren met opacity.
+      const runeMat = new THREE.MeshBasicMaterial({
+        color: 0xff4a18, transparent: true, opacity: 0.90,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const runeRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.95, 1.18, 48),
+        runeMat
+      );
+      runeRing.rotation.x = -Math.PI / 2;
+      runeRing.position.y = 0.61;    // net boven altaar-top
+      g.add(runeRing);
+      g.userData.ringMat = runeMat;
+
+      // ---- 6 kleine rune-streepjes (boxes radiaal) — alsof er glyphs op staan
+      const glyphMat = new THREE.MeshBasicMaterial({
+        color: 0xff7028, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      });
+      const glyphMarks = [];
+      for(let i = 0; i < 8; i++){
+        const a = (i / 8) * Math.PI * 2;
+        const mark = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.02, 0.06),
+          glyphMat
+        );
+        mark.position.set(Math.cos(a) * 1.05, 0.62, Math.sin(a) * 1.05);
+        mark.rotation.y = -a + Math.PI / 2;
+        g.add(mark);
+        glyphMarks.push(mark);
+      }
+      g.userData.glyphMat = glyphMat;
+      g.userData.glyphMarks = glyphMarks;
+
+      // ---- Centrale rode/oranje lichtbundel — vlam-spirit naar boven ----
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: 0xff5a20, transparent: true, opacity: 0.28,
+        side: THREE.DoubleSide, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.55, 1.0, 6.5, 20, 1, true),
+        beamMat
+      );
+      beam.position.y = 3.85;        // onderkant op altaar-top (0.60), top op 7.1
+      g.add(beam);
+      g.userData.beam = beam;
+      g.userData.beamMat = beamMat;
+
+      // ---- Tweede smallere binnen-bundel — feller centrum ----
+      const beamCoreMat = new THREE.MeshBasicMaterial({
+        color: 0xffb060, transparent: true, opacity: 0.45,
+        side: THREE.DoubleSide, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const beamCore = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.20, 0.40, 6.5, 14, 1, true),
+        beamCoreMat
+      );
+      beamCore.position.y = 3.85;
+      g.add(beamCore);
+      g.userData.beamCoreMat = beamCoreMat;
+
+      // ---- Zwevende schedel als embleem bovenin ----
+      // [ZOMBIE STYLE] Schedel ipv neutraal ufo-tipje — het embleem vertelt
+      // de speler "dit is geen vriendelijke transportlift, dit is iets duisters".
+      const skull = new THREE.Group();
+      const skullMat = new THREE.MeshStandardMaterial({
+        color: 0xc8b890, roughness: 0.7, metalness: 0.1,
+        emissive: 0x2a1808, emissiveIntensity: 0.4
+      });
+      const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), skullMat);
+      cranium.scale.set(1.0, 0.95, 1.1);
+      skull.add(cranium);
+      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.10, 0.22), skullMat);
+      jaw.position.set(0, -0.20, 0.02);
+      skull.add(jaw);
+      // 2 holle oogkassen — donker emissive rood
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2010 });
+      for(const ex of [-0.075, 0.075]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), eyeMat);
+        eye.position.set(ex, 0.02, 0.20);
+        skull.add(eye);
+      }
+      skull.position.y = 7.2;
+      g.add(skull);
+      g.userData.skull = skull;
+
+      // ---- Rode point-light op het altaar voor lokale sfeer ----
+      const altarLight = new THREE.PointLight(0xff5a18, 1.6, 8, 1.5);
+      altarLight.position.y = 1.2;
+      g.add(altarLight);
+      g.userData.altarLight = altarLight;
+
+      g.position.copy(LIFT_POS);
+      g.visible = false;
+      scene.add(g);
+      liftGroup = g;
+    }
+
+    // ---- Bouw spaceship-platform boven de map ----
+    // [REDESIGN] Was: clean blauwe sci-fi UFO. Nu: gehavende donkere UFO in
+    // CoD-Zombies-stijl — zwart/roest hull, rode puls-lichten, antennes
+    // omhoog, ketting/kabels die afhangen, schedel-cockpit.
+    function buildShip(){
+      const g = new THREE.Group();
+
+      // ---- Hoofdvloer — donut-vorm met een centraal gat ----
+      // [SHIP HOLE] De vloer was een vol cilinder; nu een ring zodat de
+      // speler door het gat omlaag kan kijken én schieten op zombies onder
+      // het schip. We bouwen 'm uit drie meshes:
+      //   1) Top-vlak  = RingGeometry (inner = HOLE_R, outer = SHIP_HALF)
+      //   2) Outer-zij = open CylinderGeometry, geen caps
+      //   3) Inner-zij = open CylinderGeometry met BackSide zodat het gat
+      //      een zichtbare wand heeft als je erin kijkt.
+      //   4) Bottom-vlak (onderkant van de ring) = RingGeometry omgekeerd
+      //      gericht, zodat het schip van onderaf solid lijkt rond het gat.
+      const SHIP_HOLE_R = 1.3;   // radius van het centrale schiet-gat (~2.6m diameter)
+      const SHIP_FLOOR_THICK = 0.55;
+      const floorMat = new THREE.MeshStandardMaterial({
+        color: 0x1a1410, roughness: 0.85, metalness: 0.55,
+        emissive: 0x0a0604, emissiveIntensity: 0.10
+      });
+      // 1) Top
+      const floorTop = new THREE.Mesh(
+        new THREE.RingGeometry(SHIP_HOLE_R, SHIP_HALF, 32, 1),
+        floorMat
+      );
+      floorTop.rotation.x = -Math.PI / 2;
+      floorTop.position.y = 0;
+      g.add(floorTop);
+      // 2) Outer side (open cylinder, taps zodat hij een hap onder uitsteekt)
+      const floorOuter = new THREE.Mesh(
+        new THREE.CylinderGeometry(SHIP_HALF, SHIP_HALF * 1.08, SHIP_FLOOR_THICK, 32, 1, true),
+        floorMat
+      );
+      floorOuter.position.y = -SHIP_FLOOR_THICK / 2;
+      g.add(floorOuter);
+      // 3) Inner side (open cylinder, BackSide zodat we 'm vanuit het gat zien)
+      const floorInnerMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0604, roughness: 0.92, metalness: 0.40,
+        emissive: 0x040201, emissiveIntensity: 0.06,
+        side: THREE.BackSide
+      });
+      const floorInner = new THREE.Mesh(
+        new THREE.CylinderGeometry(SHIP_HOLE_R, SHIP_HOLE_R, SHIP_FLOOR_THICK, 24, 1, true),
+        floorInnerMat
+      );
+      floorInner.position.y = -SHIP_FLOOR_THICK / 2;
+      g.add(floorInner);
+      // 4) Bottom-vlak — zelfde ring maar normaal omlaag (zichtbaar vanaf
+      //    arena onderaan, ONZICHTBAAR voor de speler die door het gat
+      //    omlaag kijkt). Hierdoor blokkeert deze plate niet meer het
+      //    doorzicht door het gat.
+      const floorBot = new THREE.Mesh(
+        new THREE.RingGeometry(SHIP_HOLE_R, SHIP_HALF * 1.08, 32, 1),
+        floorMat
+      );
+      floorBot.rotation.x = -Math.PI / 2;     // normaal naar -y = zichtbaar vanaf onderaf
+      floorBot.position.y = -SHIP_FLOOR_THICK;
+      g.add(floorBot);
+
+      // 5) Rood-gloeiende rim rond het gat — visueel anker, signaleert
+      //    "hier kun je door schieten/kijken" en past bij de boze rune-stijl.
+      const rimMat = new THREE.MeshBasicMaterial({
+        color: 0xff4a18, transparent: true, opacity: 0.75,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const rim = new THREE.Mesh(
+        new THREE.RingGeometry(SHIP_HOLE_R - 0.05, SHIP_HOLE_R + 0.08, 32),
+        rimMat
+      );
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.y = 0.01;    // net boven floorTop om z-fight te voorkomen
+      g.add(rim);
+      g.userData.holeRimMat = rimMat;
+
+      // [DOME VERWIJDERD] Hier zat een SphereGeometry "bovendome" om de
+      // top van het schip mooi te maken bij vooraanzicht — maar de speler
+      // staat ALTIJD bovenop het schip terwijl het zichtbaar is (boarding
+      // toont shipGroup, return hidet 'm weer). De dome hing dus letterlijk
+      // OVER zijn hoofd en blokkeerde het zicht omlaag op de zombies.
+      // Het schip ziet er alsnog gelaagd uit door de floor + ringFrame +
+      // antennes + cockpit — dome was puur cosmetisch en niet nodig.
+
+      // ---- Onderbuik — kortere brede cone met afhangende kabels ----
+      // [SHIP HOLE VIEW FIX] Was: side=DoubleSide, dus de cone-wand bleef
+      // zichtbaar van binnen uit het schip — dat blokkeerde het uitzicht
+      // omlaag door het gat. Nu FrontSide (default): cone is alleen
+      // zichtbaar van buitenaf (vanaf grond ben je nog steeds onder een
+      // dreigend schip), maar als je IN het schip staat en omlaag kijkt
+      // zie je nu de arena tien meter onder je. Zoals het hoort.
+      const bellyMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0604, roughness: 0.92, metalness: 0.30,
+        side: THREE.FrontSide
+      });
+      const belly = new THREE.Mesh(
+        new THREE.ConeGeometry(SHIP_HALF * 1.02, 1.2, 32, 1, true),
+        bellyMat
+      );
+      belly.rotation.x = Math.PI;
+      belly.position.y = -1.15;
+      g.add(belly);
+
+      // ---- Buitenring met 4 ROODGLOEIENDE puls-orbs (ipv blauwe ring) ----
+      // Zware metal-look ring eerst, dan 4 lights erop verdeeld.
+      const ringFrameMat = new THREE.MeshStandardMaterial({
+        color: 0x2a1a14, roughness: 0.65, metalness: 0.7,
+        emissive: 0x0a0402, emissiveIntensity: 0.08
+      });
+      const ringFrame = new THREE.Mesh(
+        new THREE.TorusGeometry(SHIP_HALF * 1.04, 0.16, 8, 48),
+        ringFrameMat
+      );
+      ringFrame.rotation.x = Math.PI / 2;
+      ringFrame.position.y = -0.10;
+      g.add(ringFrame);
+
+      // 4 rode puls-orbs op de ring (N/E/S/W)
+      const orbMat = new THREE.MeshBasicMaterial({ color: 0xff3010 });
+      const orbs = [];
+      for(let i = 0; i < 4; i++){
+        const a = (i / 4) * Math.PI * 2;
+        const orb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.20, 14, 10),
+          orbMat.clone()
+        );
+        orb.position.set(Math.cos(a) * SHIP_HALF * 1.04, -0.10, Math.sin(a) * SHIP_HALF * 1.04);
+        g.add(orb);
+        orbs.push(orb);
+      }
+      g.userData.orbs = orbs;
+
+      // ---- 6 ANTENNES/SPIKES omhoog langs de bovenrand — dreigend silhouet ----
+      const spikeMat = new THREE.MeshStandardMaterial({
+        color: 0x141010, roughness: 0.55, metalness: 0.80,
+        emissive: 0x040202, emissiveIntensity: 0.08
+      });
+      for(let i = 0; i < 6; i++){
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 12;
+        const spike = new THREE.Mesh(
+          new THREE.ConeGeometry(0.08, 1.8 + (i % 2) * 0.3, 6),
+          spikeMat
+        );
+        const r = SHIP_HALF * 0.78;
+        spike.position.set(Math.cos(a) * r, 0.9, Math.sin(a) * r);
+        // Lichte buiging — niet perfect verticaal, geeft "organisch" gevoel
+        spike.rotation.z = (Math.cos(a) * 0.10);
+        spike.rotation.x = (Math.sin(a) * 0.10);
+        g.add(spike);
+      }
+
+      // ---- Schedel-cockpit (front-end) ----
+      // Vervangt de blauwe console + scherm. Een echte zombie-vibe-cockpit:
+      // grote schedel boven het platform, rode oogkassen.
+      const cockpit = new THREE.Group();
+      cockpit.position.set(0, 0.4, -SHIP_HALF * 0.55);
+      const skullMat = new THREE.MeshStandardMaterial({
+        color: 0xa8987a, roughness: 0.78, metalness: 0.08,
+        emissive: 0x2a1a08, emissiveIntensity: 0.32
+      });
+      const cranium = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 18, 12),
+        skullMat
+      );
+      cranium.scale.set(1.0, 0.92, 1.15);
+      cranium.position.y = 0.40;
+      cockpit.add(cranium);
+
+      const jaw = new THREE.Mesh(
+        new THREE.BoxGeometry(0.70, 0.20, 0.55),
+        skullMat
+      );
+      jaw.position.y = -0.05;
+      cockpit.add(jaw);
+
+      // Oog-kassen (rood gloeiend)
+      const cockpitEyeMat = new THREE.MeshBasicMaterial({ color: 0xff2010 });
+      for(const ex of [-0.18, 0.18]){
+        const eye = new THREE.Mesh(
+          new THREE.SphereGeometry(0.10, 10, 8),
+          cockpitEyeMat
+        );
+        eye.position.set(ex, 0.42, 0.50);
+        cockpit.add(eye);
+      }
+      // Donkere oogkassen-rand
+      for(const ex of [-0.18, 0.18]){
+        const socket = new THREE.Mesh(
+          new THREE.TorusGeometry(0.13, 0.025, 6, 14),
+          skullMat
+        );
+        socket.position.set(ex, 0.42, 0.48);
+        socket.rotation.y = Math.PI / 2;
+        cockpit.add(socket);
+      }
+      // Tanden (rij kleine boxes onder de jaw)
+      const toothMat = new THREE.MeshStandardMaterial({
+        color: 0xd8c8a4, roughness: 0.6, metalness: 0.04
+      });
+      for(let i = 0; i < 5; i++){
+        const t = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.10, 0.04),
+          toothMat
+        );
+        t.position.set(-0.20 + i * 0.10, -0.12, 0.27);
+        cockpit.add(t);
+      }
+      g.add(cockpit);
+      g.userData.cockpitEyeMat = cockpitEyeMat;   // voor puls-animatie
+
+      // ---- Hangende kabels/kettingen onder het schip ----
+      // 6 kabels die ~3-4m omlaag hangen — geeft het schip massa en
+      // de illusie dat er iets aan vasthangt (vleeshaken vibe).
+      const chainMat = new THREE.MeshStandardMaterial({
+        color: 0x1a1210, roughness: 0.85, metalness: 0.65,
+        emissive: 0x040202, emissiveIntensity: 0.04
+      });
+      for(let i = 0; i < 6; i++){
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 8;
+        const r = SHIP_HALF * 0.55;
+        const px = Math.cos(a) * r;
+        const pz = Math.sin(a) * r;
+        // Ketting = stack van 6 torus-links
+        for(let k = 0; k < 6; k++){
+          const link = new THREE.Mesh(
+            new THREE.TorusGeometry(0.07, 0.022, 6, 10),
+            chainMat
+          );
+          link.position.set(px, -1.4 - k * 0.32, pz);
+          link.rotation.x = (k % 2 === 0) ? Math.PI / 2 : 0;
+          g.add(link);
+        }
+        // Onderaan: kleine vleeshaak
+        const hook = new THREE.Mesh(
+          new THREE.TorusGeometry(0.10, 0.022, 6, 12, Math.PI * 1.4),
+          chainMat
+        );
+        hook.position.set(px, -3.35, pz);
+        hook.rotation.x = Math.PI / 2;
+        g.add(hook);
+      }
+
+      // ---- Rituele cirkel als return-pad (zelfde stijl als lift beneden) ----
+      // Stenen disk in 't midden, rune-ring eromheen — bijpassend met altaar.
+      const returnBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.0, 1.05, 0.16, 28),
+        new THREE.MeshStandardMaterial({
+          color: 0x221814, roughness: 0.88, metalness: 0.10,
+          emissive: 0x0a0402, emissiveIntensity: 0.08
+        })
+      );
+      returnBase.position.set(0, 0.08, SHIP_HALF * 0.7);
+      g.add(returnBase);
+
+      const returnRuneMat = new THREE.MeshBasicMaterial({
+        color: 0xff5a20, transparent: true, opacity: 0.85,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const returnRune = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 0.92, 36),
+        returnRuneMat
+      );
+      returnRune.rotation.x = -Math.PI / 2;
+      returnRune.position.set(0, 0.17, SHIP_HALF * 0.7);
+      g.add(returnRune);
+      g.userData.returnRune = returnRune;
+      g.userData.returnRuneMat = returnRuneMat;
+
+      // ---- Onderlichten voor sfeer ----
+      // Eén warme rode PointLight binnenin het schip die de dome van onder
+      // belicht. Geeft de boze-UFO-gloed.
+      const innerLight = new THREE.PointLight(0xff3a18, 1.4, 12, 1.6);
+      innerLight.position.y = 0.5;
+      g.add(innerLight);
+      g.userData.innerLight = innerLight;
+
+      g.position.copy(SHIP_POS);
+      g.visible = false;
+      scene.add(g);
+      shipGroup = g;
+
+      // ---- Colliders voor de vloer — DONUT-VORM ----
+      // [SHIP HOLE] Was: één Box3 die het hele 9×9-platform dekt. Nu vier
+      // boxen die het centrale 2.6×2.6 gat omringen (noord-band, zuid-band,
+      // west-strip, oost-strip). Speler kan op alle ringen lopen maar valt
+      // door het gat als hij erin loopt; bullets vanaf bovenaf gaan door
+      // het gat omlaag.
+      //
+      //   ┌───────────────┐
+      //   │     NORTH     │
+      //   ├──┬─────────┬──┤
+      //   │ W│  HOLE   │E │
+      //   ├──┴─────────┴──┤
+      //   │     SOUTH     │
+      //   └───────────────┘
+      //
+      // Hole-square-half = SHIP_HOLE_R want we benaderen de ronde rim met
+      // een vierkant (1.3×1.3 → 2.6×2.6). Bullet-passthrough door dat hele
+      // vierkant.
+      const halfHole = SHIP_HOLE_R;
+      const sy0 = SHIP_Y - SHIP_FLOOR_THICK;
+      const sy1 = SHIP_Y;
+      const cx = SHIP_POS.x;
+      const cz = SHIP_POS.z;
+      shipColliders = [
+        // NORTH band: vol breed, van -SHIP_HALF naar -halfHole
+        { box: new THREE.Box3(
+            new THREE.Vector3(cx - SHIP_HALF, sy0, cz - SHIP_HALF),
+            new THREE.Vector3(cx + SHIP_HALF, sy1, cz - halfHole)
+          ), _liftShip: true, _passableByEnemy: true },
+        // SOUTH band: vol breed, van +halfHole naar +SHIP_HALF
+        { box: new THREE.Box3(
+            new THREE.Vector3(cx - SHIP_HALF, sy0, cz + halfHole),
+            new THREE.Vector3(cx + SHIP_HALF, sy1, cz + SHIP_HALF)
+          ), _liftShip: true, _passableByEnemy: true },
+        // WEST strip: tussen N en S bands, van -SHIP_HALF naar -halfHole
+        { box: new THREE.Box3(
+            new THREE.Vector3(cx - SHIP_HALF, sy0, cz - halfHole),
+            new THREE.Vector3(cx - halfHole,  sy1, cz + halfHole)
+          ), _liftShip: true, _passableByEnemy: true },
+        // EAST strip: tussen N en S bands, van +halfHole naar +SHIP_HALF
+        { box: new THREE.Box3(
+            new THREE.Vector3(cx + halfHole,  sy0, cz - halfHole),
+            new THREE.Vector3(cx + SHIP_HALF, sy1, cz + halfHole)
+          ), _liftShip: true, _passableByEnemy: true },
+      ];
+      // Wordt pas toegevoegd aan colliders[] zodra speler erop teleport,
+      // anders zou hij continu blokkeren / lookups duurder maken voor niks.
+    }
+
+    // ---- Add/remove ship-colliders on demand ----
+    function attachShipCollider(){
+      const colliders = window.__colliders;
+      if(!colliders || !shipColliders) return;
+      for(const c of shipColliders){
+        if(colliders.indexOf(c) === -1) colliders.push(c);
+      }
+    }
+    function detachShipCollider(){
+      const colliders = window.__colliders;
+      if(!colliders || !shipColliders) return;
+      for(const c of shipColliders){
+        const idx = colliders.indexOf(c);
+        if(idx >= 0) colliders.splice(idx, 1);
+      }
+    }
+
+    // ---- Alle rooms open check ----
+    function allRoomsOpen(){
+      const r = rs.rooms;
+      // 4 side-rooms moeten open. Atrium is per definitie open.
+      return !!(r.garage?.opened && r.messhall?.opened
+             && r.catacombs?.opened && r.vault?.opened);
+    }
+
+    // ---- Cooldown ----
+    function wavesUntilReady(){
+      const w = player.wave || 1;
+      const since = w - state.lastUsedWave;
+      return Math.max(0, COOLDOWN_WAVES - since);
+    }
+    function canUse(){
+      return state.lastUsedWave < 0 || wavesUntilReady() <= 0;
+    }
+
+    // ---- Use lift (teleport up) ----
+    function useLift(){
+      if(state.playerOnShip) return;       // al boven
+      if(!state.visible) return;           // lift bestaat nog niet
+      if(!canUse()){
+        if(typeof window.flashHint === "function"){
+          window.flashHint(`Mothership lift cooling down — ${wavesUntilReady()} wave(s) te gaan`, 1600);
+        }
+        return;
+      }
+
+      // Sla oude positie op zodat 'return pad' weet waar te droppen
+      state.preTeleportPos = player.pos.clone();
+      state.lastUsedWave = player.wave || 1;
+      state.playerOnShip = true;
+
+      // [FOG OFF] Op het schip willen we GEEN scene-fog: de lineaire fog
+      // (near=18, far=88) zorgt er op 25m hoogte voor dat alle horizon-richtingen
+      // in dezelfde mist-kleur oplossen, wat eruitziet als een dome/bol over
+      // het schip heen. Bewaar de huidige fog en hang 'm tijdelijk los; bij
+      // het terugkeren naar de arena zetten we 'm precies terug.
+      if(scene.fog && state.savedFog === null){
+        state.savedFog = scene.fog;
+        scene.fog = null;
+      }
+
+      // Zorg dat het schip zichtbaar is en de collider actief
+      shipGroup.visible = true;
+      attachShipCollider();
+
+      // Teleporteer speler bovenop. player.height is z'n eye-offset, en
+      // floor = SHIP_Y → eye-Y = SHIP_Y + player.height.
+      // [SHIP HOLE FIX] Spawn NIET op (0,0) — daar is sinds het gat in de
+      // vloer een opening, en de speler zou meteen door vallen. Spawn op
+      // de zuid-ring, vlak bij de return-pad (z=+SHIP_HALF*0.7) zodat hij
+      // op solide grond staat én meteen ziet waar hij terug kan stappen.
+      const ph = player.height || 1.7;
+      player.pos.x = SHIP_POS.x;
+      player.pos.z = SHIP_POS.z + SHIP_HALF * 0.7;
+      player.pos.y = SHIP_Y + ph;
+      player.velY = 0;
+      player.grounded = true;
+      player.floorY = SHIP_Y;
+      if(camera){
+        camera.position.copy(player.pos);
+      }
+
+      if(typeof window.flashHint === "function"){
+        window.flashHint("Opstijgen naar Mothership", 1400);
+      }
+    }
+
+    // ---- Return from ship (teleport down) ----
+    function useReturnPad(){
+      if(!state.playerOnShip) return;
+      state.playerOnShip = false;
+
+      // Detach collider zodat de speler er niet meer op kan klimmen
+      detachShipCollider();
+      if(shipGroup) shipGroup.visible = false;
+
+      // [FOG ON] Arena-fog terugzetten precies zoals 'ie was vóór de teleport.
+      if(state.savedFog){
+        scene.fog = state.savedFog;
+        state.savedFog = null;
+      }
+
+      // Drop player terug bij de lift in 't atrium
+      const ph = player.height || 1.7;
+      player.pos.x = LIFT_POS.x;
+      player.pos.z = LIFT_POS.z;
+      player.pos.y = ph;          // grond-niveau in atrium
+      player.velY = 0;
+      player.grounded = true;
+      player.floorY = 0;
+      if(camera){
+        camera.position.copy(player.pos);
+      }
+
+      if(typeof window.flashHint === "function"){
+        window.flashHint("Terug op de grond", 1200);
+      }
+    }
+
+    // ---- F-key handler ----
+    let nearLift = false;
+    let nearReturn = false;
+    window.addEventListener("keydown", (e) => {
+      if(e.code !== "KeyF") return;
+      const active = document.activeElement;
+      if(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+
+      // [BUG FIX] Range-check INLINE doen ipv vertrouwen op nearLift/nearReturn
+      // die door de tick-loop worden gezet. De tick draait async via rAF en
+      // kan stale zijn op het moment van keydown — bv. wanneer de speler
+      // stilstaat in het midden van het altaar en de tick z'n positie net
+      // niet heeft bijgewerkt sinds de laatste teleport. Door de afstand
+      // hier opnieuw te berekenen vermijden we elke timing-mismatch.
+      if(state.playerOnShip){
+        const rx = SHIP_POS.x;
+        const rz = SHIP_POS.z + SHIP_HALF * 0.7;
+        const dx = player.pos.x - rx;
+        const dz = player.pos.z - rz;
+        if(dx*dx + dz*dz < (1.6 * 1.6)){
+          e.preventDefault();
+          useReturnPad();
+        }
+      } else if(state.visible){
+        const dx = player.pos.x - LIFT_POS.x;
+        const dz = player.pos.z - LIFT_POS.z;
+        if(dx*dx + dz*dz < (LIFT_RANGE * LIFT_RANGE)){
+          e.preventDefault();
+          useLift();
+        }
+      }
+    }, { capture: true });
+
+    // ---- Per-frame tick ----
+    function tick(){
+      requestAnimationFrame(tick);
+
+      // [BUG FIX] Detect dat de speler van het schip is gevallen.
+      // Het platform is 9x9m zonder rand-veiligheid; loopt de speler over
+      // de rand dan valt hij door normale gravity terug naar de atrium-
+      // vloer. Maar state.playerOnShip blijft dan op true hangen, en bij
+      // de volgende F-druk op het altaar triggert dat ten onrechte het
+      // useReturnPad-pad ("Terug naar arena") in plaats van useLift.
+      // Threshold: speler-eye-Y onder (SHIP_Y - 5) = y<20 → afgevallen.
+      // We doen dezelfde cleanup als bij een normale return: collider
+      // weghalen, schip hiden, fog terugzetten, flag op false.
+      // [SHIP FALL DAMAGE] Bij het springen/vallen van het schip krijgt
+      // de speler 50 schade (val van ~25m) en is 3 seconden kreupel:
+      // movement-speed wordt naar 40% verlaagd. Zombies kunnen je in die
+      // tijd nog steeds raken — gewone gameplay gaat door, je beweegt
+      // alleen veel trager. Soort "broken legs" feeling.
+      if(state.playerOnShip && player.pos.y < SHIP_Y - 5){
+        state.playerOnShip = false;
+        detachShipCollider();
+        if(shipGroup) shipGroup.visible = false;
+        if(state.savedFog){
+          scene.fog = state.savedFog;
+          state.savedFog = null;
+        }
+        // Apply 50 fall-damage tenzij godmode actief is
+        if(!state.cheatInvuln){
+          try { (window.applyDamage || applyDamage)?.(50, "ship-fall"); } catch(_){}
+          // 3s kreupel — alleen als geen godmode (anders is testen lastig)
+          state.shipFallLimpUntil = performance.now() + 3000;
+          try {
+            if(typeof window.flashHint === "function"){
+              window.flashHint("Je benen zijn gebroken — kreupel voor 3s", 2400);
+            }
+          } catch(_){}
+        }
+        // Optioneel: lichte camera-shake voor de impact
+        try { state.cameraShake = Math.min(2.5, (state.cameraShake || 0) + 1.4); } catch(_){}
+      }
+
+      // 1) Lift verschijnt zodra alle rooms open zijn (en blijft staan).
+      if(!state.visible && allRoomsOpen()){
+        state.visible = true;
+        liftGroup.visible = true;
+        if(typeof window.flashHint === "function"){
+          window.flashHint("Het altaar ontwaakt — centrum atrium", 2200);
+        }
+      }
+
+      // 2) Pulserende animaties op de lift wanneer beschikbaar
+      if(state.visible && liftGroup){
+        const t = performance.now() * 0.001;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+        const ready = canUse();
+        // Rune-ring opacity puls — feller wanneer ready, BIJNA UIT bij cooldown
+        if(liftGroup.userData.ringMat){
+          liftGroup.userData.ringMat.opacity = ready ? (0.70 + 0.25 * pulse) : 0.08;
+        }
+        // Glyph-markeringen rondom de cirkel — ook bijna uit bij cooldown
+        if(liftGroup.userData.glyphMat){
+          liftGroup.userData.glyphMat.opacity = ready ? (0.60 + 0.30 * pulse) : 0.04;
+        }
+        // [LIFT BEAM v2] Lichtbundel — bij cooldown helemaal UIT zodat de
+        // speler in één oogopslag ziet of het altaar bruikbaar is.
+        // Voorheen pulseerde de beam ook tijdens cooldown op 0.08-0.13
+        // opacity — dat oogde nog steeds als "halve actief" en gaf
+        // gemixte signalen. Nu: ready = pulserend feller, niet-ready = 0.
+        if(liftGroup.userData.beamMat){
+          liftGroup.userData.beamMat.opacity = ready ? (0.22 + 0.15 * pulse) : 0;
+        }
+        if(liftGroup.userData.beamCoreMat){
+          liftGroup.userData.beamCoreMat.opacity = ready ? (0.38 + 0.20 * pulse) : 0;
+        }
+        // Zwevende schedel — langzame rotatie + hoogte-bob
+        if(liftGroup.userData.skull){
+          liftGroup.userData.skull.rotation.y = t * 0.55;
+          liftGroup.userData.skull.position.y = 7.2 + Math.sin(t * 1.4) * 0.18;
+        }
+      }
+
+      // Schip-animaties wanneer speler aan boord is — rode oogkassen
+      // puls, return-rune opacity, en lichte rotatie van het hele schip
+      // zodat 't niet een statisch blok lijkt.
+      if(state.playerOnShip && shipGroup){
+        const t = performance.now() * 0.001;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.0);
+        if(shipGroup.userData.returnRuneMat){
+          shipGroup.userData.returnRuneMat.opacity = 0.55 + 0.30 * pulse;
+        }
+        // Schedel-oogkassen pulseren tussen donkerrood en feller rood
+        if(shipGroup.userData.cockpitEyeMat){
+          const r = 0.65 + 0.35 * pulse;
+          shipGroup.userData.cockpitEyeMat.color.setRGB(r, 0.10, 0.04);
+        }
+        // Gat-rim pulseert in dezelfde rode tint — visueel duidelijk dat
+        // de opening "actief" is en je erdoorheen kunt schieten.
+        if(shipGroup.userData.holeRimMat){
+          shipGroup.userData.holeRimMat.opacity = 0.55 + 0.30 * pulse;
+        }
+        // Geen rotatie/zwevings op het schip zelf — speler staat op
+        // een vaste collider en zou met de mesh wegschuiven. De life
+        // komt uit de pulserende oog-kassen en return-rune.
+      }
+
+      // 3) Prompts + range-check
+      if(!promptEl) return;
+      if(state.playerOnShip){
+        // Return-pad check
+        const rx = SHIP_POS.x;
+        const ry = SHIP_Y;
+        const rz = SHIP_POS.z + SHIP_HALF * 0.7;
+        const dx = player.pos.x - rx;
+        const dz = player.pos.z - rz;
+        const distSq = dx*dx + dz*dz;
+        nearReturn = distSq < (1.6 * 1.6);
+        nearLift = false;
+        if(nearReturn){
+          promptEl.style.display = "block";
+          promptEl.textContent = "[F] Terug naar arena";
+          promptEl.style.borderColor = "rgba(157,255,124,0.55)";
+        } else {
+          promptEl.style.display = "none";
+        }
+      } else if(state.visible){
+        const dx = player.pos.x - LIFT_POS.x;
+        const dz = player.pos.z - LIFT_POS.z;
+        const distSq = dx*dx + dz*dz;
+        nearLift = distSq < (LIFT_RANGE * LIFT_RANGE);
+        nearReturn = false;
+        if(nearLift){
+          promptEl.style.display = "block";
+          if(canUse()){
+            promptEl.textContent = "[F] Bestijg het altaar";
+            promptEl.style.borderColor = "rgba(255,90,32,0.75)";
+            promptEl.style.color = "#f4d0a0";
+          } else {
+            promptEl.textContent = `Altaar koelt af — ${wavesUntilReady()} wave(s)`;
+            promptEl.style.borderColor = "rgba(120,80,40,0.55)";
+            promptEl.style.color = "#c89a6a";
+          }
+        } else {
+          promptEl.style.display = "none";
+        }
+      } else {
+        promptEl.style.display = "none";
+        nearLift = false;
+        nearReturn = false;
+      }
+    }
+
+    // ---- Init ----
+    buildLift();
+    buildShip();
+    buildPrompt();
+    requestAnimationFrame(tick);
+
+    // [SHIP FALL LIMP] Aparte rAF-tick die zolang state.shipFallLimpUntil
+    // in de toekomst ligt, player.speed naar 40% van de baseline cap't.
+    // Werkt onafhankelijk van de movement-wrappers — overschrijft elk
+    // frame ná de normale speed-berekening (rAF order garandeert dat dit
+    // ná updateMovement loopt in dezelfde frame), zodat de speler kreupel
+    // beweegt voor 3s. Zombies kunnen je in die tijd nog gewoon raken.
+    function limpTick(){
+      requestAnimationFrame(limpTick);
+      if(!player || !state) return;
+      const until = state.shipFallLimpUntil || 0;
+      if(until <= 0) return;
+      const now = performance.now();
+      if(now >= until){
+        state.shipFallLimpUntil = 0;
+        try {
+          if(typeof window.flashHint === "function"){
+            window.flashHint("Je kunt weer normaal lopen", 1000);
+          }
+        } catch(_){}
+        return;
+      }
+      // Clamp speed. _ohBaseSpeed is gezet door de armory-wrapper (~19556).
+      // Fallback op een veilige standaard als die niet bestaat.
+      const base = player._ohBaseSpeed || player.speed || 6.5;
+      const limpMax = base * 0.40;
+      if(player.speed > limpMax) player.speed = limpMax;
+    }
+    requestAnimationFrame(limpTick);
+
+    // ---- Reset op restart ----
+    // Wanneer een nieuwe run start, gaan alle doors weer dicht. We zetten
+    // dan ook de lift onzichtbaar en eventuele bovenop-state terug.
+    if(typeof window.restartGame === "function"){
+      const _origRestart = window.restartGame;
+      window.restartGame = function(){
+        const ret = _origRestart.apply(this, arguments);
+        state.visible = false;
+        state.lastUsedWave = -999;
+        if(state.playerOnShip){
+          // Forceer 'terug' zonder de hint te tonen
+          detachShipCollider();
+          if(shipGroup) shipGroup.visible = false;
+          state.playerOnShip = false;
+        }
+        // Fog terugzetten als we 'm tijdens boarding hadden losgehangen
+        if(state.savedFog){
+          scene.fog = state.savedFog;
+          state.savedFog = null;
+        }
+        if(liftGroup) liftGroup.visible = false;
+        if(promptEl) promptEl.style.display = "none";
+        // Reset limp-state zodat een nieuwe run niet met gebroken benen begint
+        state.shipFallLimpUntil = 0;
+        return ret;
+      };
+    }
+
+    console.log("[mothership-lift] online — verschijnt zodra alle 4 side-rooms open zijn");
+  }
+  setTimeout(_init, 2500);
+})();
+
+/* ===================================================================== */
+/* GRENADE / MONKEY IN-HAND VIEWMODEL — BO2-stijl: tijdens het cooken     */
+/* (G/H ingehouden) toont een 3D granaat/monkey bom in je hand i.p.v.    */
+/* de grenade-launcher gun. Bij worp speelt een korte gooi-animatie en   */
+/* keert het normale wapen-viewmodel terug.                              */
+/* ===================================================================== */
+(() => {
+  function _init(){
+    const camera = window.camera;
+    const player = window.player;
+    const state  = window.state;
+    if(!camera || !player || !state){
+      setTimeout(_init, 500);
+      return;
+    }
+    const weaponRig = window.weaponRig;
+    // weaponRig wordt door een latere IIFE op window gezet; we wachten af.
+    if(!weaponRig){
+      setTimeout(_init, 500);
+      return;
+    }
+
+    // ---- Rig: één Group als child van camera, zelfde patroon als weaponRig.
+    const grenadeRig = new THREE.Group();
+    grenadeRig.frustumCulled = false;
+    grenadeRig.visible = false;
+    camera.add(grenadeRig);
+
+    // [POSE] Rechts-onder, ongeveer waar een hand de granaat zou houden.
+    // Iets dichter bij scherm-center dan weaponRig (die zit op x=0.34),
+    // zodat de granaat duidelijk "in de hand" lijkt en niet aan de gun.
+    const BASE_X = 0.28;
+    const BASE_Y = -0.32;
+    const BASE_Z = -0.55;
+    grenadeRig.position.set(BASE_X, BASE_Y, BASE_Z);
+
+    // ---- Bouw frag-mesh — vergelijkbaar met game's buildGrenadeMesh maar
+    // gehalveerd in schaal voor first-person-pose.
+    function buildFragVM(){
+      const grp = new THREE.Group();
+      const shellMat = new THREE.MeshStandardMaterial({
+        color: 0x3a4a2a, metalness: 0.42, roughness: 0.55,
+        emissive: 0x0e1408, emissiveIntensity: 0.15
+      });
+      const darkMat = new THREE.MeshStandardMaterial({
+        color: 0x1a2010, metalness: 0.35, roughness: 0.7
+      });
+      const metalMat = new THREE.MeshStandardMaterial({
+        color: 0x6a5028, metalness: 0.78, roughness: 0.3
+      });
+      const pinMat = new THREE.MeshStandardMaterial({
+        color: 0xc89758, metalness: 0.85, roughness: 0.25
+      });
+      // Shell
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 12), shellMat);
+      shell.scale.set(1, 1.15, 1);
+      grp.add(shell);
+      // Expose shell-material zodat de cook-danger feedback emissive kan
+      // pulseren tijdens het cooken (zie tick onder).
+      grp.userData.shellMat = shellMat;
+      // Horizontale ribs
+      for(let i = 0; i < 3; i++){
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(0.077, 0.005, 6, 18),
+          darkMat
+        );
+        ring.position.y = -0.038 + i * 0.038;
+        ring.rotation.x = Math.PI / 2;
+        grp.add(ring);
+      }
+      // Verticale ribs
+      for(let i = 0; i < 4; i++){
+        const ang = (i / 4) * Math.PI * 2;
+        const rib = new THREE.Mesh(
+          new THREE.BoxGeometry(0.005, 0.16, 0.005),
+          darkMat
+        );
+        rib.position.set(Math.cos(ang) * 0.075, 0, Math.sin(ang) * 0.075);
+        grp.add(rib);
+      }
+      // Fuse-cap
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.028, 0.03, 0.024, 12),
+        metalMat
+      );
+      cap.position.y = 0.092;
+      grp.add(cap);
+      // Lever (rechte strip langs de cap)
+      const lever = new THREE.Mesh(
+        new THREE.BoxGeometry(0.012, 0.072, 0.008),
+        metalMat
+      );
+      lever.position.set(0.027, 0.075, 0);
+      grp.add(lever);
+      // Ring (pin)
+      const pin = new THREE.Mesh(
+        new THREE.TorusGeometry(0.018, 0.004, 6, 12),
+        pinMat
+      );
+      pin.position.set(0.045, 0.105, 0);
+      pin.rotation.y = Math.PI / 2;
+      grp.add(pin);
+      return grp;
+    }
+
+    // ---- Bouw monkey-bomb VM — pluche aapje met cymbalen, geïnspireerd
+    // op CoD's monkey-bomb. Niet zo gedetailleerd als de in-world versie
+    // (regel 36200+) want we zien hem alleen 0.5s vóór de worp.
+    function buildMonkeyVM(){
+      const grp = new THREE.Group();
+      const furMat = new THREE.MeshStandardMaterial({
+        color: 0x5a3820, metalness: 0.05, roughness: 0.88
+      });
+      const fezMat = new THREE.MeshStandardMaterial({
+        color: 0x9a1414, metalness: 0.20, roughness: 0.65
+      });
+      const cymMat = new THREE.MeshStandardMaterial({
+        color: 0xd4a020, metalness: 0.85, roughness: 0.25,
+        emissive: 0x4a3008, emissiveIntensity: 0.15
+      });
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x080404 });
+      const faceMat = new THREE.MeshStandardMaterial({
+        color: 0xa07a58, metalness: 0.05, roughness: 0.85
+      });
+      // Torso
+      const torso = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), furMat);
+      torso.scale.set(1, 1.05, 0.9);
+      grp.add(torso);
+      // Hoofd
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), furMat);
+      head.position.y = 0.105;
+      grp.add(head);
+      // Snoetje (lichtere face-patch)
+      const face = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), faceMat);
+      face.position.set(0, 0.098, 0.018);
+      face.scale.set(1, 0.85, 0.5);
+      grp.add(face);
+      // 2 oogjes
+      for(const ex of [-0.018, 0.018]){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.008, 6, 5), eyeMat);
+        eye.position.set(ex, 0.112, 0.045);
+        grp.add(eye);
+      }
+      // Oren
+      for(const ex of [-0.052, 0.052]){
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.020, 8, 6), furMat);
+        ear.position.set(ex, 0.108, 0);
+        grp.add(ear);
+      }
+      // Rode fez bovenop
+      const fez = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.030, 0.038, 0.045, 12),
+        fezMat
+      );
+      fez.position.y = 0.165;
+      grp.add(fez);
+      // Tassel-bolletje op de fez
+      const tassel = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), cymMat);
+      tassel.position.y = 0.195;
+      grp.add(tassel);
+      // 2 armen omhoog gestrekt met cymbalen — klassieke "klap"-pose
+      const cymRefs = [];
+      for(const ex of [-1, 1]){
+        const arm = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.013, 0.013, 0.085, 8),
+          furMat
+        );
+        arm.position.set(ex * 0.065, 0.040, 0);
+        arm.rotation.z = ex * 0.7;   // armen naar boven en naar binnen
+        grp.add(arm);
+        // Cymbaal aan het uiteinde
+        const cymPos = new THREE.Vector3(ex * 0.105, 0.085, 0);
+        const cym = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.038, 0.038, 0.006, 18),
+          cymMat
+        );
+        cym.position.copy(cymPos);
+        cym.rotation.z = Math.PI / 2;  // platte kant naar de andere cymbaal
+        grp.add(cym);
+        // Opslaan zodat de cooking-tick de cymbalen kan laten kletteren
+        cymRefs.push({ cym, side: ex, basePos: cymPos.clone() });
+      }
+      // Eyes en head ook bewaren voor "wakker worden" animatie
+      grp.userData.cymRefs = cymRefs;
+      grp.userData.headMesh = head;
+      return grp;
+    }
+
+    const fragVM = buildFragVM();
+    const monkeyVM = buildMonkeyVM();
+    grenadeRig.add(fragVM);
+    grenadeRig.add(monkeyVM);
+    fragVM.visible = false;
+    monkeyVM.visible = false;
+
+    // [COOK DANGER FEEDBACK] Rode tint-overlay die in de laatste fase van
+    // het cooken zichtbaar wordt — geeft de speler hetzelfde "ik hou een
+    // explosief vast"-gevoel als BO2. Frequentie + intensiteit groeien
+    // naarmate de fuse leegloopt. Alleen voor frag (monkey detonate-in-hand
+    // doet geen damage, dus geen waarschuwing nodig).
+    //
+    // FRAG_FUSE_MS gespiegeld van de andere IIFE (regel 32847). 3000ms.
+    // Als die ooit verandert moet deze óók aangepast worden.
+    const FRAG_FUSE_MS_LOCAL = 3000;
+    const _dangerOverlay = document.createElement("div");
+    _dangerOverlay.id = "grenadeDangerFlash";
+    _dangerOverlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 19;
+      pointer-events: none;
+      opacity: 0;
+      background:
+        radial-gradient(ellipse 110% 90% at center,
+          rgba(0,0,0,0) 35%,
+          rgba(180,30,10,0.55) 65%,
+          rgba(255,40,10,0.95) 100%),
+        radial-gradient(circle at 50% 50%, rgba(255,80,40,0.18), transparent 60%);
+    `;
+    document.body.appendChild(_dangerOverlay);
+
+    // ---- State ----
+    let activeType = null;     // "frag" | "monkey" | null
+    let phase = "idle";        // "idle" | "cooking" | "throwing"
+    let phaseStartedAt = 0;
+    let weaponRigSavedVisible = null;   // herstel-snapshot
+    let ammoSnapshot = 0;               // ammo bij entry, om gestolen worp/cook-boom te detecteren
+    // [v2] Verkort van 180ms → 90ms. Met 180ms zag je gedurende de animatie
+    // én de granaat in de hand én de granaat al door de lucht — dubbel
+    // gerendered. 90ms is een snelle pop-out die meer als "uit hand" voelt.
+    const THROW_ANIM_MS = 90;
+
+    function hasFragAmmo(){ return (player.ammo?.grenade || 0) > 0; }
+    function hasMonkeyAmmo(){
+      return !!state.bo2HasMonkeyBombs && (state.bo2MonkeyAmmo || 0) > 0;
+    }
+    function currentAmmoForActiveType(){
+      if(activeType === "frag") return player.ammo?.grenade || 0;
+      if(activeType === "monkey") return state.bo2MonkeyAmmo || 0;
+      return 0;
+    }
+
+    function enterCookingPhase(type){
+      if(phase !== "idle") return;
+      if(type === "frag" && !hasFragAmmo()) return;
+      if(type === "monkey" && !hasMonkeyAmmo()) return;
+      activeType = type;
+      phase = "cooking";
+      phaseStartedAt = performance.now();
+      ammoSnapshot = (type === "frag")
+        ? (player.ammo?.grenade || 0)
+        : (state.bo2MonkeyAmmo || 0);
+      fragVM.visible = (type === "frag");
+      monkeyVM.visible = (type === "monkey");
+      grenadeRig.visible = true;
+      // Hoofdwapen tijdelijk hiden zodat de granaat alleen in beeld is
+      if(weaponRig){
+        weaponRigSavedVisible = weaponRig.visible;
+        weaponRig.visible = false;
+      }
+    }
+
+    function enterThrowingPhase(){
+      if(phase !== "cooking") return;
+      // [MONKEY THROW FIX] Voor monkey: geen 90ms throw-anim, gewoon direct
+      // returnToIdle. De monkey heeft z'n eigen in-world mesh die meteen
+      // zichtbaar wordt na worp, en gebruikers meldden dat de hand-monkey
+      // bleef hangen tijdens en na de anim. Frag houdt wél de korte gooi-
+      // animatie (visueel net wat meer impact bij explosieve worp).
+      if(activeType === "monkey"){
+        returnToIdle();
+        return;
+      }
+      phase = "throwing";
+      phaseStartedAt = performance.now();
+      // De daadwerkelijke worp (bo2ThrowGrenade) is al door het andere
+      // systeem getriggerd via z'n eigen keyup-handler. Wij doen alleen
+      // de visuele swing.
+    }
+
+    function returnToIdle(){
+      phase = "idle";
+      activeType = null;
+      grenadeRig.visible = false;
+      fragVM.visible = false;
+      monkeyVM.visible = false;
+      // Reset danger-feedback elementen
+      _dangerOverlay.style.opacity = "0";
+      const shellMat = fragVM.userData?.shellMat;
+      if(shellMat){
+        // Terug naar normale shell-emissive
+        shellMat.emissive.setHex(0x0e1408);
+        shellMat.emissiveIntensity = 0.15;
+      }
+      // Reset monkey cymbal/head-pose zodat de volgende cook weer rustig
+      // begint i.p.v. met cymbalen al half geklapt.
+      const cymRefs = monkeyVM.userData?.cymRefs;
+      if(cymRefs){
+        for(const r of cymRefs){
+          r.cym.position.x = r.basePos.x;
+          r.cym.rotation.x = 0;
+        }
+      }
+      const headMesh = monkeyVM.userData?.headMesh;
+      if(headMesh) headMesh.rotation.x = 0;
+      // Hoofdwapen-zichtbaarheid herstellen naar wat het was vóór cook
+      if(weaponRig && weaponRigSavedVisible !== null){
+        weaponRig.visible = weaponRigSavedVisible;
+        weaponRigSavedVisible = null;
+      }
+    }
+
+    // ---- Input listeners — parallel aan het bestaande G/H systeem.
+    // We doen GEEN preventDefault zodat de bestaande cookState-flow
+    // (in een andere IIFE) ongestoord blijft draaien. Onze rig is puur
+    // visueel.
+    function _blocked(){
+      const active = document.activeElement;
+      if(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return true;
+      return !state.running || !player.alive;
+    }
+    window.addEventListener("keydown", (e) => {
+      if(e.repeat) return;
+      if(_blocked()) return;
+      if(e.code === "KeyG"){
+        enterCookingPhase("frag");
+      } else if(e.code === "KeyH"){
+        enterCookingPhase("monkey");
+      }
+    }, { capture: false });
+    window.addEventListener("keyup", (e) => {
+      if(e.code === "KeyG" && phase === "cooking" && activeType === "frag"){
+        enterThrowingPhase();
+      } else if(e.code === "KeyH" && phase === "cooking" && activeType === "monkey"){
+        enterThrowingPhase();
+      }
+    }, { capture: false });
+    // Safety: bij verlies van focus alles netjes opruimen zodat de
+    // viewmodel niet permanent in beeld blijft.
+    window.addEventListener("blur", () => {
+      if(phase !== "idle") returnToIdle();
+    });
+
+    // ---- Per-frame animatie ----
+    function tick(){
+      requestAnimationFrame(tick);
+
+      if(phase === "idle") return;
+
+      const now = performance.now();
+      const t = now * 0.001;
+
+      if(phase === "cooking"){
+        // [v2 FIX] Detecteer dat de granaat de hand verlaat zonder dat ONZE
+        // keyup-handler de throw-fase getriggerd heeft. Dat gebeurt bv. bij
+        // cook-explosie (te lang vasthouden → granaat ontploft in de hand,
+        // ammo daalt), of in edge-cases waar het andere systeem zelfstandig
+        // beslist te gooien. In beide gevallen mag de in-hand mesh niet
+        // blijven hangen — direct naar idle.
+        if(currentAmmoForActiveType() < ammoSnapshot){
+          returnToIdle();
+          return;
+        }
+
+        // [COOK DANGER] Voor frag: bereken hoeveel van de fuse al weg is.
+        // 0 = vers gepulld, 1 = ontploft op moment. Feedback (rode tint,
+        // shake, emissive) groeit met danger; alleen merkbaar in de laatste
+        // helft, en heftig in de laatste 500ms.
+        let danger = 0;
+        if(activeType === "frag"){
+          const elapsed = now - phaseStartedAt;
+          danger = Math.min(1, elapsed / FRAG_FUSE_MS_LOCAL);
+        }
+
+        // Basis idle-pose (subtiele hand-sway zoals weapon-rig idle bob)
+        let bobAmp = 0.005;
+        let swayAmp = 0.004;
+        let rotAmp = 0.04;
+        let rotFreq = 1.3;
+
+        if(danger > 0.5){
+          // Bovenste helft van de fuse: shake-pijl loopt van 0 → 1 over
+          // danger ∈ [0.5, 1]. Ease-in zodat het eerst subtiel is en pas
+          // de laatste 500ms echt heftig wordt.
+          const k = (danger - 0.5) / 0.5;
+          const eased = k * k;
+          bobAmp += eased * 0.030;        // omhoog/omlaag wiebel
+          swayAmp += eased * 0.040;       // links-rechts
+          rotAmp += eased * 0.35;         // sterkere rotation-shake
+          rotFreq += eased * 12.0;        // én sneller (van 1.3Hz → 13Hz)
+        }
+
+        const bob = Math.sin(t * 2.6 * rotFreq) * bobAmp;
+        const sway = Math.sin(t * 1.7 * rotFreq) * swayAmp;
+        grenadeRig.position.set(BASE_X + sway, BASE_Y + bob, BASE_Z);
+        grenadeRig.rotation.set(
+          Math.sin(t * 1.3 * rotFreq) * rotAmp,
+          Math.sin(t * 0.9 * rotFreq) * rotAmp * 1.2,
+          Math.cos(t * 1.1 * rotFreq) * rotAmp * 0.8
+        );
+
+        // Shell emissive — wordt rood-gloeiend in de laatste fase
+        if(activeType === "frag"){
+          const shellMat = fragVM.userData?.shellMat;
+          if(shellMat){
+            if(danger > 0.5){
+              const k = (danger - 0.5) / 0.5;
+              // Lerp van origineel groen-emissive naar rood
+              // baseColor: 0x0e1408 (dof groen-zwart), peak: 0xff2000 (fel rood)
+              const r = Math.min(1, 0.055 + k * 0.95);
+              const g = Math.max(0, 0.078 - k * 0.078);
+              const b = Math.max(0, 0.031 - k * 0.031);
+              shellMat.emissive.setRGB(r, g, b);
+              // Intensity zelf ook flicker met hoge frequentie
+              const flicker = 0.5 + 0.5 * Math.sin(t * (12 + k * 30));
+              shellMat.emissiveIntensity = 0.15 + k * (1.4 + flicker * 0.8);
+            } else {
+              shellMat.emissive.setHex(0x0e1408);
+              shellMat.emissiveIntensity = 0.15;
+            }
+          }
+        }
+
+        // [MONKEY COOK FEEDBACK] Monkey heeft geen explosie-in-hand maar
+        // wel een fuse (3.5s) waarna 'ie zichzelf activeert. Geef visuele
+        // feedback dat 'ie wakker wordt: cymbalen knijpen langzaam samen
+        // (alsof hij wil gaan klappen), hoofd schudt zachtjes ja-ja-ja,
+        // en oogjes worden roder. Geen scherm-flash want monkey doet de
+        // speler geen kwaad — alleen een speelse "tikt-tikt" vibe.
+        if(activeType === "monkey"){
+          const MONKEY_FUSE_MS_LOCAL = 3500;
+          const monkeyElapsed = now - phaseStartedAt;
+          const monkeyProgress = Math.min(1, monkeyElapsed / MONKEY_FUSE_MS_LOCAL);
+          // Vanaf 30% start het wakker-worden, accelereert naar einde
+          if(monkeyProgress > 0.30){
+            const k = (monkeyProgress - 0.30) / 0.70;
+            // Cymbal-clap: trek cymbalen naar het midden + uitwaaier
+            const clapFreq = 4 + k * 12;        // 4Hz → 16Hz
+            const clapAmp = 0.025 + k * 0.045;  // hoe dichter samen ze knijpen
+            const cymRefs = monkeyVM.userData?.cymRefs;
+            if(cymRefs){
+              const clapPhase = Math.sin(t * clapFreq * Math.PI * 2);
+              const offset = clapAmp * (0.5 + 0.5 * clapPhase);
+              for(const r of cymRefs){
+                // basePos.x is ±0.105 — trek naar 0 toe op clap
+                r.cym.position.x = r.basePos.x - r.side * offset;
+                // Cymbalen tilten ook lichtjes mee
+                r.cym.rotation.x = clapPhase * 0.15 * k;
+              }
+            }
+            // Hoofd ja-knik
+            const headMesh = monkeyVM.userData?.headMesh;
+            if(headMesh){
+              headMesh.rotation.x = Math.sin(t * (3 + k * 8)) * 0.18 * k;
+            }
+          } else {
+            // Vóór 30%: cymbalen op rust-positie
+            const cymRefs = monkeyVM.userData?.cymRefs;
+            if(cymRefs){
+              for(const r of cymRefs){
+                r.cym.position.x = r.basePos.x;
+                r.cym.rotation.x = 0;
+              }
+            }
+            const headMesh = monkeyVM.userData?.headMesh;
+            if(headMesh) headMesh.rotation.x = 0;
+          }
+        }
+
+        // Screen-overlay opacity — rode tint groeit met danger, pulseert
+        // met een frequentie die ook meeloopt zodat het echt voelt als
+        // een tikkende bom.
+        if(activeType === "frag" && danger > 0.5){
+          const k = (danger - 0.5) / 0.5;
+          // Frequentie 6Hz → 24Hz over de laatste helft
+          const freq = 6 + k * 18;
+          const pulse = 0.5 + 0.5 * Math.sin(t * freq * Math.PI * 2);
+          // Maximale opacity 0.55, schaalt met k én pulse
+          const opacity = k * (0.30 + 0.30 * pulse);
+          _dangerOverlay.style.opacity = String(opacity);
+        } else {
+          _dangerOverlay.style.opacity = "0";
+        }
+      } else if(phase === "throwing"){
+        // Korte gooi-anim: arm/hand zwaait omhoog-vooruit. We bewegen de
+        // hele rig snel omhoog en naar voren, en kantelen 'm voorover
+        // alsof hij uit de hand losgelaten wordt. Aan het einde verdwijnt
+        // de granaat (in-world mesh neemt het over via bo2ThrowGrenade).
+        const elapsed = now - phaseStartedAt;
+        const k = Math.min(1, elapsed / THROW_ANIM_MS);
+        // Ease-out
+        const e1 = 1 - (1 - k) * (1 - k);
+        grenadeRig.position.set(
+          BASE_X + e1 * 0.10,
+          BASE_Y + e1 * 0.35,         // omhoog
+          BASE_Z + e1 * 0.20          // ietsje terug naar camera
+        );
+        grenadeRig.rotation.set(
+          -e1 * Math.PI * 0.6,        // voorover kantelen
+          0,
+          e1 * 0.4
+        );
+        if(elapsed >= THROW_ANIM_MS){
+          returnToIdle();
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+
+    console.log("[grenade-viewmodel] online — BO2-stijl frag + monkey in de hand bij G/H");
+  }
+  setTimeout(_init, 3000);
 })();
 
 </script>
